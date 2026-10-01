@@ -34,6 +34,13 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_finds_bluetooth():
+    result = tool_manager.detect_tools(
+        "Vilka Bluetooth-enheter finns?"
+    )
+    assert result == ["bluetooth_status"]
+
+
 def test_select_tools_uses_direct_detection_without_ai(monkeypatch):
     tools = {
         "cpu_status": {"function": lambda: "cpu", "description": "cpu"},
