@@ -2,6 +2,7 @@ import requests
 
 from core.config import PROJECT_ROOT, load_settings
 from core.memory import MemoryStore
+from core.ollama_client import OllamaClient
 from core.tool_manager import load_tools, run_tools, select_tools
 
 
@@ -21,6 +22,11 @@ DATABASE = PROJECT_ROOT / SETTINGS["memory"]["database"]
 MEMORY = MemoryStore(
     DATABASE,
     max_search_results=SETTINGS["memory"]["max_search_results"],
+)
+
+LLM = OllamaClient(
+    OLLAMA_URL,
+    MODEL,
 )
 
 SYSTEM_PROFILE = f"""
@@ -67,32 +73,19 @@ Hitta inte på värden som inte finns i resultatet.
 Svara kort och tydligt på svenska.
 """
 
-    payload = {
-        "model": MODEL,
-        "messages": [
+    return LLM.chat(
+        [
             {
                 "role": "system",
-                "content": system_message
+                "content": system_message,
             },
             {
                 "role": "user",
-                "content": user_message
-            }
+                "content": user_message,
+            },
         ],
-        "stream": False
-    }
-
-    response = requests.post(
-        OLLAMA_URL,
-        json=payload,
-        timeout=300
+        timeout=300,
     )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    return data["message"]["content"]
 
 
 def main():
@@ -165,8 +158,7 @@ def main():
             tools_to_run = select_tools(
                 user_input,
                 TOOLS,
-                OLLAMA_URL,
-                MODEL,
+                LLM,
             )
 
             # Om ett eller flera verktyg hittades
