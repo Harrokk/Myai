@@ -22,3 +22,4 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["ollama"]["model"] == "test-model"
     assert settings["ollama"]["url"] == DEFAULT_SETTINGS["ollama"]["url"]
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
+    assert settings["conversation"]["max_turns"] == 6
