@@ -1,7 +1,7 @@
 import requests
-import sqlite3
-from datetime import datetime
 
+from core.config import PROJECT_ROOT, load_settings
+from core.memory import MemoryStore
 from core.tool_manager import load_tools, run_tools, select_tools
 
 
@@ -12,23 +12,29 @@ print(f"Verktyg laddade: {len(TOOLS)}")
 for tool_name in TOOLS:
     print(f" - {tool_name}")
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "qwen3:8b"
-DATABASE = "memory.db"
+SETTINGS = load_settings()
 
+OLLAMA_URL = SETTINGS["ollama"]["url"]
+MODEL = SETTINGS["ollama"]["model"]
+DATABASE = PROJECT_ROOT / SETTINGS["memory"]["database"]
 
-SYSTEM_PROFILE = """
+MEMORY = MemoryStore(
+    DATABASE,
+    max_search_results=SETTINGS["memory"]["max_search_results"],
+)
+
+SYSTEM_PROFILE = f"""
 Du är MyAI, en lokal personlig AI-assistent.
 
-Din språkmodell är Qwen3 8B.
-Du körs genom Ollama.
+Din språkmodell är {MODEL}.
+Du körs genom {SETTINGS["assistant"]["engine"]}.
 Du kör för närvarande på en Windows-dator.
-Datorns GPU är NVIDIA GeForce RTX 3060 med 12 GB VRAM.
+Datorns GPU är {SETTINGS["assistant"]["gpu"]}.
 
 Du har ett separat långtidsminne som hanteras av Python och SQLite.
 
 Användaren utvecklar denna AI på Windows och planerar senare
-att kunna flytta systemet till en Raspberry Pi 5 B.
+att kunna flytta systemet till en {SETTINGS["assistant"]["future_target"]}.
 
 Svara på svenska när användaren skriver svenska.
 Var saklig och tydlig.
@@ -36,115 +42,10 @@ Hitta inte på information om användaren.
 Använd information från minnessystemet när den är relevant.
 """
 
-def init_memory():
-    conn = sqlite3.connect(DATABASE)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS memories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT,
-            content TEXT,
-            created_at TEXT
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def save_memory(category, content):
-    conn = sqlite3.connect(DATABASE)
-
-    conn.execute(
-        """
-        INSERT INTO memories
-        (category, content, created_at)
-        VALUES (?, ?, ?)
-        """,
-        (category, content, datetime.now().isoformat())
-    )
-
-    conn.commit()
-    conn.close()
-
-
-def get_all_memories():
-    conn = sqlite3.connect(DATABASE)
-
-    rows = conn.execute(
-        """
-        SELECT id, category, content, created_at
-        FROM memories
-        ORDER BY id DESC
-        """
-    ).fetchall()
-
-    conn.close()
-
-    return rows
-
-
-def search_memory(user_message):
-    words = user_message.lower().split()
-
-    ignored_words = {
-        "jag", "du", "det", "den", "är", "och", "att",
-        "har", "kan", "vill", "med", "som", "för",
-        "på", "en", "ett", "vad", "hur", "min", "mitt",
-        "din", "ditt"
-    }
-
-    keywords = [
-        word.strip(".,!?")
-        for word in words
-        if len(word) >= 3 and word not in ignored_words
-    ]
-
-    if not keywords:
-        return []
-
-    conn = sqlite3.connect(DATABASE)
-
-    results = []
-
-    for keyword in keywords:
-        rows = conn.execute(
-            """
-            SELECT id, category, content, created_at
-            FROM memories
-            WHERE content LIKE ?
-            ORDER BY id DESC
-            LIMIT 5
-            """,
-            (f"%{keyword}%",)
-        ).fetchall()
-
-        for row in rows:
-            if row not in results:
-                results.append(row)
-
-    conn.close()
-
-    return results[:10]
-
-
-def format_memory(memories):
-    if not memories:
-        return "Ingen relevant information hittades i långtidsminnet."
-
-    text = ""
-
-    for memory in memories:
-        memory_id, category, content, created_at = memory
-        text += f"- [{category}] {content}\n"
-
-    return text
-
-
 def ask_ai(user_message, tool_result=None):
-    relevant_memories = search_memory(user_message)
+    relevant_memories = MEMORY.search(user_message)
 
-    memory_text = format_memory(relevant_memories)
+    memory_text = MEMORY.format(relevant_memories)
 
     system_message = SYSTEM_PROFILE + """
 
@@ -195,18 +96,18 @@ Svara kort och tydligt på svenska.
 
 
 def main():
-    init_memory()
+    MEMORY.init()
     print(f"Verktyg laddade: {len(TOOLS)}")
     print()
     print("==========================================")
-    print("              MyAI v2")
+    print(f"              {SETTINGS['assistant']['name']}")
     print("==========================================")
     print()
-    print("Modell:          Qwen3 8B")
-    print("Motor:           Ollama")
-    print("GPU:             NVIDIA RTX 3060 12 GB")
-    print("Långtidsminne:   SQLite")
-    print("Framtida mål:    Raspberry Pi 5 B")
+    print(f"Modell:          {MODEL}")
+    print(f"Motor:           {SETTINGS['assistant']['engine']}")
+    print(f"GPU:             {SETTINGS['assistant']['gpu']}")
+    print(f"Långtidsminne:   {SETTINGS['assistant']['memory_label']}")
+    print(f"Framtida mål:    {SETTINGS['assistant']['future_target']}")
     print()
     print("Kommandon:")
     print("  /memory        Visa långtidsminne")
@@ -230,8 +131,20 @@ def main():
             print("Avslutar.")
             break
 
+        if user_input.lower().startswith("/remember "):
+            memory_content = user_input[len("/remember "):].strip()
+
+            if memory_content:
+                MEMORY.save("manual", memory_content)
+                print("Sparat i långtidsminnet.")
+            else:
+                print("Inget innehåll att spara.")
+
+            print()
+            continue
+
         if user_input.lower() == "/memory":
-            memories = get_all_memories()
+            memories = MEMORY.get_all()
 
             print()
             print("========== LÅNGTIDSMINNE ==========")
