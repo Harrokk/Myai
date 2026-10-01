@@ -23,6 +23,11 @@ class MyAICore:
         )
 
         self.tools = tools if tools is not None else load_tools()
+        self.max_conversation_turns = settings.get(
+            "conversation",
+            {},
+        ).get("max_turns", 6)
+        self.conversation_history = []
         self.system_profile = self._build_system_profile()
 
     def _build_system_profile(self):
@@ -104,18 +109,30 @@ Svara kort och tydligt på svenska.
             tool_results=tool_results,
         )
 
+        messages = [
+            {
+                "role": "system",
+                "content": system_message,
+            }
+        ]
+
+        messages.extend(self.conversation_history)
+
+        messages.append(
+            {
+                "role": "user",
+                "content": user_message,
+            }
+        )
+
         answer = self.llm.chat(
-            [
-                {
-                    "role": "system",
-                    "content": system_message,
-                },
-                {
-                    "role": "user",
-                    "content": user_message,
-                },
-            ],
+            messages,
             timeout=300,
+        )
+
+        self._remember_conversation_turn(
+            user_message,
+            answer,
         )
 
         return {
@@ -123,3 +140,29 @@ Svara kort och tydligt på svenska.
             "tools": tool_names,
             "tool_results": tool_results or {},
         }
+
+    def _remember_conversation_turn(self, user_message, answer):
+        if self.max_conversation_turns <= 0:
+            self.conversation_history = []
+            return
+
+        self.conversation_history.extend(
+            [
+                {
+                    "role": "user",
+                    "content": user_message,
+                },
+                {
+                    "role": "assistant",
+                    "content": answer,
+                },
+            ]
+        )
+
+        max_messages = self.max_conversation_turns * 2
+
+        if len(self.conversation_history) > max_messages:
+            self.conversation_history = self.conversation_history[-max_messages:]
+
+    def clear_conversation(self):
+        self.conversation_history = []
