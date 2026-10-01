@@ -1,7 +1,6 @@
 import importlib
 import pkgutil
 
-import requests
 import modules
 
 
@@ -111,7 +110,7 @@ def detect_tools(user_input):
     return detected_tools
 
 
-def ai_detect_tools(user_input, tools, ollama_url, model):
+def ai_detect_tools(user_input, tools, llm_client):
     """Låt den lokala modellen välja ett eller flera verktyg."""
     tool_list = "\n".join(
         f"- {name}: {tool['description']}"
@@ -143,25 +142,15 @@ Om inget verktyg behövs:
 none
 """
 
-    payload = {
-        "model": model,
-        "messages": [
+    result = llm_client.chat(
+        [
             {
                 "role": "system",
                 "content": prompt,
             }
         ],
-        "stream": False,
-    }
-
-    response = requests.post(
-        ollama_url,
-        json=payload,
         timeout=120,
-    )
-    response.raise_for_status()
-
-    result = response.json()["message"]["content"].strip().lower()
+    ).strip().lower()
 
     if result == "none":
         return []
@@ -177,7 +166,7 @@ none
     return detected_tools
 
 
-def select_tools(user_input, tools, ollama_url, model):
+def select_tools(user_input, tools, llm_client):
     """Välj verktyg: snabb lokal regel först, LLM som fallback."""
     tools_to_run = detect_tools(user_input)
 
@@ -185,8 +174,7 @@ def select_tools(user_input, tools, ollama_url, model):
         tools_to_run = ai_detect_tools(
             user_input,
             tools,
-            ollama_url,
-            model,
+            llm_client,
         )
 
     return [
