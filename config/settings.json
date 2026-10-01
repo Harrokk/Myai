@@ -1,0 +1,17 @@
+{
+  "ollama": {
+    "url": "http://localhost:11434/api/chat",
+    "model": "qwen3:8b"
+  },
+  "memory": {
+    "database": "memory.db",
+    "max_search_results": 10
+  },
+  "assistant": {
+    "name": "MyAI v2",
+    "engine": "Ollama",
+    "gpu": "NVIDIA RTX 3060 12 GB",
+    "memory_label": "SQLite",
+    "future_target": "Raspberry Pi 5 B"
+  }
+}
