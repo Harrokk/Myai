@@ -15,6 +15,9 @@ DEFAULT_SETTINGS = {
         "database": "memory.db",
         "max_search_results": 10,
     },
+    "conversation": {
+        "max_turns": 6,
+    },
     "assistant": {
         "name": "MyAI v2",
         "engine": "Ollama",
