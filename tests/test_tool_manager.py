@@ -45,8 +45,7 @@ def test_select_tools_uses_direct_detection_without_ai(monkeypatch):
     result = tool_manager.select_tools(
         "Hur mycket CPU och RAM används?",
         tools,
-        "http://localhost:11434/api/chat",
-        "qwen3:8b",
+        object(),
     )
 
     assert result == ["cpu_status", "ram_status"]
