@@ -20,6 +20,7 @@ STATUS_WORDS = [
     "ledigt",
     "utrymme",
     "plats",
+    "vilka",
 ]
 
 TOOL_KEYWORDS = {
@@ -64,6 +65,13 @@ TOOL_KEYWORDS = {
         "ledigt utrymme",
         "diskutrymme",
         "disk utrymme",
+    ],
+    "usb_status": [
+        "usb",
+        "usb-enhet",
+        "usb-enheter",
+        "usb enhet",
+        "usb enheter",
     ],
 }
 
