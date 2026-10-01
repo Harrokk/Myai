@@ -41,6 +41,7 @@ def main():
     print("Kommandon:")
     print("  /memory        Visa långtidsminne")
     print("  /remember X    Spara X i minnet")
+    print("  /clear         Rensa samtalets korttidsminne")
     print("  /exit          Avsluta")
     print()
 
@@ -59,6 +60,12 @@ def main():
         if user_input.lower() == "/exit":
             print("Avslutar.")
             break
+
+        if user_input.lower() == "/clear":
+            CORE.clear_conversation()
+            print("Korttidsminnet för samtalet är rensat.")
+            print()
+            continue
 
         if user_input.lower().startswith("/remember "):
             memory_content = user_input[len("/remember "):].strip()
