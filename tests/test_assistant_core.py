@@ -91,3 +91,99 @@ def test_core_runs_multiple_tools_and_builds_one_answer(tmp_path):
 
     assert "CPU OK" in system_message
     assert "RAM OK" in system_message
+
+
+def test_core_keeps_short_term_conversation_history(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["conversation"]["max_turns"] = 2
+
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU OK",
+            "description": "CPU status",
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    core.respond("Hur mycket CPU används?")
+    core.respond("Hur mycket CPU används nu?")
+
+    second_messages = llm.calls[1][0]
+
+    assert second_messages[1] == {
+        "role": "user",
+        "content": "Hur mycket CPU används?",
+    }
+    assert second_messages[2] == {
+        "role": "assistant",
+        "content": "Samlat testsvar",
+    }
+
+
+def test_core_can_clear_short_term_history(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU OK",
+            "description": "CPU status",
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    core.respond("Hur mycket CPU används?")
+    assert core.conversation_history
+
+    core.clear_conversation()
+
+    assert core.conversation_history == []
+
+
+def test_short_term_history_is_bounded(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["conversation"]["max_turns"] = 1
+
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU OK",
+            "description": "CPU status",
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    core.respond("Hur mycket CPU används?")
+    core.respond("Hur mycket CPU används nu?")
+
+    assert len(core.conversation_history) == 2
+    assert core.conversation_history[0]["content"] == (
+        "Hur mycket CPU används nu?"
+    )
