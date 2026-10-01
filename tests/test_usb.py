@@ -8,8 +8,9 @@ def test_usb_status_windows_formats_devices(monkeypatch):
 
     captured = {}
 
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, **kwargs):
         captured["command"] = command
+        captured["kwargs"] = kwargs
         return SimpleNamespace(
             returncode=0,
             stdout="USB Device A\nUSB Device B\n",
@@ -23,6 +24,8 @@ def test_usb_status_windows_formats_devices(monkeypatch):
     assert "USB Device A" in result
     assert "USB Device B" in result
     assert captured["command"][0] == "powershell"
+    assert captured["kwargs"]["encoding"] == "utf-8"
+    assert "UTF8Encoding" in captured["command"][-1]
 
 
 def test_usb_status_linux_uses_lsusb(monkeypatch):
@@ -30,8 +33,9 @@ def test_usb_status_linux_uses_lsusb(monkeypatch):
 
     captured = {}
 
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, **kwargs):
         captured["command"] = command
+        captured["kwargs"] = kwargs
         return SimpleNamespace(
             returncode=0,
             stdout="Bus 001 Device 002: Test Device\n",
