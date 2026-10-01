@@ -13,5 +13,8 @@
     "gpu": "NVIDIA RTX 3060 12 GB",
     "memory_label": "SQLite",
     "future_target": "Raspberry Pi 5 B"
+  },
+  "conversation": {
+    "max_turns": 6
   }
 }
