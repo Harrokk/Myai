@@ -2,12 +2,21 @@ import platform
 import subprocess
 
 
-def _run_command(command):
+def _run_command(command, encoding=None):
+    options = {
+        "capture_output": True,
+        "timeout": 15,
+    }
+
+    if encoding:
+        options["encoding"] = encoding
+        options["errors"] = "replace"
+    else:
+        options["text"] = True
+
     return subprocess.run(
         command,
-        capture_output=True,
-        text=True,
-        timeout=15,
+        **options,
     )
 
 
@@ -47,11 +56,15 @@ def usb_status():
                     "-NoProfile",
                     "-Command",
                     (
+                        "$OutputEncoding = "
+                        "[Console]::OutputEncoding = "
+                        "[System.Text.UTF8Encoding]::new(); "
                         "Get-PnpDevice -PresentOnly | "
                         "Where-Object { $_.InstanceId -match '^USB' } | "
                         "Select-Object -ExpandProperty FriendlyName"
                     ),
-                ]
+                ],
+                encoding="utf-8",
             )
 
         elif system == "Linux":
