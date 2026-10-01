@@ -746,18 +746,36 @@ Inställningar och regler bör så långt som möjligt vara dokumenterade, versi
 
 ---
 
-## 21. Nuvarande prioritet
+## 21. Nuvarande prioritet och teknisk status
 
-Det aktuella utvecklingssteget är multi-tool-stöd.
+Multi-tool-stödet är implementerat och verifierat med automatiska tester.
 
-Målet är att AI:n ska kunna:
-- identifiera flera verktyg från samma fråga
-- köra alla relevanta verktyg
-- samla resultaten
-- ge resultaten tillsammans till språkmodellen
-- skapa ett gemensamt naturligt svar
+Den pågående utvecklingsgrenen innehåller nu:
+- dynamisk laddning av modulära verktyg
+- stöd för att välja och köra flera verktyg för samma fråga
+- separat `core/tool_manager.py`
+- separat konfigurationsladdning via `config/settings.json`
+- separat SQLite-baserat långtidsminne via `core/memory.py`
+- gemensam Ollama-klient via `core/ollama_client.py`
+- återanvändbar AI-kärna via `core/assistant.py`
+- konfigurerbart korttidsminne för pågående samtal
+- möjlighet att rensa samtalets korttidsminne
+- automatiska tester via GitHub Actions
+- USB-status som första nya fristående hårdvarumodul efter systemverktygen
 
-Efter att detta fungerar stabilt kan projektet fortsätta med nästa moduler.
+De fem ursprungliga systemverktygen ska fortsatt fungera:
+- `gpu_status`
+- `cpu_status`
+- `ram_status`
+- `temperature_status`
+- `disk_status`
+
+Därutöver finns:
+- `usb_status`
+
+Aktuell teknisk prioritet är att stabilisera den modulära kärnan och därefter fortsätta lägga till nya funktioner som separata moduler utan att bygga om terminalgränssnittet eller kärnan i onödan.
+
+Innan utvecklingsgrenen mergas till `main` ska den även köras som ett lokalt smoke-test på Windows-datorn med riktig Ollama, NVIDIA-GPU och faktisk hårdvara, eftersom GitHub Actions inte kan verifiera all lokal hårdvaruåtkomst.
 
 ---
 
