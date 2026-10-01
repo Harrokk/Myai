@@ -27,6 +27,13 @@ def test_detect_tools_finds_temperature():
     assert result == ["temperature_status"]
 
 
+def test_detect_tools_finds_usb():
+    result = tool_manager.detect_tools(
+        "Vilka USB-enheter är inkopplade?"
+    )
+    assert result == ["usb_status"]
+
+
 def test_select_tools_uses_direct_detection_without_ai(monkeypatch):
     tools = {
         "cpu_status": {"function": lambda: "cpu", "description": "cpu"},
