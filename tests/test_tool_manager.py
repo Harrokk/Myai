@@ -55,6 +55,13 @@ def test_detect_tools_routes_raspberry_pi_status():
     assert result == ["pi_system_status"]
 
 
+def test_detect_tools_routes_pi_bus_devices():
+    result = tool_manager.detect_tools(
+        "Vilka I2C-enheter och SPI-enheter finns på min Raspberry Pi?"
+    )
+    assert result == ["pi_bus_devices_status"]
+
+
 def test_detect_tools_routes_raspberry_pi_gpio_reference():
     result = tool_manager.detect_tools(
         "Vilken GPIO ska jag använda för I2C på Raspberry Pi?"
