@@ -2,7 +2,7 @@ import requests
 
 from core.assistant import MyAICore
 from core.config import PROJECT_ROOT, load_settings
-from core.device_registry import DeviceRegistry, format_device_records
+from core.device_registry import (\n    DeviceRegistry,\n    format_device_details,\n    format_device_records,\n)
 from core.hardware_monitor import (
     HardwareMonitor,
     format_hardware_changes,
@@ -93,7 +93,7 @@ def main():
     print("  /watch off     Stoppa hårdvaruövervakning")
     print("  /devices       Visa registrerade enheter")
     print("  /devices unknown  Visa okända enheter")
-    print("  /device known ID  Markera en registrerad enhet som känd")
+    print("  /device known ID  Markera en registrerad enhet som känd")\n    print("  /device show ID   Visa vad MyAI vet om en enhet")\n    print("  /device configure ID  Föreslå och godkänn säker grundkonfiguration")
     print("  /exit          Avsluta")
     print()
 
@@ -183,6 +183,70 @@ def main():
             except KeyError:
                 print("Enhets-id hittades inte i registret.")
 
+            print()
+            continue
+
+        if user_input.lower().startswith("/device show "):
+            device_id = user_input[len("/device show "):].strip()
+
+            if not device_id:
+                print("Ange ett enhets-id.")
+                print()
+                continue
+
+            try:
+                record = DEVICE_REGISTRY.get_record(device_id)
+                print()
+                print("========== ENHETSINFORMATION ==========")
+                print(format_device_details(record))
+                print("=======================================")
+            except KeyError:
+                print("Enhets-id hittades inte i registret.")
+
+            print()
+            continue
+
+        if user_input.lower().startswith("/device configure "):
+            device_id = user_input[len("/device configure "):].strip()
+
+            if not device_id:
+                print("Ange ett enhets-id.")
+                print()
+                continue
+
+            try:
+                proposal = DEVICE_REGISTRY.propose_configuration(device_id)
+            except KeyError:
+                print("Enhets-id hittades inte i registret.")
+                print()
+                continue
+
+            print()
+            print("========== KONFIGURATIONSFÖRSLAG ==========")
+            print(format_device_details(proposal["device"]))
+            print()
+            print("Föreslagen säker grundkonfiguration:")
+            print(" - läge: registered_only")
+            print(" - automatiska åtgärder: avstängda")
+            print("Inga drivrutiner, portar eller systeminställningar ändras.")
+
+            approval = input(
+                "Godkänn och spara denna grundkonfiguration? [j/N]: "
+            ).strip().lower()
+
+            if approval in {"j", "ja"}:
+                record = DEVICE_REGISTRY.approve_configuration(
+                    device_id,
+                    configuration=proposal["configuration"],
+                )
+                print(
+                    "Konfigurationen sparades för:",
+                    record.get("label") or record.get("name"),
+                )
+            else:
+                print("Ingen konfiguration sparades.")
+
+            print("===========================================")
             print()
             continue
 
