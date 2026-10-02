@@ -331,6 +331,18 @@ När en okänd enhet upptäcks ska AI:n kunna:
 3. fråga om enheten ska konfigureras
 4. spara relevant konfiguration efter godkännande
 
+### 9.2 Godkännandeflöde för nya enheter
+
+På utvecklingsgren finns nu ett explicit godkännandeflöde ovanpå enhetsregistret. Nya enheter registreras med status `pending` och får inte automatiskt betraktas som kända eller konfigurerade.
+
+När en ny okänd enhet upptäcks ska terminalen visa den identifierbara informationen och ett tydligt val:
+- `/device approve ID` för att godkänna och spara enheten
+- `/device reject ID` för att avvisa konfigurationen
+
+Ett godkännande sparar beslutet persistent i det lokala enhetsregistret. Ett avslag sparas också så att systemet kan skilja mellan en ny väntande enhet och en enhet som användaren aktivt har avvisat.
+
+Bakgrundsövervakningen får informera om en ny enhet men ska inte själv godkänna eller konfigurera den. Beslutet ska komma från användaren eller från en framtida uttryckligt definierad och säker policy.
+
 ---
 
 ## 10. Filer och dokument
