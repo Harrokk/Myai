@@ -205,6 +205,14 @@ Detta kan till exempel baseras på signalstyrka, RSSI eller annan tillgänglig m
 
 Systemet ska vara tydligt med att en sådan uppskattning inte är samma sak som exakt GPS-avstånd.
 
+### 5.1 Teknisk status för närhetsmätning
+
+På utvecklingsgren finns nu ett separat Bluetooth-närhetslager för BLE-enheter. Det kan normalisera RSSI, klassificera signalstyrkan till försiktiga närhetsnivåer och göra en grov meteruppskattning med en konfigurerbar radiomodell. Beräkningen använder annonserad TX-effekt när den finns och annars ett dokumenterat standardvärde.
+
+BLE-skanning använder Bleak som plattformsoberoende gränssnitt. Logiken kan automatiskt testas i CI, men riktig RSSI-data, Windows Bluetooth-adapter, radiomiljö och praktisk avståndsuppskattning måste verifieras lokalt på den fysiska datorn innan funktionen betraktas som fullt verifierad.
+
+Den samlade hårdvaruverifieringen innehåller därför nu även ett Bluetooth-steg som kräver minst en annonserande BLE-enhet med användbart RSSI-värde.
+
 ---
 
 ## 6. Automatiska terminalanslutningar
@@ -799,6 +807,8 @@ Den pågående utvecklingsgrenen innehåller nu:
 - automatisk hårdvaruövervakning på staplad utvecklingsgren
 - persistent register för kända och okända enheter
 - samlat guidat hårdvaruvalideringsskript för Windows-testning
+- separat BLE/RSSI-närhetslager med grov avståndsbedömning
+- Bluetooth RSSI-steg i den samlade fysiska hårdvaruverifieringen
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
