@@ -20,6 +20,7 @@ from modules.pi.diagnostics import (
     format_system_logs,
 )
 from modules.pi.interfaces import collect_pi_interfaces, format_pi_interfaces
+from modules.pi.power import collect_power_telemetry, format_power_telemetry
 from modules.pi.system_status import collect_pi_status, format_pi_status
 
 
@@ -157,6 +158,23 @@ def main():
             ),
         )
 
+    power_result = collect_power_telemetry()
+    print()
+    print(format_power_telemetry(power_result))
+    print()
+
+    measurements = power_result.get("measurements", [])
+    record(
+        results,
+        "Pi-strömtelemetri",
+        "PASS" if measurements else "WARN",
+        (
+            f"{len(measurements)} mätkanaler hittades"
+            if measurements
+            else "inga hwmon-mätkanaler hittades; ingen uppskattning gjordes"
+        ),
+    )
+
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
         json.dumps(
@@ -164,6 +182,7 @@ def main():
                 "status": status,
                 "interfaces": interface_result,
                 "diagnostics": diagnostics,
+                "power": power_result,
                 "results": results,
             },
             ensure_ascii=False,
