@@ -58,7 +58,7 @@ def usb_status():
                     (
                         "$OutputEncoding = "
                         "[Console]::OutputEncoding = "
-                        "[System.Text.UTF8Encoding]::new(); "
+                        "[System.Text.Encoding]::UTF8; "
                         "Get-PnpDevice -PresentOnly | "
                         "Where-Object { $_.InstanceId -match '^USB' } | "
                         "Select-Object -ExpandProperty FriendlyName"
