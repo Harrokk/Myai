@@ -33,8 +33,34 @@ def _record_from_device(device, key):
         "status": (device.get("status") or "").strip(),
         "source": (device.get("source") or "unknown").strip(),
         "known": False,
+        "configured": False,
         "label": "",
+        "configuration": {},
     }
+
+
+def _normalize_record(record, key):
+    if not isinstance(record, dict):
+        raise ValueError(f"Ogiltig enhetspost för {key}.")
+
+    normalized = deepcopy(record)
+    normalized.setdefault("key", key)
+    normalized.setdefault("id", "")
+    normalized.setdefault("category", "Unknown")
+    normalized.setdefault("name", "Okänd enhet")
+    normalized.setdefault("status", "")
+    normalized.setdefault("source", "unknown")
+    normalized.setdefault("known", False)
+    normalized.setdefault("configured", False)
+    normalized.setdefault("label", "")
+    normalized.setdefault("configuration", {})
+
+    if not isinstance(normalized["configuration"], dict):
+        raise ValueError(
+            f"Enhetskonfigurationen för {key} måste vara ett JSON-objekt."
+        )
+
+    return normalized
 
 
 def format_device_records(records):
@@ -45,13 +71,40 @@ def format_device_records(records):
 
     for record in records:
         state = "känd" if record.get("known") else "okänd"
+        configured = (
+            "konfigurerad"
+            if record.get("configured")
+            else "ej konfigurerad"
+        )
         label = record.get("label") or record.get("name") or "Okänd enhet"
         lines.append(
-            f"- [{state}] [{record.get('category') or 'Unknown'}] "
+            f"- [{state}] [{configured}] "
+            f"[{record.get('category') or 'Unknown'}] "
             f"{label} | id={record['key']}"
         )
 
     return "\n".join(lines)
+
+
+def format_device_details(record):
+    label = record.get("label") or record.get("name") or "Okänd enhet"
+    configuration = record.get("configuration") or {}
+    mode = configuration.get("mode", "inte satt")
+    auto_actions = configuration.get("auto_actions", False)
+
+    return "\n".join(
+        [
+            f"Enhet: {label}",
+            f"ID: {record.get('key') or 'saknas'}",
+            f"Kategori: {record.get('category') or 'Unknown'}",
+            f"Källa: {record.get('source') or 'unknown'}",
+            f"Status: {record.get('status') or 'okänd'}",
+            f"Känd: {'ja' if record.get('known') else 'nej'}",
+            f"Konfigurerad: {'ja' if record.get('configured') else 'nej'}",
+            f"Konfigurationsläge: {mode}",
+            f"Automatiska åtgärder: {'ja' if auto_actions else 'nej'}",
+        ]
+    )
 
 
 class DeviceRegistry:
@@ -81,9 +134,14 @@ class DeviceRegistry:
         if not isinstance(devices, dict):
             raise ValueError("Enhetsregistret saknar ett giltigt devices-objekt.")
 
+        normalized_devices = {
+            key: _normalize_record(record, key)
+            for key, record in devices.items()
+        }
+
         return {
             "version": 1,
-            "devices": devices,
+            "devices": normalized_devices,
         }
 
     def _save_unlocked(self, data):
@@ -160,6 +218,16 @@ class DeviceRegistry:
             ),
         )
 
+    def get_record(self, key):
+        with self._lock:
+            data = self._load_unlocked()
+            record = data["devices"].get(key)
+
+        if record is None:
+            raise KeyError(key)
+
+        return deepcopy(record)
+
     def mark_known(self, key, label=None):
         with self._lock:
             data = self._load_unlocked()
@@ -175,3 +243,47 @@ class DeviceRegistry:
 
             self._save_unlocked(data)
             return deepcopy(registry[key])
+
+    def propose_configuration(self, key):
+        record = self.get_record(key)
+
+        return {
+            "device": record,
+            "configuration": {
+                "mode": "registered_only",
+                "auto_actions": False,
+            },
+            "requires_confirmation": True,
+        }
+
+    def approve_configuration(self, key, label=None, configuration=None):
+        requested = deepcopy(configuration or {})
+
+        if not isinstance(requested, dict):
+            raise ValueError("Konfigurationen måste vara ett JSON-objekt.")
+
+        requested.setdefault("mode", "registered_only")
+        requested.setdefault("auto_actions", False)
+
+        if requested.get("auto_actions") is not False:
+            raise ValueError(
+                "Automatiska åtgärder kräver ett separat framtida godkännandeflöde."
+            )
+
+        with self._lock:
+            data = self._load_unlocked()
+            registry = data["devices"]
+
+            if key not in registry:
+                raise KeyError(key)
+
+            record = registry[key]
+            record["known"] = True
+            record["configured"] = True
+            record["configuration"] = requested
+
+            if label is not None:
+                record["label"] = label.strip()
+
+            self._save_unlocked(data)
+            return deepcopy(record)
