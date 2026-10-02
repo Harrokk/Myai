@@ -25,7 +25,7 @@ def test_usb_status_windows_formats_devices(monkeypatch):
     assert "USB Device B" in result
     assert captured["command"][0] == "powershell"
     assert captured["kwargs"]["encoding"] == "utf-8"
-    assert "UTF8Encoding" in captured["command"][-1]
+    assert "[System.Text.Encoding]::UTF8" in captured["command"][-1]\n    assert "::new()" not in captured["command"][-1]
 
 
 def test_usb_status_linux_uses_lsusb(monkeypatch):
