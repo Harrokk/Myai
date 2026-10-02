@@ -41,6 +41,13 @@ def test_detect_tools_finds_bluetooth():
     assert result == ["bluetooth_status"]
 
 
+def test_detect_tools_routes_bluetooth_distance_to_proximity():
+    result = tool_manager.detect_tools(
+        "Hur långt bort är Bluetooth-enheterna i närheten?"
+    )
+    assert result == ["bluetooth_nearby"]
+
+
 def test_detect_tools_finds_hardware_inventory():
     result = tool_manager.detect_tools(
         "Vilken hårdvara och vilka anslutna enheter finns?"
