@@ -296,6 +296,10 @@ Pågående implementation innehåller:
 
 Första körningen skapar en baslinje. Senare körningar kan rapportera förändringar. Automatisk kontinuerlig övervakning är nu implementerad på utvecklingsgren via en konfigurerbar bakgrundsmonitor. Den kan startas och stoppas från terminalen med `/watch on` och `/watch off`, och rapporterar nya, borttagna eller statusändrade enheter utan att en användarfråga krävs. Funktionen ska lokalt hårdvaruverifieras innan merge.
 
+Ovanpå detta finns nu ett persistent enhetsregister under `runtime/device_registry.json`. Nya enheter som upptäcks av övervakningen registreras initialt som okända. Terminalkommandona `/devices` och `/devices unknown` visar registret, och `/device known ID` kan markera en registrerad enhet som känd. Bakgrundsövervakningen informerar om nya okända enheter men gör inga interaktiva eller riskfyllda konfigurationsändringar från bakgrundstråden.
+
+Ett samlat lokalt verifieringsskript finns i `scripts/hardware_validation.py`. Det återanvänder smoke-testet, kontrollerar hårdvaruinventeringen och leder användaren genom borttagning och återanslutning av en fysisk test-enhet. Resultatet sparas lokalt under `runtime/` och versionshanteras inte.
+
 
 Exempel:
 - USB-enheter
@@ -774,6 +778,9 @@ Den pågående utvecklingsgrenen innehåller nu:
 - möjlighet att rensa samtalets korttidsminne
 - automatiska tester via GitHub Actions
 - USB-status som första nya fristående hårdvarumodul efter systemverktygen
+- automatisk hårdvaruövervakning på staplad utvecklingsgren
+- persistent register för kända och okända enheter
+- samlat guidat hårdvaruvalideringsskript för Windows-testning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
