@@ -18,6 +18,10 @@ DEFAULT_SETTINGS = {
     "conversation": {
         "max_turns": 6,
     },
+    "hardware_watch": {
+        "enabled": True,
+        "interval_seconds": 10,
+    },
     "assistant": {
         "name": "MyAI v2",
         "engine": "Ollama",

@@ -2,6 +2,10 @@ import requests
 
 from core.assistant import MyAICore
 from core.config import PROJECT_ROOT, load_settings
+from core.hardware_monitor import (
+    HardwareMonitor,
+    format_hardware_changes,
+)
 
 
 SETTINGS = load_settings()
@@ -18,6 +22,35 @@ OLLAMA_URL = CORE.ollama_url
 MODEL = CORE.model
 
 
+def _print_hardware_changes(changes):
+    text = format_hardware_changes(changes)
+
+    if not text:
+        return
+
+    print()
+    print("[Hårdvara]")
+    print(text)
+    print()
+
+
+def _print_hardware_watch_error(error):
+    print()
+    print("[Hårdvaruövervakning]")
+    print(f"Fel: {error}")
+    print()
+
+
+HARDWARE_MONITOR = HardwareMonitor(
+    interval_seconds=SETTINGS.get(
+        "hardware_watch",
+        {},
+    ).get("interval_seconds", 10),
+    on_change=_print_hardware_changes,
+    on_error=_print_hardware_watch_error,
+)
+
+
 print(f"Verktyg laddade: {len(TOOLS)}")
 
 for tool_name in TOOLS:
@@ -26,6 +59,9 @@ for tool_name in TOOLS:
 
 def main():
     CORE.initialize()
+
+    if SETTINGS.get("hardware_watch", {}).get("enabled", True):
+        HARDWARE_MONITOR.start()
     print(f"Verktyg laddade: {len(TOOLS)}")
     print()
     print("==========================================")
@@ -42,6 +78,9 @@ def main():
     print("  /memory        Visa långtidsminne")
     print("  /remember X    Spara X i minnet")
     print("  /clear         Rensa samtalets korttidsminne")
+    print("  /watch         Visa hårdvaruövervakningens status")
+    print("  /watch on      Starta hårdvaruövervakning")
+    print("  /watch off     Stoppa hårdvaruövervakning")
     print("  /exit          Avsluta")
     print()
 
@@ -50,6 +89,7 @@ def main():
             user_input = input("Du: ").strip()
 
         except KeyboardInterrupt:
+            HARDWARE_MONITOR.stop()
             print()
             print("Avslutar.")
             break
@@ -58,8 +98,42 @@ def main():
             continue
 
         if user_input.lower() == "/exit":
+            HARDWARE_MONITOR.stop()
             print("Avslutar.")
             break
+
+        if user_input.lower() == "/watch":
+            status = (
+                "aktiv"
+                if HARDWARE_MONITOR.is_running
+                else "stoppad"
+            )
+            print(
+                "Hårdvaruövervakning:",
+                status,
+                f"({HARDWARE_MONITOR.interval_seconds:g} s intervall)",
+            )
+            print()
+            continue
+
+        if user_input.lower() == "/watch on":
+            started = HARDWARE_MONITOR.start()
+
+            if started:
+                print("Hårdvaruövervakningen startades.")
+            elif HARDWARE_MONITOR.is_running:
+                print("Hårdvaruövervakningen är redan aktiv.")
+            else:
+                print("Hårdvaruövervakningen kunde inte startas.")
+
+            print()
+            continue
+
+        if user_input.lower() == "/watch off":
+            HARDWARE_MONITOR.stop()
+            print("Hårdvaruövervakningen stoppades.")
+            print()
+            continue
 
         if user_input.lower() == "/clear":
             CORE.clear_conversation()

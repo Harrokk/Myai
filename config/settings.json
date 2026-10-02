@@ -16,5 +16,9 @@
   },
   "conversation": {
     "max_turns": 6
+  },
+  "hardware_watch": {
+    "enabled": true,
+    "interval_seconds": 10
   }
 }
