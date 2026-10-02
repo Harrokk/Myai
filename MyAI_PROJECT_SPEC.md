@@ -365,6 +365,16 @@ När MyAI senare körs på Raspberry Pi kan denna inventering användas för att
 
 Den verkliga enhetsinventeringen ska verifieras i den samlade Raspberry Pi-hårdvarurundan.
 
+### 8.3 Read-only inventering av kernel-registrerade bussenheter
+
+På utvecklingsgren finns nu verktyget `pi_bus_devices_status`. Det läser Linux sysfs och listar I²C- och SPI-enheter som kärnan redan känner till.
+
+Verktyget gör ingen aktiv buss-skanning. Det använder inte `i2cdetect`, skickar inga sonderingskommandon och skriver inte till någon enhet. Därmed minskas risken att en känslig sensor påverkas bara för att MyAI inventerar systemet.
+
+För I²C kan verktyget visa buss, adress, namn och drivrutin när informationen finns. För SPI kan det visa controller, chip-select, modalias/namn och drivrutin.
+
+Om inga kernel-registrerade enheter finns ska MyAI säga det tydligt och inte tolka det som bevis för att bussen är elektriskt tom. Fysisk verifiering av verkliga sensorer och bussar sparas till den samlade Raspberry Pi-hårdvarurundan.
+
 ---
 
 ## 9. Automatisk upptäckt av hårdvara
@@ -906,6 +916,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only Raspberry Pi-inventering av GPIO-, I2C-, SPI- och UART-gränssnitt
 - read-only Raspberry Pi-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
 - read-only Raspberry Pi-strömtelemetri via Linux hwmon utan uppskattade mätvärden
+- read-only inventering av kernel-registrerade I2C- och SPI-enheter via Linux sysfs
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

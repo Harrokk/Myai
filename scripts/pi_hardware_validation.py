@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+from modules.pi.bus_devices import collect_bus_devices, format_bus_devices
 from modules.pi.diagnostics import (
     collect_network_status,
     collect_process_status,
@@ -175,6 +176,26 @@ def main():
         ),
     )
 
+    bus_result = collect_bus_devices()
+    print()
+    print(format_bus_devices(bus_result))
+    print()
+
+    bus_count = (
+        len(bus_result.get("i2c", []))
+        + len(bus_result.get("spi", []))
+    )
+    record(
+        results,
+        "Pi-bussenheter",
+        "PASS" if bus_result.get("supported") else "WARN",
+        (
+            f"{bus_count} kernel-registrerade I2C/SPI-enheter hittades"
+            if bus_result.get("supported")
+            else "Linux/Raspberry Pi krävs för businventering"
+        ),
+    )
+
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
         json.dumps(
@@ -183,6 +204,7 @@ def main():
                 "interfaces": interface_result,
                 "diagnostics": diagnostics,
                 "power": power_result,
+                "bus_devices": bus_result,
                 "results": results,
             },
             ensure_ascii=False,

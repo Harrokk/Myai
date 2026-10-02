@@ -241,6 +241,24 @@ def detect_tools(user_input):
     if mentions_pi and asks_pi_status:
         return ["pi_system_status"]
 
+    asks_pi_bus_devices = any(
+        phrase in text
+        for phrase in (
+            "i2c-enheter",
+            "i2c enheter",
+            "spi-enheter",
+            "spi enheter",
+            "anslutna sensorer",
+            "sensorer på i2c",
+            "sensorer på spi",
+            "bussenheter",
+            "bus devices",
+        )
+    )
+
+    if mentions_pi and asks_pi_bus_devices:
+        return ["pi_bus_devices_status"]
+
     asks_gpio_reference = any(
         word in text
         for word in (
