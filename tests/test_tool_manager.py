@@ -34,6 +34,13 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_finds_camera():
+    result = tool_manager.detect_tools(
+        "Vilka kameror är anslutna?"
+    )
+    assert result == ["camera_status"]
+
+
 def test_detect_tools_finds_bluetooth():
     result = tool_manager.detect_tools(
         "Vilka Bluetooth-enheter finns?"
