@@ -300,6 +300,14 @@ Verktygen gör inga ändringar i nätverk, processer, tjänster eller loggar. De
 
 På icke-Linux-plattform ska verktygen avsluta säkert och förklara att Raspberry Pi/Linux krävs. Parsning, formattering och felhantering testas i CI. Verklig nätverks-, process-, systemd- och journald-data ska verifieras senare i den samlade Raspberry Pi-hårdvarurundan.
 
+### 7.3 Read-only ström- och effekttelemetri
+
+På utvecklingsgren finns nu verktyget `pi_power_status`. Det läser standardiserade Linux `hwmon`-mätvärden för effekt, spänning och ström när Raspberry Pi, PMIC och installerade drivrutiner faktiskt exponerar dem.
+
+MyAI ska inte räkna fram eller gissa en strömförbrukning när ett verkligt mätvärde saknas. Om `hwmon` inte exponerar effekt/ström/spänning ska svaret därför uttryckligen säga att telemetri saknas.
+
+Enhetsomvandling och felhantering testas i CI med simulerade `hwmon`-sensorer. Vilka mätkanaler som faktiskt finns på den framtida Raspberry Pi 5B-installationen ska verifieras i den samlade Pi-hårdvarurundan.
+
 ---
 
 ## 8. Raspberry Pi – GPIO och hårdvara
@@ -897,6 +905,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - Raspberry Pi GPIO-referens med I2C/SPI/UART-mappning och konservativ elsäkerhetskontroll
 - read-only Raspberry Pi-inventering av GPIO-, I2C-, SPI- och UART-gränssnitt
 - read-only Raspberry Pi-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
+- read-only Raspberry Pi-strömtelemetri via Linux hwmon utan uppskattade mätvärden
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
