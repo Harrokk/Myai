@@ -48,6 +48,13 @@ def test_detect_tools_routes_bluetooth_distance_to_proximity():
     assert result == ["bluetooth_nearby"]
 
 
+def test_detect_tools_routes_raspberry_pi_status():
+    result = tool_manager.detect_tools(
+        "Hur mår min Raspberry Pi 5, är den varm eller throttlar?"
+    )
+    assert result == ["pi_system_status"]
+
+
 def test_detect_tools_finds_hardware_inventory():
     result = tool_manager.detect_tools(
         "Vilken hårdvara och vilka anslutna enheter finns?"
