@@ -2,7 +2,11 @@ import requests
 
 from core.assistant import MyAICore
 from core.config import PROJECT_ROOT, load_settings
-from core.device_registry import (\n    DeviceRegistry,\n    format_device_details,\n    format_device_records,\n)
+from core.device_registry import (
+    DeviceRegistry,
+    format_device_details,
+    format_device_records,
+)
 from core.hardware_monitor import (
     HardwareMonitor,
     format_hardware_changes,
@@ -93,7 +97,9 @@ def main():
     print("  /watch off     Stoppa hårdvaruövervakning")
     print("  /devices       Visa registrerade enheter")
     print("  /devices unknown  Visa okända enheter")
-    print("  /device known ID  Markera en registrerad enhet som känd")\n    print("  /device show ID   Visa vad MyAI vet om en enhet")\n    print("  /device configure ID  Föreslå och godkänn säker grundkonfiguration")
+    print("  /device known ID  Markera en registrerad enhet som känd")
+    print("  /device show ID   Visa vad MyAI vet om en enhet")
+    print("  /device configure ID  Föreslå och godkänn säker grundkonfiguration")
     print("  /exit          Avsluta")
     print()
 
