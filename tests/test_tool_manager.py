@@ -41,6 +41,20 @@ def test_detect_tools_finds_bluetooth():
     assert result == ["bluetooth_status"]
 
 
+def test_detect_tools_finds_hardware_inventory():
+    result = tool_manager.detect_tools(
+        "Vilken hårdvara och vilka anslutna enheter finns?"
+    )
+    assert result == ["hardware_inventory"]
+
+
+def test_detect_tools_finds_hardware_changes():
+    result = tool_manager.detect_tools(
+        "Har någon ny hårdvara anslutits?"
+    )
+    assert "hardware_changes" in result
+
+
 def test_select_tools_uses_direct_detection_without_ai(monkeypatch):
     tools = {
         "cpu_status": {"function": lambda: "cpu", "description": "cpu"},
