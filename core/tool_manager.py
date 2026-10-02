@@ -30,7 +30,17 @@ STATUS_WORDS = [
     "nya",
 ]
 
-BLUETOOTH_PROXIMITY_WORDS = [\n    "rssi",\n    "avstånd",\n    "hur långt",\n    "nära",\n    "närhet",\n    "närmast",\n]\n\n\nTOOL_KEYWORDS = {
+BLUETOOTH_PROXIMITY_WORDS = [
+    "rssi",
+    "avstånd",
+    "hur långt",
+    "nära",
+    "närhet",
+    "närmast",
+]
+
+
+TOOL_KEYWORDS = {
     "gpu_status": [
         "gpu",
         "grafikkort",
@@ -136,6 +146,18 @@ def load_tools():
 def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
+
+    mentions_bluetooth = any(
+        word in text
+        for word in ("bluetooth", "blåtand")
+    )
+    asks_proximity = any(
+        word in text
+        for word in BLUETOOTH_PROXIMITY_WORDS
+    )
+
+    if mentions_bluetooth and asks_proximity:
+        return ["bluetooth_nearby"]
 
     if not any(word in text for word in STATUS_WORDS):
         return []
