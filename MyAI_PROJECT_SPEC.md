@@ -271,6 +271,23 @@ AI:n ska kunna svara på frågor som:
 - Vilka USB-enheter är inkopplade?
 - Vilka portar finns tillgängliga?
 
+### 7.1 Teknisk status för Raspberry Pi-systemdata
+
+På utvecklingsgren finns nu ett separat verktyg `pi_system_status` som är byggt för att kunna köras på Raspberry Pi utan att Windows-koden behöver skrivas om.
+
+Verktyget kan samla:
+- Raspberry Pi-modell
+- CPU-belastning och kärnor
+- RAM-användning
+- lagringsutrymme
+- CPU-temperatur
+- kärnspänning när `vcgencmd` finns
+- aktuell och historisk throttling/underspänning via `get_throttled`
+
+På en dator som inte är en Raspberry Pi ska verktyget avsluta säkert och tydligt säga att Raspberry Pi inte upptäcktes.
+
+Tolkningen av Raspberry Pi:s throttling-bitar och övrig logik testas i CI. Faktisk avläsning av temperatur, spänning och throttling ska verifieras fysiskt på Raspberry Pi i en senare samlad Pi-hårdvarurunda.
+
 ---
 
 ## 8. Raspberry Pi – GPIO och hårdvara
