@@ -102,3 +102,144 @@ def test_hardware_inventory_handles_empty_result(monkeypatch):
     assert hardware.hardware_inventory() == (
         "Ingen hårdvara kunde identifieras."
     )
+
+
+def test_compare_hardware_snapshots_detects_added_removed_and_changed():
+    previous = [
+        {
+            "category": "USB",
+            "name": "Old Device",
+            "id": "A",
+            "status": "OK",
+            "source": "test",
+        },
+        {
+            "category": "HIDClass",
+            "name": "Mouse",
+            "id": "B",
+            "status": "OK",
+            "source": "test",
+        },
+    ]
+
+    current = [
+        {
+            "category": "HIDClass",
+            "name": "Mouse",
+            "id": "B",
+            "status": "Error",
+            "source": "test",
+        },
+        {
+            "category": "USB",
+            "name": "New Device",
+            "id": "C",
+            "status": "OK",
+            "source": "test",
+        },
+    ]
+
+    changes = hardware.compare_hardware_snapshots(
+        previous,
+        current,
+    )
+
+    assert [item["id"] for item in changes["added"]] == ["C"]
+    assert [item["id"] for item in changes["removed"]] == ["A"]
+    assert changes["changed"][0]["after"]["id"] == "B"
+
+
+def test_hardware_changes_creates_baseline(tmp_path, monkeypatch):
+    snapshot = tmp_path / "hardware_snapshot.json"
+
+    devices = [
+        {
+            "category": "USB",
+            "name": "Device",
+            "id": "A",
+            "status": "OK",
+            "source": "test",
+        }
+    ]
+
+    monkeypatch.setattr(
+        hardware,
+        "get_hardware_inventory",
+        lambda: devices,
+    )
+
+    result = hardware.hardware_changes(snapshot)
+
+    assert "baslinje skapad" in result
+    assert snapshot.exists()
+
+
+def test_hardware_changes_reports_new_device(tmp_path, monkeypatch):
+    snapshot = tmp_path / "hardware_snapshot.json"
+
+    hardware.save_hardware_snapshot(
+        [
+            {
+                "category": "USB",
+                "name": "Existing",
+                "id": "A",
+                "status": "OK",
+                "source": "test",
+            }
+        ],
+        snapshot,
+    )
+
+    monkeypatch.setattr(
+        hardware,
+        "get_hardware_inventory",
+        lambda: [
+            {
+                "category": "USB",
+                "name": "Existing",
+                "id": "A",
+                "status": "OK",
+                "source": "test",
+            },
+            {
+                "category": "USB",
+                "name": "New Camera",
+                "id": "B",
+                "status": "OK",
+                "source": "test",
+            },
+        ],
+    )
+
+    result = hardware.hardware_changes(snapshot)
+
+    assert "Ny: [USB] New Camera" in result
+
+
+def test_hardware_changes_reports_no_change(tmp_path, monkeypatch):
+    snapshot = tmp_path / "hardware_snapshot.json"
+
+    devices = [
+        {
+            "category": "USB",
+            "name": "Existing",
+            "id": "A",
+            "status": "OK",
+            "source": "test",
+        }
+    ]
+
+    hardware.save_hardware_snapshot(
+        devices,
+        snapshot,
+    )
+
+    monkeypatch.setattr(
+        hardware,
+        "get_hardware_inventory",
+        lambda: devices,
+    )
+
+    result = hardware.hardware_changes(snapshot)
+
+    assert result == "Ingen förändring i hårdvaran upptäcktes."
