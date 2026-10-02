@@ -314,6 +314,23 @@ AI:n ska kunna svara på frågor i stil med:
 
 Vid hårdvaruinkoppling ska AI:n prioritera säkerhet och inte gissa om elektriska värden.
 
+### 8.1 Teknisk status för GPIO-referens och säkerhetskontroll
+
+På utvecklingsgren finns nu ett separat Raspberry Pi GPIO-lager med en normaliserad referens för standard-headern med 40 pinnar.
+
+Lagret innehåller:
+- fysisk pin till BCM-GPIO-mappning
+- fasta 3,3 V-, 5 V- och GND-pinnar
+- I2C-, SPI0- och UART-standardpinnar
+- markering av GPIO0/GPIO1 som reserverade för HAT-ID/avancerad användning
+- konservativ förkontroll av föreslagna inkopplingar
+
+Säkerhetskontrollen kan returnera `allow`, `warn` eller `block`. Den ska bland annat blockera 5 V-signal direkt till en 3,3 V GPIO, direktdrift av motor/solenoid och LED utan verifierad strömbegränsning.
+
+Reglerna baseras på Raspberry Pi:s officiella GPIO-dokumentation. MyAI ska fortfarande kräva komponentens datablad när märkspänning, strömbehov eller elektrisk kompatibilitet inte är känd.
+
+GPIO-logiken och pinmappningen testas i CI. Faktiska fysiska inkopplingar och GPIO-åtkomst ska verifieras senare på Raspberry Pi-hårdvaran innan styrande funktioner tillåts.
+
 ---
 
 ## 9. Automatisk upptäckt av hårdvara
@@ -849,6 +866,9 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat BLE/RSSI-närhetslager med grov avståndsbedömning
 - Bluetooth RSSI-steg i den samlade fysiska hårdvaruverifieringen
 - konfigurerbar policy för betrodda terminaler med RSSI-hysteres
+- explicit godkännandeflöde för nya enheter med persistent pending/approved/rejected-status
+- Raspberry Pi-systemstatus för CPU, RAM, lagring, temperatur, spänning och throttling
+- Raspberry Pi GPIO-referens med I2C/SPI/UART-mappning och konservativ elsäkerhetskontroll
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
