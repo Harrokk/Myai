@@ -90,6 +90,14 @@ TOOL_KEYWORDS = {
         "usb enhet",
         "usb enheter",
     ],
+    "camera_status": [
+        "kamera",
+        "kameror",
+        "webbkamera",
+        "webbkameror",
+        "videoenhet",
+        "videoenheter",
+    ],
     "bluetooth_status": [
         "bluetooth",
         "blåtand",
