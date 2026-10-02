@@ -288,6 +288,18 @@ På en dator som inte är en Raspberry Pi ska verktyget avsluta säkert och tydl
 
 Tolkningen av Raspberry Pi:s throttling-bitar och övrig logik testas i CI. Faktisk avläsning av temperatur, spänning och throttling ska verifieras fysiskt på Raspberry Pi i en senare samlad Pi-hårdvarurunda.
 
+### 7.2 Read-only systemdiagnostik
+
+På utvecklingsgren finns nu separata read-only-verktyg för:
+- nätverksgränssnitt, länkstatus och IP-adresser via `pi_network_status`
+- processöversikt med CPU/RAM via `pi_process_status`
+- körande systemd-tjänster via `pi_services_status`
+- senaste systemloggar på warning-nivå eller högre via `pi_system_logs`
+
+Verktygen gör inga ändringar i nätverk, processer, tjänster eller loggar. De ska kunna användas separat eller kombineras genom multi-tool-stödet när en fråga kräver flera diagnostikkällor samtidigt.
+
+På icke-Linux-plattform ska verktygen avsluta säkert och förklara att Raspberry Pi/Linux krävs. Parsning, formattering och felhantering testas i CI. Verklig nätverks-, process-, systemd- och journald-data ska verifieras senare i den samlade Raspberry Pi-hårdvarurundan.
+
 ---
 
 ## 8. Raspberry Pi – GPIO och hårdvara
@@ -884,6 +896,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - Raspberry Pi-systemstatus för CPU, RAM, lagring, temperatur, spänning och throttling
 - Raspberry Pi GPIO-referens med I2C/SPI/UART-mappning och konservativ elsäkerhetskontroll
 - read-only Raspberry Pi-inventering av GPIO-, I2C-, SPI- och UART-gränssnitt
+- read-only Raspberry Pi-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
