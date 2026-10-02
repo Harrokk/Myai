@@ -232,6 +232,16 @@ Systemet ska kunna:
 
 Tröskelvärden och anslutningsregler ska kunna konfigureras.
 
+### 6.1 Teknisk status för betrodda terminaler
+
+På utvecklingsgren finns nu en separat policy för automatiska terminalanslutningar. Policyn gör ingen faktisk Bluetooth-anslutning ännu, utan avgör endast om en observerad enhet får anslutas, ska behålla anslutningen eller bör kopplas från.
+
+Policyn kräver att terminalen uttryckligen finns i konfigurationen, är markerad som betrodd och har automatisk anslutning aktiverad. Den använder separata RSSI-trösklar för anslutning och frånkoppling för att skapa hysteres och undvika att en terminal kopplar upp och ner vid små signalvariationer.
+
+Standardläget är säkert: automatiska terminalanslutningar är avstängda och listan över betrodda terminaler är tom. Trösklar och per-terminal-regler kan justeras via konfiguration utan ändringar i kärnkoden.
+
+Fysisk anslutning, faktisk terminalidentifiering och praktisk kalibrering av RSSI-trösklar ska verifieras senare i den samlade hårdvarurundan.
+
 ---
 
 ## 7. Raspberry Pi – systemåtkomst
@@ -809,6 +819,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - samlat guidat hårdvaruvalideringsskript för Windows-testning
 - separat BLE/RSSI-närhetslager med grov avståndsbedömning
 - Bluetooth RSSI-steg i den samlade fysiska hårdvaruverifieringen
+- konfigurerbar policy för betrodda terminaler med RSSI-hysteres
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
