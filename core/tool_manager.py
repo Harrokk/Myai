@@ -151,6 +151,60 @@ def detect_tools(user_input):
         word in text
         for word in ("raspberry pi", "raspberrypi", "pi 5", "pi5")
     )
+
+    pi_diagnostic_tools = []
+
+    if mentions_pi:
+        if any(
+            word in text
+            for word in (
+                "nätverk",
+                "nätverks",
+                "ip-adress",
+                "ip adress",
+                "ethernet",
+                "wifi",
+                "wi-fi",
+            )
+        ):
+            pi_diagnostic_tools.append("pi_network_status")
+
+        if any(
+            word in text
+            for word in (
+                "processer",
+                "processlista",
+                "process list",
+                "vilka processer",
+            )
+        ):
+            pi_diagnostic_tools.append("pi_process_status")
+
+        if any(
+            word in text
+            for word in (
+                "tjänster",
+                "service",
+                "services",
+                "systemd",
+            )
+        ):
+            pi_diagnostic_tools.append("pi_services_status")
+
+        if any(
+            word in text
+            for word in (
+                "systemlogg",
+                "systemloggar",
+                "loggar",
+                "journalctl",
+                "journal",
+            )
+        ):
+            pi_diagnostic_tools.append("pi_system_logs")
+
+    if pi_diagnostic_tools:
+        return pi_diagnostic_tools
     asks_pi_status = any(
         word in text
         for word in (
