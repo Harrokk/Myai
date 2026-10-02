@@ -318,6 +318,19 @@ Ovanpå detta finns nu ett persistent enhetsregister under `runtime/device_regis
 
 Ett samlat lokalt verifieringsskript finns i `scripts/hardware_validation.py`. Det återanvänder smoke-testet, kontrollerar hårdvaruinventeringen och leder användaren genom borttagning och återanslutning av en fysisk test-enhet. Resultatet sparas lokalt under `runtime/` och versionshanteras inte.
 
+### 9.2 Godkänd konfiguration av okända enheter
+
+En registrerad okänd enhet ska kunna inspekteras innan någon konfiguration sparas. MyAI ska visa de uppgifter som faktiskt finns i enhetsregistret och får inte fylla i okända hårdvarufakta genom gissning.
+
+På utvecklingsgren finns nu ett explicit godkännandeflöde:
+- `/device show ID` visar sparad enhetsinformation.
+- `/device configure ID` skapar först ett säkert konfigurationsförslag utan att ändra registret.
+- förslaget använder läget `registered_only` och har automatiska åtgärder avstängda
+- användaren måste uttryckligen godkänna förslaget innan det sparas
+- ett godkänt förslag markerar enheten som känd och konfigurerad i det lokala registret
+- drivrutiner, portar, systeminställningar och automatiska hårdvaruåtgärder ändras inte av detta grundflöde
+
+Automatiska eller riskfyllda åtgärder för en viss enhet ska kräva ett separat framtida godkännandeflöde och egna säkerhetsregler.
 
 Exempel:
 - USB-enheter
@@ -820,6 +833,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat BLE/RSSI-närhetslager med grov avståndsbedömning
 - Bluetooth RSSI-steg i den samlade fysiska hårdvaruverifieringen
 - konfigurerbar policy för betrodda terminaler med RSSI-hysteres
+- explicit godkännandeflöde för säker grundkonfiguration av okända enheter
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
