@@ -2,6 +2,7 @@ import json
 
 from core.device_registry import (
     DeviceRegistry,
+    format_configuration_prompt,
     format_device_records,
 )
 
@@ -23,6 +24,7 @@ def test_observe_devices_registers_new_device_as_unknown(tmp_path):
 
     assert len(created) == 1
     assert created[0]["known"] is False
+    assert created[0]["configuration_status"] == "pending"
     assert registry.path.exists()
 
     stored = registry.list_records()
@@ -95,3 +97,66 @@ def test_invalid_registry_schema_is_rejected(tmp_path):
         assert "JSON-objekt" in str(error)
     else:
         raise AssertionError("Ogiltigt register skulle ha avvisats")
+
+
+def test_approve_configuration_persists_decision_and_label(tmp_path):
+    registry = DeviceRegistry(tmp_path / "devices.json")
+    registry.observe_devices([make_device("A", "Camera")])
+
+    updated = registry.approve_configuration("A", label="Webbkamera")
+
+    assert updated["known"] is True
+    assert updated["configuration_status"] == "approved"
+    assert updated["label"] == "Webbkamera"
+    assert registry.list_pending() == []
+
+
+def test_reject_configuration_persists_decision(tmp_path):
+    registry = DeviceRegistry(tmp_path / "devices.json")
+    registry.observe_devices([make_device("A", "Camera")])
+
+    updated = registry.reject_configuration("A")
+
+    assert updated["known"] is False
+    assert updated["configuration_status"] == "rejected"
+    assert registry.list_pending() == []
+
+
+def test_old_registry_records_are_migrated_in_memory(tmp_path):
+    path = tmp_path / "devices.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "devices": {
+                    "A": {
+                        "key": "A",
+                        "id": "A",
+                        "category": "USB",
+                        "name": "Old",
+                        "status": "OK",
+                        "source": "test",
+                        "known": False,
+                        "label": "",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    registry = DeviceRegistry(path)
+    record = registry.get_record("A")
+
+    assert record["configuration_status"] == "pending"
+
+
+def test_configuration_prompt_contains_explicit_approval_commands(tmp_path):
+    registry = DeviceRegistry(tmp_path / "devices.json")
+    record = registry.observe_devices([make_device("A", "Camera")])[0]
+
+    text = format_configuration_prompt(record)
+
+    assert "Ny okänd enhet" in text
+    assert "/device approve A" in text
+    assert "/device reject A" in text

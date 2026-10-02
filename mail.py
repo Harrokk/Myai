@@ -2,7 +2,11 @@ import requests
 
 from core.assistant import MyAICore
 from core.config import PROJECT_ROOT, load_settings
-from core.device_registry import DeviceRegistry, format_device_records
+from core.device_registry import (
+    DeviceRegistry,
+    format_configuration_prompt,
+    format_device_records,
+)
 from core.hardware_monitor import (
     HardwareMonitor,
     format_hardware_changes,
@@ -40,6 +44,11 @@ def _print_hardware_changes(changes):
         print()
         print("Nya okända enheter registrerades:")
         print(format_device_records(new_unknown))
+        print()
+
+        for record in new_unknown:
+            print(format_configuration_prompt(record))
+            print()
 
     print()
 
@@ -93,7 +102,9 @@ def main():
     print("  /watch off     Stoppa hårdvaruövervakning")
     print("  /devices       Visa registrerade enheter")
     print("  /devices unknown  Visa okända enheter")
-    print("  /device known ID  Markera en registrerad enhet som känd")
+    print("  /device approve ID  Godkänn och spara en ny enhet")
+    print("  /device reject ID   Avvisa konfiguration av en ny enhet")
+    print("  /device known ID    Kompatibilitetskommando: markera som känd")
     print("  /exit          Avsluta")
     print()
 
@@ -163,6 +174,46 @@ def main():
             print("========== OKÄNDA ENHETER ==========")
             print(format_device_records(records))
             print("====================================")
+            print()
+            continue
+
+        if user_input.lower().startswith("/device approve "):
+            device_id = user_input[len("/device approve "):].strip()
+
+            if not device_id:
+                print("Ange ett enhets-id.")
+                print()
+                continue
+
+            try:
+                record = DEVICE_REGISTRY.approve_configuration(device_id)
+                print(
+                    "Enheten godkändes och konfigurationen sparades:",
+                    record.get("label") or record.get("name"),
+                )
+            except KeyError:
+                print("Enhets-id hittades inte i registret.")
+
+            print()
+            continue
+
+        if user_input.lower().startswith("/device reject "):
+            device_id = user_input[len("/device reject "):].strip()
+
+            if not device_id:
+                print("Ange ett enhets-id.")
+                print()
+                continue
+
+            try:
+                record = DEVICE_REGISTRY.reject_configuration(device_id)
+                print(
+                    "Enheten avvisades:",
+                    record.get("label") or record.get("name"),
+                )
+            except KeyError:
+                print("Enhets-id hittades inte i registret.")
+
             print()
             continue
 

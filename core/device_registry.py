@@ -34,6 +34,7 @@ def _record_from_device(device, key):
         "source": (device.get("source") or "unknown").strip(),
         "known": False,
         "label": "",
+        "configuration_status": "pending",
     }
 
 
@@ -62,7 +63,7 @@ class DeviceRegistry:
     @staticmethod
     def _empty_data():
         return {
-            "version": 1,
+            "version": 2,
             "devices": {},
         }
 
@@ -81,9 +82,19 @@ class DeviceRegistry:
         if not isinstance(devices, dict):
             raise ValueError("Enhetsregistret saknar ett giltigt devices-objekt.")
 
+        normalized = {}
+
+        for key, record in devices.items():
+            item = deepcopy(record)
+            item.setdefault(
+                "configuration_status",
+                "approved" if item.get("known") else "pending",
+            )
+            normalized[key] = item
+
         return {
-            "version": 1,
-            "devices": devices,
+            "version": 2,
+            "devices": normalized,
         }
 
     def _save_unlocked(self, data):
@@ -160,7 +171,24 @@ class DeviceRegistry:
             ),
         )
 
-    def mark_known(self, key, label=None):
+    def get_record(self, key):
+        with self._lock:
+            data = self._load_unlocked()
+            registry = data["devices"]
+
+            if key not in registry:
+                raise KeyError(key)
+
+            return deepcopy(registry[key])
+
+    def list_pending(self):
+        return [
+            record
+            for record in self.list_records()
+            if record.get("configuration_status") == "pending"
+        ]
+
+    def approve_configuration(self, key, label=None):
         with self._lock:
             data = self._load_unlocked()
             registry = data["devices"]
@@ -169,9 +197,39 @@ class DeviceRegistry:
                 raise KeyError(key)
 
             registry[key]["known"] = True
+            registry[key]["configuration_status"] = "approved"
 
             if label is not None:
                 registry[key]["label"] = label.strip()
 
             self._save_unlocked(data)
             return deepcopy(registry[key])
+
+    def reject_configuration(self, key):
+        with self._lock:
+            data = self._load_unlocked()
+            registry = data["devices"]
+
+            if key not in registry:
+                raise KeyError(key)
+
+            registry[key]["known"] = False
+            registry[key]["configuration_status"] = "rejected"
+            self._save_unlocked(data)
+            return deepcopy(registry[key])
+
+    def mark_known(self, key, label=None):
+        return self.approve_configuration(key, label=label)
+
+
+def format_configuration_prompt(record):
+    label = record.get("label") or record.get("name") or "Okänd enhet"
+    category = record.get("category") or "Unknown"
+    key = record.get("key") or record.get("id") or ""
+
+    return (
+        f"Ny okänd enhet: [{category}] {label}\n"
+        f"Vill du konfigurera den?\n"
+        f"Godkänn: /device approve {key}\n"
+        f"Avvisa: /device reject {key}"
+    )
