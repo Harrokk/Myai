@@ -58,8 +58,12 @@ def bluetooth_status():
                     (
                         "$OutputEncoding = "
                         "[Console]::OutputEncoding = "
-                        "[System.Text.UTF8Encoding]::new(); "
-                        "Get-PnpDevice -PresentOnly -Class Bluetooth | "
+                        "[System.Text.Encoding]::UTF8; "
+                        "Get-PnpDevice -PresentOnly | "
+                        "Where-Object { "
+                        "$_.Class -eq 'Bluetooth' -or "
+                        "$_.InstanceId -match '^(BTH|BTHENUM|BTHLE)' "
+                        "} | "
                         "Select-Object -ExpandProperty FriendlyName"
                     ),
                 ],
