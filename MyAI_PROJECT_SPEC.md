@@ -296,6 +296,10 @@ Pågående implementation innehåller:
 
 Första körningen skapar en baslinje. Senare körningar kan rapportera förändringar. Automatisk kontinuerlig övervakning är nu implementerad på utvecklingsgren via en konfigurerbar bakgrundsmonitor. Den kan startas och stoppas från terminalen med `/watch on` och `/watch off`, och rapporterar nya, borttagna eller statusändrade enheter utan att en användarfråga krävs. Funktionen ska lokalt hårdvaruverifieras innan merge.
 
+Ovanpå detta finns nu ett persistent enhetsregister under `runtime/device_registry.json`. Nya enheter som upptäcks av övervakningen registreras initialt som okända. Terminalkommandona `/devices` och `/devices unknown` visar registret, och `/device known ID` kan markera en registrerad enhet som känd. Bakgrundsövervakningen informerar om nya okända enheter men gör inga interaktiva eller riskfyllda konfigurationsändringar från bakgrundstråden.
+
+Ett samlat lokalt verifieringsskript finns i `scripts/hardware_validation.py`. Det återanvänder smoke-testet, kontrollerar hårdvaruinventeringen och leder användaren genom borttagning och återanslutning av en fysisk test-enhet. Resultatet sparas lokalt under `runtime/` och versionshanteras inte.
+
 
 Exempel:
 - USB-enheter
@@ -514,6 +518,24 @@ MyAI ska kunna presentera bedömningarna som tydliga konfidensnivåer eller proc
 En sådan procentsiffra ska beskrivas som en intern konfidensbedömning och inte som en matematisk garanti för att informationen är sann, om systemet inte senare använder en särskilt kalibrerad sannolikhetsmodell.
 
 Om trovärdiga källor motsäger varandra ska MyAI visa detta, sänka konfidensen och förklara vilka uppgifter som stödjer respektive motsäger påståendet. Vid låg säkerhet ska assistenten säga att informationen är osäker i stället för att gissa.
+
+
+### 13.3 Fem kandidater → validering → topp tre
+
+När en internetuppgift innebär att MyAI ska jämföra, välja mellan eller rekommendera alternativ ska standardflödet vara:
+
+1. samla in upp till fem rimliga och relevanta kandidater eller källor
+2. kontrollera att kandidaterna faktiskt är användbara för frågan
+3. bedöma varje kandidats källtillförlitlighet och informationens konfidens separat
+4. uttrycka bedömningen i procent eller tydliga konfidensnivåer enligt avsnitt 13.2
+5. sortera bort kandidater med tydliga varningssignaler eller otillräckligt stöd
+6. presentera de tre starkaste återstående alternativen som en topp tre-lista
+
+Om färre än fem trovärdiga kandidater går att hitta ska MyAI använda de kandidater som finns och tydligt säga att underlaget är mindre än fem.
+
+Topp tre-listan ska inte enbart bygga på ett enda mått. Bedömningen ska väga in relevans, källans tillförlitlighet, informationens konfidens och sådana praktiska kriterier som är viktiga för den aktuella uppgiften.
+
+Vid prisjämförelser gäller dessutom reglerna i avsnitt 13.1 om totalpris, frakt, moms, lagerstatus, leveransmöjlighet till Sverige och säljarens trovärdighet.
 
 ---
 
@@ -774,6 +796,9 @@ Den pågående utvecklingsgrenen innehåller nu:
 - möjlighet att rensa samtalets korttidsminne
 - automatiska tester via GitHub Actions
 - USB-status som första nya fristående hårdvarumodul efter systemverktygen
+- automatisk hårdvaruövervakning på staplad utvecklingsgren
+- persistent register för kända och okända enheter
+- samlat guidat hårdvaruvalideringsskript för Windows-testning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
