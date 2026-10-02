@@ -2,6 +2,7 @@ import requests
 
 from core.assistant import MyAICore
 from core.config import PROJECT_ROOT, load_settings
+from core.device_registry import DeviceRegistry, format_device_records
 from core.hardware_monitor import (
     HardwareMonitor,
     format_hardware_changes,
@@ -20,6 +21,7 @@ MEMORY = CORE.memory
 LLM = CORE.llm
 OLLAMA_URL = CORE.ollama_url
 MODEL = CORE.model
+DEVICE_REGISTRY = DeviceRegistry()
 
 
 def _print_hardware_changes(changes):
@@ -28,9 +30,17 @@ def _print_hardware_changes(changes):
     if not text:
         return
 
+    new_unknown = DEVICE_REGISTRY.observe_changes(changes)
+
     print()
     print("[Hårdvara]")
     print(text)
+
+    if new_unknown:
+        print()
+        print("Nya okända enheter registrerades:")
+        print(format_device_records(new_unknown))
+
     print()
 
 
@@ -81,6 +91,9 @@ def main():
     print("  /watch         Visa hårdvaruövervakningens status")
     print("  /watch on      Starta hårdvaruövervakning")
     print("  /watch off     Stoppa hårdvaruövervakning")
+    print("  /devices       Visa registrerade enheter")
+    print("  /devices unknown  Visa okända enheter")
+    print("  /device known ID  Markera en registrerad enhet som känd")
     print("  /exit          Avsluta")
     print()
 
@@ -132,6 +145,44 @@ def main():
         if user_input.lower() == "/watch off":
             HARDWARE_MONITOR.stop()
             print("Hårdvaruövervakningen stoppades.")
+            print()
+            continue
+
+        if user_input.lower() == "/devices":
+            records = DEVICE_REGISTRY.list_records()
+            print()
+            print("========== ENHETSREGISTER ==========")
+            print(format_device_records(records))
+            print("====================================")
+            print()
+            continue
+
+        if user_input.lower() == "/devices unknown":
+            records = DEVICE_REGISTRY.list_records(known=False)
+            print()
+            print("========== OKÄNDA ENHETER ==========")
+            print(format_device_records(records))
+            print("====================================")
+            print()
+            continue
+
+        if user_input.lower().startswith("/device known "):
+            device_id = user_input[len("/device known "):].strip()
+
+            if not device_id:
+                print("Ange ett enhets-id.")
+                print()
+                continue
+
+            try:
+                record = DEVICE_REGISTRY.mark_known(device_id)
+                print(
+                    "Enheten markerades som känd:",
+                    record.get("label") or record.get("name"),
+                )
+            except KeyError:
+                print("Enhets-id hittades inte i registret.")
+
             print()
             continue
 
