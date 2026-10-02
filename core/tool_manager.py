@@ -30,7 +30,7 @@ STATUS_WORDS = [
     "nya",
 ]
 
-TOOL_KEYWORDS = {
+BLUETOOTH_PROXIMITY_WORDS = [\n    "rssi",\n    "avstånd",\n    "hur långt",\n    "nära",\n    "närhet",\n    "närmast",\n]\n\n\nTOOL_KEYWORDS = {
     "gpu_status": [
         "gpu",
         "grafikkort",
