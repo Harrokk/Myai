@@ -294,7 +294,7 @@ Pågående implementation innehåller:
 - jämförelse mellan föregående och aktuell snapshot
 - identifiering av nya, borttagna och statusändrade enheter via `hardware_changes`
 
-Första körningen skapar en baslinje. Senare körningar kan rapportera förändringar. Automatisk kontinuerlig övervakning och användaravisering är nästa steg efter lokal hårdvaruverifiering av denna grundfunktion.
+Första körningen skapar en baslinje. Senare körningar kan rapportera förändringar. Automatisk kontinuerlig övervakning är nu implementerad på utvecklingsgren via en konfigurerbar bakgrundsmonitor. Den kan startas och stoppas från terminalen med `/watch on` och `/watch off`, och rapporterar nya, borttagna eller statusändrade enheter utan att en användarfråga krävs. Funktionen ska lokalt hårdvaruverifieras innan merge.
 
 
 Exempel:
