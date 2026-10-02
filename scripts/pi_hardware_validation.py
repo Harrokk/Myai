@@ -9,6 +9,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+from modules.pi.diagnostics import (
+    collect_network_status,
+    collect_process_status,
+    collect_services_status,
+    collect_system_logs,
+    format_network_status,
+    format_process_status,
+    format_services_status,
+    format_system_logs,
+)
 from modules.pi.interfaces import collect_pi_interfaces, format_pi_interfaces
 from modules.pi.system_status import collect_pi_status, format_pi_status
 
@@ -116,12 +126,44 @@ def main():
             f"{found} enhetsnoder hittades",
         )
 
+    diagnostics = {
+        "network": collect_network_status(),
+        "processes": collect_process_status(),
+        "services": collect_services_status(),
+        "logs": collect_system_logs(),
+    }
+
+    print()
+    print(format_network_status(diagnostics["network"]))
+    print()
+    print(format_process_status(diagnostics["processes"]))
+    print()
+    print(format_services_status(diagnostics["services"]))
+    print()
+    print(format_system_logs(diagnostics["logs"]))
+    print()
+
+    for name, result in diagnostics.items():
+        supported = result.get("supported", False)
+        available = result.get("available", True)
+        record(
+            results,
+            f"Pi-diagnostik: {name}",
+            "PASS" if supported and available else "WARN",
+            (
+                "read-only data kunde läsas"
+                if supported and available
+                else result.get("reason") or "ej tillgängligt på denna miljö"
+            ),
+        )
+
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
         json.dumps(
             {
                 "status": status,
                 "interfaces": interface_result,
+                "diagnostics": diagnostics,
                 "results": results,
             },
             ensure_ascii=False,
