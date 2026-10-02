@@ -519,6 +519,24 @@ En sådan procentsiffra ska beskrivas som en intern konfidensbedömning och inte
 
 Om trovärdiga källor motsäger varandra ska MyAI visa detta, sänka konfidensen och förklara vilka uppgifter som stödjer respektive motsäger påståendet. Vid låg säkerhet ska assistenten säga att informationen är osäker i stället för att gissa.
 
+
+### 13.3 Fem kandidater → validering → topp tre
+
+När en internetuppgift innebär att MyAI ska jämföra, välja mellan eller rekommendera alternativ ska standardflödet vara:
+
+1. samla in upp till fem rimliga och relevanta kandidater eller källor
+2. kontrollera att kandidaterna faktiskt är användbara för frågan
+3. bedöma varje kandidats källtillförlitlighet och informationens konfidens separat
+4. uttrycka bedömningen i procent eller tydliga konfidensnivåer enligt avsnitt 13.2
+5. sortera bort kandidater med tydliga varningssignaler eller otillräckligt stöd
+6. presentera de tre starkaste återstående alternativen som en topp tre-lista
+
+Om färre än fem trovärdiga kandidater går att hitta ska MyAI använda de kandidater som finns och tydligt säga att underlaget är mindre än fem.
+
+Topp tre-listan ska inte enbart bygga på ett enda mått. Bedömningen ska väga in relevans, källans tillförlitlighet, informationens konfidens och sådana praktiska kriterier som är viktiga för den aktuella uppgiften.
+
+Vid prisjämförelser gäller dessutom reglerna i avsnitt 13.1 om totalpris, frakt, moms, lagerstatus, leveransmöjlighet till Sverige och säljarens trovärdighet.
+
 ---
 
 ## 14. Position och lokalisering
