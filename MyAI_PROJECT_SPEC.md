@@ -757,6 +757,20 @@ Det ska därmed vara möjligt att byta:
 
 utan att skriva om dialogsystemet, minnet eller verktygsorkestreringen.
 
+### 16.1.1 Teknisk status för kamerainventering
+
+På utvecklingsgren finns nu ett första read-only kameralager med verktyget `camera_status`.
+
+Verktyget kan:
+- inventera Windows-kameror via närvarande PnP-enheter i klasserna Camera/Image
+- inventera Linux-kameror via Video4Linux-enheter
+- normalisera namn, identifierare, status och datakälla
+- tydligt rapportera när ingen kamera upptäcks
+
+Detta lager tar inga bilder och startar ingen videoström. Bildtagning, kameraval, visionmodell och objekt-/textanalys ska byggas som separata senare steg.
+
+Parserlogiken testas i CI. Faktisk kameradetektering på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan innan bildtagning byggs ovanpå den.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -917,6 +931,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only Raspberry Pi-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
 - read-only Raspberry Pi-strömtelemetri via Linux hwmon utan uppskattade mätvärden
 - read-only inventering av kernel-registrerade I2C- och SPI-enheter via Linux sysfs
+- read-only kamerainventering för Windows PnP och Linux Video4Linux
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
