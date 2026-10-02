@@ -21,6 +21,13 @@ STATUS_WORDS = [
     "utrymme",
     "plats",
     "vilka",
+    "ansluten",
+    "anslutna",
+    "anslutits",
+    "inkopplad",
+    "inkopplade",
+    "ny",
+    "nya",
 ]
 
 TOOL_KEYWORDS = {
@@ -87,6 +94,15 @@ TOOL_KEYWORDS = {
         "alla enheter",
         "anslutna enheter",
         "inkopplade enheter",
+    ],
+    "hardware_changes": [
+        "ny hårdvara",
+        "nya enheter",
+        "ny enhet",
+        "hårdvaruförändring",
+        "hårdvaruförändringar",
+        "något anslutits",
+        "något kopplats in",
     ],
 }
 
