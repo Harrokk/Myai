@@ -205,6 +205,21 @@ def detect_tools(user_input):
 
     if pi_diagnostic_tools:
         return pi_diagnostic_tools
+    asks_pi_power = any(
+        word in text
+        for word in (
+            "strömförbrukning",
+            "ström",
+            "effekt",
+            "watt",
+            "ampere",
+            "power draw",
+        )
+    )
+
+    if mentions_pi and asks_pi_power:
+        return ["pi_power_status"]
+
     asks_pi_status = any(
         word in text
         for word in (
