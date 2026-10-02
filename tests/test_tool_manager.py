@@ -76,6 +76,30 @@ def test_detect_tools_routes_pi_interface_inventory():
     assert result == ["pi_interfaces_status"]
 
 
+def test_detect_tools_routes_pi_network_status():
+    result = tool_manager.detect_tools(
+        "Vilket nätverk och vilka IP-adresser har min Raspberry Pi?"
+    )
+    assert result == ["pi_network_status"]
+
+
+def test_detect_tools_routes_pi_processes_and_services_together():
+    result = tool_manager.detect_tools(
+        "Vilka processer och tjänster körs på min Raspberry Pi?"
+    )
+    assert result == [
+        "pi_process_status",
+        "pi_services_status",
+    ]
+
+
+def test_detect_tools_routes_pi_system_logs():
+    result = tool_manager.detect_tools(
+        "Visa systemloggarna på min Raspberry Pi."
+    )
+    assert result == ["pi_system_logs"]
+
+
 def test_detect_tools_finds_hardware_inventory():
     result = tool_manager.detect_tools(
         "Vilken hårdvara och vilka anslutna enheter finns?"
