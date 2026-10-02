@@ -76,6 +76,13 @@ def test_detect_tools_routes_pi_interface_inventory():
     assert result == ["pi_interfaces_status"]
 
 
+def test_detect_tools_routes_pi_power_status():
+    result = tool_manager.detect_tools(
+        "Hur mycket ström drar min Raspberry Pi i watt?"
+    )
+    assert result == ["pi_power_status"]
+
+
 def test_detect_tools_routes_pi_network_status():
     result = tool_manager.detect_tools(
         "Vilket nätverk och vilka IP-adresser har min Raspberry Pi?"
