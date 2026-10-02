@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from modules.bluetooth.proximity import scan_nearby_devices
+from modules.camera.camera import get_camera_inventory, format_camera_inventory
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -215,6 +216,38 @@ def bluetooth_proximity_check(results):
     return True
 
 
+def camera_inventory_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 5 - Kamerainventering")
+    print("=" * 60)
+
+    try:
+        devices = get_camera_inventory()
+    except Exception as error:
+        record(results, "Kamerainventering", "FAIL", str(error))
+        return False
+
+    print(format_camera_inventory(devices))
+
+    if devices:
+        record(
+            results,
+            "Kamerainventering",
+            "PASS",
+            f"{len(devices)} kamera/videoenheter upptäcktes",
+        )
+        return True
+
+    record(
+        results,
+        "Kamerainventering",
+        "WARN",
+        "Ingen kamera upptäcktes; detta är okej om ingen kamera är ansluten.",
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -239,6 +272,8 @@ def main():
         )
 
     bluetooth_proximity_check(results)
+
+    camera_inventory_check(results)
 
     path = save_report(results)
 
