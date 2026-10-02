@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+from modules.bluetooth.proximity import scan_nearby_devices
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -163,6 +164,57 @@ def physical_change_check(results, baseline):
     return bool(removed) and bool(added)
 
 
+def bluetooth_proximity_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 4 - Bluetooth LE / RSSI-närhet")
+    print("=" * 60)
+    print(
+        "Se till att Bluetooth är aktiverat och att minst en BLE-enhet "
+        "i närheten annonserar, till exempel hörlurar, telefon eller sensor."
+    )
+    input("Tryck Enter för att starta en 5-sekunders Bluetooth-skanning: ")
+
+    try:
+        observations = scan_nearby_devices(timeout=5.0)
+    except Exception as error:
+        record(
+            results,
+            "Bluetooth RSSI-skanning",
+            "FAIL",
+            str(error),
+        )
+        return False
+
+    with_rssi = [
+        item
+        for item in observations
+        if item.get("rssi") is not None
+        and item.get("estimated_distance_m") is not None
+    ]
+
+    if not with_rssi:
+        record(
+            results,
+            "Bluetooth RSSI-skanning",
+            "FAIL",
+            "Ingen BLE-enhet med användbart RSSI-värde upptäcktes.",
+        )
+        return False
+
+    preview = ", ".join(
+        f"{item['name']} ({item['rssi']} dBm, {item['proximity']})"
+        for item in with_rssi[:5]
+    )
+    record(
+        results,
+        "Bluetooth RSSI-skanning",
+        "PASS",
+        preview,
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -185,6 +237,8 @@ def main():
             "SKIP",
             "Inventeringen måste fungera först.",
         )
+
+    bluetooth_proximity_check(results)
 
     path = save_report(results)
 
