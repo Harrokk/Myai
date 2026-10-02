@@ -22,6 +22,12 @@ DEFAULT_SETTINGS = {
         "enabled": True,
         "interval_seconds": 10,
     },
+    "trusted_terminals": {
+        "enabled": False,
+        "connect_rssi": -60,
+        "disconnect_rssi": -75,
+        "terminals": [],
+    },
     "assistant": {
         "name": "MyAI v2",
         "engine": "Ollama",
