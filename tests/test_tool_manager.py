@@ -55,6 +55,20 @@ def test_detect_tools_routes_raspberry_pi_status():
     assert result == ["pi_system_status"]
 
 
+def test_detect_tools_routes_raspberry_pi_gpio_reference():
+    result = tool_manager.detect_tools(
+        "Vilken GPIO ska jag använda för I2C på Raspberry Pi?"
+    )
+    assert result == ["pi_gpio_reference"]
+
+
+def test_detect_tools_routes_explicit_gpio_without_pi_name():
+    result = tool_manager.detect_tools(
+        "Kan jag koppla en 5 V-signal till GPIO17?"
+    )
+    assert result == ["pi_gpio_reference"]
+
+
 def test_detect_tools_finds_hardware_inventory():
     result = tool_manager.detect_tools(
         "Vilken hårdvara och vilka anslutna enheter finns?"
