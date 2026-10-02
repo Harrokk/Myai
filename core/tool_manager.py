@@ -147,6 +147,31 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    mentions_pi = any(
+        word in text
+        for word in ("raspberry pi", "raspberrypi", "pi 5", "pi5")
+    )
+    asks_pi_status = any(
+        word in text
+        for word in (
+            "status",
+            "temperatur",
+            "varm",
+            "cpu",
+            "ram",
+            "lagring",
+            "disk",
+            "spänning",
+            "ström",
+            "throttl",
+            "underspänning",
+            "hur mår",
+        )
+    )
+
+    if mentions_pi and asks_pi_status:
+        return ["pi_system_status"]
+
     mentions_bluetooth = any(
         word in text
         for word in ("bluetooth", "blåtand")
