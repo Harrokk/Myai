@@ -73,6 +73,14 @@ TOOL_KEYWORDS = {
         "usb enhet",
         "usb enheter",
     ],
+    "bluetooth_status": [
+        "bluetooth",
+        "blåtand",
+        "bluetooth-enhet",
+        "bluetooth-enheter",
+        "bluetooth enhet",
+        "bluetooth enheter",
+    ],
 }
 
 

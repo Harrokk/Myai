@@ -3,7 +3,7 @@ name: MyAI tests
 on:
   push:
     branches:
-      - dev/repo-cleanup
+      - "dev/**"
   pull_request:
 
 jobs:
