@@ -69,6 +69,13 @@ def test_detect_tools_routes_explicit_gpio_without_pi_name():
     assert result == ["pi_gpio_reference"]
 
 
+def test_detect_tools_routes_pi_interface_inventory():
+    result = tool_manager.detect_tools(
+        "Vilka gränssnitt och portar finns på min Raspberry Pi?"
+    )
+    assert result == ["pi_interfaces_status"]
+
+
 def test_detect_tools_finds_hardware_inventory():
     result = tool_manager.detect_tools(
         "Vilken hårdvara och vilka anslutna enheter finns?"
