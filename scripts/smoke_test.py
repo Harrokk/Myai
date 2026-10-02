@@ -20,6 +20,7 @@ EXPECTED_TOOLS = [
     "temperature_status",
     "disk_status",
     "usb_status",
+    "bluetooth_status",
 ]
 
 
@@ -68,6 +69,21 @@ def main():
 
     if selected != ["cpu_status", "ram_status"]:
         print("FEL: multi-tool identifieringen gav oväntat resultat.")
+        return 1
+
+    bluetooth_selected = select_tools(
+        "Vilka Bluetooth-enheter finns?",
+        core.tools,
+        core.llm,
+    )
+
+    print(
+        "Bluetooth-identifiering:",
+        ", ".join(bluetooth_selected),
+    )
+
+    if bluetooth_selected != ["bluetooth_status"]:
+        print("FEL: Bluetooth-frågan valde fel verktyg.")
         return 1
 
     print_section("Riktiga lokala verktyg")
