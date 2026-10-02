@@ -23,3 +23,5 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["ollama"]["url"] == DEFAULT_SETTINGS["ollama"]["url"]
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
     assert settings["conversation"]["max_turns"] == 6
+    assert settings["hardware_watch"]["enabled"] is True
+    assert settings["hardware_watch"]["interval_seconds"] == 10
