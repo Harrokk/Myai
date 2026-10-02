@@ -81,6 +81,13 @@ TOOL_KEYWORDS = {
         "bluetooth enhet",
         "bluetooth enheter",
     ],
+    "hardware_inventory": [
+        "hårdvara",
+        "hardware",
+        "alla enheter",
+        "anslutna enheter",
+        "inkopplade enheter",
+    ],
 }
 
 
