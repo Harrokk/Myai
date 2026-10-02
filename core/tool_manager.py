@@ -172,6 +172,27 @@ def detect_tools(user_input):
     if mentions_pi and asks_pi_status:
         return ["pi_system_status"]
 
+    asks_gpio_reference = any(
+        word in text
+        for word in (
+            "gpio",
+            "i2c",
+            "spi",
+            "uart",
+            "3,3 v",
+            "3.3 v",
+            "5 v",
+            "5v",
+            "pinout",
+        )
+    )
+
+    if asks_gpio_reference and (
+        mentions_pi
+        or any(word in text for word in ("gpio", "i2c", "spi", "uart", "pinout"))
+    ):
+        return ["pi_gpio_reference"]
+
     mentions_bluetooth = any(
         word in text
         for word in ("bluetooth", "blåtand")
