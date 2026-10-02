@@ -285,6 +285,18 @@ Vid hårdvaruinkoppling ska AI:n prioritera säkerhet och inte gissa om elektris
 
 AI:n ska kunna upptäcka när ny hårdvara ansluts.
 
+### 9.1 Teknisk status
+
+Pågående implementation innehåller:
+- generell hårdvaruinventering via `hardware_inventory`
+- normaliserade snapshots av närvarande enheter
+- lokal snapshotfil under `runtime/` som inte versionshanteras
+- jämförelse mellan föregående och aktuell snapshot
+- identifiering av nya, borttagna och statusändrade enheter via `hardware_changes`
+
+Första körningen skapar en baslinje. Senare körningar kan rapportera förändringar. Automatisk kontinuerlig övervakning och användaravisering är nästa steg efter lokal hårdvaruverifiering av denna grundfunktion.
+
+
 Exempel:
 - USB-enheter
 - Bluetooth-enheter
