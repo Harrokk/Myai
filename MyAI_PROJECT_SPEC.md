@@ -331,6 +331,20 @@ Reglerna baseras på Raspberry Pi:s officiella GPIO-dokumentation. MyAI ska fort
 
 GPIO-logiken och pinmappningen testas i CI. Faktiska fysiska inkopplingar och GPIO-åtkomst ska verifieras senare på Raspberry Pi-hårdvaran innan styrande funktioner tillåts.
 
+### 8.2 Read-only inventering av Pi-gränssnitt
+
+På utvecklingsgren finns nu ett separat read-only-verktyg `pi_interfaces_status` som inventerar vanliga Linux-enhetsnoder för:
+- GPIO-chip
+- I2C
+- SPI
+- UART/seriella portar
+
+Verktyget gör inga ändringar i systemet och försöker inte aktivera gränssnitt. Om det körs på Windows eller annan icke-Linux-plattform avslutar det säkert och förklarar att fysisk Pi-inventering kräver Linux/Raspberry Pi.
+
+När MyAI senare körs på Raspberry Pi kan denna inventering användas för att skilja mellan vad Pi-modellen teoretiskt stödjer och vilka gränssnitt som faktiskt är exponerade i det körande operativsystemet.
+
+Den verkliga enhetsinventeringen ska verifieras i den samlade Raspberry Pi-hårdvarurundan.
+
 ---
 
 ## 9. Automatisk upptäckt av hårdvara
@@ -869,6 +883,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - explicit godkännandeflöde för nya enheter med persistent pending/approved/rejected-status
 - Raspberry Pi-systemstatus för CPU, RAM, lagring, temperatur, spänning och throttling
 - Raspberry Pi GPIO-referens med I2C/SPI/UART-mappning och konservativ elsäkerhetskontroll
+- read-only Raspberry Pi-inventering av GPIO-, I2C-, SPI- och UART-gränssnitt
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
