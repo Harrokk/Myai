@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+from modules.pi.interfaces import collect_pi_interfaces, format_pi_interfaces
 from modules.pi.system_status import collect_pi_status, format_pi_status
 
 
@@ -91,11 +92,36 @@ def main():
             f"{voltage:.3f} V" if voltage is not None else "kunde inte läsas",
         )
 
+    interface_result = collect_pi_interfaces()
+    print()
+    print(format_pi_interfaces(interface_result))
+    print()
+
+    if not interface_result.get("supported"):
+        record(
+            results,
+            "Pi-gränssnitt",
+            "FAIL",
+            "Linux/Raspberry Pi krävs för gränssnittsinventering",
+        )
+    else:
+        found = sum(
+            len(items)
+            for items in interface_result.get("interfaces", {}).values()
+        )
+        record(
+            results,
+            "Pi-gränssnitt",
+            "PASS" if found else "WARN",
+            f"{found} enhetsnoder hittades",
+        )
+
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
         json.dumps(
             {
                 "status": status,
+                "interfaces": interface_result,
                 "results": results,
             },
             ensure_ascii=False,

@@ -193,6 +193,23 @@ def detect_tools(user_input):
     ):
         return ["pi_gpio_reference"]
 
+    asks_pi_interfaces = any(
+        phrase in text
+        for phrase in (
+            "vilka gränssnitt",
+            "vilka portar",
+            "tillgängliga gränssnitt",
+            "tillgängliga portar",
+            "gpiochip",
+            "spidev",
+            "i2c-",
+            "ttyama",
+        )
+    )
+
+    if mentions_pi and asks_pi_interfaces:
+        return ["pi_interfaces_status"]
+
     mentions_bluetooth = any(
         word in text
         for word in ("bluetooth", "blåtand")
