@@ -25,3 +25,6 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["conversation"]["max_turns"] == 6
     assert settings["hardware_watch"]["enabled"] is True
     assert settings["hardware_watch"]["interval_seconds"] == 10
+    assert settings["trusted_terminals"]["enabled"] is False
+    assert settings["trusted_terminals"]["connect_rssi"] == -60
+    assert settings["trusted_terminals"]["disconnect_rssi"] == -75
