@@ -20,5 +20,11 @@
   "hardware_watch": {
     "enabled": true,
     "interval_seconds": 10
+  },
+  "trusted_terminals": {
+    "enabled": false,
+    "connect_rssi": -60,
+    "disconnect_rssi": -75,
+    "terminals": []
   }
 }
