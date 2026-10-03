@@ -241,6 +241,7 @@ class VoicePipeline:
         backup_stt=None,
         tts=None,
         settings=None,
+        semantic_resolver=None,
     ):
         self.assistant = assistant
         self.primary_stt = primary_stt
@@ -249,6 +250,7 @@ class VoicePipeline:
         )
         self.tts = tts
         self.settings = settings or {}
+        self.semantic_resolver = semantic_resolver
 
     @property
     def voice_settings(self):
@@ -362,16 +364,60 @@ class VoicePipeline:
             )
 
             if not consensus["accepted"]:
-                return {
-                    "status": "clarify",
-                    "message": (
-                        "Taligenkänningarna är inte tillräckligt "
-                        "överens. Bekräfta eller säg kommandot igen."
-                    ),
-                    "risk": risk,
-                    "consensus": consensus,
-                    "transcripts": transcripts,
-                }
+                semantic_allowed = (
+                    config.get(
+                        "semantic_consensus_enabled",
+                        False,
+                    )
+                    and self.semantic_resolver is not None
+                    and (
+                        risk["level"] != "high"
+                        or config.get(
+                            "semantic_consensus_for_high_risk",
+                            False,
+                        )
+                    )
+                )
+
+                if semantic_allowed:
+                    semantic = self.semantic_resolver.resolve(
+                        [
+                            item["text"]
+                            for item in transcripts
+                        ]
+                    )
+
+                    if semantic.get("accepted"):
+                        consensus = {
+                            **semantic,
+                            "method": "semantic",
+                            "transcripts": transcripts,
+                        }
+                    else:
+                        return {
+                            "status": "clarify",
+                            "message": (
+                                "Taligenkänningarna är inte tillräckligt "
+                                "överens. Bekräfta eller säg kommandot igen."
+                            ),
+                            "risk": risk,
+                            "consensus": {
+                                **consensus,
+                                "semantic": semantic,
+                            },
+                            "transcripts": transcripts,
+                        }
+                else:
+                    return {
+                        "status": "clarify",
+                        "message": (
+                            "Taligenkänningarna är inte tillräckligt "
+                            "överens. Bekräfta eller säg kommandot igen."
+                        ),
+                        "risk": risk,
+                        "consensus": consensus,
+                        "transcripts": transcripts,
+                    }
 
             transcript = consensus["text"]
         else:
