@@ -28,6 +28,11 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["trusted_terminals"]["enabled"] is False
     assert settings["trusted_terminals"]["connect_rssi"] == -60
     assert settings["trusted_terminals"]["disconnect_rssi"] == -75
+    assert settings["trusted_terminals"]["scan_interval_seconds"] == 5.0
+    assert settings["trusted_terminals"]["scan_timeout_seconds"] == 5.0
+    assert settings["trusted_terminals"]["connect_confirm_scans"] == 2
+    assert settings["trusted_terminals"]["disconnect_confirm_scans"] == 3
+    assert settings["trusted_terminals"]["auto_execute"] is False
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
