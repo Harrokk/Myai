@@ -45,6 +45,24 @@ EXPLICIT_HIGH_SAFETY_TERMS = (
     "dubbelkolla kommandot",
 )
 
+VOICE_CONFIRM_PHRASES = {
+    "bekräfta",
+    "bekräfta kommandot",
+    "kör kommandot",
+    "confirm",
+    "confirm command",
+    "yes confirm",
+}
+
+VOICE_CANCEL_PHRASES = {
+    "avbryt",
+    "avbryt kommandot",
+    "stoppa kommandot",
+    "cancel",
+    "cancel command",
+}
+
+
 NORMALIZE_WORDS = {
     "datorn": "dator",
     "datorns": "dator",
@@ -293,6 +311,7 @@ class VoicePipeline:
         self.clock = clock or time.monotonic
         self.last_tts_text = ""
         self.last_tts_started_at = None
+        self.pending_confirmation = None
 
     @property
     def voice_settings(self):
@@ -379,6 +398,140 @@ class VoicePipeline:
             ),
         }
 
+    def _speak_control_message(self, text):
+        config = self.voice_settings
+
+        if (
+            self.tts is None
+            or not config.get("tts_enabled", False)
+            or not text
+        ):
+            return False
+
+        self.last_tts_text = text
+        self.last_tts_started_at = self.clock()
+        self.tts.speak(text)
+        return True
+
+    def _confirmation_message(self, transcript):
+        return (
+            f"Högriskkommando uppfattat: {transcript}. "
+            'Säg "bekräfta" för att köra eller "avbryt".'
+        )
+
+    def _handle_pending_confirmation(self, primary):
+        pending = self.pending_confirmation
+
+        if pending is None:
+            return None
+
+        config = self.voice_settings
+        age = self.clock() - pending["created_at"]
+        window = max(
+            1.0,
+            float(
+                config.get(
+                    "high_risk_confirmation_window_seconds",
+                    15.0,
+                )
+            ),
+        )
+
+        if age < 0 or age > window:
+            self.pending_confirmation = None
+            message = (
+                "Bekräftelsetiden gick ut. "
+                "Säg högriskkommandot igen om det fortfarande ska köras."
+            )
+            self._speak_control_message(message)
+            return {
+                "status": "confirmation_expired",
+                "message": message,
+                "transcript": primary["text"],
+                "pending_transcript": pending["transcript"],
+            }
+
+        normalized = normalize_transcript(
+            primary["text"]
+        )
+
+        if normalized in {
+            normalize_transcript(value)
+            for value in VOICE_CANCEL_PHRASES
+        }:
+            self.pending_confirmation = None
+            message = "Kommandot avbröts."
+            self._speak_control_message(message)
+            return {
+                "status": "confirmation_cancelled",
+                "message": message,
+                "transcript": primary["text"],
+                "pending_transcript": pending["transcript"],
+            }
+
+        if normalized in {
+            normalize_transcript(value)
+            for value in VOICE_CONFIRM_PHRASES
+        }:
+            confidence = primary.get("confidence")
+            threshold = float(
+                config.get(
+                    "high_risk_confirmation_min_confidence",
+                    0.80,
+                )
+            )
+
+            if (
+                confidence is None
+                or confidence < threshold
+            ):
+                message = (
+                    "Bekräftelsen var för osäker. "
+                    'Säg tydligt "bekräfta" eller "avbryt".'
+                )
+                self._speak_control_message(message)
+                return {
+                    "status": "confirmation_required",
+                    "message": message,
+                    "transcript": pending["transcript"],
+                    "confirmation_confidence": confidence,
+                }
+
+            self.pending_confirmation = None
+            response = self.assistant.respond(
+                pending["transcript"]
+            )
+            answer = response.get("answer", "")
+
+            if answer:
+                self._speak_control_message(answer)
+
+            return {
+                "status": "completed",
+                "transcript": pending["transcript"],
+                "risk": pending["risk"],
+                "consensus": pending["consensus"],
+                "assistant": response,
+                "confirmation": {
+                    "confirmed": True,
+                    "heard": primary["text"],
+                    "confidence": confidence,
+                    "age_seconds": round(age, 3),
+                },
+            }
+
+        message = (
+            'Ett högriskkommando väntar. '
+            'Säg "bekräfta" för att köra eller "avbryt".'
+        )
+        self._speak_control_message(message)
+        return {
+            "status": "confirmation_required",
+            "message": message,
+            "transcript": pending["transcript"],
+            "heard": primary["text"],
+        }
+
     def _needs_redundancy(
         self,
         primary,
@@ -429,6 +582,13 @@ class VoicePipeline:
                 ),
                 "transcripts": [primary],
             }
+
+        pending_result = self._handle_pending_confirmation(
+            primary
+        )
+
+        if pending_result is not None:
+            return pending_result
 
         risk = classify_voice_risk(
             primary["text"]
@@ -559,6 +719,32 @@ class VoicePipeline:
         final_risk = classify_voice_risk(
             transcript
         )
+
+        if (
+            final_risk["level"] == "high"
+            and config.get(
+                "high_risk_confirmation_enabled",
+                False,
+            )
+        ):
+            self.pending_confirmation = {
+                "transcript": transcript,
+                "risk": final_risk,
+                "consensus": consensus,
+                "created_at": self.clock(),
+            }
+            message = self._confirmation_message(
+                transcript
+            )
+            self._speak_control_message(message)
+            return {
+                "status": "confirmation_required",
+                "message": message,
+                "transcript": transcript,
+                "risk": final_risk,
+                "consensus": consensus,
+            }
+
         response = self.assistant.respond(
             transcript
         )
