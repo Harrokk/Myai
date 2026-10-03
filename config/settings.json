@@ -104,6 +104,7 @@
     "tts_voice_id": "",
     "semantic_consensus_enabled": false,
     "semantic_consensus_for_high_risk": false,
-    "semantic_consensus_min_confidence": 0.85
+    "semantic_consensus_min_confidence": 0.85,
+    "session_max_wait_frames": 1500
   }
 }

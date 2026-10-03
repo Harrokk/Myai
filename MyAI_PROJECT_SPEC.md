@@ -250,6 +250,26 @@ Semantisk fallback är avstängd som standard och är dessutom separat avstängd
 
 Den semantiska bedömaren får inte skapa en ny kommandotext; den får endast välja en av de befintliga STT-transkriptionerna.
 
+### 4.12 Teknisk status för körbar röstsession
+
+På utvecklingsgren finns nu `VoiceSession`, som sammanfogar hela den byggda röstkedjan till en runtime-komponent.
+
+Sessionen:
+- bygger eller tar emot konfigurerade microphone/VAD/STT/TTS-komponenter
+- skapar `VoiceActivityGate`
+- skapar `VoicePipeline`
+- kopplar in semantisk konsensus endast när den är aktiverad och en LLM-klient finns
+- startar och stoppar mikrofonen explicit
+- läser ljudramar tills VAD markerar ett komplett yttrande
+- skickar färdigt ljud genom STT, riskkontroll, konsensus och MyAI-kärnan
+- räknar mikrofon-overflow
+- har en maximal väntetid i antal ljudramar så en session inte blockeras obegränsat
+- stänger mikrofonen och avbryter TTS vid `stop()`
+
+Standardgränsen är 1500 ljudramar per väntat yttrande. Med standardramlängden 20 ms motsvarar detta högst cirka 30 sekunder innan sessionen returnerar timeout.
+
+`VoiceSession` startas fortfarande inte automatiskt av `mail.py`. Det gör att textläget förblir stabilt tills den samlade lokala ljudverifieringen är godkänd.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1403,6 +1423,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - hårdvaruoberoende VAD-grind för talstart, tystnadsavslut, maxlängd och omedelbart TTS-avbrott
 - valbara lokala SoundDevice/WebRTC-VAD/faster-whisper/pyttsx3-providers med konfigurationsfabrik
 - valfri semantisk STT-majoritetsresolver med JSON-validering och separat högriskspärr
+- körbar VoiceSession som binder ihop mikrofon, VAD, STT, konsensus, MyAI-kärna och TTS utan automatisk start
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
