@@ -1090,6 +1090,34 @@ Korttidsminnet ska användas för det aktuella samtalet och pågående uppgifter
 
 Minnet ska inte spara allt automatiskt. Tillfällig, oviktig eller känslig information ska behandlas försiktigt och minnessystemet ska använda tydliga regler för vad som är lämpligt att bevara.
 
+#### 15.1.1 Teknisk status för automatisk minnespolicy
+
+På utvecklingsgren finns nu en första deterministisk `memory_policy` som bedömer varje användarmeddelande efter att MyAI har svarat men innan meddelandet läggs till i korttidskontextens historik.
+
+Policyn returnerar:
+- `save` när informationen bedöms ha tydligt bestående värde
+- `review` när den verkar relevant men inte bör autosparas ännu
+- `ignore` när den är tillfällig, vardaglig eller olämplig för långtidsminne
+
+Signaler som höjer minnesvärdet är bland annat:
+- uttryckliga formuleringar som ”kom ihåg” eller ”lägg på minnet”
+- bestående preferenser
+- ”från och med nu”-regler och standardändringar
+- projektbeslut och nästa steg
+- upprepning av mycket liknande information i korttidskontexten
+
+Tillfälliga tidsmarkörer som ”idag”, ”just nu”, ”den här gången” och ”tillfälligt” sänker minnesvärdet. Vanliga frågor behandlas normalt inte som långtidsminne.
+
+Automatisk lagring har en konfigurerbar tröskel, standard 80/100. Kandidater från 55/100 blir `review`. Både automatisk bedömning och automatisk lagring kan stängas av separat via konfiguration.
+
+Som första integritetsskydd blockeras automatisk lagring helt när texten innehåller tydliga signaler om exempelvis lösenord, PIN-kod, API-nyckel, access/refresh-token, privata nycklar, kortnummer eller personnummer. Sådan information får inte autosparas bara för att användaren råkar formulera en minnesinstruktion kring den.
+
+`MemoryStore.save_if_new()` förhindrar dessutom identiska minnen inom samma kategori från att lagras om och om igen.
+
+MyAI-kärnans svarobjekt innehåller nu `memory_decision` med score, kategori, motivering och om något faktiskt sparades. Detta gör minnesbeteendet spårbart vid test och felsökning.
+
+Den första återkomstsignalen använder mycket hög textlikhet i korttidskontexten. Mer avancerad semantisk sammanslagning, uppdatering av motstridiga minnen och livslängds-/glömskepolicy byggs som senare separata lager.
+
 ### 15.2 Minneshantering
 
 På sikt ska det finnas tydliga regler för:
@@ -1384,6 +1412,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - valbar lokal Faster-Whisper STT och avbrytbar Windows SAPI TTS som utbytbara röstproviders
 - valbar sounddevice-baserad fysisk mikrofonkälla som matar VAD-kedjan med exakt mono PCM16-ramformat
 - sammanhållen VoiceRuntime samt guidat live-rösttest som DEL 8 i den samlade Windows-hårdvaruverifieringen
+- automatisk långtidsminnespolicy med save/review/ignore, känslighetsblockering och dubblettskydd
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
