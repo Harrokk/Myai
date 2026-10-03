@@ -209,6 +209,23 @@ TTS-fel får inte radera eller ogiltigförklara MyAI:s textsvar. Sessionen retur
 
 STT- och TTS-motorerna är duck-typed/utbytbara och ligger utanför AI-kärnan. CI testar orkestreringen med simulerade motorer. Faktisk mikrofon, hörlurar/högtalare, latency och verkligt avbrott under tal ska verifieras lokalt senare.
 
+### 4.10 Teknisk status för röstaktivitetsdetektering
+
+På utvecklingsgren finns nu en lätt lokal VAD-motor för mono PCM16-ljud.
+
+VAD-lagret:
+- beräknar RMS-ljudnivå per PCM16-ram
+- kräver ett konfigurerbart antal sammanhängande aktiva ramar innan talstart accepteras
+- kräver ett konfigurerbart antal tysta ramar innan talslut accepteras
+- filtrerar därmed bort korta enstaka ljudspikar bättre än en enkel en-ramströskel
+- returnerar tydliga händelser: `silence`, `speech_start`, `speech` och `speech_end`
+
+Standardkonfigurationen använder 16 kHz, 20 ms ljudramar, RMS-tröskel 500, två aktiva start-ramar och åtta tysta slut-ramar. Alla värden kan finjusteras i konfigurationen efter praktiska mikrofontester.
+
+VAD-motorn använder endast Python-standardbiblioteket och har därför inga tunga externa beroenden. Den är avsedd att fungera både under Windows-utveckling och senare på Raspberry Pi.
+
+CI testar ljudnivåberäkning, talstart, talslut, korta störningar och reset. Verklig mikrofonbrusnivå och optimala trösklar ska kalibreras i den senare fysiska ljud-/hårdvarurundan.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1266,6 +1283,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - Sverige-anpassad produktprisjämförelse med konservativ extraktion av pris, frakt, moms, lager och leveransstatus
 - adaptiv STT-konsensus och riskpolicy för framtida röstinmatning
 - hårdvaruoberoende röstsession för STT → MyAI → TTS med stoppbar uppläsning
+- lätt PCM16-baserad VAD för konfigurerbar talstart och talslut
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
