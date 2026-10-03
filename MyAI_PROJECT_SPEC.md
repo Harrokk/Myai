@@ -303,6 +303,22 @@ Standardkonfigurationen använder asynkron TTS när TTS väl är aktiverat, med 
 
 Tråd- och avbrottslogiken testas i CI med en simulerad blockerande TTS-provider. Verklig pyttsx3-trådbeteende och faktisk barge-in-latens ska verifieras på Windows-hårdvaran.
 
+### 4.15 Teknisk status för kontinuerlig handsfree-loop
+
+På utvecklingsgren finns nu `ContinuousVoiceLoop`, som kan köra `VoiceSession.run_once()` upprepade gånger i en separat daemon-tråd.
+
+Loopen:
+- startar röstsessionens mikrofon explicit
+- fortsätter lyssna efter nya yttranden tills den stoppas
+- låter den interruptibla TTS-wrappern tala i bakgrunden medan nästa lyssningscykel kan börja
+- skickar färdiga röstresultat till en valfri callback
+- isolerar fel per yttrande så ett enskilt STT-/pipelinefel inte behöver döda hela röstloopen
+- räknar färdiga yttranden, timeouts och fel
+- använder ett stop-event och försöker stoppa session/mikrofon för att avblockera bakgrundstråden
+- kan stoppas och joinas med timeout
+
+Loopen startas inte automatiskt. Ett senare terminal-/runtime-lager får uttryckligen aktivera den först när röstkonfiguration och fysisk ljudkedja är verifierade.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1459,6 +1475,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - körbar VoiceSession som binder ihop mikrofon, VAD, STT, konsensus, MyAI-kärna och TTS utan automatisk start
 - lazy terminalkommandon för röststatus, ett yttrande och stop utan röstimport/start vid textläge
 - interruptibel bakgrunds-TTS som låter mikrofon/VAD fortsätta under uppläsning och möjliggör verkligt barge-in
+- kontinuerlig explicit-startad handsfree-loop med bakgrundstråd, felisolering och stopp-event
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
