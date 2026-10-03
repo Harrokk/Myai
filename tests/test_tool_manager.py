@@ -34,6 +34,16 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_keeps_excel_routing_with_named_sheet():
+    assert tool_manager.detect_tools(
+        'Läs Excel-filen "budget.xlsx" på blad "Januari".'
+    ) == ["excel_read"]
+
+    assert tool_manager.detect_tools(
+        'Sätt B2 till 42 i "budget.xlsx" på blad "Januari".'
+    ) == ["excel_set_cell"]
+
+
 def test_detect_tools_routes_excel_cell_edit():
     result = tool_manager.detect_tools(
         'Sätt B2 till 42 i "budget.xlsx".'
