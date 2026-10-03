@@ -167,6 +167,19 @@ def detect_tools(user_input):
             "capture photo",
         )
     )
+    asks_object_detection = any(
+        phrase in text
+        for phrase in (
+            "identifiera objekt",
+            "vilka objekt",
+            "vilka saker",
+            "vad finns för objekt",
+            "hitta objekt",
+            "object detection",
+            "detect objects",
+        )
+    )
+
     asks_ocr = any(
         phrase in text
         for phrase in (
@@ -196,6 +209,12 @@ def detect_tools(user_input):
             "describe image",
         )
     )
+
+    if asks_camera_capture and asks_object_detection:
+        return ["camera_capture", "vision_detect_objects"]
+
+    if asks_object_detection:
+        return ["vision_detect_objects"]
 
     if asks_camera_capture and asks_ocr:
         return ["camera_capture", "vision_read_text"]
