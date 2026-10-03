@@ -45,12 +45,34 @@ class FakeSheet:
 
 
 class FakeWorkbook:
-    def __init__(self, rows=None):
-        self.active = FakeSheet()
+    def __init__(self, rows=None, sheets=None):
         self.closed = False
 
-        for row in rows or []:
-            self.active.append(row)
+        if sheets:
+            self._sheets = {}
+
+            for title, sheet_rows in sheets.items():
+                sheet = FakeSheet(title=title)
+
+                for row in sheet_rows:
+                    sheet.append(row)
+
+                self._sheets[title] = sheet
+
+            self.active = next(iter(self._sheets.values()))
+        else:
+            self.active = FakeSheet()
+            self._sheets = {self.active.title: self.active}
+
+            for row in rows or []:
+                self.active.append(row)
+
+    @property
+    def sheetnames(self):
+        return list(self._sheets.keys())
+
+    def __getitem__(self, name):
+        return self._sheets[name]
 
     def save(self, path):
         Path(path).write_bytes(b"fake-xlsx")
@@ -60,8 +82,9 @@ class FakeWorkbook:
 
 
 class FakeOpenpyxl:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, sheets=None):
         self.rows = rows or []
+        self.sheets = sheets
         self.created = []
         self.loaded = []
 
@@ -71,7 +94,7 @@ class FakeOpenpyxl:
         return workbook
 
     def load_workbook(self, path, read_only=False, data_only=False):
-        workbook = FakeWorkbook(self.rows)
+        workbook = FakeWorkbook(self.rows, sheets=self.sheets)
         self.loaded.append(
             {
                 "path": Path(path),
@@ -140,6 +163,7 @@ def test_parse_append_request_reads_row():
 
     assert request == {
         "path": "budget.xlsx",
+        "sheet": None,
         "row": ["Kaffe", 35],
     }
 
@@ -336,3 +360,86 @@ def test_set_excel_cell_respects_write_disabled(tmp_path):
 
 def test_excel_set_cell_tool_uses_user_text_mode():
     assert excel.TOOLS["excel_set_cell"]["input_mode"] == "user_text"
+
+
+
+def test_extract_sheet_name_reads_quoted_name():
+    assert (
+        excel.extract_sheet_name(
+            'Läs Excel-filen "budget.xlsx" på blad "Januari".'
+        )
+        == "Januari"
+    )
+    assert excel.extract_sheet_name('Läs "budget.xlsx".') is None
+
+
+def test_create_request_includes_selected_sheet():
+    request = excel.parse_create_request(
+        'Skapa Excel-filen "budget.xlsx" på blad "Januari" '
+        "med kolumner Namn, Belopp och rader Kaffe, 35"
+    )
+
+    assert request["sheet"] == "Januari"
+
+
+def test_read_excel_selects_named_sheet(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+    fake = FakeOpenpyxl(
+        sheets={
+            "Januari": [["Namn", "Belopp"], ["Kaffe", 35]],
+            "Februari": [["Namn", "Belopp"], ["Lunch", 120]],
+        }
+    )
+
+    result = excel.read_excel_file(
+        "budget.xlsx",
+        cfg,
+        openpyxl_module=fake,
+        sheet_name="Februari",
+    )
+
+    assert result["sheet"] == "Februari"
+    assert result["rows"][1] == ["Lunch", 120]
+
+
+def test_read_excel_rejects_missing_named_sheet(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+    fake = FakeOpenpyxl(
+        sheets={
+            "Januari": [["Namn", "Belopp"]],
+        }
+    )
+
+    try:
+        excel.read_excel_file(
+            "budget.xlsx",
+            cfg,
+            openpyxl_module=fake,
+            sheet_name="Mars",
+        )
+    except ValueError as error:
+        assert "finns inte" in str(error)
+    else:
+        raise AssertionError("Missing sheet should fail")
+
+
+def test_append_request_keeps_named_sheet():
+    request = excel.parse_append_request(
+        'Lägg till raden Kaffe, 35 i "budget.xlsx" på blad "Januari".'
+    )
+
+    assert request["sheet"] == "Januari"
+
+
+def test_set_cell_request_keeps_named_sheet():
+    request = excel.parse_set_cell_request(
+        'Sätt B2 till 42 i "budget.xlsx" på blad "Januari".'
+    )
+
+    assert request["sheet"] == "Januari"

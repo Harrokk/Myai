@@ -79,6 +79,40 @@ def _split_cells(text):
     ]
 
 
+def extract_sheet_name(user_text):
+    text = str(user_text or "")
+    match = re.search(
+        r"""(?:på|i)\s+blad(?:et)?\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”)""",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    name = next(
+        (group for group in match.groups() if group is not None),
+        None,
+    )
+
+    if name is None or not name.strip():
+        raise ValueError("Bladnamnet får inte vara tomt.")
+
+    return name.strip()
+
+
+def _select_sheet(workbook, sheet_name=None):
+    if not sheet_name:
+        return workbook.active
+
+    if sheet_name not in workbook.sheetnames:
+        raise ValueError(
+            f'Bladet "{sheet_name}" finns inte i arbetsboken.'
+        )
+
+    return workbook[sheet_name]
+
+
 def parse_create_request(user_text):
     text = str(user_text or "").strip()
     path = extract_file_path(text)
@@ -129,6 +163,7 @@ def parse_create_request(user_text):
 
     return {
         "path": path,
+        "sheet": extract_sheet_name(text),
         "headers": headers,
         "rows": rows,
     }
@@ -199,6 +234,7 @@ def parse_set_cell_request(user_text):
 
         return {
             "path": path,
+            "sheet": extract_sheet_name(text),
             "cell": cell["reference"],
             "row": cell["row"],
             "column": cell["column"],
@@ -234,6 +270,7 @@ def parse_append_request(user_text):
 
     return {
         "path": path,
+        "sheet": extract_sheet_name(text),
         "row": row,
     }
 
@@ -255,7 +292,10 @@ def create_excel_file(
     openpyxl = openpyxl_module or _load_openpyxl()
     workbook = openpyxl.Workbook()
     sheet = workbook.active
-    sheet.title = excel.get("default_sheet", "Data")
+    sheet.title = (
+        request.get("sheet")
+        or excel.get("default_sheet", "Data")
+    )
     sheet.append(list(request["headers"]))
 
     for row in request.get("rows", []):
@@ -283,6 +323,7 @@ def read_excel_file(
     path_text,
     settings=None,
     openpyxl_module=None,
+    sheet_name=None,
 ):
     settings, excel = _excel_config(settings)
     path = _require_xlsx(path_text, settings)
@@ -306,7 +347,7 @@ def read_excel_file(
     )
 
     try:
-        sheet = workbook.active
+        sheet = _select_sheet(workbook, sheet_name)
         rows = []
 
         for index, row in enumerate(
@@ -349,7 +390,7 @@ def append_excel_row(
 
     openpyxl = openpyxl_module or _load_openpyxl()
     workbook = openpyxl.load_workbook(path)
-    sheet = workbook.active
+    sheet = _select_sheet(workbook, request.get("sheet"))
 
     if sheet.max_column and len(request["row"]) != sheet.max_column:
         workbook.close()
@@ -397,7 +438,7 @@ def set_excel_cell(
 
     openpyxl = openpyxl_module or _load_openpyxl()
     workbook = openpyxl.load_workbook(path)
-    sheet = workbook.active
+    sheet = _select_sheet(workbook, request.get("sheet"))
     cell = sheet.cell(
         row=request["row"],
         column=request["column"],
@@ -444,7 +485,10 @@ def excel_read(user_text):
         if not path:
             return "Ingen .xlsx-fil hittades i instruktionen."
 
-        result = read_excel_file(path)
+        result = read_excel_file(
+            path,
+            sheet_name=extract_sheet_name(user_text),
+        )
         lines = [
             (
                 f"Excel {result['path'].name} | blad {result['sheet']} | "
@@ -472,8 +516,9 @@ def excel_set_cell(user_text):
         request = parse_set_cell_request(user_text)
         result = set_excel_cell(request)
         return (
-            f"Cell {result['cell']} i {result['path'].name} ändrades "
-            f"från {result['previous']} till {result['value']}."
+            f"Cell {result['cell']} på blad {result['sheet']} i "
+            f"{result['path'].name} ändrades från {result['previous']} "
+            f"till {result['value']}."
         )
     except Exception as error:
         return f"Kunde inte ändra Excel-cellen: {error}"
@@ -484,8 +529,8 @@ def excel_append(user_text):
         request = parse_append_request(user_text)
         result = append_excel_row(request)
         return (
-            f"En rad lades till i {result['path'].name} "
-            f"på rad {result['row_number']}."
+            f"En rad lades till på blad {result['sheet']} i "
+            f"{result['path'].name} på rad {result['row_number']}."
         )
     except Exception as error:
         return f"Kunde inte lägga till Excel-raden: {error}"
