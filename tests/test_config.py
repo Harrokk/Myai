@@ -8,6 +8,10 @@ def test_load_settings_uses_defaults_when_file_is_missing(tmp_path):
 
     assert settings["ollama"]["model"] == DEFAULT_SETTINGS["ollama"]["model"]
     assert settings["memory"]["database"] == "memory.db"
+    assert settings["memory"]["auto_assess_enabled"] is True
+    assert settings["memory"]["auto_save_enabled"] is True
+    assert settings["memory"]["auto_save_threshold"] == 80
+    assert settings["memory"]["review_threshold"] == 55
 
 
 def test_load_settings_merges_partial_override(tmp_path):
