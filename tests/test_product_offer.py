@@ -212,3 +212,108 @@ def test_non_sek_shipping_preserves_value_and_currency():
     assert result[0]["shipping_currency"] == "EUR"
     assert result[0]["shipping_sek"] is None
     assert result[0]["ships_to_sweden"] is True
+
+
+def test_extracts_structured_delivery_days():
+    result = product_offer.extract_product_offers(
+        page(
+            [
+                {
+                    "@type": "Product",
+                    "name": "Sensor",
+                    "offers": {
+                        "@type": "Offer",
+                        "price": 100,
+                        "priceCurrency": "SEK",
+                        "shippingDetails": {
+                            "@type": "OfferShippingDetails",
+                            "shippingDestination": {
+                                "@type": "DefinedRegion",
+                                "addressCountry": "SE",
+                            },
+                            "deliveryTime": {
+                                "@type": "ShippingDeliveryTime",
+                                "handlingTime": {
+                                    "@type": "QuantitativeValue",
+                                    "minValue": 1,
+                                    "maxValue": 2,
+                                    "unitCode": "DAY",
+                                },
+                                "transitTime": {
+                                    "@type": "QuantitativeValue",
+                                    "minValue": 2,
+                                    "maxValue": 4,
+                                    "unitCode": "DAY",
+                                },
+                            },
+                        },
+                    },
+                }
+            ]
+        )
+    )
+
+    assert result[0]["delivery_days"] == 6.0
+
+
+def test_delivery_days_remain_unknown_for_non_day_units():
+    result = product_offer.extract_product_offers(
+        page(
+            [
+                {
+                    "@type": "Product",
+                    "name": "Sensor",
+                    "offers": {
+                        "@type": "Offer",
+                        "price": 100,
+                        "priceCurrency": "SEK",
+                        "shippingDetails": {
+                            "@type": "OfferShippingDetails",
+                            "deliveryTime": {
+                                "@type": "ShippingDeliveryTime",
+                                "transitTime": {
+                                    "@type": "QuantitativeValue",
+                                    "value": 48,
+                                    "unitCode": "HUR",
+                                },
+                            },
+                        },
+                    },
+                }
+            ]
+        )
+    )
+
+    assert result[0]["delivery_days"] is None
+
+
+def test_extracts_structured_return_policy():
+    result = product_offer.extract_product_offers(
+        page(
+            [
+                {
+                    "@type": "Product",
+                    "name": "Sensor",
+                    "offers": {
+                        "@type": "Offer",
+                        "price": 100,
+                        "priceCurrency": "SEK",
+                        "hasMerchantReturnPolicy": {
+                            "@type": "MerchantReturnPolicy",
+                            "applicableCountry": "SE",
+                            "returnPolicyCategory": (
+                                "https://schema.org/MerchantReturnFiniteReturnWindow"
+                            ),
+                            "merchantReturnDays": 30,
+                            "returnMethod": "https://schema.org/ReturnByMail",
+                            "returnFees": "https://schema.org/FreeReturn",
+                        },
+                    },
+                }
+            ]
+        )
+    )
+
+    policy = result[0]["return_policy"]
+    assert policy["return_days"] == 30.0
+    assert policy["applicable_country"] == "SE"
