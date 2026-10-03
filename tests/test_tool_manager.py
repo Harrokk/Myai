@@ -34,6 +34,20 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_excel_cell_edit():
+    result = tool_manager.detect_tools(
+        'Sätt B2 till 42 i "budget.xlsx".'
+    )
+    assert result == ["excel_set_cell"]
+
+
+def test_detect_tools_routes_excel_formula_edit():
+    result = tool_manager.detect_tools(
+        'Skriv =SUM(B2:B10) i cell C2 i "budget.xlsx".'
+    )
+    assert result == ["excel_set_cell"]
+
+
 def test_detect_tools_routes_excel_create():
     result = tool_manager.detect_tools(
         'Skapa Excel-filen "budget.xlsx" med kolumner Namn, Belopp '
