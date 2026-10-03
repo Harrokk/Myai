@@ -198,7 +198,7 @@ def assess_memory_candidate(
         phrase in normalized
         for phrase in RULE_PHRASES
     ):
-        score += 55
+        score += 70
         category = "rule"
         reasons.append(
             "Texten ser ut som en återanvändbar regel eller standardändring."
@@ -208,7 +208,7 @@ def assess_memory_candidate(
         phrase in normalized
         for phrase in PROJECT_PHRASES
     ):
-        score += 40
+        score += 45
 
         if category == "other":
             category = "project"
