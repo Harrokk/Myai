@@ -1,0 +1,131 @@
+from datetime import datetime
+from pathlib import Path
+import platform
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CAPTURE_DIR = PROJECT_ROOT / "runtime" / "captures"
+
+
+def _load_cv2():
+    try:
+        import cv2
+    except ImportError as error:
+        raise RuntimeError(
+            "Kamerabildtagning kräver OpenCV. "
+            "Installera requirements-camera.txt."
+        ) from error
+
+    return cv2
+
+
+def default_capture_path(capture_dir=DEFAULT_CAPTURE_DIR, now=None):
+    capture_dir = Path(capture_dir)
+    timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S_%f")
+    return capture_dir / f"capture_{timestamp}.jpg"
+
+
+def capture_frame(
+    camera_index=0,
+    output_path=None,
+    cv2_module=None,
+):
+    """Ta en enda bildruta och stäng kameran direkt efteråt."""
+    cv2 = cv2_module or _load_cv2()
+    output = (
+        Path(output_path)
+        if output_path is not None
+        else default_capture_path()
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    backend = None
+
+    if platform.system().lower() == "windows":
+        backend = getattr(cv2, "CAP_DSHOW", None)
+
+    camera = (
+        cv2.VideoCapture(camera_index, backend)
+        if backend is not None
+        else cv2.VideoCapture(camera_index)
+    )
+
+    try:
+        if not camera.isOpened():
+            return {
+                "success": False,
+                "camera_index": camera_index,
+                "path": None,
+                "error": "Kameran kunde inte öppnas.",
+            }
+
+        ok, frame = camera.read()
+
+        if not ok or frame is None:
+            return {
+                "success": False,
+                "camera_index": camera_index,
+                "path": None,
+                "error": "Ingen bildruta kunde läsas från kameran.",
+            }
+
+        if not cv2.imwrite(str(output), frame):
+            return {
+                "success": False,
+                "camera_index": camera_index,
+                "path": None,
+                "error": "Bildfilen kunde inte sparas.",
+            }
+
+        shape = getattr(frame, "shape", ())
+        height = int(shape[0]) if len(shape) >= 2 else None
+        width = int(shape[1]) if len(shape) >= 2 else None
+
+        return {
+            "success": True,
+            "camera_index": camera_index,
+            "path": str(output),
+            "width": width,
+            "height": height,
+            "error": None,
+        }
+    finally:
+        camera.release()
+
+
+def format_capture_result(result):
+    if not result.get("success"):
+        return (
+            "Kamerabilden kunde inte tas: "
+            + (result.get("error") or "okänt fel")
+        )
+
+    dimensions = ""
+
+    if result.get("width") and result.get("height"):
+        dimensions = (
+            f" ({result['width']}x{result['height']} pixlar)"
+        )
+
+    return (
+        f"Kamerabild sparad lokalt: {result['path']}"
+        f"{dimensions}."
+    )
+
+
+def camera_capture():
+    try:
+        return format_capture_result(capture_frame())
+    except Exception as error:
+        return f"Kamerabilden kunde inte tas: {error}"
+
+
+TOOLS = {
+    "camera_capture": {
+        "function": camera_capture,
+        "description": (
+            "Tar en enda stillbild från standardkameran, sparar den lokalt "
+            "under runtime/captures och stänger kameran direkt."
+        ),
+    }
+}
