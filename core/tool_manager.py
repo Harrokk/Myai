@@ -155,6 +155,22 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_video_recording = any(
+        phrase in text
+        for phrase in (
+            "spela in video",
+            "spela in en video",
+            "filma",
+            "ta en video",
+            "ta ett videoklipp",
+            "record video",
+            "record a video",
+        )
+    )
+
+    if asks_video_recording:
+        return ["camera_record_video"]
+
     asks_camera_capture = any(
         phrase in text
         for phrase in (
