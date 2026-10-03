@@ -805,6 +805,21 @@ Multi-tool-routing stödjer nu även flödet **ta bild → analysera bild** i et
 
 Klientformat, bildkodning, säker standardkonfiguration och felvägar testas i CI. En verklig multimodal modell ska installeras, väljas och verifieras lokalt innan visionfunktionen aktiveras som standard.
 
+### 16.1.4 Teknisk status för textläsning i bild
+
+På utvecklingsgren finns nu det separata verktyget `vision_read_text` för OCR-liknande textläsning i den senast sparade kamerabilden.
+
+Lagret:
+- återanvänder den uttryckligen konfigurerade multimodala visionmodellen
+- är beroende av samma säkra visionkonfiguration som `vision_analyze`
+- använder en strikt prompt som ber modellen transkribera synlig text utan att gissa oläsbara bokstäver eller ord
+- returnerar tydligt när vision är avstängd, ingen modell är konfigurerad eller ingen kamerabild finns
+- stöder multi-tool-flödet **ta bild → läs text** i ett enda användarkommando
+
+Textläsningen är inte en garanti för perfekt OCR. Resultatet ska behandlas som modellavläsning och osäker eller svårläst text ska inte presenteras som säker.
+
+Routing, promptbeteende och felvägar testas i CI. Verklig textläsning ska verifieras senare tillsammans med en lokalt installerad multimodal visionmodell och verkliga kamerabilder.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -968,6 +983,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only kamerainventering för Windows PnP och Linux Video4Linux
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
 - separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
+- separat OCR/textläsningslager för senaste kamerabild med no-guess-prompt
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
