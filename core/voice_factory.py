@@ -1,4 +1,5 @@
 from core.config import load_settings
+from core.voice_output import InterruptibleTTS
 from modules.voice.providers import (
     FasterWhisperSTT,
     Pyttsx3TTS,
@@ -173,7 +174,7 @@ def build_voice_components(
             tts_name,
             classes,
         )
-        tts = tts_class(
+        raw_tts = tts_class(
             rate=config.get(
                 "tts_rate",
                 180,
@@ -187,6 +188,20 @@ def build_voice_components(
                 or None
             ),
         )
+
+        if config.get(
+            "tts_async",
+            True,
+        ):
+            tts = InterruptibleTTS(
+                raw_tts,
+                stop_timeout_seconds=config.get(
+                    "tts_stop_timeout_seconds",
+                    2.0,
+                ),
+            )
+        else:
+            tts = raw_tts
 
     return {
         "enabled": True,
