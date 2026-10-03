@@ -868,6 +868,26 @@ Både det vanliga `camera_capture`-verktyget och den samlade fysiska hårdvaruve
 
 Detta är ännu ett logiskt kameraindex och inte en säker beständig koppling mellan Windows PnP-ID och OpenCV-index. Praktisk mappning mellan flera fysiska kameror ska därför verifieras senare innan automatisk kameraväxling byggs.
 
+### 16.1.8 Teknisk status för kort videoinspelning
+
+På utvecklingsgren finns nu verktyget `camera_record_video` som spelar in ett kort lokalt videoklipp från den konfigurerade standardkameran.
+
+Konfigurationen innehåller:
+- `camera.video_dir` med standard `runtime/video`
+- `camera.video_duration_seconds` med standard 5 sekunder
+- `camera.video_fps` med standard 10 fps
+
+Videomodulen:
+- använder samma valda kameraindex som stillbildslagret
+- skriver MP4 med OpenCV-backend
+- stänger både kamera och videowriter efter inspelning
+- rapporterar tydligt om kameran inte kan öppnas, första bildrutan saknas, writer inte kan öppnas eller inspelningen avbryts
+- ligger separat från visionanalys och kontinuerlig livevideo
+
+Detta är en grund för framtida videoström, inte ännu ett kontinuerligt realtidsflöde. Bildrutefrekvens, codec-stöd och faktisk inspelningslängd ska verifieras senare på fysisk Windows- och Raspberry Pi-hårdvara.
+
+Kodvägar och resursstängning testas i CI med simulerad kamera och videowriter.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1035,6 +1055,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat objektidentifieringslager med försiktiga konfidensnivåer och no-guess-regler
 - flerbildsstöd och separat förändringsdetektering mellan de två senaste kamerabilderna
 - konfigurerbart standardkameraindex och capture-katalog för stillbildstagning
+- separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
