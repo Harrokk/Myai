@@ -52,6 +52,8 @@ DEFAULT_SETTINGS = {
     },
     "voice": {
         "enabled": False,
+        "microphone_provider": "",
+        "microphone_device": "",
         "stt_provider": "",
         "stt_model": "small",
         "stt_device": "auto",
