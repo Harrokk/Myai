@@ -226,6 +226,27 @@ VAD-motorn använder endast Python-standardbiblioteket och har därför inga tun
 
 CI testar ljudnivåberäkning, talstart, talslut, korta störningar och reset. Verklig mikrofonbrusnivå och optimala trösklar ska kalibreras i den senare fysiska ljud-/hårdvarurundan.
 
+### 4.11 Teknisk status för PCM-ramkontroller och barge-in
+
+På utvecklingsgren finns nu en `VoiceFrameController` som kopplar ihop PCM-ramar, VAD och `VoiceSession`.
+
+Flödet är:
+1. ljudramar matas in en i taget
+2. VAD avgör om ramen är tystnad, talstart, pågående tal eller talslut
+3. några konfigurerbara pre-roll-ramar behålls så början av ett ord inte kapas när talstart detekteras
+4. vid `speech_start` anropas `VoiceSession.interrupt()` för att stoppa pågående TTS
+5. talramar samlas till ett sammanhängande yttrande
+6. vid `speech_end` skickas hela yttrandet som ett ljudblock till `VoiceSession.handle_audio()`
+7. en maximal yttrandelängd tvingar avslut om talslut aldrig detekteras
+
+Standardvärden:
+- två pre-roll-ramar
+- maximalt 30 sekunder per yttrande
+
+Detta innebär att röstkedjan nu är sammankopplad i kod från PCM-ramar till VAD, avbrott, STT-konsensus, MyAI-kärna och TTS. Det som fortfarande saknas för live-drift är en fysisk mikrofonkälla samt konkreta STT- och TTS-adaptrar.
+
+CI testar pre-roll, TTS-avbrott, talslut, maxlängd och överlämning av exakt ett ljudblock till röstsessionen.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1284,6 +1305,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - adaptiv STT-konsensus och riskpolicy för framtida röstinmatning
 - hårdvaruoberoende röstsession för STT → MyAI → TTS med stoppbar uppläsning
 - lätt PCM16-baserad VAD för konfigurerbar talstart och talslut
+- PCM-ramkontroller med pre-roll, barge-in/TTS-avbrott och automatisk överlämning av färdigt yttrande till röstsessionen
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
