@@ -26,6 +26,69 @@ LLM = CORE.llm
 OLLAMA_URL = CORE.ollama_url
 MODEL = CORE.model
 DEVICE_REGISTRY = DeviceRegistry()
+VOICE_SESSION = None
+
+
+def _create_voice_session():
+    # Importeras medvetet först när användaren faktiskt begär röstläge.
+    from core.voice_session import VoiceSession
+
+    return VoiceSession(
+        CORE,
+        settings=SETTINGS,
+    )
+
+
+def get_voice_session(factory=None):
+    global VOICE_SESSION
+
+    if VOICE_SESSION is None:
+        builder = factory or _create_voice_session
+        VOICE_SESSION = builder()
+
+    return VOICE_SESSION
+
+
+def voice_status_text():
+    configured = SETTINGS.get(
+        "voice",
+        {},
+    ).get("enabled", False)
+
+    if VOICE_SESSION is None:
+        return (
+            "Röstläge: "
+            + ("konfigurerat men inte startat" if configured else "avstängt")
+            + " (ingen röstsession skapad)."
+        )
+
+    status = VOICE_SESSION.status()
+
+    if not status.get("enabled"):
+        return "Röstläge: avstängt."
+
+    running = (
+        "aktivt"
+        if status.get("running")
+        else "stoppat"
+    )
+    return (
+        f"Röstläge: {running} | "
+        f"mikrofon={status.get('microphone')} | "
+        f"VAD={status.get('vad')} | "
+        f"STT={status.get('primary_stt')} | "
+        f"backup-STT={status.get('backup_stt_count', 0)} | "
+        f"TTS={status.get('tts') or 'av'}"
+    )
+
+
+def stop_voice_session():
+    if VOICE_SESSION is None:
+        return False
+
+    return bool(
+        VOICE_SESSION.stop()
+    )
 
 
 def _print_hardware_changes(changes):
@@ -105,6 +168,9 @@ def main():
     print("  /device approve ID  Godkänn och spara en ny enhet")
     print("  /device reject ID   Avvisa konfiguration av en ny enhet")
     print("  /device known ID    Kompatibilitetskommando: markera som känd")
+    print("  /voice         Visa röstlägets status")
+    print("  /voice once    Lyssna efter ett yttrande och svara")
+    print("  /voice stop    Stoppa pågående röstsession/TTS")
     print("  /exit          Avsluta")
     print()
 
@@ -114,6 +180,7 @@ def main():
 
         except KeyboardInterrupt:
             HARDWARE_MONITOR.stop()
+            stop_voice_session()
             print()
             print("Avslutar.")
             break
@@ -123,8 +190,84 @@ def main():
 
         if user_input.lower() == "/exit":
             HARDWARE_MONITOR.stop()
+            stop_voice_session()
             print("Avslutar.")
             break
+
+        if user_input.lower() == "/voice":
+            print(voice_status_text())
+            print()
+            continue
+
+        if user_input.lower() == "/voice stop":
+            stopped = stop_voice_session()
+
+            if stopped:
+                print("Röstsessionen stoppades.")
+            else:
+                print("Ingen aktiv röstsession behövde stoppas.")
+
+            print()
+            continue
+
+        if user_input.lower() == "/voice once":
+            try:
+                session = get_voice_session()
+
+                if not session.enabled:
+                    print(
+                        "Röstläge är avstängt i konfigurationen. "
+                        "Ingen mikrofon startades."
+                    )
+                    print()
+                    continue
+
+                print("Lyssnar efter ett yttrande...")
+                result = session.run_once()
+                voice_result = result.get(
+                    "voice_result",
+                    {},
+                )
+
+                if result.get("status") == "utterance_complete":
+                    transcript = voice_result.get(
+                        "transcript"
+                    )
+
+                    if transcript:
+                        print(f"Du (röst): {transcript}")
+
+                    if voice_result.get("status") == "clarify":
+                        print(
+                            voice_result.get(
+                                "message",
+                                "Röstkommandot behöver förtydligas.",
+                            )
+                        )
+                    else:
+                        answer = (
+                            voice_result.get(
+                                "assistant",
+                                {},
+                            ).get("answer")
+                        )
+
+                        if answer:
+                            print("AI:")
+                            print(answer)
+                else:
+                    print(
+                        result.get(
+                            "message",
+                            "Ingen komplett talfras registrerades.",
+                        )
+                    )
+            except Exception as error:
+                print("Röstsessionen kunde inte köras:")
+                print(error)
+
+            print()
+            continue
 
         if user_input.lower() == "/watch":
             status = (
