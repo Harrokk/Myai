@@ -23,6 +23,8 @@ DEFAULT_SETTINGS = {
         "video_dir": "runtime/video",
         "video_duration_seconds": 5,
         "video_fps": 10,
+        "video_frame_dir": "runtime/video_frames",
+        "video_sample_count": 5,
     },
     "memory": {
         "database": "memory.db",
