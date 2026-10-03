@@ -121,6 +121,123 @@ def transcript_similarity(first, second):
     )
 
 
+def command_action_signature(text):
+    normalized = normalize_transcript(text)
+
+    action_groups = (
+        (
+            "delete",
+            (
+                "radera",
+                "ta bort",
+                "delete",
+                "remove",
+            ),
+        ),
+        (
+            "overwrite",
+            (
+                "skriv över",
+                "skriva över",
+                "overwrite",
+            ),
+        ),
+        (
+            "format",
+            (
+                "formatera",
+                "format",
+            ),
+        ),
+        (
+            "shutdown",
+            (
+                "stäng av",
+                "shutdown",
+            ),
+        ),
+        (
+            "reboot",
+            (
+                "starta om",
+                "reboot",
+            ),
+        ),
+        (
+            "install",
+            (
+                "installera",
+                "install",
+            ),
+        ),
+        (
+            "uninstall",
+            (
+                "avinstallera",
+                "uninstall",
+            ),
+        ),
+        (
+            "file_create",
+            (
+                "skapa fil",
+                "skapa filen",
+                "create file",
+            ),
+        ),
+        (
+            "file_write",
+            (
+                "skriv fil",
+                "skriv till fil",
+                "skriv till filen",
+                "ändra fil",
+                "ändra filen",
+                "spara fil",
+                "spara filen",
+                "write file",
+                "modify file",
+            ),
+        ),
+        (
+            "file_read",
+            (
+                "läs fil",
+                "läs filen",
+                "read file",
+            ),
+        ),
+    )
+
+    for name, phrases in action_groups:
+        if any(
+            phrase in normalized
+            for phrase in phrases
+        ):
+            return name
+
+    has_hardware_action = [
+        word
+        for word in HARDWARE_ACTION_WORDS
+        if word in normalized
+    ]
+    has_hardware_target = [
+        word
+        for word in HARDWARE_TARGET_WORDS
+        if word in normalized
+    ]
+
+    if has_hardware_action and has_hardware_target:
+        return (
+            "hardware:"
+            + has_hardware_action[0]
+            + ":"
+            + has_hardware_target[0]
+        )
+
+    return None
+
+
 def command_risk(text):
     normalized = normalize_transcript(text)
 
@@ -295,6 +412,17 @@ def choose_transcript_consensus(
         members = []
 
         for other_index, other in enumerate(valid):
+            if risk == "high":
+                leader_action = command_action_signature(
+                    candidate["text"]
+                )
+                other_action = command_action_signature(
+                    other["text"]
+                )
+
+                if leader_action != other_action:
+                    continue
+
             similarity = transcript_similarity(
                 candidate["text"],
                 other["text"],
