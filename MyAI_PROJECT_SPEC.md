@@ -172,6 +172,31 @@ Vid framtida flytt till Raspberry Pi 5B ska röstmodulerna kunna bytas mot lätt
 
 Röstbehandling ska i första hand kunna fungera lokalt, men externa tjänster ska kunna användas som valbara verktyg om användaren tillåter det och det ger en tydlig fördel.
 
+### 4.8 Teknisk status för adaptiv röstpipeline
+
+På utvecklingsgren finns nu en hårdvaruoberoende `VoicePipeline` runt MyAI-kärnan.
+
+Pipelinen har följande ansvar:
+- ta emot en primär STT-tolkning
+- läsa STT-confidence när providern kan ge den
+- klassificera kommandot som låg eller hög risk
+- använda endast primär STT för normal dialog med tillräcklig confidence
+- kräva redundanta STT-tolkningar för högriskkommandon
+- aktivera redundans även vid låg primär confidence
+- jämföra transkriptioner och acceptera majoritetskonsensus när formuleringarna är tillräckligt lika
+- begära förtydligande när transkriptionerna motsäger varandra eller när nödvändiga extra STT-providers saknas
+- skicka accepterad transkription till befintlig MyAI-kärna
+- skicka svaret till valfri TTS-provider när TTS är aktiverat
+- kunna anropa `stop()` på TTS-providern för avbrott
+
+Riskklassningen markerar bland annat radering, överskrivning, systemavstängning/omstart, installation, GPIO/fysisk styrning, Bluetooth-anslutning samt kod- och filändringar som högrisk för rösttolkning.
+
+Textkonsensus är i detta första lager deterministisk och använder normalisering plus textlikhet. Den är inte full semantisk förståelse och ska därför senare kunna kompletteras med en separat semantisk konsensusbedömare.
+
+Röstfunktionen är avstängd som standard. Standardkonfigurationen använder tre transkriptioner när redundans behövs, primär confidence-tröskel 0,72 och textlikhetströskel 0,62.
+
+Fysiska mikrofoner, VAD, lokala STT-/TTS-motorer, Bluetooth-ljud och verklig avbrottstid ska verifieras i senare ljud-/hårdvarutester.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1321,6 +1346,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - säker schema.org/JSON-LD-produktutvinning för pris, valuta, lager, säljare och explicit Sverige-frakt
 - faktisk FX-konvertering till SEK, separat säljargranskning och flerbutiks-shopping-research
 - strukturerad leveranstid och MerchantReturnPolicy som separata shopping-/säljartransparenssignaler
+- adaptiv röstpipeline med STT-confidence, riskklassning, redundant konsensus och TTS-avbrott
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:

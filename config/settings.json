@@ -72,5 +72,14 @@
     "fx_provider": "frankfurter",
     "frankfurter_url": "https://api.frankfurter.app",
     "fx_timeout_seconds": 10
+  },
+  "voice": {
+    "enabled": false,
+    "tts_enabled": false,
+    "redundancy_enabled": true,
+    "redundancy_when_confidence_missing": false,
+    "primary_confidence_threshold": 0.72,
+    "consensus_similarity_threshold": 0.62,
+    "redundant_transcript_count": 3
   }
 }
