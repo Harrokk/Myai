@@ -950,6 +950,24 @@ Detta är ett fundament för senare livevideo och realtidsanalys, inte ännu en 
 
 Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Raspberry Pi.
 
+### 16.1.12 Teknisk status för begränsad live-vision
+
+På utvecklingsgren finns nu verktyget `vision_analyze_live`, byggt ovanpå det begränsade kamerastream-lagret.
+
+Funktionen:
+- kräver att både vision och kamerastream uttryckligen är aktiverade
+- begränsar analysen till högst sex liveframes per körning
+- JPEG-kodar frames direkt i minnet
+- skickar bilddata direkt till den konfigurerade lokala visionmodellen utan automatisk lagring av liveframes på disk
+- instruerar modellen att inte låtsas att den har sett en obruten videoström mellan de analyserade framesen
+- förbjuder gissningar om ljud, identitet, avsikt, orsak och händelser som inte kan styrkas visuellt
+
+`VisionClient` har samtidigt fått stöd för in-memory-bilddata utöver befintliga filbaserade bilder.
+
+Detta är fortfarande en kort, begränsad analysession och inte permanent realtidsbevakning. Både `vision.enabled` och `camera.stream_enabled` är avstängda som standard.
+
+In-memory-kodning, framebegränsning, routing, felvägar och promptbeteende testas i CI. Faktisk latens, GPU/RAM-belastning, kamerastabilitet och kvalitet från en lokal multimodal modell ska verifieras senare i den samlade fysiska hårdvarurundan.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1120,6 +1138,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
 - representativ sampling och försiktig multimodal analys av videobildrutor
 - standardavstängt och hårt begränsat kamerastream-lager som grund för senare livevideo
+- standardavstängd begränsad live-vision med in-memory-frames och utan automatisk disksparning
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
