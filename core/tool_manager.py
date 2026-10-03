@@ -167,6 +167,21 @@ def detect_tools(user_input):
             "capture photo",
         )
     )
+    asks_change_detection = any(
+        phrase in text
+        for phrase in (
+            "vad har ändrats",
+            "vad har förändrats",
+            "jämför bilderna",
+            "jämför med förra bilden",
+            "jämför med den förra",
+            "förändring i miljön",
+            "förändrats i bilden",
+            "compare images",
+            "what changed",
+        )
+    )
+
     asks_object_detection = any(
         phrase in text
         for phrase in (
@@ -209,6 +224,12 @@ def detect_tools(user_input):
             "describe image",
         )
     )
+
+    if asks_camera_capture and asks_change_detection:
+        return ["camera_capture", "vision_detect_change"]
+
+    if asks_change_detection:
+        return ["vision_detect_change"]
 
     if asks_camera_capture and asks_object_detection:
         return ["camera_capture", "vision_detect_objects"]
