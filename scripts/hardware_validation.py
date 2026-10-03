@@ -19,6 +19,8 @@ from modules.camera.video_frames import (
     format_video_frame_result,
     sample_latest_video_from_settings,
 )
+from modules.camera.stream import format_stream_result, run_bounded_stream
+from core.config import load_settings
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -394,6 +396,71 @@ def camera_video_frame_sampling_check(results):
     return True
 
 
+def camera_stream_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 9 - Begränsat kamerastream-test")
+    print("=" * 60)
+
+    devices = get_camera_inventory()
+
+    if not devices:
+        record(
+            results,
+            "Kamerastream",
+            "SKIP",
+            "Ingen kamera upptäcktes.",
+        )
+        return True
+
+    input(
+        "Tryck Enter för ett kort, begränsat stream-test av "
+        "den konfigurerade kameran: "
+    )
+
+    settings = load_settings()
+    settings = dict(settings)
+    camera = dict(settings.get("camera", {}))
+    camera.update(
+        {
+            "stream_enabled": True,
+            "stream_duration_seconds": 3,
+            "stream_fps": 2,
+            "stream_max_frames": 6,
+        }
+    )
+    settings["camera"] = camera
+
+    try:
+        stream_result = run_bounded_stream(settings=settings)
+    except Exception as error:
+        record(results, "Kamerastream", "FAIL", str(error))
+        return False
+
+    print(format_stream_result(stream_result))
+
+    if not stream_result.get("success"):
+        record(
+            results,
+            "Kamerastream",
+            "FAIL",
+            stream_result.get("error") or "okänt fel",
+        )
+        return False
+
+    record(
+        results,
+        "Kamerastream",
+        "PASS",
+        (
+            f"{stream_result.get('frames')} bildrutor | "
+            f"{stream_result.get('fps')} fps | "
+            f"kameraindex {stream_result.get('camera_index')}"
+        ),
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -426,6 +493,8 @@ def main():
     camera_video_check(results)
 
     camera_video_frame_sampling_check(results)
+
+    camera_stream_check(results)
 
     path = save_report(results)
 
