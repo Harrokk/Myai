@@ -571,3 +571,171 @@ def test_high_risk_transcript_is_not_silently_echo_suppressed_by_default():
     assert result["status"] == "completed"
     assert result["risk"]["level"] == "high"
     assert len(assistant.messages) == 1
+
+
+
+def high_risk_pipeline(
+    clock=None,
+    tts=None,
+    confirmation_confidence=0.95,
+):
+    assistant = FakeAssistant()
+    primary = FakeSTT(
+        {
+            "text": "Radera filen rapport txt",
+            "confidence": 0.99,
+        }
+    )
+    backups = [
+        FakeSTT(
+            {
+                "text": "Radera filen rapport txt",
+                "confidence": 0.95,
+            }
+        ),
+        FakeSTT(
+            {
+                "text": "Radera filen rapport txt",
+                "confidence": 0.95,
+            }
+        ),
+    ]
+    pipeline = VoicePipeline(
+        assistant,
+        primary,
+        backup_stt=backups,
+        tts=tts,
+        settings=settings(
+            tts_enabled=tts is not None,
+            high_risk_confirmation_enabled=True,
+            high_risk_confirmation_window_seconds=15,
+            high_risk_confirmation_min_confidence=0.80,
+        ),
+        clock=clock,
+    )
+    return pipeline, assistant, primary, confirmation_confidence
+
+
+def test_high_risk_command_waits_for_explicit_confirmation():
+    clock = FakeClock()
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=clock
+    )
+
+    first = pipeline.process_utterance(
+        b"danger"
+    )
+
+    assert first["status"] == "confirmation_required"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is not None
+
+    primary.result = {
+        "text": "bekräfta",
+        "confidence": 0.95,
+    }
+    second = pipeline.process_utterance(
+        b"confirm"
+    )
+
+    assert second["status"] == "completed"
+    assert assistant.messages == [
+        "Radera filen rapport txt"
+    ]
+    assert second["confirmation"]["confirmed"] is True
+    assert pipeline.pending_confirmation is None
+
+
+def test_plain_yes_does_not_confirm_high_risk_command():
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=FakeClock()
+    )
+    pipeline.process_utterance(b"danger")
+
+    primary.result = {
+        "text": "ja",
+        "confidence": 0.99,
+    }
+    result = pipeline.process_utterance(
+        b"yes"
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is not None
+
+
+def test_cancel_clears_pending_high_risk_command():
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=FakeClock()
+    )
+    pipeline.process_utterance(b"danger")
+
+    primary.result = {
+        "text": "avbryt",
+        "confidence": 0.99,
+    }
+    result = pipeline.process_utterance(
+        b"cancel"
+    )
+
+    assert result["status"] == "confirmation_cancelled"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is None
+
+
+def test_low_confidence_confirmation_does_not_execute():
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=FakeClock()
+    )
+    pipeline.process_utterance(b"danger")
+
+    primary.result = {
+        "text": "bekräfta",
+        "confidence": 0.50,
+    }
+    result = pipeline.process_utterance(
+        b"confirm"
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is not None
+
+
+def test_pending_confirmation_expires():
+    clock = FakeClock()
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=clock
+    )
+    pipeline.process_utterance(b"danger")
+    clock.advance(16)
+
+    primary.result = {
+        "text": "bekräfta",
+        "confidence": 0.99,
+    }
+    result = pipeline.process_utterance(
+        b"late"
+    )
+
+    assert result["status"] == "confirmation_expired"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is None
+
+
+def test_confirmation_prompt_can_be_spoken_without_executing_command():
+    tts = FakeTTS()
+    pipeline, assistant, _, _ = high_risk_pipeline(
+        clock=FakeClock(),
+        tts=tts,
+    )
+
+    result = pipeline.process_utterance(
+        b"danger"
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert assistant.messages == []
+    assert len(tts.spoken) == 1
+    assert "bekräfta" in tts.spoken[0].lower()
