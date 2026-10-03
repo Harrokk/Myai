@@ -631,6 +631,21 @@ AI:n ska då kunna identifiera att aktuell extern information krävs, hämta den
 
 Internetåtkomst ska vara ett verktyg, inte ett krav för att grundfunktionerna ska fungera.
 
+### 13.0 Teknisk status för internetsökning
+
+På utvecklingsgren finns nu verktyget `internet_search` med parameteriserad sökfråga och resultatgräns.
+
+Första backend är ett generiskt SearXNG-kompatibelt JSON-gränssnitt. Detta gör att MyAI inte behöver låsas till en specifik kommersiell sökleverantör och möjliggör senare lokal eller självhostad sökinfrastruktur.
+
+Internetsökning är avstängd som standard och kräver:
+- `internet.enabled=true`
+- provider `searxng`
+- en uttryckligen konfigurerad `searxng_url`
+
+Sökresultat normaliseras till titel, URL, kort utdrag, sökmotor och eventuell publiceringsinformation när dessa fält finns.
+
+Klientformat, felvägar, resultatbegränsning och normalisering testas i CI. Verklig internetåtkomst och vald SearXNG-instans ska senare verifieras lokalt innan funktionen aktiveras som standard.
+
 ### 13.1 Prisjämförelse och köp från Sverige
 
 När användaren ber MyAI att hitta en produkt eller det bästa priset ska assistenten kunna söka på internet och jämföra verkligt användbara köpalternativ, inte enbart sortera på lägsta listpris.
@@ -1059,6 +1074,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - bakåtkompatibelt stöd för parameteriserade verktygsanrop med JSON-schema-validering
 - säkra parameteriserade Excel-verktyg för skapa, läsa, skriva cell och lägga till rad
 - säkra parameteriserade textfilverktyg för .txt, .md, .json och .csv i lokal dokumentyta
+- standardavstängd parameteriserad internetsökning via konfigurerbar SearXNG-backend
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
