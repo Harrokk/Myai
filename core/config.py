@@ -68,6 +68,8 @@ DEFAULT_SETTINGS = {
         "vad_rms_threshold": 500,
         "vad_start_frames": 2,
         "vad_end_silence_frames": 8,
+        "vad_pre_roll_frames": 2,
+        "max_utterance_seconds": 30,
     },
     "memory": {
         "database": "memory.db",
