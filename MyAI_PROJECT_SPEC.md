@@ -753,6 +753,28 @@ Om färre än fem kandidater finns ska det visas uttryckligen i resultatet.
 
 Detta är första valideringsnivån. Djupare sidinhämtning, primärkälleidentifiering, författare/metod och faktisk motsägelseanalys ska byggas som senare lager innan procentsiffrorna får högre tak.
 
+### 13.4 Säker publik webbsideshämtning
+
+På utvecklingsgren finns nu verktyget `web_fetch_text` och en separat `PublicWebClient` som kan hämta text från en publik webbsida för djupare källverifiering.
+
+Säkerhetsregler:
+- endast `http` och `https` tillåts
+- URL:er med inbäddade användaruppgifter blockeras
+- värdnamnet DNS-upplöses före anslutning
+- privata, loopback-, link-local-, reserverade och andra icke-publika IP-adresser blockeras
+- varje redirect valideras på nytt innan den följs
+- endast uttryckligen tillåtna textbaserade innehållstyper hämtas
+- binära och okända innehållstyper blockeras
+- maximal svarsstorlek begränsas i byte
+- text som skickas vidare till modellen begränsas separat i antal tecken
+- HTML reduceras till synlig text; script, style, noscript och SVG-innehåll tas inte med
+
+Standardgränserna är 1 000 000 byte per sida, 20 000 texttecken och högst fem redirects. Gränserna ligger i konfigurationen och kan finjusteras senare.
+
+Detta lager är grunden för djupare källgranskning. En lyckad sidinhämtning höjer inte automatiskt källtillförlitlighet eller informationskonfidens; innehållet måste först analyseras med tydliga verifieringsregler.
+
+SSRF-skydd, redirect-kontroll, innehållstyper, storleksgränser och HTML-textutvinning testas i CI.
+
 ---
 
 ## 14. Position och lokalisering
@@ -1115,6 +1137,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - säkra parameteriserade textfilverktyg för .txt, .md, .json och .csv i lokal dokumentyta
 - standardavstängd parameteriserad internetsökning via konfigurerbar SearXNG-backend
 - preliminär käll-/konfidensbedömning och konfigurerbart fem-kandidater-till-topp-tre-flöde
+- säker publik webbsideshämtning med SSRF-, redirect-, innehållstyp- och storleksskydd
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
