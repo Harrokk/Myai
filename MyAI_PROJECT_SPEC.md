@@ -805,6 +805,20 @@ Multi-tool-routing stödjer nu även flödet **ta bild → analysera bild** i et
 
 Klientformat, bildkodning, säker standardkonfiguration och felvägar testas i CI. En verklig multimodal modell ska installeras, väljas och verifieras lokalt innan visionfunktionen aktiveras som standard.
 
+### 16.1.4 Specialiserade visionuppgifter
+
+På utvecklingsgren finns nu två specialiserade verktyg ovanpå samma visionklient:
+- `vision_read_text` för OCR-liknande läsning av synlig text
+- `vision_detect_objects` för en försiktig textbaserad lista över tydligt synliga objekt
+
+Textläsningen instruerar modellen att återge endast text som faktiskt går att läsa och markera oläsliga delar i stället för att gissa.
+
+Objektidentifieringen instruerar modellen att skilja mellan säkra och osäkra observationer och att inte hitta på fabrikat, identitet eller detaljer som inte kan avgöras visuellt.
+
+Båda verktygen kan användas direkt på senaste bild eller i ett multi-tool-flöde där MyAI först tar en bild och därefter kör den specifika visionuppgiften.
+
+Detta är semantiska visionuppgifter och inte geometrisk objektdetektering med bounding boxes. Om sådan exakt lokalisering behövs senare ska den byggas som ett separat lager.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -968,6 +982,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only kamerainventering för Windows PnP och Linux Video4Linux
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
 - separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
+- specialiserade visionverktyg för textläsning och försiktig objektidentifiering
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
