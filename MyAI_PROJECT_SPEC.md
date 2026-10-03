@@ -787,6 +787,24 @@ Om OpenCV saknas, kameran inte kan öppnas, ingen bildruta kan läsas eller bild
 
 Bildtagning och resursstängning testas i CI med simulerad kamera. Faktisk stillbildstagning på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan. Bildanalys/vision ligger fortsatt i ett separat senare lager.
 
+### 16.1.3 Teknisk status för visionanalys
+
+På utvecklingsgren finns nu ett separat visionlager med verktyget `vision_analyze`.
+
+Lagret:
+- analyserar den senast lokalt sparade kamerabilden
+- använder en separat multimodal Ollama-modell som måste konfigureras uttryckligen
+- är avstängt som standard
+- skickar bilddata till den lokalt konfigurerade Ollama-endpointen som base64 i en multimodal chat-förfrågan
+- vägrar analysera om ingen visionmodell är konfigurerad eller om ingen bild finns
+- använder en standardprompt som uttryckligen kräver att modellen markerar osäkerhet och inte hittar på osynliga detaljer
+
+Den vanliga textmodellen `qwen3:8b` antas inte automatiskt vara en visionmodell. Visionmodellen är därför en separat konfigurationspunkt och kan bytas utan att textdialogen ändras.
+
+Multi-tool-routing stödjer nu även flödet **ta bild → analysera bild** i ett användarkommando. Bildtagningen körs först och visionanalysen använder därefter den senast sparade bilden.
+
+Klientformat, bildkodning, säker standardkonfiguration och felvägar testas i CI. En verklig multimodal modell ska installeras, väljas och verifieras lokalt innan visionfunktionen aktiveras som standard.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -949,6 +967,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only inventering av kernel-registrerade I2C- och SPI-enheter via Linux sysfs
 - read-only kamerainventering för Windows PnP och Linux Video4Linux
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
+- separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
