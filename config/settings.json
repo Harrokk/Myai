@@ -83,6 +83,24 @@
     "redundant_transcript_count": 3,
     "vad_start_speech_frames": 2,
     "vad_end_silence_frames": 3,
-    "vad_max_frames": 500
+    "vad_max_frames": 500,
+    "microphone_provider": "sounddevice",
+    "vad_provider": "webrtcvad",
+    "stt_provider": "faster_whisper",
+    "tts_provider": "pyttsx3",
+    "sample_rate": 16000,
+    "channels": 1,
+    "sample_width": 2,
+    "frame_ms": 20,
+    "input_device": null,
+    "vad_aggressiveness": 2,
+    "stt_model": "small",
+    "stt_device": "auto",
+    "stt_compute_type": "default",
+    "stt_language": "sv",
+    "backup_stt_models": [],
+    "tts_rate": 180,
+    "tts_volume": 1,
+    "tts_voice_id": ""
   }
 }
