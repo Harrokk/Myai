@@ -124,3 +124,50 @@ def test_vision_client_requires_at_least_one_image():
         assert "Minst en bild" in str(error)
     else:
         raise AssertionError("VisionClient should require an image")
+
+
+
+def test_vision_client_sends_in_memory_images(monkeypatch):
+    seen = {}
+
+    def fake_post(url, json, timeout):
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return FakeResponse(
+            {"message": {"content": "Livebild analyserad."}}
+        )
+
+    monkeypatch.setattr(vision_client.requests, "post", fake_post)
+
+    client = vision_client.VisionClient(
+        "http://localhost:11434/api/chat",
+        "vision-model",
+        enabled=True,
+    )
+    answer = client.analyze_bytes(
+        [b"frame-one", bytearray(b"frame-two")],
+        "Beskriv livebilderna",
+        timeout=15,
+    )
+
+    assert answer == "Livebild analyserad."
+    encoded = seen["json"]["messages"][0]["images"]
+    assert len(encoded) == 2
+    assert base64.b64decode(encoded[0]) == b"frame-one"
+    assert base64.b64decode(encoded[1]) == b"frame-two"
+    assert seen["timeout"] == 15
+
+
+def test_vision_client_rejects_empty_in_memory_image():
+    client = vision_client.VisionClient(
+        "http://localhost:11434/api/chat",
+        "vision-model",
+        enabled=True,
+    )
+
+    try:
+        client.analyze_bytes([b""], "Beskriv")
+    except ValueError as error:
+        assert "icke-tomma bytes" in str(error)
+    else:
+        raise AssertionError("Empty image bytes should fail")
