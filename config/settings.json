@@ -105,6 +105,8 @@
     "semantic_consensus_enabled": false,
     "semantic_consensus_for_high_risk": false,
     "semantic_consensus_min_confidence": 0.85,
-    "session_max_wait_frames": 1500
+    "session_max_wait_frames": 1500,
+    "tts_async": true,
+    "tts_stop_timeout_seconds": 2
   }
 }
