@@ -273,6 +273,30 @@ CI testar PCM16→WAV-konvertering, confidence/uncertain-word-normalisering, tem
 
 Faktisk Faster-Whisper-modellnedladdning, RTX 3060-prestanda, svensk transkriptionskvalitet, installerade Windows-röster och verklig ljudlatency ska verifieras lokalt senare. Raspberry Pi kan få andra STT/TTS-adaptrar utan att `VoiceSession`, VAD eller MyAI-kärnan ändras.
 
+### 4.13 Teknisk status för fysisk mikrofonkälla
+
+På utvecklingsgren finns nu en valbar `SoundDeviceMicrophone` för live-inmatning.
+
+Mikrofonlagret:
+- använder `sounddevice.RawInputStream` som separat valbart beroende
+- öppnar mono `int16` PCM
+- använder samma sample rate och frame-längd som VAD-konfigurationen
+- beräknar exakt antal samples och byte per ram innan strömmen startas
+- skickar varje färdig PCM-ram direkt till `VoiceFrameController`
+- gör inte STT-arbete inne i mikrofoncallbacken utöver den redan definierade kontrollkedjan
+- sparar senaste streamstatus och callbackfel så fel kan diagnostiseras utan att ljudcallbacken kraschar okontrollerat
+- kan välja en specifik input device via konfiguration
+- stänger och frigör streamen explicit
+
+Mikrofonprovidern är tom i standardkonfigurationen och `sounddevice` ligger i ett separat `requirements-voice-input.txt`.
+
+CI testar ramgeometri, mono/int16-konfiguration, vidarebefordran av PCM-ramar, felaktig ramstorlek, streamstatus, start/stopp och providerfabrik med en simulerad ljudström.
+
+Efter detta steg finns hela livekedjan i modulär kod:
+**mikrofonkälla → PCM16 → VAD → barge-in → yttrandebuffer → Faster-Whisper/STT-konsensus → MyAI → Windows SAPI/TTS**.
+
+Det som återstår innan live-röst kan betraktas som verifierad är installation av de valbara ljudberoendena och fysisk testning av verklig mikrofon, ljudenhet, STT-modell, TTS-röst, latency och avbrott på Windows-datorn.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1333,6 +1357,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - lätt PCM16-baserad VAD för konfigurerbar talstart och talslut
 - PCM-ramkontroller med pre-roll, barge-in/TTS-avbrott och automatisk överlämning av färdigt yttrande till röstsessionen
 - valbar lokal Faster-Whisper STT och avbrytbar Windows SAPI TTS som utbytbara röstproviders
+- valbar sounddevice-baserad fysisk mikrofonkälla som matar VAD-kedjan med exakt mono PCM16-ramformat
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
