@@ -59,3 +59,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["high_risk_confidence_threshold"] == 0.90
     assert settings["voice"]["max_interpretations"] == 3
     assert settings["voice"]["redundant_for_high_risk"] is True
+    assert settings["voice"]["vad_enabled"] is True
+    assert settings["voice"]["vad_sample_rate"] == 16000
+    assert settings["voice"]["vad_frame_ms"] == 20
+    assert settings["voice"]["vad_rms_threshold"] == 500
+    assert settings["voice"]["vad_start_frames"] == 2
+    assert settings["voice"]["vad_end_silence_frames"] == 8
