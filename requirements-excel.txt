@@ -1,0 +1,3 @@
+# Optional Excel dependency.
+# Install with: python -m pip install -r requirements-excel.txt
+openpyxl>=3.1,<4
