@@ -58,6 +58,8 @@
       "relevance": 0.4,
       "source_reliability": 0.35,
       "information_confidence": 0.25
-    }
+    },
+    "deep_verification_enabled": true,
+    "deep_blend": 0.4
   }
 }
