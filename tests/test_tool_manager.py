@@ -34,6 +34,13 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_video_recording():
+    result = tool_manager.detect_tools(
+        "Spela in en video med kameran."
+    )
+    assert result == ["camera_record_video"]
+
+
 def test_detect_tools_routes_change_detection():
     result = tool_manager.detect_tools(
         "Jämför bilderna och säg vad som har ändrats."
