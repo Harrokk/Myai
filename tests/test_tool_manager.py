@@ -48,6 +48,13 @@ def test_detect_tools_routes_explicit_public_page_fetch():
     assert result == ["web_fetch_text"]
 
 
+def test_detect_tools_routes_explicit_source_verification():
+    result = tool_manager.detect_tools(
+        "Granska källan https://example.com/report."
+    )
+    assert result == ["source_verify_page"]
+
+
 def test_detect_tools_routes_gps_location():
     result = tool_manager.detect_tools(
         "Vilka koordinater har jag enligt GPS?"
