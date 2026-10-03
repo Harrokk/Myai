@@ -93,6 +93,14 @@ class VoiceHandsfreeRunner:
                 if status == "disabled":
                     break
 
+                voice_result = result.get(
+                    "voice_result",
+                    {},
+                )
+
+                if voice_result.get("status") == "ignored_echo":
+                    continue
+
                 if self.on_result is not None:
                     self.on_result(result)
         finally:
