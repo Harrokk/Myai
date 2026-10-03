@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from modules.bluetooth.proximity import scan_nearby_devices
 from modules.camera.camera import get_camera_inventory, format_camera_inventory
 from modules.camera.capture import capture_frame, format_capture_result
+from modules.location.gps import format_gps_status, read_gps_fix
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -301,6 +302,48 @@ def camera_capture_check(results):
     return True
 
 
+def gps_validation_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 7 - GPS / NMEA-position")
+    print("=" * 60)
+
+    try:
+        result = read_gps_fix()
+    except Exception as error:
+        record(results, "GPS-position", "FAIL", str(error))
+        return False
+
+    print(format_gps_status(result))
+
+    if result.get("available"):
+        fix = result["fix"]
+        record(
+            results,
+            "GPS-position",
+            "PASS",
+            (
+                f"{fix['latitude']:.7f}, "
+                f"{fix['longitude']:.7f}"
+            ),
+        )
+        return True
+
+    reason = result.get("reason") or "ingen GPS-fix"
+
+    if "avstängt" in reason or "port" in reason.lower():
+        record(
+            results,
+            "GPS-position",
+            "SKIP",
+            reason,
+        )
+        return True
+
+    record(results, "GPS-position", "WARN", reason)
+    return True
+
+
 def main():
     results = []
 
@@ -329,6 +372,8 @@ def main():
     camera_inventory_check(results)
 
     camera_capture_check(results)
+
+    gps_validation_check(results)
 
     path = save_report(results)
 
