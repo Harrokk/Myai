@@ -155,6 +155,14 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_excel_edit = (
+        (("sätt" in text or "ändra" in text) and ".xlsx" in text)
+        or ("skriv" in text and ".xlsx" in text and "cell" in text)
+    )
+
+    if asks_excel_edit:
+        return ["excel_set_cell"]
+
     asks_excel_append = any(
         phrase in text
         for phrase in (
