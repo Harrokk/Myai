@@ -38,6 +38,8 @@ DEFAULT_SETTINGS = {
     "research": {
         "candidate_limit": 5,
         "top_results": 3,
+        "deep_verification_enabled": True,
+        "deep_blend": 0.40,
         "weights": {
             "relevance": 0.40,
             "source_reliability": 0.35,
