@@ -321,3 +321,19 @@ def test_stop_voice_session_stops_handsfree_and_session(monkeypatch):
     assert mail.stop_voice_session() is True
     assert runner.stop_calls == 1
     assert session.stop_calls == 1
+
+
+
+def test_stop_voice_handsfree_reports_false_when_already_stopped(monkeypatch):
+    runner = FakeHandsfree(
+        running=False,
+        stop_result=True,
+    )
+    monkeypatch.setattr(
+        mail,
+        "VOICE_HANDSFREE",
+        runner,
+    )
+
+    assert mail.stop_voice_handsfree() is False
+    assert runner.stop_calls == 1
