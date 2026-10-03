@@ -41,6 +41,13 @@ def test_detect_tools_routes_explicit_internet_search():
     assert result == ["internet_search"]
 
 
+def test_detect_tools_routes_explicit_public_page_fetch():
+    result = tool_manager.detect_tools(
+        "Läs https://example.com/test och sammanfatta sidan."
+    )
+    assert result == ["web_fetch_text"]
+
+
 def test_detect_tools_routes_gps_location():
     result = tool_manager.detect_tools(
         "Vilka koordinater har jag enligt GPS?"
