@@ -303,6 +303,32 @@ Standardkonfigurationen använder asynkron TTS när TTS väl är aktiverat, med 
 
 Tråd- och avbrottslogiken testas i CI med en simulerad blockerande TTS-provider. Verklig pyttsx3-trådbeteende och faktisk barge-in-latens ska verifieras på Windows-hårdvaran.
 
+### 4.15 Teknisk status för kontinuerligt handsfree-läge
+
+På utvecklingsgren finns nu `VoiceHandsfreeRunner`, som kör `VoiceSession.run_once()` upprepade gånger i en separat daemon-tråd.
+
+Handsfree-läget:
+- startar den befintliga röstsessionen en gång
+- fortsätter lyssna efter nästa yttrande efter timeout eller färdigt svar
+- ignorerar vanliga väntetimeouts och rapporterar endast riktiga yttranden
+- skickar resultat via callback så terminalen kan visa transkription och svar
+- isolerar fel via separat error-callback
+- kan stoppas från en annan tråd
+- stoppar mikrofon och TTS när runnern avslutas
+- tillåter inte två samtidiga handsfree-trådar
+
+Terminalkommandon:
+- `/voice on` startar kontinuerligt läge
+- `/voice off` stoppar kontinuerligt läge
+- `/voice stop` stoppar både handsfree-runner och underliggande röstsession
+- `/voice once` blockeras medan handsfree redan är aktivt så två läsare inte konkurrerar om samma mikrofon
+
+Handsfree är **avstängt som standard** genom `voice.handsfree_enabled=false`. Kontinuerlig mikrofon öppnas därför först efter separat konfigurationsaktivering och uttryckligt `/voice on`.
+
+Standard väntelimit per lyssningscykel är 1500 ramar och stop-timeout är tre sekunder.
+
+Bakgrundsloopen och stopplogiken testas i CI med simulerad röstsession. Verklig kontinuerlig lyssning, högtalare-till-mikrofon-eko, barge-in och längre stabilitetstest ska verifieras fysiskt innan handsfree aktiveras som standard.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1459,6 +1485,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - körbar VoiceSession som binder ihop mikrofon, VAD, STT, konsensus, MyAI-kärna och TTS utan automatisk start
 - lazy terminalkommandon för röststatus, ett yttrande och stop utan röstimport/start vid textläge
 - interruptibel bakgrunds-TTS som låter mikrofon/VAD fortsätta under uppläsning och möjliggör verkligt barge-in
+- stoppbar handsfree-runner i bakgrundstråd med /voice on/off och separat standardavstängd säkerhetsbrytare
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
