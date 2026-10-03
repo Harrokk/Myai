@@ -187,3 +187,31 @@ def test_short_term_history_is_bounded(tmp_path):
     assert core.conversation_history[0]["content"] == (
         "Hur mycket CPU används nu?"
     )
+
+
+
+def test_core_passes_user_message_to_query_aware_tool(tmp_path):
+    memory = FakeMemory()
+    llm = FakeLLM()
+    seen = {}
+
+    tools = {
+        "internet_search": {
+            "function": lambda query: seen.setdefault("query", query) or "SEARCH OK",
+            "description": "Internet search",
+            "pass_user_input": True,
+        },
+    }
+
+    core = MyAICore(
+        deepcopy(DEFAULT_SETTINGS),
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond("Sök på internet efter Raspberry Pi 5")
+
+    assert result["tools"] == ["internet_search"]
+    assert seen["query"] == "Sök på internet efter Raspberry Pi 5"
