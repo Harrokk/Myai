@@ -22,6 +22,8 @@ from modules.pi.diagnostics import (
 )
 from modules.pi.interfaces import collect_pi_interfaces, format_pi_interfaces
 from modules.pi.power import collect_power_telemetry, format_power_telemetry
+from core.config import load_settings
+from modules.location.gps_nmea import read_gps_fix
 from modules.pi.system_status import collect_pi_status, format_pi_status
 
 
@@ -37,6 +39,67 @@ def record(results, name, status, details=""):
     results.append(item)
     detail_text = f" - {details}" if details else ""
     print(f"[{status}] {name}{detail_text}")
+
+
+def gps_check(results):
+    print()
+    print("=" * 60)
+    print("GPS - Seriell NMEA-position")
+    print("=" * 60)
+
+    settings = load_settings()
+    gps = settings.get("gps", {})
+
+    if not gps.get("enabled", False):
+        record(
+            results,
+            "GPS-position",
+            "SKIP",
+            "GPS-provider är avstängd i konfigurationen.",
+        )
+        return True
+
+    port = (gps.get("port") or "").strip()
+
+    if not port:
+        record(
+            results,
+            "GPS-position",
+            "FAIL",
+            "GPS är aktiverad men gps.port saknas.",
+        )
+        return False
+
+    try:
+        fix = read_gps_fix(
+            port=port,
+            baudrate=gps.get("baudrate", 9600),
+            timeout_seconds=gps.get("timeout_seconds", 10),
+        )
+    except Exception as error:
+        record(results, "GPS-position", "FAIL", str(error))
+        return False
+
+    if fix is None:
+        record(
+            results,
+            "GPS-position",
+            "FAIL",
+            "Ingen giltig aktiv RMC-fix mottogs.",
+        )
+        return False
+
+    record(
+        results,
+        "GPS-position",
+        "PASS",
+        (
+            f"{fix['latitude']:.6f}, "
+            f"{fix['longitude']:.6f} | "
+            f"{fix['timestamp']}"
+        ),
+    )
+    return True
 
 
 def main():
@@ -158,6 +221,8 @@ def main():
                 else result.get("reason") or "ej tillgängligt på denna miljö"
             ),
         )
+
+    gps_check(results)
 
     power_result = collect_power_telemetry()
     print()

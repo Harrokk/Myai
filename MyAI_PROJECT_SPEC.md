@@ -695,6 +695,30 @@ Detta lager hämtar ännu ingen fysisk GPS-signal och gör ingen nätverksgeolok
 
 Validering, stale-logik, formatering och routing testas i CI. Verklig GPS-/telefon-/nätverksposition ska verifieras senare med respektive fysisk eller extern källa.
 
+### 14.2 Teknisk status för seriell NMEA-GPS
+
+På utvecklingsgren finns nu ett separat GPS-providerlager för seriella NMEA-mottagare.
+
+Lagret:
+- validerar NMEA-checksumma innan en position accepteras
+- accepterar RMC-meningar från olika talker-ID:n, exempelvis GP och GN
+- kräver aktiv RMC-status
+- konverterar NMEA grader/minuter till decimalgrader
+- använder RMC:s egna UTC-datum och UTC-tid i stället för att hitta på datum
+- sparar godkänd position genom samma normaliserade positionsformat som `location_status`
+- skriver positionsfilen atomiskt via temporär fil
+- stänger seriell port även när läsningen misslyckas
+
+GPS-provider är avstängd som standard och kräver uttrycklig konfiguration:
+- `gps.enabled`
+- `gps.port`
+- `gps.baudrate`
+- `gps.timeout_seconds`
+
+Seriell åtkomst använder det valbara beroendet i `requirements-gps.txt`, så grundinstallationen inte behöver pyserial när GPS inte används.
+
+NMEA-parsning, checksummor, koordinatomvandling, felhantering och simulerad seriell läsning testas i CI. Det samlade Raspberry Pi-hårdvarutestet ska hoppa över GPS när GPS är avstängd och genomföra en riktig fix-kontroll när den senare aktiveras.
+
 ---
 
 ## 15. Minne
@@ -1127,6 +1151,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 - sampled videoanalys över kronologiskt ordnade representativa bildrutor med no-guess-regler
 - read-only normaliserad positionskärna med GPS/nätverk/Bluetooth/manual-källa och stale-kontroll
+- seriell NMEA-RMC GPS-provider med checksummevalidering och atomisk positionsuppdatering
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
