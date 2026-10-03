@@ -31,6 +31,12 @@ DEFAULT_SETTINGS = {
         "file": "runtime/location.json",
         "max_age_seconds": 300,
     },
+    "gps": {
+        "enabled": False,
+        "port": "",
+        "baudrate": 9600,
+        "timeout_seconds": 10,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
