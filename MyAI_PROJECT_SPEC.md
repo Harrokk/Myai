@@ -164,6 +164,31 @@ För röstkommandon med potentiellt stora konsekvenser ska MyAI hellre:
 
 än att utföra en handling baserad på en osäker transkription.
 
+### 4.8 Teknisk status för adaptiv STT-konsensus
+
+På utvecklingsgren finns nu ett första hårdvaruoberoende säkerhetslager för röstinmatning.
+
+Lagret innehåller:
+- normalisering av flera STT-transkriptioner
+- textlikhetsmätning mellan oberoende tolkningar
+- confidence-trösklar
+- detektion av osäkra ord
+- riskklassning av kommandon
+- majoritets-/konsensusval mellan upp till tre tolkningar
+- statusen `needs_more` när ytterligare STT behövs
+- statusen `clarify` när tolkningarna inte är tillräckligt överens
+- statusen `accepted` först när kraven är uppfyllda
+
+Låg-risk-dialog med hög primär confidence kan accepteras direkt.
+
+Riskfyllda kommandon, till exempel radering, fil-/kodändringar, installation, systemavstängning eller aktiv styrning av hårdvara, kräver redundant STT även om den första transkriptionen har hög confidence.
+
+För riskfyllda kommandon används en högre konfigurerbar konsensusgräns än för normal dialog.
+
+Den första konsensusmotorn använder deterministisk text-/tokenlikhet och confidence. Full semantisk jämförelse mellan olika formuleringar med en särskild modell kan byggas som ett senare lager om praktiska tester visar att den deterministiska metoden inte räcker.
+
+Ingen faktisk mikrofon, VAD, STT- eller TTS-motor är aktiverad av detta steg. Röstfunktionen är avstängd som standard tills sådana motorer konfigureras och verifieras lokalt.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1219,6 +1244,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 - Sverige-anpassad produktprisjämförelse med konservativ extraktion av pris, frakt, moms, lager och leveransstatus
+- adaptiv STT-konsensus och riskpolicy för framtida röstinmatning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
