@@ -223,7 +223,12 @@ def main():
                     continue
 
                 print("Lyssnar efter ett yttrande...")
-                result = session.run_once()
+
+                try:
+                    result = session.run_once()
+                finally:
+                    session.stop()
+
                 voice_result = result.get(
                     "voice_result",
                     {},
