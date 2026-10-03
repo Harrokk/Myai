@@ -151,3 +151,40 @@ def test_read_only_hardware_question_is_not_high_risk():
         )
         == "normal"
     )
+
+
+def test_high_risk_consensus_requires_same_action():
+    result = consensus.choose_transcript_consensus(
+        [
+            transcript(
+                "Radera filen rapport.txt",
+                0.96,
+            ),
+            transcript(
+                "Radera rapport.txt",
+                0.95,
+            ),
+            transcript(
+                "Läs filen rapport.txt",
+                0.97,
+            ),
+        ],
+        settings(),
+    )
+
+    assert result["status"] == "accepted"
+    assert result["risk"] == "high"
+    assert result["agreement_count"] == 2
+    assert "Radera" in result["text"]
+
+
+def test_action_signature_distinguishes_file_operations():
+    assert consensus.command_action_signature(
+        "Radera filen rapport.txt"
+    ) == "delete"
+    assert consensus.command_action_signature(
+        "Läs filen rapport.txt"
+    ) == "file_read"
+    assert consensus.command_action_signature(
+        "Skapa filen rapport.txt"
+    ) == "file_create"
