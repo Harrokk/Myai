@@ -76,6 +76,97 @@ def _seller_name(value):
     return ""
 
 
+def _days_from_quantitative(value):
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+
+    if not isinstance(value, dict):
+        return None
+
+    unit = str(
+        value.get("unitCode")
+        or value.get("unitText")
+        or ""
+    ).strip().lower()
+
+    if unit not in {"d", "day", "days", "dag", "dagar"}:
+        return None
+
+    maximum = _number(
+        value.get(
+            "maxValue",
+            value.get("value"),
+        )
+    )
+    minimum = _number(value.get("minValue"))
+
+    if maximum is not None:
+        return maximum
+
+    return minimum
+
+
+def _delivery_days_from_details(detail):
+    if not isinstance(detail, dict):
+        return None
+
+    delivery = detail.get("deliveryTime")
+
+    if not isinstance(delivery, dict):
+        return None
+
+    handling = _days_from_quantitative(
+        delivery.get("handlingTime")
+    )
+    transit = _days_from_quantitative(
+        delivery.get("transitTime")
+    )
+
+    values = [
+        value
+        for value in (handling, transit)
+        if value is not None
+    ]
+
+    if not values:
+        return None
+
+    return round(sum(values), 1)
+
+
+def _return_policy_data(value):
+    if not isinstance(value, dict):
+        return None
+
+    types = _type_values(value)
+
+    if "merchantreturnpolicy" not in types and not any(
+        key in value
+        for key in (
+            "returnPolicyCategory",
+            "merchantReturnDays",
+            "returnMethod",
+            "returnFees",
+        )
+    ):
+        return None
+
+    return {
+        "category": value.get("returnPolicyCategory"),
+        "return_days": _number(
+            value.get("merchantReturnDays")
+        ),
+        "return_method": value.get("returnMethod"),
+        "return_fees": value.get("returnFees"),
+        "applicable_country": value.get(
+            "applicableCountry"
+        ),
+    }
+
+
 def _shipping_data(offer):
     details = offer.get("shippingDetails")
 
@@ -88,12 +179,14 @@ def _shipping_data(offer):
             "shipping_currency": None,
             "shipping_sek": None,
             "ships_to_sweden": None,
+            "delivery_days": None,
         }
 
     best_value = None
     best_currency = None
     shipping_sek = None
     ships_to_sweden = None
+    delivery_days = None
 
     for detail in details:
         if not isinstance(detail, dict):
@@ -128,6 +221,17 @@ def _shipping_data(offer):
             if {"SE", "SWE", "SWEDEN", "SVERIGE"} & countries:
                 ships_to_sweden = True
 
+        detail_delivery_days = _delivery_days_from_details(
+            detail
+        )
+
+        if detail_delivery_days is not None:
+            if (
+                delivery_days is None
+                or detail_delivery_days < delivery_days
+            ):
+                delivery_days = detail_delivery_days
+
         rate = detail.get("shippingRate")
 
         if isinstance(rate, dict):
@@ -155,6 +259,7 @@ def _shipping_data(offer):
         "shipping_currency": best_currency,
         "shipping_sek": shipping_sek,
         "ships_to_sweden": ships_to_sweden,
+        "delivery_days": delivery_days,
     }
 
 
@@ -262,6 +367,10 @@ def extract_product_offers(page):
 def _normalize_offer(offer, product, page):
     price_data = _price_data(offer)
     shipping = _shipping_data(offer)
+    return_policy = _return_policy_data(
+        offer.get("hasMerchantReturnPolicy")
+        or (product or {}).get("hasMerchantReturnPolicy")
+    )
     availability = _availability(
         offer.get("availability")
     )
@@ -300,6 +409,8 @@ def _normalize_offer(offer, product, page):
         "fees_sek": None,
         "stock_status": availability,
         "ships_to_sweden": shipping["ships_to_sweden"],
+        "delivery_days": shipping["delivery_days"],
+        "return_policy": return_policy,
         "seller_reliability": None,
         "source": "json_ld",
     }
