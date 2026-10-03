@@ -48,6 +48,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["files"]["max_read_chars"] == 20000
     assert settings["files"]["max_list_entries"] == 100
     assert ".txt" in settings["files"]["allowed_write_extensions"]
+    assert settings["excel"]["enabled"] is True
+    assert settings["excel"]["write_enabled"] is False
+    assert settings["excel"]["max_rows_read"] == 100
+    assert settings["excel"]["default_sheet"] == "Data"
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
