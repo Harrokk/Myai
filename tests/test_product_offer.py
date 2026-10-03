@@ -177,3 +177,38 @@ def test_tool_declares_url_parameter():
     schema = product_offer.TOOLS["web_product_offer"]["parameters"]
 
     assert schema["required"] == ["url"]
+
+
+def test_non_sek_shipping_preserves_value_and_currency():
+    result = product_offer.extract_product_offers(
+        page(
+            [
+                {
+                    "@type": "Product",
+                    "name": "Sensor",
+                    "offers": {
+                        "@type": "Offer",
+                        "price": 10,
+                        "priceCurrency": "EUR",
+                        "shippingDetails": {
+                            "@type": "OfferShippingDetails",
+                            "shippingRate": {
+                                "@type": "MonetaryAmount",
+                                "value": 5,
+                                "currency": "EUR",
+                            },
+                            "shippingDestination": {
+                                "@type": "DefinedRegion",
+                                "addressCountry": "SE",
+                            },
+                        },
+                    },
+                }
+            ]
+        )
+    )
+
+    assert result[0]["shipping_value"] == 5.0
+    assert result[0]["shipping_currency"] == "EUR"
+    assert result[0]["shipping_sek"] is None
+    assert result[0]["ships_to_sweden"] is True
