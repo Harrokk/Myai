@@ -50,6 +50,18 @@ DEFAULT_SETTINGS = {
         "top_results": 3,
         "min_source_reliability": 50,
     },
+    "voice": {
+        "enabled": False,
+        "stt_provider": "",
+        "tts_provider": "",
+        "primary_confidence_threshold": 0.80,
+        "consensus_confidence_threshold": 0.75,
+        "high_risk_confidence_threshold": 0.90,
+        "agreement_threshold": 0.72,
+        "uncertain_word_limit": 1,
+        "max_interpretations": 3,
+        "redundant_for_high_risk": True,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
