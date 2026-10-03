@@ -138,7 +138,7 @@ def test_high_confidence_low_risk_uses_only_primary():
     assert primary.calls == 1
     assert backup.calls == 0
     assert assistant.messages == [
-        "RAM-status tack"
+        "Hur mycket RAM används?"
     ]
 
 
@@ -322,7 +322,7 @@ def test_semantic_fallback_can_resolve_low_risk_transcripts():
     assert result["status"] == "completed"
     assert result["consensus"]["method"] == "semantic"
     assert assistant.messages == [
-        "Hur mycket RAM används?"
+        "RAM-status tack"
     ]
     assert len(resolver.calls) == 1
 
