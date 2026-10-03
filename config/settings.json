@@ -65,5 +65,11 @@
       ".csv",
       ".json"
     ]
+  },
+  "excel": {
+    "enabled": true,
+    "write_enabled": false,
+    "max_rows_read": 100,
+    "default_sheet": "Data"
   }
 }
