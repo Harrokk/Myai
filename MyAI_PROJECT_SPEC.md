@@ -820,6 +820,22 @@ Textläsningen är inte en garanti för perfekt OCR. Resultatet ska behandlas so
 
 Routing, promptbeteende och felvägar testas i CI. Verklig textläsning ska verifieras senare tillsammans med en lokalt installerad multimodal visionmodell och verkliga kamerabilder.
 
+### 16.1.5 Teknisk status för objektidentifiering
+
+På utvecklingsgren finns nu det separata verktyget `vision_detect_objects` för objektidentifiering i den senast sparade kamerabilden.
+
+Lagret:
+- återanvänder samma uttryckligt konfigurerade multimodala visionmodell som övriga visionverktyg
+- listar endast objekt som modellen bedömer har visuellt stöd
+- kräver försiktiga konfidensnivåer hög/medel/låg i svaret
+- instruerar modellen att inte gissa dolda objekt, märken, personer eller detaljer som inte går att se
+- returnerar tydligt när vision är avstängd, ingen modell är konfigurerad eller ingen kamerabild finns
+- stöder multi-tool-flödet **ta bild → identifiera objekt**
+
+Objektidentifiering från en generell multimodal modell är inte samma sak som en kalibrerad detektor med verifierade bounding boxes. Resultatet ska därför behandlas som modellbaserad visuell analys och inte som exakt mätdata.
+
+Routing, promptbeteende och felvägar testas i CI. Verklig objektidentifiering ska verifieras senare med lokal visionmodell och verkliga kamerabilder.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -984,6 +1000,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
 - separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
 - separat OCR/textläsningslager för senaste kamerabild med no-guess-prompt
+- separat objektidentifieringslager med försiktiga konfidensnivåer och no-guess-regler
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
