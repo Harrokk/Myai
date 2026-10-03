@@ -34,6 +34,28 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_excel_create():
+    result = tool_manager.detect_tools(
+        'Skapa Excel-filen "budget.xlsx" med kolumner Namn, Belopp '
+        "och rader Kaffe, 35."
+    )
+    assert result == ["excel_create"]
+
+
+def test_detect_tools_routes_excel_read():
+    result = tool_manager.detect_tools(
+        'Läs Excel-filen "budget.xlsx".'
+    )
+    assert result == ["excel_read"]
+
+
+def test_detect_tools_routes_excel_append():
+    result = tool_manager.detect_tools(
+        'Lägg till raden Kaffe, 35 i "budget.xlsx".'
+    )
+    assert result == ["excel_append"]
+
+
 def test_detect_tools_routes_workspace_list():
     result = tool_manager.detect_tools(
         "Lista filer i workspace."
