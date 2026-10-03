@@ -62,6 +62,12 @@ DEFAULT_SETTINGS = {
         "uncertain_word_limit": 1,
         "max_interpretations": 3,
         "redundant_for_high_risk": True,
+        "vad_enabled": True,
+        "vad_sample_rate": 16000,
+        "vad_frame_ms": 20,
+        "vad_rms_threshold": 500,
+        "vad_start_frames": 2,
+        "vad_end_silence_frames": 8,
     },
     "memory": {
         "database": "memory.db",
