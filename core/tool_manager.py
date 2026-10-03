@@ -155,6 +155,21 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_internet_search = any(
+        phrase in text
+        for phrase in (
+            "sök på internet",
+            "sök på webben",
+            "sök internet",
+            "webbsök",
+            "search the web",
+            "search internet",
+        )
+    )
+
+    if asks_internet_search:
+        return ["internet_search"]
+
     asks_location = any(
         phrase in text
         for phrase in (
@@ -613,7 +628,7 @@ def select_tools(user_input, tools, llm_client):
     ]
 
 
-def run_tools(tool_names, tools):
+def run_tools(tool_names, tools, user_input=None):
     """Kör flera verktyg och samla varje resultat separat."""
     results = {}
 
@@ -622,8 +637,18 @@ def run_tools(tool_names, tools):
             continue
 
         try:
-            tool_function = tools[tool_name]["function"]
-            results[tool_name] = tool_function()
+            tool = tools[tool_name]
+            tool_function = tool["function"]
+
+            if tool.get("pass_user_input", False):
+                if user_input is None:
+                    raise ValueError(
+                        f"{tool_name} kräver användarens fråga som indata."
+                    )
+
+                results[tool_name] = tool_function(user_input)
+            else:
+                results[tool_name] = tool_function()
         except Exception as error:
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
