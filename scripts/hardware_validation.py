@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from modules.bluetooth.proximity import scan_nearby_devices
 from modules.camera.camera import get_camera_inventory, format_camera_inventory
+from modules.camera.capture import capture_frame, format_capture_result
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -248,6 +249,58 @@ def camera_inventory_check(results):
     return True
 
 
+def camera_capture_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 6 - Kamerastillbild")
+    print("=" * 60)
+
+    devices = get_camera_inventory()
+
+    if not devices:
+        record(
+            results,
+            "Kamerastillbild",
+            "SKIP",
+            "Ingen kamera upptäcktes.",
+        )
+        return True
+
+    input(
+        "Kontrollera att standardkameran är fri och tryck Enter "
+        "för att ta en testbild: "
+    )
+
+    try:
+        capture_result = capture_frame()
+    except Exception as error:
+        record(results, "Kamerastillbild", "FAIL", str(error))
+        return False
+
+    print(format_capture_result(capture_result))
+
+    if not capture_result.get("success"):
+        record(
+            results,
+            "Kamerastillbild",
+            "FAIL",
+            capture_result.get("error") or "okänt fel",
+        )
+        return False
+
+    record(
+        results,
+        "Kamerastillbild",
+        "PASS",
+        (
+            f"{capture_result.get('width')}x"
+            f"{capture_result.get('height')} -> "
+            f"{capture_result.get('path')}"
+        ),
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -274,6 +327,8 @@ def main():
     bluetooth_proximity_check(results)
 
     camera_inventory_check(results)
+
+    camera_capture_check(results)
 
     path = save_report(results)
 

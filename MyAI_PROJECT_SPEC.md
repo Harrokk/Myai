@@ -771,6 +771,22 @@ Detta lager tar inga bilder och startar ingen videoström. Bildtagning, kamerava
 
 Parserlogiken testas i CI. Faktisk kameradetektering på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan innan bildtagning byggs ovanpå den.
 
+### 16.1.2 Teknisk status för stillbildstagning
+
+På utvecklingsgren finns nu ett separat verktyg `camera_capture` för stillbildstagning.
+
+Standardflödet är:
+1. öppna standardkameran
+2. läsa exakt en bildruta
+3. spara bilden lokalt under `runtime/captures/`
+4. stänga kameran direkt
+
+Bildtagningen använder OpenCV som ett separat valbart beroende i `requirements-camera.txt`, så grundinstallationen av MyAI behöver inte bära kamerabiblioteket när kamerafunktioner inte används.
+
+Om OpenCV saknas, kameran inte kan öppnas, ingen bildruta kan läsas eller bilden inte kan sparas ska verktyget returnera ett tydligt fel och inte påstå att en bild togs.
+
+Bildtagning och resursstängning testas i CI med simulerad kamera. Faktisk stillbildstagning på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan. Bildanalys/vision ligger fortsatt i ett separat senare lager.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -932,6 +948,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only Raspberry Pi-strömtelemetri via Linux hwmon utan uppskattade mätvärden
 - read-only inventering av kernel-registrerade I2C- och SPI-enheter via Linux sysfs
 - read-only kamerainventering för Windows PnP och Linux Video4Linux
+- separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
