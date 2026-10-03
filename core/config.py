@@ -17,6 +17,15 @@ DEFAULT_SETTINGS = {
         "model": "",
         "timeout_seconds": 120,
     },
+    "voice": {
+        "enabled": False,
+        "tts_enabled": False,
+        "redundancy_enabled": True,
+        "redundancy_when_confidence_missing": False,
+        "primary_confidence_threshold": 0.72,
+        "consensus_similarity_threshold": 0.62,
+        "redundant_transcript_count": 3,
+    },
     "gps": {
         "enabled": False,
         "port": "",
