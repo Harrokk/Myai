@@ -270,6 +270,21 @@ Standardgränsen är 1500 ljudramar per väntat yttrande. Med standardramlängde
 
 `VoiceSession` startas fortfarande inte automatiskt av `mail.py`. Det gör att textläget förblir stabilt tills den samlade lokala ljudverifieringen är godkänd.
 
+### 4.13 Teknisk status för terminalstyrt röstläge
+
+På utvecklingsgren finns nu en lazy terminalbrygga i `mail.py`.
+
+Kommandon:
+- `/voice` visar status utan att skapa någon röstsession
+- `/voice once` skapar röstsessionen först vid uttrycklig användarbegäran och hanterar exakt ett yttrande
+- `/voice stop` avbryter TTS och stoppar en redan skapad röstsession
+
+Röstmodulerna importeras inte från `mail.py` vid programstart. `VoiceSession` importeras lokalt först i den factory som körs när röstsessionen faktiskt behövs. Därmed förblir textläget oberoende av de valbara tunga röstberoendena.
+
+Om röstläget är avstängt i konfigurationen får `/voice once` inte starta mikrofonen utan ska tydligt säga att röstläget är avstängt.
+
+Vid `/exit` eller Ctrl+C stoppas även en eventuell skapad röstsession. Automatisk kontinuerlig lyssning är fortfarande inte aktiverad före fysisk ljudverifiering.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1424,6 +1439,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - valbara lokala SoundDevice/WebRTC-VAD/faster-whisper/pyttsx3-providers med konfigurationsfabrik
 - valfri semantisk STT-majoritetsresolver med JSON-validering och separat högriskspärr
 - körbar VoiceSession som binder ihop mikrofon, VAD, STT, konsensus, MyAI-kärna och TTS utan automatisk start
+- lazy terminalkommandon för röststatus, ett yttrande och stop utan röstimport/start vid textläge
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
