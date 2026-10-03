@@ -910,6 +910,26 @@ Detta lager gör ingen visuell tolkning. Det skapar ett kontrollerat och resurss
 
 Urval, filhantering, routing och felvägar testas i CI. Fysisk verifiering av frame count, seek-beteende och bildkvalitet sparas till den samlade kamerarundan.
 
+### 16.1.10 Teknisk status för sampled videoanalys
+
+På utvecklingsgren finns nu verktyget `vision_analyze_video` som analyserar de representativa bildrutorna från den senast sparade videon.
+
+Lagret:
+- hittar den senaste videon och dess samplade bildrutor
+- sorterar bildrutorna i kronologisk ordning
+- skickar dem som en flerbildsförfrågan till den uttryckligt konfigurerade lokala visionmodellen
+- instruerar modellen att sammanfatta vad som faktiskt syns över klippet
+- instruerar modellen att inte gissa vad som hände mellan samplingarna eller dra slutsatser om orsak, identitet, avsikt eller rörelse utan visuellt stöd
+- tydliggör att analysen bygger på ett begränsat urval av bildrutor och inte varje videobildruta
+
+Multi-tool-routing stödjer:
+- **analysera video** → sampla senaste video → analysera samplingarna
+- **spela in video och analysera** → spela in → sampla → analysera
+
+Visionfunktionen är fortsatt standardavstängd och kräver en uttryckligt vald multimodal modell. Om vision är avstängd, ingen modell är vald, ingen video finns eller samplingar saknas ska verktyget svara tydligt i stället för att gissa.
+
+Kronologisk ordning, flerbildsanrop, routing, promptregler och felvägar testas i CI. Verklig videoförståelse ska verifieras senare med lokal visionmodell och fysisk kamera.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1079,6 +1099,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - konfigurerbart standardkameraindex och capture-katalog för stillbildstagning
 - separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
+- sampled videoanalys över kronologiskt ordnade representativa bildrutor med no-guess-regler
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
