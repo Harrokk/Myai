@@ -67,6 +67,10 @@
   "shopping": {
     "top_results": 3,
     "min_seller_reliability": 50,
-    "max_offers": 20
+    "max_offers": 20,
+    "candidate_pages": 5,
+    "fx_provider": "frankfurter",
+    "frankfurter_url": "https://api.frankfurter.app",
+    "fx_timeout_seconds": 10
   }
 }

@@ -726,6 +726,46 @@ Om strukturerad Product/Offer-data saknas ska verktyget därför rapportera att 
 
 Detta lager är avsett att ge högkvalitativa strukturerade indata till totalprisjämförelsemotorn. Valutakonvertering, säljarbedömning och sammanslagning av flera produktsidor byggs i separata lager.
 
+#### 13.1.3 Teknisk status för valutakonvertering och säljargranskning
+
+På utvecklingsgren finns nu verktyget `currency_to_sek` och en separat FX-klient.
+
+SEK lämnas oförändrat utan nätverksanrop. Andra valutor konverteras endast när en faktisk kurs kan hämtas från den konfigurerade FX-leverantören. Första backend är Frankfurter-kompatibel och standardadressen är `https://api.frankfurter.app`. Om kurs inte kan hämtas ska priset förbli okonverterat och får inte gissas.
+
+Produktutvinningen bevarar nu även fraktbelopp och fraktvaluta för icke-SEK-frakt så att samma faktiska kurs kan användas för både vara och frakt.
+
+På samma utvecklingsgren finns också `seller_vetting`, som granskar säljsidan separat från produktpriset. Bedömningen kan väga in:
+- HTTPS
+- sidans transparenssignal
+- kontakt-/kundserviceinformation
+- retur-/återbetalningsinformation
+- köpvillkor
+- integritetsinformation
+- organisations-/VAT-information
+- etablerade betalningsalternativ
+- tydliga varningssignaler som formuleringar om endast banköverföring eller krypto
+
+Säljarpoängen är begränsad till högst 85 % och är en intern heuristisk risk-/transparensbedömning, inte en garanti för att säljaren eller köpet är säkert.
+
+#### 13.1.4 Teknisk status för flerbutiks-shopping-research
+
+På utvecklingsgren finns nu det parameteriserade verktyget `shopping_research_sweden`.
+
+Standardflödet är:
+1. ta en produktfråga och sök upp till fem kandidatsidor, eller använd uttryckligen angivna URL:er
+2. hämta varje sida genom den säkra publika webbhämtaren
+3. extrahera schema.org Product/Offer-data
+4. verifiera sidans transparens och skapa en separat säljarbedömning
+5. konvertera produktpris och frakt till SEK med faktisk FX-kurs när det krävs
+6. mata de strukturerade erbjudandena till `price_compare_sweden`
+7. presentera högst tre fullt jämförbara alternativ
+
+Ett fel på en butikssida får inte stoppa resten av jämförelsen.
+
+Shoppingflödet bevarar samma konservativa regler som tidigare lager: saknad valuta, frakt, moms, avgifter, lagerstatus, Sverige-leverans eller säljarbedömning gissas inte. Ett erbjudande med ofullständigt totalpris får därför inte hamna i topp tre bara för att listpriset ser lågt ut.
+
+Detta innebär också att ett verkligt automatiskt shoppingresultat ibland kan innehålla noll fullt jämförbara alternativ. Då ska MyAI redovisa vilka uppgifter som saknas i stället för att fylla i dem med antaganden.
+
 ### 13.2 Källgranskning och konfidensbedömning
 
 Vid informationssökning ska MyAI inte enbart hämta ett svar utan även granska underlaget.
@@ -1262,6 +1302,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - konservativ numerisk motsägelseanalys mellan oberoende domäner med konfidenssänkning
 - svensk totalprisjämförelsemotor med separata kostnader, lager, Sverige-leverans och säljartröskel
 - säker schema.org/JSON-LD-produktutvinning för pris, valuta, lager, säljare och explicit Sverige-frakt
+- faktisk FX-konvertering till SEK, separat säljargranskning och flerbutiks-shopping-research
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
