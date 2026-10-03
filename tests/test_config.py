@@ -42,6 +42,12 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["gps"]["port"] == ""
     assert settings["gps"]["baudrate"] == 9600
     assert settings["gps"]["timeout_seconds"] == 10
+    assert settings["files"]["enabled"] is True
+    assert settings["files"]["workspace_root"] == "runtime/workspace"
+    assert settings["files"]["write_enabled"] is False
+    assert settings["files"]["max_read_chars"] == 20000
+    assert settings["files"]["max_list_entries"] == 100
+    assert ".txt" in settings["files"]["allowed_write_extensions"]
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
