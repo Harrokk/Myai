@@ -34,6 +34,13 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_live_vision():
+    result = tool_manager.detect_tools(
+        "Analysera livekameran."
+    )
+    assert result == ["vision_analyze_live"]
+
+
 def test_detect_tools_routes_camera_stream_status():
     result = tool_manager.detect_tools(
         "Testa kamerastreamen."
