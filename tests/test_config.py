@@ -58,3 +58,11 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["internet"]["searxng_url"] == "http://localhost:8080"
     assert settings["internet"]["max_results"] == 5
     assert settings["internet"]["safesearch"] == 1
+
+
+def test_default_internet_page_fetch_limits_exist():
+    internet = DEFAULT_SETTINGS["internet"]
+
+    assert internet["max_page_bytes"] == 1_000_000
+    assert internet["max_page_chars"] == 20_000
+    assert internet["max_redirects"] == 5
