@@ -28,6 +28,8 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["trusted_terminals"]["enabled"] is False
     assert settings["trusted_terminals"]["connect_rssi"] == -60
     assert settings["trusted_terminals"]["disconnect_rssi"] == -75
+    assert settings["camera"]["default_index"] == 0
+    assert settings["camera"]["capture_dir"] == "runtime/captures"
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
