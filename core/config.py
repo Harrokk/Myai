@@ -26,6 +26,11 @@ DEFAULT_SETTINGS = {
         "video_frame_dir": "runtime/video_frames",
         "video_sample_count": 5,
     },
+    "location": {
+        "enabled": False,
+        "file": "runtime/location.json",
+        "max_age_seconds": 300,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
