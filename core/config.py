@@ -55,6 +55,11 @@ DEFAULT_SETTINGS = {
         "handsfree_enabled": False,
         "handsfree_max_wait_frames": 1500,
         "handsfree_stop_timeout_seconds": 3.0,
+        "echo_guard_enabled": True,
+        "echo_guard_window_seconds": 5.0,
+        "echo_guard_similarity_threshold": 0.78,
+        "echo_guard_min_words": 3,
+        "echo_guard_for_high_risk": False,
     },
     "gps": {
         "enabled": False,
