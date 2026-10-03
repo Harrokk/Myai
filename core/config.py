@@ -20,6 +20,9 @@ DEFAULT_SETTINGS = {
     "camera": {
         "default_index": 0,
         "capture_dir": "runtime/captures",
+        "video_dir": "runtime/video",
+        "video_duration_seconds": 5,
+        "video_fps": 10,
     },
     "memory": {
         "database": "memory.db",
