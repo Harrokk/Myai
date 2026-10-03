@@ -84,10 +84,14 @@ def _shipping_data(offer):
 
     if not isinstance(details, list):
         return {
+            "shipping_value": None,
+            "shipping_currency": None,
             "shipping_sek": None,
             "ships_to_sweden": None,
         }
 
+    best_value = None
+    best_currency = None
     shipping_sek = None
     ships_to_sweden = None
 
@@ -131,16 +135,24 @@ def _shipping_data(offer):
                 rate.get("priceCurrency")
                 or rate.get("currency")
                 or ""
-            ).upper()
+            ).upper() or None
             value = _number(
                 rate.get("value", rate.get("price"))
             )
+
+            if value is not None and (
+                best_value is None or value < best_value
+            ):
+                best_value = value
+                best_currency = currency
 
             if currency == "SEK" and value is not None:
                 if shipping_sek is None or value < shipping_sek:
                     shipping_sek = value
 
     return {
+        "shipping_value": best_value,
+        "shipping_currency": best_currency,
         "shipping_sek": shipping_sek,
         "ships_to_sweden": ships_to_sweden,
     }
@@ -280,6 +292,8 @@ def _normalize_offer(offer, product, page):
         "url": offer_url,
         "product_price": price_data["price"],
         "currency": price_data["currency"],
+        "shipping_value": shipping["shipping_value"],
+        "shipping_currency": shipping["shipping_currency"],
         "shipping_sek": shipping["shipping_sek"],
         "vat_included": price_data["vat_included"],
         "vat_sek": None,
