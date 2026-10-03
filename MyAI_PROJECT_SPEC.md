@@ -670,6 +670,37 @@ MyAI ska kunna sortera bort eller tydligt varna för alternativ med starka varni
 
 MyAI ska inte garantera att en butik är säker när underlaget är otillräckligt. Vid osäkerhet ska den säga det tydligt och beskriva vad som inte har kunnat verifieras.
 
+#### 13.1.1 Teknisk status för prisjämförelse i Sverige
+
+På utvecklingsgren finns nu verktyget `product_compare_sweden`.
+
+Standardflödet är:
+1. sök upp till fem produktkandidater
+2. gör preliminär källbedömning
+3. djupverifiera varje produktsida när det går
+4. extrahera handelsdata konservativt
+5. sortera bort alternativ som saknar produktpris, använder annan valuta än SEK, uttryckligen är slut i lager eller uttryckligen inte levererar till Sverige
+6. kräva minst den konfigurerade källtillförlitligheten
+7. sortera kända totalpris först och presentera högst tre alternativ
+
+Fält som kan extraheras är:
+- butik/säljare
+- produktpris
+- valuta
+- frakt i SEK
+- om moms uttryckligen anges som inkluderad eller exkluderad
+- lagerstatus
+- uttrycklig leverans till Sverige
+- leveranstid när ett tydligt intervall eller antal dagar hittas
+
+**Totalpris i SEK räknas endast när produktpris, frakt och inkluderad moms faktiskt är kända.** Om någon av dessa uppgifter saknas visas totalpriset som okänt. MyAI får inte anta fri frakt, inkluderad moms eller svensk leverans bara för att inget motsatt står på sidan.
+
+Produktpris kan hämtas från produktmetadata när sådan finns och annars från ett konservativt SEK-mönster i synlig sidtext. Frakt, moms, lager och leveransstatus lämnas som `okänt` när tydliga signaler saknas.
+
+Standardgränsen för källtillförlitlighet är 50 %. Den ligger i `shopping.min_source_reliability` och kan finjusteras senare.
+
+Detta lager har ännu ingen valutakonvertering. Kandidater i annan valuta än SEK räknas därför inte som praktiskt jämförbara i den svenska topplistan förrän ett separat valutalager byggs.
+
 ### 13.2 Källgranskning och konfidensbedömning
 
 Vid informationssökning ska MyAI inte enbart hämta ett svar utan även granska underlaget.
@@ -1187,6 +1218,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - säker publik webbsideshämtning med SSRF-, redirect-, innehållstyp- och storleksskydd
 - djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
+- Sverige-anpassad produktprisjämförelse med konservativ extraktion av pris, frakt, moms, lager och leveransstatus
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

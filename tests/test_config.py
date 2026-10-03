@@ -49,3 +49,5 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["research"]["weights"]["relevance"] == 0.40
     assert settings["research"]["weights"]["source_reliability"] == 0.35
     assert settings["research"]["weights"]["information_confidence"] == 0.25
+    assert settings["shopping"]["top_results"] == 3
+    assert settings["shopping"]["min_source_reliability"] == 50
