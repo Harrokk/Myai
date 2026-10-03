@@ -63,5 +63,10 @@
     "deep_blend": 0.4,
     "conflict_penalty": 10,
     "conflict_relative_tolerance": 0.05
+  },
+  "shopping": {
+    "top_results": 3,
+    "min_seller_reliability": 50,
+    "max_offers": 20
   }
 }
