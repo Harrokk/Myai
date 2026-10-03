@@ -30,6 +30,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["trusted_terminals"]["disconnect_rssi"] == -75
     assert settings["camera"]["default_index"] == 0
     assert settings["camera"]["capture_dir"] == "runtime/captures"
+    assert settings["camera"]["video_dir"] == "runtime/video"
+    assert settings["camera"]["video_duration_seconds"] == 5
+    assert settings["camera"]["video_fps"] == 10
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
