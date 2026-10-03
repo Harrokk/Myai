@@ -125,6 +125,9 @@ DEFAULT_SETTINGS = {
         "connect_confirm_scans": 2,
         "disconnect_confirm_scans": 3,
         "auto_execute": False,
+        "connector_provider": "none",
+        "connector_timeout_seconds": 10.0,
+        "require_service_uuid": True,
         "terminals": [],
     },
     "assistant": {
