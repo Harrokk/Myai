@@ -32,5 +32,12 @@
     "url": "http://localhost:11434/api/chat",
     "model": "",
     "timeout_seconds": 120
+  },
+  "gps": {
+    "enabled": false,
+    "port": "",
+    "baudrate": 9600,
+    "timeout_seconds": 2,
+    "max_lines": 20
   }
 }

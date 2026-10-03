@@ -226,6 +226,24 @@ def detect_tools(user_input):
     if asks_vision_analysis:
         return ["vision_analyze"]
 
+    asks_gps_position = any(
+        phrase in text
+        for phrase in (
+            "gps",
+            "min position",
+            "aktuell position",
+            "mina koordinater",
+            "vilka koordinater",
+            "latitud",
+            "longitud",
+            "var befinner jag mig",
+            "where am i",
+        )
+    )
+
+    if asks_gps_position:
+        return ["gps_status"]
+
     mentions_pi = any(
         word in text
         for word in ("raspberry pi", "raspberrypi", "pi 5", "pi5")
