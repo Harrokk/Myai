@@ -190,3 +190,134 @@ def test_run_voice_once_does_not_start_disabled_session():
     assert result["status"] == "disabled"
     assert session.run_calls == 0
     assert session.stop_calls == 0
+
+
+
+class FakeHandsfree:
+    def __init__(self, running=False, stop_result=True):
+        self.is_running = running
+        self.stop_result = stop_result
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.stop_timeout = None
+
+    def start(self):
+        self.start_calls += 1
+
+        if self.is_running:
+            return False
+
+        self.is_running = True
+        return True
+
+    def stop(self, timeout=3.0):
+        self.stop_calls += 1
+        self.stop_timeout = timeout
+        self.is_running = False
+        return self.stop_result
+
+
+def test_mail_does_not_create_handsfree_runner_on_import():
+    assert mail.VOICE_HANDSFREE is None
+
+
+def test_get_voice_handsfree_is_lazy_and_cached(monkeypatch):
+    monkeypatch.setattr(
+        mail,
+        "VOICE_HANDSFREE",
+        None,
+    )
+    created = []
+
+    def factory():
+        runner = FakeHandsfree()
+        created.append(runner)
+        return runner
+
+    first = mail.get_voice_handsfree(
+        factory=factory
+    )
+    second = mail.get_voice_handsfree(
+        factory=factory
+    )
+
+    assert first is second
+    assert len(created) == 1
+
+
+def test_stop_voice_handsfree_is_safe_before_initialization(monkeypatch):
+    monkeypatch.setattr(
+        mail,
+        "VOICE_HANDSFREE",
+        None,
+    )
+
+    assert mail.stop_voice_handsfree() is False
+
+
+def test_stop_voice_handsfree_uses_configured_timeout(monkeypatch):
+    runner = FakeHandsfree(
+        running=True
+    )
+    monkeypatch.setattr(
+        mail,
+        "VOICE_HANDSFREE",
+        runner,
+    )
+
+    assert mail.stop_voice_handsfree() is True
+    assert runner.stop_calls == 1
+    assert runner.stop_timeout == mail.SETTINGS[
+        "voice"
+    ].get(
+        "handsfree_stop_timeout_seconds",
+        3.0,
+    )
+
+
+def test_voice_status_reports_active_handsfree(monkeypatch):
+    session = FakeVoiceSession(
+        enabled=True,
+        running=True,
+    )
+    runner = FakeHandsfree(
+        running=True
+    )
+    monkeypatch.setattr(
+        mail,
+        "VOICE_SESSION",
+        session,
+    )
+    monkeypatch.setattr(
+        mail,
+        "VOICE_HANDSFREE",
+        runner,
+    )
+
+    text = mail.voice_status_text()
+
+    assert "handsfree=aktivt" in text
+
+
+def test_stop_voice_session_stops_handsfree_and_session(monkeypatch):
+    session = FakeVoiceSession(
+        enabled=True,
+        running=True,
+    )
+    runner = FakeHandsfree(
+        running=True
+    )
+    monkeypatch.setattr(
+        mail,
+        "VOICE_SESSION",
+        session,
+    )
+    monkeypatch.setattr(
+        mail,
+        "VOICE_HANDSFREE",
+        runner,
+    )
+
+    assert mail.stop_voice_session() is True
+    assert runner.stop_calls == 1
+    assert session.stop_calls == 1
