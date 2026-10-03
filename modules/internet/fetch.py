@@ -4,7 +4,7 @@ from core.config import load_settings
 from core.public_web_client import PublicWebClient
 
 
-URL_PATTERN = re.compile(r"https?://[^\\s<>]+", re.IGNORECASE)
+URL_PATTERN = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 
 
 def extract_page_url(user_input):
