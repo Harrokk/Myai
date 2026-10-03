@@ -274,3 +274,24 @@ def test_disconnect_unknown_cached_connection_is_idempotent():
     assert result[
         "already_disconnected"
     ] is True
+
+
+
+def test_short_bluetooth_uuid_matches_full_bleak_uuid():
+    factory = ClientFactory(
+        service_uuids=[
+            "00001234-0000-1000-8000-00805F9B34FB"
+        ]
+    )
+    connector = BleakGattConnector(
+        settings(
+            service_uuid="1234"
+        ),
+        client_factory=factory,
+    )
+
+    result = connector.connect(
+        "car-terminal"
+    )
+
+    assert result["success"] is True
