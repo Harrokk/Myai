@@ -155,6 +155,27 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_excel_sheet_create = (
+        "skapa blad" in text
+        or "skapa nytt blad" in text
+    ) and ".xlsx" in text
+    asks_excel_sheet_list = any(
+        phrase in text
+        for phrase in (
+            "lista blad",
+            "visa blad",
+            "vilka blad",
+            "lista arbetsblad",
+            "visa arbetsblad",
+        )
+    ) and ".xlsx" in text
+
+    if asks_excel_sheet_create:
+        return ["excel_create_sheet"]
+
+    if asks_excel_sheet_list:
+        return ["excel_list_sheets"]
+
     asks_excel_edit = (
         (("sätt" in text or "ändra" in text) and ".xlsx" in text)
         or ("skriv" in text and ".xlsx" in text and "cell" in text)
