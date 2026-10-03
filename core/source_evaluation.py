@@ -1,5 +1,6 @@
 import ipaddress
 import re
+from copy import deepcopy
 from urllib.parse import urlparse
 
 
@@ -287,3 +288,90 @@ def evaluate_candidates(query, candidates, weights=None):
         reverse=True,
     )
     return evaluated
+
+
+def apply_deep_verification(
+    candidate,
+    verification,
+    weights=None,
+    deep_blend=0.40,
+):
+    """Blanda preliminära sökpoäng med verifierade sid-signaler."""
+    result = deepcopy(candidate)
+    weights = _normalized_weights(weights)
+    blend = _clamp(float(deep_blend), 0.0, 1.0)
+
+    preliminary_source = float(
+        result["source_reliability"]["score"]
+    )
+    preliminary_information = float(
+        result["information_confidence"]["score"]
+    )
+
+    transparency = float(
+        verification.get("transparency_score", 0.0)
+    )
+    evidence = float(
+        verification.get("evidence_signal_score", 0.0)
+    )
+
+    adjusted_source = round(
+        _clamp(
+            preliminary_source * (1.0 - blend)
+            + transparency * blend,
+            10,
+            90,
+        ),
+        1,
+    )
+    adjusted_information = round(
+        _clamp(
+            preliminary_information * (1.0 - blend)
+            + evidence * blend,
+            10,
+            85,
+        ),
+        1,
+    )
+
+    source_info = deepcopy(result["source_reliability"])
+    source_info["preliminary_score"] = preliminary_source
+    source_info["score"] = adjusted_source
+    source_info["scope"] = "metadata_plus_page_signals"
+    source_info["reasons"] = list(
+        source_info.get("reasons", [])
+    ) + [
+        (
+            "Djupverifierad sidtransparens blandades in "
+            f"med vikt {blend:.2f}."
+        )
+    ]
+
+    information_info = deepcopy(
+        result["information_confidence"]
+    )
+    information_info["preliminary_score"] = preliminary_information
+    information_info["score"] = adjusted_information
+    information_info["scope"] = "snippet_plus_page_signals"
+    information_info["reasons"] = list(
+        information_info.get("reasons", [])
+    ) + [
+        (
+            "Djupverifierade evidenssignaler blandades in "
+            f"med vikt {blend:.2f}."
+        )
+    ]
+
+    combined = (
+        float(result["relevance"]) * weights["relevance"]
+        + adjusted_source * weights["source_reliability"]
+        + adjusted_information * weights["information_confidence"]
+    )
+
+    result["source_reliability"] = source_info
+    result["information_confidence"] = information_info
+    result["combined_score"] = round(combined, 1)
+    result["deep_verification"] = verification
+    result["deep_verification_status"] = "verified"
+
+    return result
