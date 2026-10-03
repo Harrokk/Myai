@@ -155,6 +155,47 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_workspace_write = any(
+        phrase in text
+        for phrase in (
+            "skapa fil",
+            "skapa en fil",
+            "skriv fil",
+            "skriv en fil",
+            "spara fil",
+            "spara en fil",
+        )
+    )
+    asks_workspace_read = any(
+        phrase in text
+        for phrase in (
+            "läs fil",
+            "läs filen",
+            "öppna fil",
+            "öppna filen",
+            "visa innehållet i fil",
+        )
+    )
+    asks_workspace_list = any(
+        phrase in text
+        for phrase in (
+            "lista filer",
+            "visa filer",
+            "vilka filer",
+            "filer i workspace",
+            "workspace filer",
+        )
+    )
+
+    if asks_workspace_write:
+        return ["workspace_write"]
+
+    if asks_workspace_read:
+        return ["workspace_read"]
+
+    if asks_workspace_list:
+        return ["workspace_list"]
+
     asks_gps_refresh = any(
         phrase in text
         for phrase in (
