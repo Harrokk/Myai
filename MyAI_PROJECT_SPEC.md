@@ -1247,6 +1247,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - konfigurerbar fem-kandidaters valideringsmotor med separata käll-/informationspoäng och topp-tre-urval
 - svensk prisjämförelsekärna med verifierbart totalpris, Sverigeleverans, lagerfilter och topp tre billigaste godkända alternativ
 - standardavstängd lokal-först webbsökning via konfigurerbar SearXNG-provider och query-aware verktygskörning
+- säker publik webbsideshämtning med blockering av privata/lokala IP-adresser, redirect-kontroll, innehållstypfilter och storleksgräns
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
