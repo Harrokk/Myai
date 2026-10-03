@@ -37,6 +37,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["primary_confidence_threshold"] == 0.72
     assert settings["voice"]["consensus_similarity_threshold"] == 0.62
     assert settings["voice"]["redundant_transcript_count"] == 3
+    assert settings["voice"]["vad_start_speech_frames"] == 2
+    assert settings["voice"]["vad_end_silence_frames"] == 3
+    assert settings["voice"]["vad_max_frames"] == 500
     assert settings["gps"]["enabled"] is False
     assert settings["gps"]["port"] == ""
     assert settings["gps"]["baudrate"] == 9600
