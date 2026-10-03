@@ -6,6 +6,30 @@ def _query_without_url(user_input, url):
     return str(user_input or "").replace(url, " ").strip()
 
 
+def scores_from_verification(verification):
+    source_reliability = min(
+        85.0,
+        round(
+            verification["transparency_score"] * 0.85
+            + verification["evidence_signal_score"] * 0.15,
+            1,
+        ),
+    )
+    information_confidence = min(
+        75.0,
+        round(
+            verification["evidence_signal_score"] * 0.85
+            + verification["query_overlap_percent"] * 0.15,
+            1,
+        ),
+    )
+
+    return {
+        "source_reliability": source_reliability,
+        "information_confidence": information_confidence,
+    }
+
+
 def verify_source_page(
     url,
     query="",
@@ -26,29 +50,14 @@ def verify_source_page(
 
     verification = verify_page_content(page, query=query)
 
-    source_reliability = min(
-        85.0,
-        round(
-            verification["transparency_score"] * 0.85
-            + verification["evidence_signal_score"] * 0.15,
-            1,
-        ),
-    )
-    information_confidence = min(
-        75.0,
-        round(
-            verification["evidence_signal_score"] * 0.85
-            + verification["query_overlap_percent"] * 0.15,
-            1,
-        ),
-    )
+    scores = scores_from_verification(verification)
 
     return {
         "available": True,
         "url": page.get("final_url") or url,
         "title": page.get("title") or "",
-        "source_reliability": source_reliability,
-        "information_confidence": information_confidence,
+        "source_reliability": scores["source_reliability"],
+        "information_confidence": scores["information_confidence"],
         "verification": verification,
         "assessment_scope": "single_fetched_page_heuristic",
         "assessment_note": (
