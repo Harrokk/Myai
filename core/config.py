@@ -40,6 +40,8 @@ DEFAULT_SETTINGS = {
         "top_results": 3,
         "deep_verification_enabled": True,
         "deep_blend": 0.40,
+        "conflict_penalty": 10.0,
+        "conflict_relative_tolerance": 0.05,
         "weights": {
             "relevance": 0.40,
             "source_reliability": 0.35,
