@@ -34,6 +34,55 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_excel_create():
+    result = tool_manager.detect_tools(
+        'Skapa Excel-filen "budget.xlsx" med kolumner Namn, Belopp.'
+    )
+    assert result == ["excel_create"]
+
+
+def test_detect_tools_routes_excel_read():
+    result = tool_manager.detect_tools(
+        'Läs Excel-filen "budget.xlsx".'
+    )
+    assert result == ["excel_read"]
+
+
+def test_detect_tools_routes_excel_append():
+    result = tool_manager.detect_tools(
+        'Lägg till raden Kaffe, 35 i "budget.xlsx".'
+    )
+    assert result == ["excel_append"]
+
+
+def test_detect_tools_routes_excel_set_cell():
+    result = tool_manager.detect_tools(
+        'Ändra cell B2 i "budget.xlsx" till 40.'
+    )
+    assert result == ["excel_set_cell"]
+
+
+def test_detect_tools_routes_excel_sheet_management():
+    assert tool_manager.detect_tools(
+        'Lista blad i "budget.xlsx".'
+    ) == ["excel_list_sheets"]
+    assert tool_manager.detect_tools(
+        'Skapa blad "Februari" i "budget.xlsx".'
+    ) == ["excel_create_sheet"]
+
+
+def test_detect_tools_routes_workspace_text_files():
+    assert tool_manager.detect_tools(
+        'Läs filen "notes.txt".'
+    ) == ["workspace_read"]
+    assert tool_manager.detect_tools(
+        'Skapa filen "notes.txt" med innehållet Hej.'
+    ) == ["workspace_write"]
+    assert tool_manager.detect_tools(
+        "Lista workspace."
+    ) == ["workspace_list"]
+
+
 def test_detect_tools_routes_explicit_internet_search():
     result = tool_manager.detect_tools(
         "Sök på internet efter Raspberry Pi 5."
