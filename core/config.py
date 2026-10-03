@@ -17,6 +17,10 @@ DEFAULT_SETTINGS = {
         "model": "",
         "timeout_seconds": 120,
     },
+    "camera": {
+        "default_index": 0,
+        "capture_dir": "runtime/captures",
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
