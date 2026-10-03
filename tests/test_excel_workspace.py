@@ -163,6 +163,7 @@ def test_parse_append_request_reads_row():
 
     assert request == {
         "path": "budget.xlsx",
+        "sheet": None,
         "row": ["Kaffe", 35],
     }
 
