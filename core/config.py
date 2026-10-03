@@ -17,6 +17,13 @@ DEFAULT_SETTINGS = {
         "model": "",
         "timeout_seconds": 120,
     },
+    "gps": {
+        "enabled": False,
+        "port": "",
+        "baudrate": 9600,
+        "timeout_seconds": 2,
+        "max_lines": 20,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
