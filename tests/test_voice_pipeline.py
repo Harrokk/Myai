@@ -3,6 +3,7 @@ from core.voice_pipeline import (
     choose_consensus,
     classify_voice_risk,
     transcript_similarity,
+    tts_echo_similarity,
 )
 
 
@@ -414,3 +415,159 @@ def test_semantic_fallback_failure_still_requires_clarification():
     assert result["status"] == "clarify"
     assert len(resolver.calls) == 1
     assert assistant.messages == []
+
+
+
+class FakeClock:
+    def __init__(self, value=100.0):
+        self.value = float(value)
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, seconds):
+        self.value += float(seconds)
+
+
+def test_tts_echo_similarity_detects_partial_spoken_text():
+    score = tts_echo_similarity(
+        "hur mycket ram används just nu",
+        "Svar på hur mycket ram används just nu i datorn",
+        min_words=3,
+    )
+
+    assert score >= 0.78
+
+
+def test_tts_echo_similarity_ignores_very_short_phrases():
+    assert tts_echo_similarity(
+        "ja tack",
+        "ja tack det gör vi",
+        min_words=3,
+    ) == 0.0
+
+
+def test_recent_tts_echo_is_ignored_before_assistant_call():
+    assistant = FakeAssistant()
+    stt = FakeSTT(
+        {
+            "text": "Hur mycket RAM används?",
+            "confidence": 0.99,
+        }
+    )
+    tts = FakeTTS()
+    clock = FakeClock()
+    pipeline = VoicePipeline(
+        assistant,
+        stt,
+        tts=tts,
+        settings=settings(
+            tts_enabled=True,
+            echo_guard_enabled=True,
+            echo_guard_window_seconds=5.0,
+            echo_guard_similarity_threshold=0.78,
+            echo_guard_min_words=3,
+        ),
+        clock=clock,
+    )
+
+    first = pipeline.process_utterance(
+        b"first"
+    )
+    assert first["status"] == "completed"
+    assert len(assistant.messages) == 1
+
+    stt.result = {
+        "text": "Svar på hur mycket RAM används",
+        "confidence": 0.99,
+    }
+    second = pipeline.process_utterance(
+        b"echo"
+    )
+
+    assert second["status"] == "ignored_echo"
+    assert second["echo_similarity"] >= 0.78
+    assert len(assistant.messages) == 1
+
+
+def test_echo_guard_expires_after_configured_window():
+    assistant = FakeAssistant()
+    stt = FakeSTT(
+        {
+            "text": "Hur mycket RAM används?",
+            "confidence": 0.99,
+        }
+    )
+    clock = FakeClock()
+    pipeline = VoicePipeline(
+        assistant,
+        stt,
+        tts=FakeTTS(),
+        settings=settings(
+            tts_enabled=True,
+            echo_guard_enabled=True,
+            echo_guard_window_seconds=2.0,
+        ),
+        clock=clock,
+    )
+
+    pipeline.process_utterance(b"first")
+    clock.advance(3.0)
+    stt.result = {
+        "text": "Svar på hur mycket RAM används",
+        "confidence": 0.99,
+    }
+
+    result = pipeline.process_utterance(
+        b"later"
+    )
+
+    assert result["status"] == "completed"
+    assert len(assistant.messages) == 2
+
+
+def test_high_risk_transcript_is_not_silently_echo_suppressed_by_default():
+    assistant = FakeAssistant()
+    primary = FakeSTT(
+        {
+            "text": "Radera filen rapport txt nu",
+            "confidence": 0.99,
+        }
+    )
+    backups = [
+        FakeSTT(
+            {
+                "text": "Radera filen rapport txt nu",
+                "confidence": 0.95,
+            }
+        ),
+        FakeSTT(
+            {
+                "text": "Radera filen rapport txt nu",
+                "confidence": 0.95,
+            }
+        ),
+    ]
+    clock = FakeClock()
+    pipeline = VoicePipeline(
+        assistant,
+        primary,
+        backup_stt=backups,
+        settings=settings(
+            echo_guard_enabled=True,
+            echo_guard_for_high_risk=False,
+        ),
+        clock=clock,
+    )
+    pipeline.last_tts_text = (
+        "Radera filen rapport txt nu"
+    )
+    pipeline.last_tts_started_at = clock()
+
+    result = pipeline.process_utterance(
+        b"audio"
+    )
+
+    assert result["status"] == "completed"
+    assert result["risk"]["level"] == "high"
+    assert len(assistant.messages) == 1

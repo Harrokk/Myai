@@ -329,6 +329,30 @@ Standard väntelimit per lyssningscykel är 1500 ramar och stop-timeout är tre 
 
 Bakgrundsloopen och stopplogiken testas i CI med simulerad röstsession. Verklig kontinuerlig lyssning, högtalare-till-mikrofon-eko, barge-in och längre stabilitetstest ska verifieras fysiskt innan handsfree aktiveras som standard.
 
+### 4.16 Teknisk status för TTS-själveko-skydd
+
+På utvecklingsgren finns nu ett konservativt själveko-filter i `VoicePipeline`.
+
+Efter STT jämförs den nya transkriptionen mot den senast skickade TTS-texten. Jämförelsen använder både normaliserad textlikhet och tokenöverlapp så att även ett delvis uppfattat stycke av ett längre TTS-svar kan kännas igen.
+
+Ett yttrande kan klassas som `ignored_echo` endast när:
+- echo guard är aktiverad
+- en tidigare TTS-text finns registrerad
+- yttrandet ligger inom den konfigurerade tidsluckan
+- transkriptionen innehåller minst ett konfigurerat antal ord
+- likheten når den konfigurerade tröskeln
+
+Standardvärden:
+- tidslucka: 5 sekunder
+- likhetströskel: 0,78
+- minsta antal ord: 3
+
+Handsfree-runnern visar inte `ignored_echo` som ett nytt användaryttrande och skickar det inte vidare till MyAI.
+
+Högriskkommandon undantas från automatisk ekosläckning som standard genom `echo_guard_for_high_risk=false`. Ett kommando som exempelvis gäller radering eller fysisk styrning ska därför fortsatt gå genom den vanliga redundans-/säkerhetskedjan i stället för att tyst ignoreras bara för att orden råkar likna nylig TTS.
+
+Detta är textbaserat själveko-skydd och inte akustisk echo cancellation. Verklig högtalare-till-mikrofon-koppling och eventuell AEC behöver fortfarande verifieras på den fysiska ljudkedjan.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1486,6 +1510,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - lazy terminalkommandon för röststatus, ett yttrande och stop utan röstimport/start vid textläge
 - interruptibel bakgrunds-TTS som låter mikrofon/VAD fortsätta under uppläsning och möjliggör verkligt barge-in
 - stoppbar handsfree-runner i bakgrundstråd med /voice on/off och separat standardavstängd säkerhetsbrytare
+- textbaserat TTS-själveko-filter med tidsfönster, likhetströskel och högriskundantag
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
