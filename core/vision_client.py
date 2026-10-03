@@ -17,6 +17,40 @@ class VisionClient:
         if not self.model:
             raise RuntimeError("Ingen visionmodell är konfigurerad.")
 
+    def _request_encoded(self, encoded_images, prompt, timeout=120):
+        self._validate_ready()
+
+        if not encoded_images:
+            raise ValueError("Minst en bild krävs för visionanalys.")
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": list(encoded_images),
+                }
+            ],
+            "stream": False,
+        }
+
+        response = requests.post(
+            self.url,
+            json=payload,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+
+        try:
+            return data["message"]["content"]
+        except (KeyError, TypeError) as error:
+            raise ValueError(
+                "Visionmodellens svar saknar message.content."
+            ) from error
+
     def analyze(self, image_path, prompt, timeout=120):
         return self.analyze_images(
             [image_path],
@@ -42,30 +76,34 @@ class VisionClient:
                 base64.b64encode(path.read_bytes()).decode("ascii")
             )
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": encoded_images,
-                }
-            ],
-            "stream": False,
-        }
-
-        response = requests.post(
-            self.url,
-            json=payload,
+        return self._request_encoded(
+            encoded_images,
+            prompt,
             timeout=timeout,
         )
-        response.raise_for_status()
 
-        data = response.json()
+    def analyze_bytes(self, images, prompt, timeout=120):
+        self._validate_ready()
 
-        try:
-            return data["message"]["content"]
-        except (KeyError, TypeError) as error:
-            raise ValueError(
-                "Visionmodellens svar saknar message.content."
-            ) from error
+        images = list(images)
+
+        if not images:
+            raise ValueError("Minst en bild krävs för visionanalys.")
+
+        encoded_images = []
+
+        for image in images:
+            if not isinstance(image, (bytes, bytearray)) or not image:
+                raise ValueError(
+                    "Bilddata för visionanalys måste vara icke-tomma bytes."
+                )
+
+            encoded_images.append(
+                base64.b64encode(bytes(image)).decode("ascii")
+            )
+
+        return self._request_encoded(
+            encoded_images,
+            prompt,
+            timeout=timeout,
+        )
