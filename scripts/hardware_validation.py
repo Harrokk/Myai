@@ -21,6 +21,7 @@ from modules.camera.video_frames import (
 )
 from modules.camera.stream import format_stream_result, run_bounded_stream
 from core.config import load_settings
+from modules.location.gps import format_gps_location, read_gps_location
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -461,6 +462,65 @@ def camera_stream_check(results):
     return True
 
 
+def gps_location_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 10 - GPS / position")
+    print("=" * 60)
+
+    settings = load_settings()
+    location = settings.get("location", {})
+
+    if not location.get("enabled", False):
+        record(
+            results,
+            "GPS-position",
+            "SKIP",
+            "location.enabled är false; GPS-test sparas tills mottagaren konfigureras.",
+        )
+        return True
+
+    if not (location.get("serial_port") or "").strip():
+        record(
+            results,
+            "GPS-position",
+            "SKIP",
+            "Ingen seriell GPS-port är konfigurerad.",
+        )
+        return True
+
+    input(
+        "Kontrollera att GPS-mottagaren har fri sikt och tryck Enter "
+        "för att läsa en position: "
+    )
+
+    try:
+        gps_result = read_gps_location(settings=settings)
+    except Exception as error:
+        record(results, "GPS-position", "FAIL", str(error))
+        return False
+
+    print(format_gps_location(gps_result))
+
+    if not gps_result.get("success"):
+        record(
+            results,
+            "GPS-position",
+            "FAIL",
+            gps_result.get("error") or "okänt fel",
+        )
+        return False
+
+    fix = gps_result["fix"]
+    record(
+        results,
+        "GPS-position",
+        "PASS",
+        f"{fix['latitude']:.6f}, {fix['longitude']:.6f}",
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -495,6 +555,8 @@ def main():
     camera_video_frame_sampling_check(results)
 
     camera_stream_check(results)
+
+    gps_location_check(results)
 
     path = save_report(results)
 
