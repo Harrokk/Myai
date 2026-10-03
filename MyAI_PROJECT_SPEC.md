@@ -353,6 +353,31 @@ Högriskkommandon undantas från automatisk ekosläckning som standard genom `ec
 
 Detta är textbaserat själveko-skydd och inte akustisk echo cancellation. Verklig högtalare-till-mikrofon-koppling och eventuell AEC behöver fortfarande verifieras på den fysiska ljudkedjan.
 
+### 4.17 Teknisk status för explicit högriskbekräftelse
+
+På utvecklingsgren kräver högriskkommandon nu en separat röstbekräftelse efter att själva kommandot redan har klarat den ordinarie STT-redundansen.
+
+Flödet är:
+1. högriskkommandot transkriberas
+2. ordinarie redundans-/konsensuskontroll måste godkänna kommandot
+3. kommandot lagras som väntande men skickas ännu inte till MyAI-kärnan
+4. användaren måste säga en explicit bekräftelse, exempelvis `bekräfta`
+5. först därefter får det väntande originalkommandot skickas vidare
+
+`ja` ensam räcker inte som bekräftelse.
+
+Avbrytfraser som `avbryt` rensar det väntande kommandot utan exekvering.
+
+Standardbekräftelsefönstret är 15 sekunder. När tidsfönstret går ut rensas det väntande kommandot och användaren måste säga originalkommandot på nytt.
+
+Om STT-providern ger ett kalibrerat confidence-värde krävs minst 0,80 för den explicita bekräftelsen. Om confidence saknas eller är för lågt används i stället redundanta STT-tolkningar av själva bekräftelsen. Standardkravet är tre transkriptioner och majoritet måste uttryckligen motsvara en tillåten bekräftelsefras.
+
+Detta gör att den lokala `faster-whisper`-providern kan användas utan att MyAI hittar på ett confidence-värde.
+
+Bekräftelseprompten kan läsas upp via TTS. Statusar för väntande, avbruten och utgången bekräftelse visas även i handsfree- och one-shot-läge.
+
+Ett högriskkommando får alltså inte nå verktygs-/assistentkärnan enbart på grund av en enda lyckad rösttolkning.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1511,6 +1536,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - interruptibel bakgrunds-TTS som låter mikrofon/VAD fortsätta under uppläsning och möjliggör verkligt barge-in
 - stoppbar handsfree-runner i bakgrundstråd med /voice on/off och separat standardavstängd säkerhetsbrytare
 - textbaserat TTS-själveko-filter med tidsfönster, likhetströskel och högriskundantag
+- explicit högriskbekräftelse med timeout, avbrytfraser och redundant STT-fallback när confidence saknas
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
