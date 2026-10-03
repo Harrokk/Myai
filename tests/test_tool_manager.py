@@ -34,6 +34,20 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_excel_sheet_list():
+    result = tool_manager.detect_tools(
+        'Lista blad i "budget.xlsx".'
+    )
+    assert result == ["excel_list_sheets"]
+
+
+def test_detect_tools_routes_excel_sheet_create():
+    result = tool_manager.detect_tools(
+        'Skapa blad "Februari" i "budget.xlsx".'
+    )
+    assert result == ["excel_create_sheet"]
+
+
 def test_detect_tools_keeps_excel_routing_with_named_sheet():
     assert tool_manager.detect_tools(
         'Läs Excel-filen "budget.xlsx" på blad "Januari".'
