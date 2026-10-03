@@ -474,6 +474,35 @@ Om `auto_execute=true` men connector saknas ska monitorn fail-closed och rapport
 
 Detta lager innehåller alltså kontinuerlig närhets- och handofflogik men ingen generell Bluetooth-transport för fysisk terminalanslutning ännu. Den fysiska transporten ska läggas som ett separat lager eftersom BLE GATT, klassisk Bluetooth, ljudenheter och framtida MyAI-terminaler kan kräva olika anslutningsmekanismer.
 
+### 6.3 Teknisk status för BLE GATT-connector
+
+På utvecklingsgren finns nu en första fysisk terminaltransport: `BleakGattConnector`.
+
+Denna connector gäller uttryckligen BLE GATT-terminaler och ska inte tolkas som generell anslutning för Bluetooth Classic, headset, ljudprofiler eller godtyckliga konsumentenheter.
+
+En anslutning får endast försökas när:
+- device-id finns i `trusted_terminals.terminals`
+- terminalen är markerad `trusted=true`
+- terminalens `transport` är `bleak_gatt`
+- connector-provider är uttryckligen satt till `bleak_gatt`
+- handoff-systemets `auto_execute` är aktiverat
+- ett förväntat `service_uuid` finns när `require_service_uuid=true`
+
+Standardläget är fortsatt fail-closed:
+- `auto_execute=false`
+- `connector_provider="none"`
+- `require_service_uuid=true`
+
+Efter BLE-anslutning verifieras det förväntade GATT-service-UUID:t innan klienten registreras som aktiv. Saknas rätt service kopplas klienten från igen och anslutningen underkänns.
+
+Korta Bluetooth UUID:n som 16- eller 32-bitarsvärden normaliseras till Bluetooth Base UUID före jämförelse så att de kan matchas mot Bleaks fulla UUID-format.
+
+Connectorn håller endast reda på anslutningar den själv har skapat och gör idempotent disconnect för redan frånkopplade terminaler.
+
+`terminal_connector_factory` kan skapa rätt connector och koppla den till `TerminalHandoffMonitor`. När `auto_execute=false` byggs ingen connector alls.
+
+Detta lager testas i CI med simulerade Bleak-klienter. Verklig GATT-anslutning, service discovery, Windows Bluetooth-stack och terminalens faktiska MyAI-service måste verifieras senare på fysisk hårdvara innan `auto_execute` tillåts.
+
 ---
 
 ## 7. Raspberry Pi – systemåtkomst
@@ -1564,6 +1593,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - textbaserat TTS-själveko-filter med tidsfönster, likhetströskel och högriskundantag
 - explicit högriskbekräftelse med timeout, avbrytfraser och redundant STT-fallback när confidence saknas
 - kontinuerlig trusted-terminal handoff-monitor med RSSI-hysteres, stabilitetskrav och standardavstängd exekvering
+- guarded BLE GATT-terminalconnector med trusted-id, transportkontroll och service-UUID-verifiering
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
