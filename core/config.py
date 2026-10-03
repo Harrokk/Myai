@@ -49,6 +49,7 @@ DEFAULT_SETTINGS = {
         "vad_start_speech_frames": 2,
         "vad_end_silence_frames": 3,
         "vad_max_frames": 500,
+        "session_max_wait_frames": 1500,
     },
     "gps": {
         "enabled": False,
