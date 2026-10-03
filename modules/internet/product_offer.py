@@ -331,6 +331,7 @@ def extract_offer_page_data(
     return {
         "available": True,
         "url": page.get("final_url") or url,
+        "page": page,
         "offers": offers,
         "structured_offer_count": len(offers),
     }
