@@ -155,6 +155,48 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_excel_append = any(
+        phrase in text
+        for phrase in (
+            "lägg till raden",
+            "lägg till rad",
+            "addera raden",
+            "append row",
+        )
+    ) and ("excel" in text or ".xlsx" in text)
+
+    asks_excel_create = any(
+        phrase in text
+        for phrase in (
+            "skapa excel",
+            "skapa en excel",
+            "skapa excel-fil",
+            "skapa excel fil",
+            "skapa kalkylblad",
+            "create excel",
+        )
+    )
+
+    asks_excel_read = any(
+        phrase in text
+        for phrase in (
+            "läs excel",
+            "öppna excel",
+            "visa excel",
+            "läs kalkylblad",
+            "read excel",
+        )
+    )
+
+    if asks_excel_append:
+        return ["excel_append"]
+
+    if asks_excel_create:
+        return ["excel_create"]
+
+    if asks_excel_read:
+        return ["excel_read"]
+
     asks_workspace_write = any(
         phrase in text
         for phrase in (
