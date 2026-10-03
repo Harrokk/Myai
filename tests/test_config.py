@@ -54,6 +54,7 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["enabled"] is False
     assert settings["voice"]["stt_provider"] == ""
     assert settings["voice"]["tts_provider"] == ""
+    assert settings["voice"]["speak_responses"] is True
     assert settings["voice"]["primary_confidence_threshold"] == 0.80
     assert settings["voice"]["high_risk_confidence_threshold"] == 0.90
     assert settings["voice"]["max_interpretations"] == 3
