@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import socket
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
@@ -26,6 +27,8 @@ class _VisibleTextParser(HTMLParser):
         self.meta = {}
         self.canonical_url = ""
         self.external_links = []
+        self._capture_json_ld = False
+        self.json_ld_parts = []
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -34,6 +37,14 @@ class _VisibleTextParser(HTMLParser):
             for key, value in attrs
             if key
         }
+
+        if tag == "script":
+            script_type = (
+                attributes.get("type") or ""
+            ).strip().lower()
+            self._capture_json_ld = (
+                script_type == "application/ld+json"
+            )
 
         if tag in {"script", "style", "noscript", "svg"}:
             self._skip_depth += 1
@@ -72,10 +83,19 @@ class _VisibleTextParser(HTMLParser):
         if tag in {"script", "style", "noscript", "svg"} and self._skip_depth:
             self._skip_depth -= 1
 
+        if tag == "script":
+            self._capture_json_ld = False
+
         if tag == "title":
             self._in_title = False
 
     def handle_data(self, data):
+        if self._capture_json_ld:
+            raw = (data or "").strip()
+
+            if raw:
+                self.json_ld_parts.append(raw)
+
         if self._skip_depth:
             return
 
@@ -277,6 +297,7 @@ class PublicWebClient:
             metadata = {}
             canonical_url = ""
             external_links = []
+            structured_data = []
 
             if content_type in {
                 "text/html",
@@ -297,6 +318,14 @@ class PublicWebClient:
                     if host and host != current_host:
                         external_links.append(absolute)
 
+                for block in parser.json_ld_parts:
+                    try:
+                        parsed_data = json.loads(block)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+                    structured_data.append(parsed_data)
+
             return {
                 "requested_url": url,
                 "final_url": current,
@@ -307,6 +336,7 @@ class PublicWebClient:
                 "metadata": metadata,
                 "canonical_url": canonical_url,
                 "external_links": sorted(set(external_links)),
+                "structured_data": structured_data,
                 "redirects": redirect_index,
             }
 
