@@ -102,6 +102,7 @@ Svara kort och tydligt på svenska.
             tool_results = run_tools(
                 tool_names,
                 self.tools,
+                user_input=user_message,
             )
 
         system_message = self.build_system_message(
