@@ -34,6 +34,27 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_workspace_list():
+    result = tool_manager.detect_tools(
+        "Lista filer i workspace."
+    )
+    assert result == ["workspace_list"]
+
+
+def test_detect_tools_routes_workspace_read():
+    result = tool_manager.detect_tools(
+        'Läs filen "anteckning.txt".'
+    )
+    assert result == ["workspace_read"]
+
+
+def test_detect_tools_routes_workspace_write():
+    result = tool_manager.detect_tools(
+        'Skapa filen "anteckning.txt" med innehållet Hej.'
+    )
+    assert result == ["workspace_write"]
+
+
 def test_detect_tools_routes_gps_refresh():
     result = tool_manager.detect_tools(
         "Uppdatera GPS-positionen."
