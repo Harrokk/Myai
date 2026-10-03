@@ -38,6 +38,21 @@ DEFAULT_SETTINGS = {
         "timeout_seconds": 1,
         "max_lines": 20,
     },
+    "research": {
+        "candidate_limit": 5,
+        "top_n": 3,
+        "min_source_reliability": 40,
+        "min_information_confidence": 40,
+        "min_relevance": 40,
+        "warning_penalty_each": 5,
+        "max_warning_penalty": 20,
+        "weights": {
+            "relevance": 0.30,
+            "source_reliability": 0.30,
+            "information_confidence": 0.30,
+            "practicality": 0.10,
+        },
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
