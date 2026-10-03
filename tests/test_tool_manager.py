@@ -34,6 +34,23 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_object_detection():
+    result = tool_manager.detect_tools(
+        "Vilka objekt syns på bilden?"
+    )
+    assert result == ["vision_detect_objects"]
+
+
+def test_detect_tools_routes_capture_then_object_detection():
+    result = tool_manager.detect_tools(
+        "Ta en bild och identifiera objekt."
+    )
+    assert result == [
+        "camera_capture",
+        "vision_detect_objects",
+    ]
+
+
 def test_detect_tools_routes_vision_ocr():
     result = tool_manager.detect_tools(
         "Läs texten i bilden."
