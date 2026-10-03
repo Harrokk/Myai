@@ -61,6 +61,9 @@ DEFAULT_SETTINGS = {
         "max_results": 5,
         "language": "sv-SE",
         "safesearch": 1,
+        "max_page_bytes": 1_000_000,
+        "max_page_chars": 20_000,
+        "max_redirects": 5,
     },
     "memory": {
         "database": "memory.db",

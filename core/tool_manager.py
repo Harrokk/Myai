@@ -155,6 +155,27 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_page_fetch = (
+        ("http://" in text or "https://" in text)
+        and any(
+            phrase in text
+            for phrase in (
+                "hämta ",
+                "läs ",
+                "öppna ",
+                "kontrollera ",
+                "sammanfatta ",
+                "fetch ",
+                "read ",
+                "open ",
+                "summarize ",
+            )
+        )
+    )
+
+    if asks_page_fetch:
+        return ["web_fetch_text"]
+
     asks_internet_search = any(
         phrase in text
         for phrase in (
