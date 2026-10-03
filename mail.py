@@ -394,12 +394,25 @@ def main():
                     if transcript:
                         print(f"Du (röst): {transcript}")
 
-                    if voice_result.get("status") == "clarify":
+                    voice_status = voice_result.get(
+                        "status"
+                    )
+
+                    if voice_status in {
+                        "clarify",
+                        "confirmation_required",
+                        "confirmation_cancelled",
+                        "confirmation_expired",
+                    }:
                         print(
                             voice_result.get(
                                 "message",
                                 "Röstkommandot behöver förtydligas.",
                             )
+                        )
+                    elif voice_status == "ignored_echo":
+                        print(
+                            "Ignorerade sannolikt själveko från TTS."
                         )
                     else:
                         answer = (
