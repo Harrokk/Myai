@@ -120,6 +120,11 @@ DEFAULT_SETTINGS = {
         "enabled": False,
         "connect_rssi": -60,
         "disconnect_rssi": -75,
+        "scan_interval_seconds": 5.0,
+        "scan_timeout_seconds": 5.0,
+        "connect_confirm_scans": 2,
+        "disconnect_confirm_scans": 3,
+        "auto_execute": False,
         "terminals": [],
     },
     "assistant": {
