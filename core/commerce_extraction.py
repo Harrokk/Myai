@@ -78,8 +78,7 @@ def _extract_shipping_sek(text):
         return 0.0
 
     patterns = (
-        r"(?:frakt|shipping)[^\d]{0,20}(\d{1,6}(?:[\s.]\d{3})*(?:[,.]\d{1,2})?)\s*(?:kr|sek)",
-        r"(\d{1,6}(?:[\s.]\d{3})*(?:[,.]\d{1,2})?)\s*(?:kr|sek)[^\n]{0,20}(?:frakt|shipping)",
+        r"(?:frakt|shipping)\s*(?::|kostar|pris|cost|fee)?\s*(\d{1,6}(?:[\s.]\d{3})*(?:[,.]\d{1,2})?)\s*(?:kr|sek)",
     )
 
     for pattern in patterns:
