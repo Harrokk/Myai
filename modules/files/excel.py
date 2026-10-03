@@ -113,6 +113,40 @@ def _select_sheet(workbook, sheet_name=None):
     return workbook[sheet_name]
 
 
+def parse_create_sheet_request(user_text):
+    text = str(user_text or "").strip()
+    path = extract_file_path(text)
+
+    if not path or not path.lower().endswith(".xlsx"):
+        raise ValueError("Ingen giltig .xlsx-fil hittades i instruktionen.")
+
+    match = re.search(
+        r"""skapa\s+(?:nytt\s+)?blad(?:et)?\s+
+        (?:"([^"]+)"|'([^']+)'|“([^”]+)”)
+        """,
+        text,
+        flags=re.IGNORECASE | re.VERBOSE,
+    )
+
+    if not match:
+        raise ValueError(
+            'Använd exempelvis: Skapa blad "Februari" i "budget.xlsx".'
+        )
+
+    name = next(
+        (group for group in match.groups() if group is not None),
+        None,
+    )
+
+    if name is None or not name.strip():
+        raise ValueError("Bladnamnet får inte vara tomt.")
+
+    return {
+        "path": path,
+        "sheet": name.strip(),
+    }
+
+
 def parse_create_request(user_text):
     text = str(user_text or "").strip()
     path = extract_file_path(text)
@@ -272,6 +306,92 @@ def parse_append_request(user_text):
         "path": path,
         "sheet": extract_sheet_name(text),
         "row": row,
+    }
+
+
+def list_excel_sheets(
+    path_text,
+    settings=None,
+    openpyxl_module=None,
+):
+    settings, _ = _excel_config(settings)
+    path = _require_xlsx(path_text, settings)
+
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"Excel-filen finns inte: {path_text}")
+
+    openpyxl = openpyxl_module or _load_openpyxl()
+    workbook = openpyxl.load_workbook(
+        path,
+        read_only=True,
+        data_only=False,
+    )
+
+    try:
+        return {
+            "path": path,
+            "sheets": list(workbook.sheetnames),
+            "active": workbook.active.title,
+        }
+    finally:
+        workbook.close()
+
+
+def create_excel_sheet(
+    request,
+    settings=None,
+    openpyxl_module=None,
+):
+    settings, excel = _excel_config(settings)
+
+    if not excel.get("write_enabled", False):
+        raise RuntimeError(
+            "Excel-skrivning är avstängd i konfigurationen."
+        )
+
+    path = _require_xlsx(request["path"], settings)
+
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(
+            f"Excel-filen finns inte: {request['path']}"
+        )
+
+    name = str(request.get("sheet") or "").strip()
+
+    if not name:
+        raise ValueError("Bladnamnet får inte vara tomt.")
+
+    if len(name) > 31:
+        raise ValueError("Excel-bladnamn får vara högst 31 tecken.")
+
+    if any(character in name for character in r'[]:*?/\\'):
+        raise ValueError(
+            "Excel-bladnamnet innehåller ett otillåtet tecken."
+        )
+
+    openpyxl = openpyxl_module or _load_openpyxl()
+    workbook = openpyxl.load_workbook(path)
+
+    if name in workbook.sheetnames:
+        workbook.close()
+        raise ValueError(f'Bladet "{name}" finns redan.')
+
+    sheet = workbook.create_sheet(title=name)
+    temporary = path.with_suffix(".tmp.xlsx")
+
+    try:
+        workbook.save(temporary)
+        os.replace(temporary, path)
+    finally:
+        workbook.close()
+
+        if temporary.exists():
+            temporary.unlink()
+
+    return {
+        "path": path,
+        "sheet": sheet.title,
+        "sheets": list(workbook.sheetnames),
     }
 
 
@@ -465,6 +585,36 @@ def set_excel_cell(
     }
 
 
+def excel_list_sheets(user_text):
+    try:
+        path = extract_file_path(user_text)
+
+        if not path:
+            return "Ingen .xlsx-fil hittades i instruktionen."
+
+        result = list_excel_sheets(path)
+        names = ", ".join(result["sheets"]) or "(inga blad)"
+
+        return (
+            f"Arbetsblad i {result['path'].name}: {names}. "
+            f"Aktivt blad: {result['active']}."
+        )
+    except Exception as error:
+        return f"Kunde inte lista Excel-blad: {error}"
+
+
+def excel_create_sheet(user_text):
+    try:
+        request = parse_create_sheet_request(user_text)
+        result = create_excel_sheet(request)
+        return (
+            f"Bladet {result['sheet']} skapades i "
+            f"{result['path'].name}."
+        )
+    except Exception as error:
+        return f"Kunde inte skapa Excel-bladet: {error}"
+
+
 def excel_create(user_text):
     try:
         request = parse_create_request(user_text)
@@ -537,6 +687,21 @@ def excel_append(user_text):
 
 
 TOOLS = {
+    "excel_list_sheets": {
+        "function": excel_list_sheets,
+        "description": (
+            "Listar arbetsblad i en namngiven .xlsx-fil i workspace."
+        ),
+        "input_mode": "user_text",
+    },
+    "excel_create_sheet": {
+        "function": excel_create_sheet,
+        "description": (
+            "Skapar ett nytt namngivet arbetsblad i en befintlig "
+            ".xlsx-fil när Excel-skrivning är aktiverad."
+        ),
+        "input_mode": "user_text",
+    },
     "excel_create": {
         "function": excel_create,
         "description": (
