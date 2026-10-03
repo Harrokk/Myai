@@ -1,6 +1,6 @@
 from core.memory import MemoryStore
 from core.ollama_client import OllamaClient
-from core.tool_manager import load_tools, run_tools, select_tools
+from core.tool_manager import load_tools, run_tools, select_tool_calls
 
 
 class MyAICore:
@@ -90,17 +90,21 @@ Svara kort och tydligt på svenska.
         return system_message
 
     def respond(self, user_message):
-        tool_names = select_tools(
+        tool_calls = select_tool_calls(
             user_message,
             self.tools,
             self.llm,
         )
+        tool_names = [
+            call["name"]
+            for call in tool_calls
+        ]
 
         tool_results = None
 
-        if tool_names:
+        if tool_calls:
             tool_results = run_tools(
-                tool_names,
+                tool_calls,
                 self.tools,
             )
 
@@ -138,6 +142,7 @@ Svara kort och tydligt på svenska.
         return {
             "answer": answer,
             "tools": tool_names,
+            "tool_calls": tool_calls,
             "tool_results": tool_results or {},
         }
 
