@@ -31,6 +31,9 @@ DEFAULT_SETTINGS = {
         "timeout_seconds": 15,
         "max_results": 5,
         "language": "sv-SE",
+        "max_page_bytes": 1_000_000,
+        "max_page_chars": 20_000,
+        "max_redirects": 5,
     },
     "research": {
         "candidate_limit": 5,
