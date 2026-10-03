@@ -35,6 +35,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["camera"]["video_fps"] == 10
     assert settings["camera"]["video_frame_dir"] == "runtime/video_frames"
     assert settings["camera"]["video_sample_count"] == 5
+    assert settings["location"]["enabled"] is False
+    assert settings["location"]["file"] == "runtime/location.json"
+    assert settings["location"]["max_age_seconds"] == 300
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
