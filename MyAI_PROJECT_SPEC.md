@@ -438,6 +438,35 @@ Särskilt viktigt:
 
 På sikt kan systemet även utökas till fler dokumentformat.
 
+### 10.1 Teknisk status för sandboxade filer och Excel
+
+På utvecklingsgren finns nu en separat lokal dokumentyta under `runtime/workspace`.
+Allmän filåtkomst normaliserar användarens sökvägar och blockerar absoluta
+sökvägar samt path traversal utanför denna yta.
+
+Read-only-funktioner kan lista och läsa tillåtna filer. Allmän skrivning är
+avstängd som standard och kan endast aktiveras genom konfiguration. Den
+allmänna skrivaren tillåter endast `.txt`, `.md`, `.csv` och `.json`;
+körbar Python-kod och andra filtyper kan inte skapas genom detta verktyg.
+
+Excel-lagret arbetar separat med `.xlsx` och kan:
+- skapa arbetsböcker med kolumner och rader
+- läsa arbetsböcker och formler
+- lägga till rader
+- ändra enskilda celler i A1-format
+- välja och lista namngivna blad
+- skapa nya blad
+
+Excel-skrivning är också avstängd som standard. Skrivningar använder temporär
+fil och atomisk ersättning för att minska risken för halvskrivna arbetsböcker.
+`openpyxl` ligger som ett valfritt beroende och behöver bara installeras när
+Excel-funktionerna faktiskt ska användas.
+
+Sökvägssäkerhet, read/write-spärrar, naturlig språkparsning, cellreferenser,
+bladval och filoperationer testas i CI. Dessa funktioner kräver ingen fysisk
+hårdvara.
+
+
 ---
 
 ## 11. Programmering och självuppdatering
