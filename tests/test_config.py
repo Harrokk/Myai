@@ -38,6 +38,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["location"]["enabled"] is False
     assert settings["location"]["file"] == "runtime/location.json"
     assert settings["location"]["max_age_seconds"] == 300
+    assert settings["gps"]["enabled"] is False
+    assert settings["gps"]["port"] == ""
+    assert settings["gps"]["baudrate"] == 9600
+    assert settings["gps"]["timeout_seconds"] == 10
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
