@@ -167,6 +167,21 @@ def detect_tools(user_input):
             "record a video",
         )
     )
+    asks_video_analysis = any(
+        phrase in text
+        for phrase in (
+            "analysera videon",
+            "analysera video",
+            "beskriv videon",
+            "sammanfatta videon",
+            "vad ser du i videon",
+            "vad händer i videon",
+            "analyze video",
+            "describe video",
+            "summarize video",
+        )
+    )
+
     asks_video_sampling = any(
         phrase in text
         for phrase in (
@@ -180,6 +195,15 @@ def detect_tools(user_input):
             "sample video frames",
         )
     )
+
+    if asks_video_recording and asks_video_analysis:
+        return [
+            "camera_record_video",
+            "vision_analyze_video",
+        ]
+
+    if asks_video_analysis:
+        return ["vision_analyze_video"]
 
     if asks_video_recording and asks_video_sampling:
         return [
