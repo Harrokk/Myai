@@ -107,6 +107,9 @@
     "semantic_consensus_min_confidence": 0.85,
     "session_max_wait_frames": 1500,
     "tts_async": true,
-    "tts_stop_timeout_seconds": 2
+    "tts_stop_timeout_seconds": 2,
+    "handsfree_enabled": false,
+    "handsfree_max_wait_frames": 1500,
+    "handsfree_stop_timeout_seconds": 3
   }
 }
