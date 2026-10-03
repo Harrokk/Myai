@@ -555,6 +555,28 @@ Exempel:
 
 ska kunna köra både CPU- och RAM-verktyget och kombinera resultaten i ett svar.
 
+### 12.1 Parameteriserade verktygsanrop
+
+Verktygssystemet ska stödja både äldre verktyg utan argument och nya verktyg med strukturerade argument.
+
+Ett verktyg kan deklarera ett enkelt JSON-schema i fältet `parameters`. MyAI:s verktygsplanerare ska då kunna skapa strukturerade anrop i formen:
+
+`{"name": "verktyg", "arguments": {...}}`
+
+Argument ska valideras innan funktionen körs. Obligatoriska argument, tillåtna fält, grundläggande datatyper och enum-värden ska kunna kontrolleras. Felaktiga argument ska ge ett tydligt verktygsfel och inte skickas blint till funktionen.
+
+Direktroutade befintliga statusverktyg ska fortsätta fungera utan argument. Kompatibilitetsfunktionen `select_tools()` ska finnas kvar för äldre kod, medan AI-kärnan internt kan använda `select_tool_calls()`.
+
+Detta lager är en förutsättning för framtida funktioner som exempelvis:
+- filnamn och dokumentoperationer
+- Excel-data och cellområden
+- GPIO-nummer och elektriska parametrar
+- kameraval
+- webbsökfrågor
+- produkt- och prisjämförelser
+
+Parameterplanering, validering, bakåtkompatibilitet och exekvering testas automatiskt i CI.
+
 ---
 
 ## 13. Internet
@@ -1002,6 +1024,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
 - specialiserade visionverktyg för textläsning och försiktig objektidentifiering
 - checksummeverifierad, standardavstängd seriell GPS/NMEA-positionering
+- bakåtkompatibelt stöd för parameteriserade verktygsanrop med JSON-schema-validering
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
