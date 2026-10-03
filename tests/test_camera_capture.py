@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from modules.camera import capture
@@ -137,3 +138,57 @@ def test_missing_opencv_is_reported(monkeypatch):
     text = capture.camera_capture()
 
     assert "OpenCV saknas" in text
+
+
+
+def test_resolve_capture_dir_uses_project_root_for_relative_path():
+    path = capture.resolve_capture_dir("runtime/custom-captures")
+
+    assert path == capture.PROJECT_ROOT / "runtime" / "custom-captures"
+
+
+def test_configured_camera_index_accepts_numeric_string():
+    settings = {
+        "camera": {
+            "default_index": "2",
+        }
+    }
+
+    assert capture.configured_camera_index(settings) == 2
+
+
+def test_configured_camera_index_rejects_negative():
+    try:
+        capture.configured_camera_index(
+            {
+                "camera": {
+                    "default_index": -1,
+                }
+            }
+        )
+    except ValueError as error:
+        assert "negativt" in str(error)
+    else:
+        raise AssertionError("Negative camera index should fail")
+
+
+def test_capture_from_settings_uses_selected_camera(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture.platform, "system", lambda: "Windows")
+    frame = SimpleNamespace(shape=(480, 640, 3))
+    camera = FakeCamera(frame=frame)
+    cv2 = FakeCV2(camera)
+
+    result = capture.capture_from_settings(
+        settings={
+            "camera": {
+                "default_index": 2,
+                "capture_dir": str(tmp_path),
+            }
+        },
+        cv2_module=cv2,
+    )
+
+    assert result["success"] is True
+    assert result["camera_index"] == 2
+    assert cv2.video_args == (2, cv2.CAP_DSHOW)
+    assert Path(result["path"]).parent == tmp_path

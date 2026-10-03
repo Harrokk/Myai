@@ -2,8 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import platform
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from core.config import PROJECT_ROOT, load_settings
 DEFAULT_CAPTURE_DIR = PROJECT_ROOT / "runtime" / "captures"
 
 
@@ -23,6 +22,30 @@ def default_capture_path(capture_dir=DEFAULT_CAPTURE_DIR, now=None):
     capture_dir = Path(capture_dir)
     timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S_%f")
     return capture_dir / f"capture_{timestamp}.jpg"
+
+
+def resolve_capture_dir(value=None):
+    path = Path(value or "runtime/captures")
+
+    if path.is_absolute():
+        return path
+
+    return PROJECT_ROOT / path
+
+
+def configured_camera_index(settings):
+    camera = settings.get("camera", {})
+    value = camera.get("default_index", 0)
+
+    try:
+        index = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("camera.default_index måste vara ett heltal.") from error
+
+    if index < 0:
+        raise ValueError("camera.default_index får inte vara negativt.")
+
+    return index
 
 
 def capture_frame(
@@ -93,6 +116,25 @@ def capture_frame(
         camera.release()
 
 
+def capture_from_settings(
+    settings=None,
+    cv2_module=None,
+):
+    settings = settings or load_settings()
+    camera = settings.get("camera", {})
+    index = configured_camera_index(settings)
+    capture_dir = resolve_capture_dir(
+        camera.get("capture_dir", "runtime/captures")
+    )
+    output = default_capture_path(capture_dir)
+
+    return capture_frame(
+        camera_index=index,
+        output_path=output,
+        cv2_module=cv2_module,
+    )
+
+
 def format_capture_result(result):
     if not result.get("success"):
         return (
@@ -115,7 +157,7 @@ def format_capture_result(result):
 
 def camera_capture():
     try:
-        return format_capture_result(capture_frame())
+        return format_capture_result(capture_from_settings())
     except Exception as error:
         return f"Kamerabilden kunde inte tas: {error}"
 
