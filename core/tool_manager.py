@@ -155,6 +155,120 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    mentions_xlsx = ".xlsx" in text
+
+    if mentions_xlsx:
+        if any(
+            phrase in text
+            for phrase in (
+                "lista blad",
+                "visa blad",
+                "vilka blad",
+                "list sheets",
+            )
+        ):
+            return ["excel_list_sheets"]
+
+        if any(
+            phrase in text
+            for phrase in (
+                "skapa blad",
+                "skapa nytt blad",
+                "create sheet",
+            )
+        ):
+            return ["excel_create_sheet"]
+
+        if any(
+            phrase in text
+            for phrase in (
+                "sätt ",
+                "ändra cell",
+                "skriv ",
+                "set cell",
+            )
+        ) and any(
+            token in text
+            for token in ("cell", " a1", " b1", " a2", " b2", " c")
+        ):
+            return ["excel_set_cell"]
+
+        if any(
+            phrase in text
+            for phrase in (
+                "lägg till raden",
+                "lägg till rad",
+                "addera raden",
+                "append row",
+            )
+        ):
+            return ["excel_append"]
+
+        if any(
+            phrase in text
+            for phrase in (
+                "skapa excel",
+                "skapa excel-filen",
+                "skapa excel fil",
+                "create excel",
+                "create workbook",
+            )
+        ):
+            return ["excel_create"]
+
+        if any(
+            phrase in text
+            for phrase in (
+                "läs excel",
+                "läs excel-filen",
+                "visa excel",
+                "read excel",
+                "read workbook",
+            )
+        ):
+            return ["excel_read"]
+
+    mentions_text_file = any(
+        extension in text
+        for extension in (".txt", ".md", ".csv", ".json")
+    )
+
+    if mentions_text_file:
+        if any(
+            phrase in text
+            for phrase in (
+                "skapa fil",
+                "skriv fil",
+                "skriv till",
+                "spara i",
+                "create file",
+                "write file",
+            )
+        ):
+            return ["workspace_write"]
+
+        if any(
+            phrase in text
+            for phrase in (
+                "läs fil",
+                "visa fil",
+                "öppna fil",
+                "read file",
+            )
+        ):
+            return ["workspace_read"]
+
+    if any(
+        phrase in text
+        for phrase in (
+            "lista workspace",
+            "visa workspace",
+            "vilka filer finns i workspace",
+            "list workspace",
+        )
+    ):
+        return ["workspace_list"]
+
     asks_research = any(
         phrase in text
         for phrase in (
