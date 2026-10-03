@@ -53,7 +53,17 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["shopping"]["min_source_reliability"] == 50
     assert settings["voice"]["enabled"] is False
     assert settings["voice"]["stt_provider"] == ""
+    assert settings["voice"]["stt_model"] == "small"
+    assert settings["voice"]["stt_device"] == "auto"
+    assert settings["voice"]["stt_compute_type"] == "auto"
+    assert settings["voice"]["stt_language"] == "sv"
+    assert settings["voice"]["stt_beam_size"] == 5
+    assert settings["voice"]["stt_uncertain_word_probability"] == 0.60
+    assert settings["voice"]["stt_profiles"] == []
     assert settings["voice"]["tts_provider"] == ""
+    assert settings["voice"]["tts_voice_name"] == ""
+    assert settings["voice"]["tts_rate"] == 0
+    assert settings["voice"]["tts_volume"] == 100
     assert settings["voice"]["speak_responses"] is True
     assert settings["voice"]["primary_confidence_threshold"] == 0.80
     assert settings["voice"]["high_risk_confidence_threshold"] == 0.90
