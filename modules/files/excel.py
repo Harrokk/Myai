@@ -134,6 +134,82 @@ def parse_create_request(user_text):
     }
 
 
+def parse_cell_reference(reference):
+    text = str(reference or "").strip().upper()
+    match = re.fullmatch(r"([A-Z]{1,3})([1-9]\d*)", text)
+
+    if not match:
+        raise ValueError(
+            "Cellreferensen måste använda A1-format, exempelvis B2."
+        )
+
+    letters, row_text = match.groups()
+    column = 0
+
+    for letter in letters:
+        column = column * 26 + (ord(letter) - ord("A") + 1)
+
+    return {
+        "reference": text,
+        "row": int(row_text),
+        "column": column,
+    }
+
+
+def parse_set_cell_request(user_text):
+    text = str(user_text or "").strip()
+    path = extract_file_path(text)
+
+    if not path or not path.lower().endswith(".xlsx"):
+        raise ValueError("Ingen giltig .xlsx-fil hittades i instruktionen.")
+
+    escaped = re.escape(path)
+
+    patterns = (
+        (
+            rf"(?:sätt|ändra)\s+(?:cell(?:en)?\s+)?"
+            rf"([A-Za-z]{{1,3}}[1-9]\d*)\s+till\s+(.+?)"
+            rf"\s+i\s+(?:filen\s+)?[\"'“”]?{escaped}[\"'“”]?",
+            "reference_first",
+        ),
+        (
+            rf"skriv\s+(.+?)\s+i\s+(?:cell(?:en)?\s+)?"
+            rf"([A-Za-z]{{1,3}}[1-9]\d*)\s+i\s+"
+            rf"(?:filen\s+)?[\"'“”]?{escaped}[\"'“”]?",
+            "value_first",
+        ),
+    )
+
+    for pattern, mode in patterns:
+        match = re.search(
+            pattern,
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        if not match:
+            continue
+
+        if mode == "reference_first":
+            reference_text, value_text = match.groups()
+        else:
+            value_text, reference_text = match.groups()
+
+        cell = parse_cell_reference(reference_text)
+
+        return {
+            "path": path,
+            "cell": cell["reference"],
+            "row": cell["row"],
+            "column": cell["column"],
+            "value": _coerce_cell(value_text),
+        }
+
+    raise ValueError(
+        'Använd exempelvis: Sätt B2 till 42 i "budget.xlsx".'
+    )
+
+
 def parse_append_request(user_text):
     text = str(user_text or "").strip()
     path = extract_file_path(text)
@@ -300,6 +376,54 @@ def append_excel_row(
     }
 
 
+def set_excel_cell(
+    request,
+    settings=None,
+    openpyxl_module=None,
+):
+    settings, excel = _excel_config(settings)
+
+    if not excel.get("write_enabled", False):
+        raise RuntimeError(
+            "Excel-skrivning är avstängd i konfigurationen."
+        )
+
+    path = _require_xlsx(request["path"], settings)
+
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(
+            f"Excel-filen finns inte: {request['path']}"
+        )
+
+    openpyxl = openpyxl_module or _load_openpyxl()
+    workbook = openpyxl.load_workbook(path)
+    sheet = workbook.active
+    cell = sheet.cell(
+        row=request["row"],
+        column=request["column"],
+    )
+    previous = cell.value
+    cell.value = request["value"]
+    temporary = path.with_suffix(".tmp.xlsx")
+
+    try:
+        workbook.save(temporary)
+        os.replace(temporary, path)
+    finally:
+        workbook.close()
+
+        if temporary.exists():
+            temporary.unlink()
+
+    return {
+        "path": path,
+        "sheet": sheet.title,
+        "cell": request["cell"],
+        "previous": previous,
+        "value": request["value"],
+    }
+
+
 def excel_create(user_text):
     try:
         request = parse_create_request(user_text)
@@ -343,6 +467,18 @@ def excel_read(user_text):
         return f"Kunde inte läsa Excel-filen: {error}"
 
 
+def excel_set_cell(user_text):
+    try:
+        request = parse_set_cell_request(user_text)
+        result = set_excel_cell(request)
+        return (
+            f"Cell {result['cell']} i {result['path'].name} ändrades "
+            f"från {result['previous']} till {result['value']}."
+        )
+    except Exception as error:
+        return f"Kunde inte ändra Excel-cellen: {error}"
+
+
 def excel_append(user_text):
     try:
         request = parse_append_request(user_text)
@@ -375,6 +511,14 @@ TOOLS = {
         "function": excel_append,
         "description": (
             "Lägger till en rad i en befintlig .xlsx-fil i workspace."
+        ),
+        "input_mode": "user_text",
+    },
+    "excel_set_cell": {
+        "function": excel_set_cell,
+        "description": (
+            "Ändrar en namngiven cell i A1-format i en befintlig .xlsx-fil "
+            "och kan bevara Excel-formler som börjar med =."
         ),
         "input_mode": "user_text",
     },
