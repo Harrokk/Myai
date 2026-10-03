@@ -35,3 +35,7 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["gps"]["port"] == ""
     assert settings["gps"]["baudrate"] == 9600
     assert settings["gps"]["max_lines"] == 20
+    assert settings["internet"]["enabled"] is False
+    assert settings["internet"]["provider"] == "searxng"
+    assert settings["internet"]["searxng_url"] == ""
+    assert settings["internet"]["max_results"] == 5
