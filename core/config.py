@@ -37,6 +37,19 @@ DEFAULT_SETTINGS = {
         "baudrate": 9600,
         "timeout_seconds": 10,
     },
+    "files": {
+        "enabled": True,
+        "workspace_root": "runtime/workspace",
+        "write_enabled": False,
+        "max_read_chars": 20000,
+        "max_list_entries": 100,
+        "allowed_write_extensions": [
+            ".txt",
+            ".md",
+            ".csv",
+            ".json",
+        ],
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
