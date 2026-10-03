@@ -34,6 +34,20 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_location_status():
+    result = tool_manager.detect_tools(
+        "Var är du just nu?"
+    )
+    assert result == ["location_status"]
+
+
+def test_detect_tools_routes_gps_status():
+    result = tool_manager.detect_tools(
+        "Visa GPS-status."
+    )
+    assert result == ["location_status"]
+
+
 def test_detect_tools_routes_video_analysis():
     result = tool_manager.detect_tools(
         "Analysera senaste videon."
