@@ -669,6 +669,32 @@ Systemet ska skilja mellan:
 - ungefärlig nätverksposition
 - uppskattad närhet från Bluetooth
 
+### 14.1 Teknisk status för positionskärna
+
+På utvecklingsgren finns nu ett read-only positionslager med verktyget `location_status`.
+
+Lagret använder ett normaliserat positionsformat med:
+- latitud
+- longitud
+- källa: `gps`, `network`, `bluetooth` eller `manual`
+- valfri rapporterad noggrannhet i meter
+- valfri höjd
+- tidsstämplad positionsfix med tidszon
+
+Position är avstängd som standard. När den aktiveras läser MyAI den senaste lokala fixen från `runtime/location.json` eller annan konfigurerad fil.
+
+Säkerhets- och kvalitetsregler:
+- ogiltiga latituder/longituder avvisas
+- okänd positionskälla avvisas
+- tidsstämplar utan tidszon avvisas
+- positionsfixens ålder jämförs med `location.max_age_seconds`
+- en gammal fix markeras som inaktuell i stället för att presenteras som aktuell
+- nätverks- och Bluetooth-positioner märks uttryckligen som ungefärliga och inte som exakt GPS
+
+Detta lager hämtar ännu ingen fysisk GPS-signal och gör ingen nätverksgeolokalisering. Framtida GPS-, telefon- eller nätverksproviders ska skriva samma normaliserade format, så dialog- och verktygslagret inte behöver byggas om.
+
+Validering, stale-logik, formatering och routing testas i CI. Verklig GPS-/telefon-/nätverksposition ska verifieras senare med respektive fysisk eller extern källa.
+
 ---
 
 ## 15. Minne
@@ -1100,6 +1126,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 - sampled videoanalys över kronologiskt ordnade representativa bildrutor med no-guess-regler
+- read-only normaliserad positionskärna med GPS/nätverk/Bluetooth/manual-källa och stale-kontroll
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
