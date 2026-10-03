@@ -344,6 +344,51 @@ def gps_validation_check(results):
     return True
 
 
+def voice_validation_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 8 - Live-röstkedja")
+    print("=" * 60)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(
+                PROJECT_ROOT
+                / "scripts"
+                / "voice_hardware_validation.py"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+    )
+
+    if completed.returncode == 0:
+        record(
+            results,
+            "Live-röstkedja",
+            "PASS",
+            "Mikrofon → VAD → STT → MyAI → TTS verifierad.",
+        )
+        return True
+
+    if completed.returncode == 2:
+        record(
+            results,
+            "Live-röstkedja",
+            "SKIP",
+            "Röstkedjan är inte fullt konfigurerad ännu.",
+        )
+        return True
+
+    record(
+        results,
+        "Live-röstkedja",
+        "FAIL",
+        f"exit code {completed.returncode}",
+    )
+    return False
+
+
 def main():
     results = []
 
@@ -374,6 +419,8 @@ def main():
     camera_capture_check(results)
 
     gps_validation_check(results)
+
+    voice_validation_check(results)
 
     path = save_report(results)
 
