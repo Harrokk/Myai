@@ -53,3 +53,8 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["research"]["min_information_confidence"] == 40
     assert settings["research"]["weights"]["relevance"] == 0.30
     assert settings["research"]["weights"]["practicality"] == 0.10
+    assert settings["internet"]["enabled"] is False
+    assert settings["internet"]["provider"] == "searxng"
+    assert settings["internet"]["searxng_url"] == "http://localhost:8080"
+    assert settings["internet"]["max_results"] == 5
+    assert settings["internet"]["safesearch"] == 1

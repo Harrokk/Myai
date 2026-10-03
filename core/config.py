@@ -53,6 +53,15 @@ DEFAULT_SETTINGS = {
             "practicality": 0.10,
         },
     },
+    "internet": {
+        "enabled": False,
+        "provider": "searxng",
+        "searxng_url": "http://localhost:8080",
+        "timeout_seconds": 15,
+        "max_results": 5,
+        "language": "sv-SE",
+        "safesearch": 1,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
