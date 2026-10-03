@@ -155,6 +155,22 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_camera_capture = any(
+        phrase in text
+        for phrase in (
+            "ta en bild",
+            "ta bild",
+            "ta ett foto",
+            "ta foto",
+            "fotografera",
+            "capture image",
+            "capture photo",
+        )
+    )
+
+    if asks_camera_capture:
+        return ["camera_capture"]
+
     mentions_pi = any(
         word in text
         for word in ("raspberry pi", "raspberrypi", "pi 5", "pi5")
