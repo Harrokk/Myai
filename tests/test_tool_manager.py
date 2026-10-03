@@ -34,6 +34,20 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_camera_capture():
+    result = tool_manager.detect_tools(
+        "Ta en bild med kameran."
+    )
+    assert result == ["camera_capture"]
+
+
+def test_camera_inventory_is_still_distinct_from_capture():
+    result = tool_manager.detect_tools(
+        "Vilka kameror är anslutna?"
+    )
+    assert result == ["camera_status"]
+
+
 def test_detect_tools_finds_camera():
     result = tool_manager.detect_tools(
         "Vilka kameror är anslutna?"
