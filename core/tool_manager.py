@@ -155,6 +155,22 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_live_vision = any(
+        phrase in text
+        for phrase in (
+            "analysera livekameran",
+            "analysera kamerastreamen",
+            "vad ser kameran live",
+            "vad ser du live",
+            "live vision",
+            "live-vision",
+            "analyze live camera",
+        )
+    )
+
+    if asks_live_vision:
+        return ["vision_analyze_live"]
+
     asks_camera_stream = any(
         phrase in text
         for phrase in (
