@@ -696,6 +696,23 @@ En sådan procentsiffra ska beskrivas som en intern konfidensbedömning och inte
 
 Om trovärdiga källor motsäger varandra ska MyAI visa detta, sänka konfidensen och förklara vilka uppgifter som stödjer respektive motsäger påståendet. Vid låg säkerhet ska assistenten säga att informationen är osäker i stället för att gissa.
 
+#### 13.2.1 Teknisk status för preliminär källbedömning
+
+På utvecklingsgren finns nu en första deterministisk källbedömningsmotor.
+
+Den håller tre värden separata:
+- relevans mot användarens sökfråga
+- källans preliminära tillförlitlighet
+- informationens preliminära konfidens
+
+Bedömningen på detta steg använder endast sökresultatens metadata och utdrag. Därför begränsas källtillförlitlighet till högst 80 % och informationskonfidens till högst 75 % innan själva källsidan har verifierats djupare.
+
+Källtillförlitligheten kan bland annat väga in HTTPS, tydligt domännamn, publiceringsmetadata, informationsrikt utdrag, flera sökmotorsträffar samt varningssignaler som rå IP-adress, kortlänk eller punycode-domän.
+
+Informationskonfidensen kan få ett begränsat stöd när liknande uppgifter återkommer på andra domäner. Resultat från samma domän räknas inte som oberoende bekräftelse.
+
+Dessa procentsiffror är uttryckligen interna heuristiska bedömningar och inte matematiska sannolikheter för att ett påstående är sant.
+
 
 ### 13.3 Fem kandidater → validering → topp tre
 
@@ -713,6 +730,28 @@ Om färre än fem trovärdiga kandidater går att hitta ska MyAI använda de kan
 Topp tre-listan ska inte enbart bygga på ett enda mått. Bedömningen ska väga in relevans, källans tillförlitlighet, informationens konfidens och sådana praktiska kriterier som är viktiga för den aktuella uppgiften.
 
 Vid prisjämförelser gäller dessutom reglerna i avsnitt 13.1 om totalpris, frakt, moms, lagerstatus, leveransmöjlighet till Sverige och säljarens trovärdighet.
+
+#### 13.3.1 Teknisk status för fem kandidater → topp tre
+
+På utvecklingsgren finns nu verktyget `research_top_three`.
+
+Standardflödet är:
+1. sök upp till fem kandidater via `internet_search`-lagret
+2. beräkna relevans, preliminär källtillförlitlighet och preliminär informationskonfidens separat
+3. kombinera värdena med konfigurerbara vikter
+4. sortera kandidaterna
+5. presentera högst tre resultat
+
+Standardvikterna är:
+- relevans: 40 %
+- källtillförlitlighet: 35 %
+- informationskonfidens: 25 %
+
+Vikterna, kandidatgränsen och toppresultatgränsen ligger i konfiguration och kan senare finjusteras utan att kärnkoden ändras.
+
+Om färre än fem kandidater finns ska det visas uttryckligen i resultatet.
+
+Detta är första valideringsnivån. Djupare sidinhämtning, primärkälleidentifiering, författare/metod och faktisk motsägelseanalys ska byggas som senare lager innan procentsiffrorna får högre tak.
 
 ---
 
@@ -1075,6 +1114,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - säkra parameteriserade Excel-verktyg för skapa, läsa, skriva cell och lägga till rad
 - säkra parameteriserade textfilverktyg för .txt, .md, .json och .csv i lokal dokumentyta
 - standardavstängd parameteriserad internetsökning via konfigurerbar SearXNG-backend
+- preliminär käll-/konfidensbedömning och konfigurerbart fem-kandidater-till-topp-tre-flöde
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
