@@ -187,3 +187,32 @@ def test_short_term_history_is_bounded(tmp_path):
     assert core.conversation_history[0]["content"] == (
         "Hur mycket CPU används nu?"
     )
+
+
+
+def test_core_passes_user_message_to_user_text_tool(tmp_path):
+    memory = FakeMemory()
+    llm = FakeLLM()
+    received = []
+
+    tools = {
+        "location_status": {
+            "function": lambda text: received.append(text) or "POSITION OK",
+            "description": "location",
+            "input_mode": "user_text",
+        },
+    }
+
+    core = MyAICore(
+        deepcopy(DEFAULT_SETTINGS),
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond("Var är du just nu?")
+
+    assert result["tools"] == ["location_status"]
+    assert result["tool_results"]["location_status"] == "POSITION OK"
+    assert received == ["Var är du just nu?"]

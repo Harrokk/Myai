@@ -549,6 +549,18 @@ Exempel på verktyg:
 
 AI:n ska kunna välja flera verktyg för samma fråga.
 
+### 12.1 Verktygsindata och bakåtkompatibilitet
+
+Verktygssystemet ska stödja både äldre statusverktyg utan argument och nya verktyg som behöver användarens instruktion som indata.
+
+Standardläget ska vara bakåtkompatibelt:
+- verktyg utan `input_mode` körs utan argument precis som tidigare
+- ett verktyg kan uttryckligen ange `input_mode: "user_text"` för att få hela användarens ursprungliga instruktion
+- ett okänt `input_mode` ska ge ett isolerat verktygsfel utan att stoppa andra verktyg i samma multi-tool-körning
+- ett textverktyg ska inte köras med dold eller fabricerad text om användarens instruktion saknas
+
+Detta gör det möjligt att bygga fil-, dokument- och Excel-verktyg som kan tolka uppgiftsspecifik indata utan att specialkod läggs i terminalgränssnittet eller att befintliga hårdvaruverktyg behöver skrivas om.
+
 Exempel:
 
 > Hur mycket CPU och RAM använder datorn?
@@ -1152,6 +1164,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - sampled videoanalys över kronologiskt ordnade representativa bildrutor med no-guess-regler
 - read-only normaliserad positionskärna med GPS/nätverk/Bluetooth/manual-källa och stale-kontroll
 - seriell NMEA-RMC GPS-provider med checksummevalidering och atomisk positionsuppdatering
+- bakåtkompatibelt verktygsindatalager där nya verktyg kan välja input_mode=user_text
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

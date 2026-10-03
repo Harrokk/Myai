@@ -612,8 +612,12 @@ def select_tools(user_input, tools, llm_client):
     ]
 
 
-def run_tools(tool_names, tools):
-    """Kör flera verktyg och samla varje resultat separat."""
+def run_tools(tool_names, tools, user_input=None):
+    """Kör flera verktyg och samla varje resultat separat.
+
+    Befintliga verktyg utan input_mode körs utan argument.
+    Verktyg med input_mode="user_text" får hela användarens instruktion.
+    """
     results = {}
 
     for tool_name in tool_names:
@@ -621,8 +625,24 @@ def run_tools(tool_names, tools):
             continue
 
         try:
-            tool_function = tools[tool_name]["function"]
-            results[tool_name] = tool_function()
+            tool = tools[tool_name]
+            tool_function = tool["function"]
+            input_mode = tool.get("input_mode", "none")
+
+            if input_mode in (None, "", "none"):
+                result = tool_function()
+            elif input_mode == "user_text":
+                if not isinstance(user_input, str):
+                    raise ValueError(
+                        "verktyget kräver användarens text som indata"
+                    )
+                result = tool_function(user_input)
+            else:
+                raise ValueError(
+                    f"okänt input_mode: {input_mode}"
+                )
+
+            results[tool_name] = result
         except Exception as error:
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
