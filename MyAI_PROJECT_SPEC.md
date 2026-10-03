@@ -854,6 +854,20 @@ Visionklienten har samtidigt utökats med flerbildsstöd utan att ändra det bef
 
 Flerbildskodning, routing, promptbeteende och felvägar testas i CI. Verklig förändringsdetektering ska verifieras senare med lokal visionmodell och verkliga kamerabilder.
 
+### 16.1.7 Teknisk status för konfigurerbart kameraval
+
+Stillbildslagret kan nu välja standardkamera via konfiguration i stället för att vara hårdkodat till kameraindex 0.
+
+Konfigurationen innehåller:
+- `camera.default_index` med säkert standardvärde `0`
+- `camera.capture_dir` med standardvärdet `runtime/captures`
+
+Relativa sökvägar för bildlagring löses mot projektroten. Negativa eller ogiltiga kameraindex avvisas i stället för att skickas vidare till kamerabiblioteket.
+
+Både det vanliga `camera_capture`-verktyget och den samlade fysiska hårdvaruverifieringen använder samma kamerainställning.
+
+Detta är ännu ett logiskt kameraindex och inte en säker beständig koppling mellan Windows PnP-ID och OpenCV-index. Praktisk mappning mellan flera fysiska kameror ska därför verifieras senare innan automatisk kameraväxling byggs.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1020,6 +1034,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat OCR/textläsningslager för senaste kamerabild med no-guess-prompt
 - separat objektidentifieringslager med försiktiga konfidensnivåer och no-guess-regler
 - flerbildsstöd och separat förändringsdetektering mellan de två senaste kamerabilderna
+- konfigurerbart standardkameraindex och capture-katalog för stillbildstagning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
