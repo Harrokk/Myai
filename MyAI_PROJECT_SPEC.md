@@ -454,6 +454,22 @@ Cellvärden begränsas till enkla Excel-värden. Strängar som börjar med `=` b
 
 Excel-funktionerna använder det nya parameteriserade verktygssystemet och testas med riktiga `.xlsx`-filer i CI.
 
+### 10.2 Teknisk status för lokala textdokument
+
+På utvecklingsgren finns nu parameteriserade verktyg för lokala textdokument:
+- `text_file_write` för att skapa eller uttryckligen skriva över en fil
+- `text_file_read` för att läsa en fil med begränsad maximal svarslängd
+- `text_file_append` för att lägga till text i en befintlig fil
+- `document_list` för read-only listning av dokumentytan
+
+Den första säkra filytan är `runtime/documents/`. Absoluta sökvägar, enhetsbeteckningar och traversal utanför dokumentytan blockeras.
+
+Skrivbara filtyper är initialt begränsade till `.txt`, `.md`, `.json` och `.csv`. Kodfiler som `.py` skrivs inte genom detta dokumentverktyg; självkodning ska fortsatt gå genom den separata Git/sandbox-processen.
+
+Skrivningar har en storleksgräns och läsning av långa filer avkortas till en konfigurerad verktygsgräns så att mycket stora dokument inte okontrollerat fyller modellkontexten.
+
+Sökvägsskydd, overwrite-regler, append, listning och avkortning testas i CI.
+
 ---
 
 ## 11. Programmering och självuppdatering
@@ -1042,6 +1058,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - checksummeverifierad, standardavstängd seriell GPS/NMEA-positionering
 - bakåtkompatibelt stöd för parameteriserade verktygsanrop med JSON-schema-validering
 - säkra parameteriserade Excel-verktyg för skapa, läsa, skriva cell och lägga till rad
+- säkra parameteriserade textfilverktyg för .txt, .md, .json och .csv i lokal dokumentyta
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
