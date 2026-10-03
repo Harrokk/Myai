@@ -362,6 +362,25 @@ class BleakGattConnector:
             )
         )
 
+    def get_client(self, device_id):
+        client = self._clients.get(
+            device_id
+        )
+
+        if (
+            client is None
+            or not bool(
+                getattr(
+                    client,
+                    "is_connected",
+                    False,
+                )
+            )
+        ):
+            return None
+
+        return client
+
     def status(self):
         return {
             "provider": "bleak_gatt",
