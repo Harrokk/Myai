@@ -65,6 +65,25 @@ DEFAULT_SETTINGS = {
         "max_page_chars": 20_000,
         "max_redirects": 5,
     },
+    "files": {
+        "enabled": True,
+        "workspace_root": "runtime/workspace",
+        "write_enabled": False,
+        "max_read_chars": 20_000,
+        "max_list_entries": 100,
+        "allowed_write_extensions": [
+            ".txt",
+            ".md",
+            ".csv",
+            ".json",
+        ],
+    },
+    "excel": {
+        "enabled": True,
+        "write_enabled": False,
+        "max_rows_read": 100,
+        "default_sheet": "Data",
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
