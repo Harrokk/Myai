@@ -49,6 +49,8 @@ def settings(enabled=True, tts=False):
             "tts_rate": 175,
             "tts_volume": 0.8,
             "tts_voice_id": "voice-1",
+            "tts_async": False,
+            "tts_stop_timeout_seconds": 1.5,
         }
     }
 
@@ -105,3 +107,19 @@ def test_unknown_provider_is_rejected():
         assert "unknown" in str(error)
     else:
         raise AssertionError("unknown provider should fail")
+
+
+
+def test_factory_wraps_tts_when_async_is_enabled():
+    value = settings(tts=True)
+    value["voice"]["tts_async"] = True
+    value["voice"]["tts_stop_timeout_seconds"] = 1.25
+
+    result = voice_factory.build_voice_components(
+        settings=value,
+        provider_classes=classes(),
+    )
+
+    assert type(result["tts"]).__name__ == "InterruptibleTTS"
+    assert result["tts"].stop_timeout_seconds == 1.25
+    assert result["tts"].provider.kwargs["rate"] == 175
