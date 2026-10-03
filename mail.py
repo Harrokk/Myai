@@ -98,7 +98,10 @@ def stop_voice_handsfree():
     if VOICE_HANDSFREE is None:
         return False
 
-    return bool(
+    was_running = bool(
+        VOICE_HANDSFREE.is_running
+    )
+    stopped = bool(
         VOICE_HANDSFREE.stop(
             timeout=SETTINGS.get("voice", {}).get(
                 "handsfree_stop_timeout_seconds",
@@ -106,6 +109,7 @@ def stop_voice_handsfree():
             )
         )
     )
+    return was_running and stopped
 
 
 def voice_status_text():
