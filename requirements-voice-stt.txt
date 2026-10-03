@@ -1,0 +1,3 @@
+# Optional local STT dependency for the voice module.
+# Install with: python -m pip install -r requirements-voice-stt.txt
+faster-whisper>=1.1,<2
