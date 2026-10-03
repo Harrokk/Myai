@@ -795,7 +795,32 @@ Transparensscore är begränsad till högst 90 % och evidenssignalscore till hö
 
 Verktyget kan även mäta enkel frågeöverlapp mellan användarens ämne och sidans text för att visa om den hämtade sidan faktiskt verkar handla om frågan.
 
-Denna nivå är djupare än sökmetadata, men ännu inte full påståendefaktakontroll. Automatisk uppdatering av topp-tre-rankingen från dessa siddata byggs som nästa separat testat lager.
+Denna nivå är djupare än sökmetadata, men ännu inte full påståendefaktakontroll.
+
+### 13.6 Djupverifierad topp-tre-rankning
+
+På utvecklingsgren är djup sidverifiering nu kopplad till fem-kandidater-till-topp-tre-flödet.
+
+Flödet är:
+1. samla upp till fem kandidater
+2. beräkna preliminär relevans, källtillförlitlighet och informationskonfidens
+3. försöka hämta varje kandidats publika sida via den SSRF-skyddade webbhämtaren
+4. beräkna transparens- och evidenssignalscore för de sidor som kan verifieras
+5. blanda in sidpoängen i källtillförlitlighet och informationskonfidens
+6. räkna om totalscoren
+7. sortera om och presentera topp tre
+
+Standardvärdet `research.deep_blend` är 0,40. Det betyder att 40 % av den justerade källtillförlitligheten kommer från sidans transparensscore och 40 % av den justerade informationskonfidensen kommer från sidans evidenssignalscore; resterande 60 % kommer från den preliminära sökbedömningen.
+
+Efter djupverifiering kan:
+- källtillförlitlighet som mest nå 90 %
+- informationskonfidens som mest nå 85 %
+
+En kandidat straffas inte automatiskt bara för att sidan inte gick att hämta. Om djupverifieringen misslyckas eller saknas behålls den preliminära bedömningen och statusen redovisas som misslyckad eller otillgänglig.
+
+Djupverifiering är aktiverad i projektets research-standardkonfiguration, men faktisk nätåtkomst är fortfarande blockerad tills `internet.enabled=true` och en sökbackend har konfigurerats.
+
+Även de djupverifierade procentsiffrorna är interna heuristiska bedömningar, inte matematiska sannolikheter för att ett påstående är sant.
 
 ---
 
@@ -1161,6 +1186,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - preliminär käll-/konfidensbedömning och konfigurerbart fem-kandidater-till-topp-tre-flöde
 - säker publik webbsideshämtning med SSRF-, redirect-, innehållstyp- och storleksskydd
 - djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
+- djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

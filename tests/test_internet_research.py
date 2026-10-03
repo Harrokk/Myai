@@ -14,6 +14,8 @@ def settings():
         "research": {
             "candidate_limit": 5,
             "top_results": 3,
+            "deep_verification_enabled": False,
+            "deep_blend": 0.40,
             "weights": {
                 "relevance": 0.40,
                 "source_reliability": 0.35,
@@ -90,3 +92,113 @@ def test_research_tool_declares_query_parameter():
     schema = research.TOOLS["research_top_three"]["parameters"]
 
     assert schema["required"] == ["query"]
+
+
+def deep_settings():
+    value = settings()
+    value["research"]["deep_verification_enabled"] = True
+    return value
+
+
+def fake_verify(url, query, settings):
+    index = int(
+        url.split("source", 1)[1].split(".", 1)[0]
+    )
+    transparency = 40 + index * 10
+    evidence = 35 + index * 10
+
+    return {
+        "available": True,
+        "verification": {
+            "url": url,
+            "transparency_score": transparency,
+            "evidence_signal_score": evidence,
+            "assessment_note": "test",
+        },
+    }
+
+
+def test_deep_research_verifies_all_five_candidates():
+    result = research.research_top_three_data(
+        "Raspberry Pi power",
+        settings=deep_settings(),
+        search_function=fake_search,
+        verify_function=fake_verify,
+    )
+
+    assert result["deep_verification_enabled"] is True
+    assert result["deep_verified_count"] == 5
+    assert all(
+        item["deep_verification_status"] == "verified"
+        for item in result["candidates"]
+    )
+
+
+def test_deep_verification_can_reorder_candidates():
+    def uneven_verify(url, query, settings):
+        index = int(
+            url.split("source", 1)[1].split(".", 1)[0]
+        )
+        strong = index == 5
+        return {
+            "available": True,
+            "verification": {
+                "url": url,
+                "transparency_score": 90 if strong else 10,
+                "evidence_signal_score": 85 if strong else 10,
+                "assessment_note": "test",
+            },
+        }
+
+    result = research.research_top_three_data(
+        "Raspberry Pi power",
+        settings=deep_settings(),
+        search_function=fake_search,
+        verify_function=uneven_verify,
+    )
+
+    assert result["top"][0]["url"].startswith(
+        "https://source5.example"
+    )
+    assert (
+        result["top"][0]["source_reliability"]["preliminary_score"]
+        <= result["top"][0]["source_reliability"]["score"]
+    )
+
+
+def test_failed_deep_verification_keeps_preliminary_score():
+    def failing_verify(url, query, settings):
+        raise RuntimeError("fetch failed")
+
+    result = research.research_top_three_data(
+        "Raspberry Pi power",
+        settings=deep_settings(),
+        search_function=fake_search,
+        verify_function=failing_verify,
+    )
+
+    assert result["deep_verified_count"] == 0
+    assert all(
+        item["deep_verification_status"] == "failed"
+        for item in result["candidates"]
+    )
+    assert all(
+        "preliminary_score"
+        not in item["source_reliability"]
+        for item in result["candidates"]
+    )
+
+
+def test_deep_research_formatter_reports_verification():
+    result = research.research_top_three_data(
+        "Raspberry Pi power",
+        settings=deep_settings(),
+        search_function=fake_search,
+        verify_function=fake_verify,
+    )
+
+    text = research.format_research_top_three(result)
+
+    assert "Djupverifiering: ja" in text
+    assert "transparens" in text
+    assert "evidenssignaler" in text
