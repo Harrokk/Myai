@@ -31,6 +31,12 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
+    assert settings["voice"]["enabled"] is False
+    assert settings["voice"]["tts_enabled"] is False
+    assert settings["voice"]["redundancy_enabled"] is True
+    assert settings["voice"]["primary_confidence_threshold"] == 0.72
+    assert settings["voice"]["consensus_similarity_threshold"] == 0.62
+    assert settings["voice"]["redundant_transcript_count"] == 3
     assert settings["gps"]["enabled"] is False
     assert settings["gps"]["port"] == ""
     assert settings["gps"]["baudrate"] == 9600
