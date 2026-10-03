@@ -23,15 +23,48 @@ class _VisibleTextParser(HTMLParser):
         self._in_title = False
         self.title_parts = []
         self.text_parts = []
+        self.meta = {}
+        self.canonical_url = ""
+        self.external_links = []
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
+        attributes = {
+            str(key).lower(): value
+            for key, value in attrs
+            if key
+        }
 
         if tag in {"script", "style", "noscript", "svg"}:
             self._skip_depth += 1
 
         if tag == "title":
             self._in_title = True
+
+        if tag == "meta":
+            key = (
+                attributes.get("name")
+                or attributes.get("property")
+                or attributes.get("itemprop")
+                or ""
+            ).strip().lower()
+            content = (attributes.get("content") or "").strip()
+
+            if key and content and key not in self.meta:
+                self.meta[key] = content
+
+        if tag == "link":
+            rel = (attributes.get("rel") or "").lower().split()
+            href = (attributes.get("href") or "").strip()
+
+            if "canonical" in rel and href:
+                self.canonical_url = href
+
+        if tag == "a":
+            href = (attributes.get("href") or "").strip()
+
+            if href:
+                self.external_links.append(href)
 
     def handle_endtag(self, tag):
         tag = tag.lower()
@@ -241,6 +274,29 @@ class PublicWebClient:
             else:
                 text = raw_text.strip()
 
+            metadata = {}
+            canonical_url = ""
+            external_links = []
+
+            if content_type in {
+                "text/html",
+                "application/xhtml+xml",
+            }:
+                metadata = dict(parser.meta)
+                canonical_url = (
+                    urljoin(current, parser.canonical_url)
+                    if parser.canonical_url
+                    else ""
+                )
+                current_host = (urlparse(current).hostname or "").lower()
+
+                for href in parser.external_links:
+                    absolute = urljoin(current, href)
+                    host = (urlparse(absolute).hostname or "").lower()
+
+                    if host and host != current_host:
+                        external_links.append(absolute)
+
             return {
                 "requested_url": url,
                 "final_url": current,
@@ -248,6 +304,9 @@ class PublicWebClient:
                 "content_type": content_type,
                 "title": title,
                 "text": text,
+                "metadata": metadata,
+                "canonical_url": canonical_url,
+                "external_links": sorted(set(external_links)),
                 "redirects": redirect_index,
             }
 

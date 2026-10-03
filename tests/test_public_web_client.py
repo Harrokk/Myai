@@ -164,3 +164,42 @@ def test_page_size_limit_is_enforced():
 
     with pytest.raises(ValueError):
         client.fetch("https://example.com/large")
+
+
+def test_html_metadata_and_external_links_are_extracted():
+    session = FakeSession(
+        [
+            FakeResponse(
+                headers={"Content-Type": "text/html"},
+                body=(
+                    b"<html><head>"
+                    b"<title>Research page</title>"
+                    b"<meta name='author' content='Ada Example'>"
+                    b"<meta property='article:published_time' content='2026-10-03'>"
+                    b"<meta name='description' content='A documented study'>"
+                    b"<link rel='canonical' href='/canonical'>"
+                    b"</head><body>"
+                    b"<a href='/internal'>Internal</a>"
+                    b"<a href='https://other.example/source'>External</a>"
+                    b"</body></html>"
+                ),
+            )
+        ]
+    )
+
+    def resolver(host, port, type=None):
+        return public_resolver(host, port, type)
+
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=resolver,
+    )
+    result = client.fetch("https://example.com/article")
+
+    assert result["metadata"]["author"] == "Ada Example"
+    assert result["metadata"]["article:published_time"] == "2026-10-03"
+    assert result["metadata"]["description"] == "A documented study"
+    assert result["canonical_url"] == "https://example.com/canonical"
+    assert result["external_links"] == [
+        "https://other.example/source"
+    ]
