@@ -297,6 +297,31 @@ Efter detta steg finns hela livekedjan i modulär kod:
 
 Det som återstår innan live-röst kan betraktas som verifierad är installation av de valbara ljudberoendena och fysisk testning av verklig mikrofon, ljudenhet, STT-modell, TTS-röst, latency och avbrott på Windows-datorn.
 
+### 4.14 Teknisk status för sammanhållen VoiceRuntime och fysisk validering
+
+På utvecklingsgren finns nu en `VoiceRuntime` som bygger och äger hela röstkedjans livscykel från samma konfiguration:
+- STT-profiler
+- TTS-provider
+- `VoiceSession`
+- VAD/`VoiceFrameController`
+- mikrofonprovider
+
+`VoiceRuntime.start()` vägrar starta om röstfunktionen är avstängd, mikrofon saknas eller ingen STT-provider finns. `stop()` stänger mikrofonen och stoppar eventuell pågående TTS.
+
+Runtime samlar färdiga yttranden och deras sessionsresultat så att livekedjan kan diagnostiseras efter ett test utan att behöva granska varje ljudram manuellt.
+
+Ett separat `scripts/voice_hardware_validation.py` finns nu för senare Windows-verifiering. Det:
+1. kontrollerar att voice, mikrofon, STT och TTS är konfigurerade
+2. bygger riktig `MyAICore` och hela `VoiceRuntime`
+3. startar den fysiska mikrofonen
+4. ber användaren säga en kort testfras
+5. verifierar att minst ett komplett yttrande nådde status `completed`
+6. sparar accepterad STT-text, konsensusdata, TTS-status och ljudstreamstatus i en lokal JSON-rapport
+
+Den samlade `scripts/hardware_validation.py` innehåller nu detta som **DEL 8**. Om röstkedjan ännu inte är konfigurerad blir steget `SKIP` i stället för ett falskt fel.
+
+CI testar `VoiceRuntime` med simulerade komponenter. Den fysiska live-verifieringen är avsiktligt sparad till den samlade Windows-hårdvarurundan.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1358,6 +1383,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - PCM-ramkontroller med pre-roll, barge-in/TTS-avbrott och automatisk överlämning av färdigt yttrande till röstsessionen
 - valbar lokal Faster-Whisper STT och avbrytbar Windows SAPI TTS som utbytbara röstproviders
 - valbar sounddevice-baserad fysisk mikrofonkälla som matar VAD-kedjan med exakt mono PCM16-ramformat
+- sammanhållen VoiceRuntime samt guidat live-rösttest som DEL 8 i den samlade Windows-hårdvaruverifieringen
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
