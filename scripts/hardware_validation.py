@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 import platform
 import subprocess
@@ -11,6 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+from core.config import load_settings
+from core.terminal_handoff import TerminalHandoffMonitor
 from modules.bluetooth.proximity import scan_nearby_devices
 from modules.camera.camera import get_camera_inventory, format_camera_inventory
 from modules.camera.capture import capture_frame, format_capture_result
@@ -218,10 +221,182 @@ def bluetooth_proximity_check(results):
     return True
 
 
+def terminal_handoff_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 5 - Betrodd Bluetooth-terminal / RSSI-handoff")
+    print("=" * 60)
+
+    settings = load_settings()
+    terminal_config = settings.get(
+        "trusted_terminals",
+        {},
+    )
+    terminals = [
+        item
+        for item in terminal_config.get(
+            "terminals",
+            [],
+        )
+        if item.get("id")
+        and item.get("trusted")
+        and item.get("auto_connect")
+    ]
+
+    if not terminals:
+        record(
+            results,
+            "Bluetooth terminal-handoff",
+            "SKIP",
+            (
+                "Ingen betrodd auto-connect-terminal är konfigurerad. "
+                "Konfigurera terminal-id innan fysisk handoff verifieras."
+            ),
+        )
+        return True
+
+    target = terminals[0]
+    test_settings = deepcopy(settings)
+    test_config = test_settings[
+        "trusted_terminals"
+    ]
+    test_config["enabled"] = True
+    test_config["auto_execute"] = False
+
+    monitor = TerminalHandoffMonitor(
+        test_settings
+    )
+    connect_scans = monitor.connect_confirm_scans
+    disconnect_scans = monitor.disconnect_confirm_scans
+
+    print(
+        "Testterminal:",
+        target.get("name")
+        or target.get("label")
+        or target["id"],
+    )
+    print("ID:", target["id"])
+    print(
+        "Testet kör endast rekommendationsläge; "
+        "ingen Bluetooth-anslutning utförs."
+    )
+    input(
+        "Placera terminalen NÄRA enligt önskad connect-gräns "
+        "och tryck Enter: "
+    )
+
+    near_events = []
+
+    try:
+        for index in range(connect_scans):
+            print(
+                f"Nära-skanning {index + 1}/{connect_scans}..."
+            )
+            near_events.extend(
+                monitor.poll_once()
+            )
+    except Exception as error:
+        record(
+            results,
+            "Bluetooth terminal-handoff nära",
+            "FAIL",
+            str(error),
+        )
+        return False
+
+    connect_event = next(
+        (
+            event
+            for event in near_events
+            if event.get("action") == "connect"
+            and event.get("device_id") == target["id"]
+        ),
+        None,
+    )
+
+    if connect_event is None:
+        record(
+            results,
+            "Bluetooth terminal-handoff nära",
+            "FAIL",
+            (
+                "Ingen stabil connect-rekommendation skapades. "
+                "Kontrollera RSSI-gräns och terminal-id."
+            ),
+        )
+        return False
+
+    record(
+        results,
+        "Bluetooth terminal-handoff nära",
+        "PASS",
+        (
+            f"{connect_event.get('rssi')} dBm, "
+            f"auto_execute={connect_event.get('executed')}"
+        ),
+    )
+
+    input(
+        "Flytta terminalen tydligt BORT eller stoppa annonseringen "
+        "och tryck Enter: "
+    )
+    far_events = []
+
+    try:
+        for index in range(disconnect_scans):
+            print(
+                f"Fjärr-skanning {index + 1}/{disconnect_scans}..."
+            )
+            far_events.extend(
+                monitor.poll_once()
+            )
+    except Exception as error:
+        record(
+            results,
+            "Bluetooth terminal-handoff bort",
+            "FAIL",
+            str(error),
+        )
+        return False
+
+    disconnect_event = next(
+        (
+            event
+            for event in far_events
+            if event.get("action") == "disconnect"
+            and event.get("device_id") == target["id"]
+        ),
+        None,
+    )
+
+    if disconnect_event is None:
+        record(
+            results,
+            "Bluetooth terminal-handoff bort",
+            "FAIL",
+            (
+                "Ingen stabil disconnect-rekommendation skapades. "
+                "Flytta terminalen längre bort eller justera gränsen."
+            ),
+        )
+        return False
+
+    record(
+        results,
+        "Bluetooth terminal-handoff bort",
+        "PASS",
+        (
+            f"{disconnect_event.get('rssi')} dBm, "
+            f"auto_execute={disconnect_event.get('executed')}"
+        ),
+    )
+    return True
+
+
 def camera_inventory_check(results):
     print()
     print("=" * 60)
-    print("DEL 5 - Kamerainventering")
+    print("DEL 6 - Kamerainventering")
     print("=" * 60)
 
     try:
@@ -253,7 +428,7 @@ def camera_inventory_check(results):
 def camera_capture_check(results):
     print()
     print("=" * 60)
-    print("DEL 6 - Kamerastillbild")
+    print("DEL 7 - Kamerastillbild")
     print("=" * 60)
 
     devices = get_camera_inventory()
@@ -305,7 +480,7 @@ def camera_capture_check(results):
 def gps_validation_check(results):
     print()
     print("=" * 60)
-    print("DEL 7 - GPS / NMEA-position")
+    print("DEL 8 - GPS / NMEA-position")
     print("=" * 60)
 
     try:
@@ -368,6 +543,8 @@ def main():
         )
 
     bluetooth_proximity_check(results)
+
+    terminal_handoff_check(results)
 
     camera_inventory_check(results)
 
