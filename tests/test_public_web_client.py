@@ -203,3 +203,54 @@ def test_html_metadata_and_external_links_are_extracted():
     assert result["external_links"] == [
         "https://other.example/source"
     ]
+
+
+def test_json_ld_is_extracted_but_not_added_to_visible_text():
+    session = FakeSession(
+        [
+            FakeResponse(
+                headers={"Content-Type": "text/html"},
+                body=(
+                    b"<html><body>Visible product text"
+                    b"<script type='application/ld+json'>"
+                    b"{\"@type\":\"Product\",\"name\":\"ESP32\"}"
+                    b"</script></body></html>"
+                ),
+            )
+        ]
+    )
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=public_resolver,
+    )
+
+    result = client.fetch("https://example.com/product")
+
+    assert result["structured_data"] == [
+        {"@type": "Product", "name": "ESP32"}
+    ]
+    assert "Visible product text" in result["text"]
+    assert "ESP32" not in result["text"]
+
+
+def test_invalid_json_ld_is_ignored():
+    session = FakeSession(
+        [
+            FakeResponse(
+                headers={"Content-Type": "text/html"},
+                body=(
+                    b"<script type='application/ld+json'>"
+                    b"{broken json}"
+                    b"</script>"
+                ),
+            )
+        ]
+    )
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=public_resolver,
+    )
+
+    result = client.fetch("https://example.com/product")
+
+    assert result["structured_data"] == []
