@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from modules.bluetooth.proximity import scan_nearby_devices
 from modules.camera.camera import get_camera_inventory, format_camera_inventory
-from modules.camera.capture import capture_frame, format_capture_result
+from modules.camera.capture import capture_from_settings, format_capture_result
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -272,7 +272,7 @@ def camera_capture_check(results):
     )
 
     try:
-        capture_result = capture_frame()
+        capture_result = capture_from_settings()
     except Exception as error:
         record(results, "Kamerastillbild", "FAIL", str(error))
         return False
@@ -294,7 +294,8 @@ def camera_capture_check(results):
         "PASS",
         (
             f"{capture_result.get('width')}x"
-            f"{capture_result.get('height')} -> "
+            f"{capture_result.get('height')} | kameraindex "
+            f"{capture_result.get('camera_index')} -> "
             f"{capture_result.get('path')}"
         ),
     )
