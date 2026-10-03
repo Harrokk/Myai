@@ -15,6 +15,10 @@ from modules.bluetooth.proximity import scan_nearby_devices
 from modules.camera.camera import get_camera_inventory, format_camera_inventory
 from modules.camera.capture import capture_from_settings, format_capture_result
 from modules.camera.video import format_video_result, record_video_from_settings
+from modules.camera.video_frames import (
+    format_video_frame_result,
+    sample_latest_video_from_settings,
+)
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -355,6 +359,41 @@ def camera_video_check(results):
     return True
 
 
+def camera_video_frame_sampling_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 8 - Representativa videobildrutor")
+    print("=" * 60)
+
+    try:
+        frame_result = sample_latest_video_from_settings()
+    except Exception as error:
+        record(results, "Videobildrutor", "FAIL", str(error))
+        return False
+
+    print(format_video_frame_result(frame_result))
+
+    if not frame_result.get("success"):
+        record(
+            results,
+            "Videobildrutor",
+            "FAIL",
+            frame_result.get("error") or "okänt fel",
+        )
+        return False
+
+    record(
+        results,
+        "Videobildrutor",
+        "PASS",
+        (
+            f"{len(frame_result.get('frames', []))} bildrutor från "
+            f"{frame_result.get('video_path')}"
+        ),
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -385,6 +424,8 @@ def main():
     camera_capture_check(results)
 
     camera_video_check(results)
+
+    camera_video_frame_sampling_check(results)
 
     path = save_report(results)
 
