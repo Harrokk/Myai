@@ -61,5 +61,9 @@
     },
     "deep_verification_enabled": true,
     "deep_blend": 0.4
+  },
+  "shopping": {
+    "top_results": 3,
+    "min_source_reliability": 50
   }
 }
