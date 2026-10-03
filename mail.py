@@ -91,6 +91,28 @@ def stop_voice_session():
     )
 
 
+def run_voice_once(session=None):
+    active_session = (
+        session
+        if session is not None
+        else get_voice_session()
+    )
+
+    if not active_session.enabled:
+        return {
+            "status": "disabled",
+            "message": (
+                "Röstläge är avstängt i konfigurationen. "
+                "Ingen mikrofon startades."
+            ),
+        }
+
+    try:
+        return active_session.run_once()
+    finally:
+        active_session.stop()
+
+
 def _print_hardware_changes(changes):
     text = format_hardware_changes(changes)
 
@@ -223,11 +245,9 @@ def main():
                     continue
 
                 print("Lyssnar efter ett yttrande...")
-
-                try:
-                    result = session.run_once()
-                finally:
-                    session.stop()
+                result = run_voice_once(
+                    session=session
+                )
 
                 voice_result = result.get(
                     "voice_result",
