@@ -155,6 +155,26 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_source_verification = (
+        ("http://" in text or "https://" in text)
+        and any(
+            phrase in text
+            for phrase in (
+                "verifiera källan",
+                "verifiera sidan",
+                "granska källan",
+                "källgranska",
+                "bedöm källan",
+                "kontrollera källan",
+                "verify source",
+                "check source",
+            )
+        )
+    )
+
+    if asks_source_verification:
+        return ["source_verify_page"]
+
     asks_page_fetch = (
         ("http://" in text or "https://" in text)
         and any(
