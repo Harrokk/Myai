@@ -217,3 +217,38 @@ def test_formatter_uses_clarification_message():
     )
 
     assert text == "Säg kommandot igen."
+
+
+
+def test_handsfree_suppresses_ignored_echo_results():
+    results = []
+    session = FakeSession(
+        results=[
+            {
+                "status": "utterance_complete",
+                "voice_result": {
+                    "status": "ignored_echo",
+                    "transcript": "AI:s eget svar",
+                },
+            },
+            {
+                "status": "utterance_complete",
+                "voice_result": {
+                    "status": "completed",
+                    "transcript": "Riktig fråga",
+                },
+            },
+        ]
+    )
+    runner = VoiceHandsfreeRunner(
+        session,
+        on_result=results.append,
+    )
+
+    runner.start()
+    assert wait_until(
+        lambda: len(results) == 1
+    )
+    runner.stop()
+
+    assert results[0]["voice_result"]["transcript"] == "Riktig fråga"
