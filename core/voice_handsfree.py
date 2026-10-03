@@ -126,7 +126,17 @@ def format_handsfree_result(result):
         {},
     )
 
-    if voice_result.get("status") == "clarify":
+    voice_status = voice_result.get("status")
+
+    if voice_status == "ignored_echo":
+        return ""
+
+    if voice_status in {
+        "clarify",
+        "confirmation_required",
+        "confirmation_cancelled",
+        "confirmation_expired",
+    }:
         return voice_result.get(
             "message",
             "Röstkommandot behöver förtydligas.",

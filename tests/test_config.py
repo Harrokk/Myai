@@ -61,6 +61,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["echo_guard_similarity_threshold"] == 0.78
     assert settings["voice"]["echo_guard_min_words"] == 3
     assert settings["voice"]["echo_guard_for_high_risk"] is False
+    assert settings["voice"]["high_risk_confirmation_enabled"] is True
+    assert settings["voice"]["high_risk_confirmation_window_seconds"] == 15.0
+    assert settings["voice"]["high_risk_confirmation_min_confidence"] == 0.80
+    assert settings["voice"]["high_risk_confirmation_transcript_count"] == 3
     assert settings["voice"]["semantic_consensus_enabled"] is False
     assert settings["voice"]["semantic_consensus_for_high_risk"] is False
     assert settings["voice"]["semantic_consensus_min_confidence"] == 0.85

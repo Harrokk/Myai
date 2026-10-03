@@ -252,3 +252,36 @@ def test_handsfree_suppresses_ignored_echo_results():
     runner.stop()
 
     assert results[0]["voice_result"]["transcript"] == "Riktig fråga"
+
+
+
+def test_formatter_returns_high_risk_confirmation_prompt():
+    text = format_handsfree_result(
+        {
+            "status": "utterance_complete",
+            "voice_result": {
+                "status": "confirmation_required",
+                "message": (
+                    'Säg "bekräfta" för att köra eller "avbryt".'
+                ),
+                "transcript": "Radera filen rapport.txt",
+            },
+        }
+    )
+
+    assert "bekräfta" in text
+    assert "avbryt" in text
+
+
+def test_formatter_returns_confirmation_cancel_message():
+    text = format_handsfree_result(
+        {
+            "status": "utterance_complete",
+            "voice_result": {
+                "status": "confirmation_cancelled",
+                "message": "Kommandot avbröts.",
+            },
+        }
+    )
+
+    assert text == "Kommandot avbröts."
