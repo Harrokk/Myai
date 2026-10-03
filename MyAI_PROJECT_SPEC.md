@@ -670,6 +670,35 @@ MyAI ska kunna sortera bort eller tydligt varna för alternativ med starka varni
 
 MyAI ska inte garantera att en butik är säker när underlaget är otillräckligt. Vid osäkerhet ska den säga det tydligt och beskriva vad som inte har kunnat verifieras.
 
+#### 13.1.1 Teknisk status för svensk totalprisjämförelse
+
+På utvecklingsgren finns nu den parameteriserade jämförelsemotorn `price_compare_sweden`.
+
+Varje erbjudande håller följande uppgifter separata:
+- produktpris i SEK
+- frakt i SEK
+- momsstatus och eventuell separat moms
+- andra tydligt angivna avgifter
+- lagerstatus
+- verifierad leverans till Sverige
+- leveranstid när den finns
+- säljarens interna tillförlitlighetsbedömning
+- direktlänk och butik
+
+MyAI ska inte anta att en kostnad är 0 bara för att den saknas. Om exempelvis frakt, moms eller avgifter inte är kända markeras totalpriset som ofullständigt och erbjudandet får inte rankas som fullt jämförbart.
+
+Ett erbjudande räknas initialt som fullt jämförbart endast när:
+- totalpriset går att beräkna
+- leverans till Sverige är uttryckligen verifierad
+- lagerstatus är `in_stock`
+- säljarens tillförlitlighet når den konfigurerade miniminivån
+
+Standardnivån för säljarens tillförlitlighet är 50 %. Högst tre erbjudanden presenteras i topplistan, sorterade efter faktiskt känt totalpris och därefter högre säljarbedömning.
+
+Konfigurationen `shopping` innehåller standardgränser för toppresultat, minsta säljarbedömning och maximalt antal erbjudanden per jämförelse.
+
+Detta lager är själva jämförelse- och räknemotorn. Automatisk extraktion av produktpris, frakt, moms, lager och leveransinformation från webbsidor byggs som ett separat nästa lager så att parsning och felrisk kan testas oberoende.
+
 ### 13.2 Källgranskning och konfidensbedömning
 
 Vid informationssökning ska MyAI inte enbart hämta ett svar utan även granska underlaget.
@@ -1204,6 +1233,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - säker publik webbsideshämtning med SSRF-, redirect-, innehållstyp- och storleksskydd
 - djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
 - konservativ numerisk motsägelseanalys mellan oberoende domäner med konfidenssänkning
+- svensk totalprisjämförelsemotor med separata kostnader, lager, Sverige-leverans och säljartröskel
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
