@@ -45,5 +45,13 @@
     "stream_duration_seconds": 5,
     "stream_fps": 2,
     "stream_max_frames": 10
+  },
+  "location": {
+    "enabled": false,
+    "source": "gps_serial",
+    "serial_port": "",
+    "baudrate": 9600,
+    "timeout_seconds": 1,
+    "max_lines": 20
   }
 }

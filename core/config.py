@@ -30,6 +30,14 @@ DEFAULT_SETTINGS = {
         "stream_fps": 2,
         "stream_max_frames": 10,
     },
+    "location": {
+        "enabled": False,
+        "source": "gps_serial",
+        "serial_port": "",
+        "baudrate": 9600,
+        "timeout_seconds": 1,
+        "max_lines": 20,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,

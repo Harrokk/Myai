@@ -669,6 +669,33 @@ Systemet ska skilja mellan:
 - ungefärlig nätverksposition
 - uppskattad närhet från Bluetooth
 
+### 14.1 Teknisk status för seriell GPS-position
+
+På utvecklingsgren finns nu verktyget `location_status` för read-only position från en seriell NMEA-GPS.
+
+Standardläget är avstängt. Konfigurationen innehåller:
+- `location.enabled=false`
+- `location.source="gps_serial"`
+- tom `location.serial_port`
+- baudrate 9600
+- timeout 1 sekund
+- högst 20 NMEA-rader per läsning
+
+GPS-lagret:
+- validerar NMEA-checksumma
+- tolkar GGA och RMC
+- konverterar latitud/longitud till decimalgrader
+- kan redovisa satellitantal, HDOP, höjd, hastighet och kurs när uppgifterna finns
+- slår samman giltiga GGA/RMC-fixar
+- rapporterar tydligt när ingen giltig fix finns
+- gissar inte en position när mottagardata saknas eller är ogiltig
+
+`pyserial` ligger i en separat optional dependency-fil `requirements-gps.txt`, så grundinstallationen påverkas inte när GPS inte används.
+
+MyAI ska inte översätta HDOP till en påhittad noggrannhet i meter. Faktisk precision beror på mottagare, satellitgeometri och miljö.
+
+NMEA-parsning, checksumma, koordinatkonvertering, seriell felhantering och resursstängning testas i CI. Verklig GPS-port, satellitfix och praktisk precision verifieras senare i den samlade hårdvarurundan när en GPS-mottagare finns.
+
 ---
 
 ## 15. Minne
@@ -1139,6 +1166,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - representativ sampling och försiktig multimodal analys av videobildrutor
 - standardavstängt och hårt begränsat kamerastream-lager som grund för senare livevideo
 - standardavstängd begränsad live-vision med in-memory-frames och utan automatisk disksparning
+- standardavstängd seriell NMEA-GPS med checksummevalidering och no-guess-position
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:

@@ -42,3 +42,8 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["vision"]["enabled"] is False
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
+    assert settings["location"]["enabled"] is False
+    assert settings["location"]["source"] == "gps_serial"
+    assert settings["location"]["serial_port"] == ""
+    assert settings["location"]["baudrate"] == 9600
+    assert settings["location"]["max_lines"] == 20
