@@ -1,4 +1,5 @@
 import importlib
+import json
 import pkgutil
 
 import modules
@@ -474,35 +475,283 @@ none
     return detected_tools
 
 
-def select_tools(user_input, tools, llm_client):
-    """Välj verktyg: snabb lokal regel först, LLM som fallback."""
-    tools_to_run = detect_tools(user_input)
+def _strip_json_fence(text):
+    value = (text or "").strip()
 
-    if not tools_to_run:
-        tools_to_run = ai_detect_tools(
+    if value.startswith("```"):
+        lines = value.splitlines()
+
+        if lines:
+            lines = lines[1:]
+
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+
+        value = "\n".join(lines).strip()
+
+    return value
+
+
+def _matches_schema_type(value, expected_type):
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "number":
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        )
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "array":
+        return isinstance(value, list)
+    if expected_type == "object":
+        return isinstance(value, dict)
+    return True
+
+
+def validate_tool_arguments(tool_name, arguments, tools):
+    if not isinstance(arguments, dict):
+        raise ValueError(
+            f"Argument för {tool_name} måste vara ett JSON-objekt."
+        )
+
+    schema = tools.get(tool_name, {}).get("parameters")
+
+    if not schema:
+        if arguments:
+            raise ValueError(
+                f"{tool_name} tar inga argument."
+            )
+        return arguments
+
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+
+    for key in required:
+        if key not in arguments:
+            raise ValueError(
+                f"{tool_name} saknar obligatoriskt argument: {key}"
+            )
+
+    if schema.get("additionalProperties") is False:
+        unknown = [
+            key
+            for key in arguments
+            if key not in properties
+        ]
+
+        if unknown:
+            raise ValueError(
+                f"{tool_name} fick okända argument: "
+                + ", ".join(unknown)
+            )
+
+    for key, value in arguments.items():
+        definition = properties.get(key, {})
+        expected_type = definition.get("type")
+
+        if expected_type and not _matches_schema_type(
+            value,
+            expected_type,
+        ):
+            raise ValueError(
+                f"{tool_name}.{key} har fel typ; "
+                f"förväntade {expected_type}."
+            )
+
+        if (
+            "enum" in definition
+            and value not in definition["enum"]
+        ):
+            raise ValueError(
+                f"{tool_name}.{key} har ett otillåtet värde."
+            )
+
+    return arguments
+
+
+def normalize_tool_calls(tool_calls):
+    normalized = []
+
+    for item in tool_calls or []:
+        if isinstance(item, str):
+            normalized.append(
+                {
+                    "name": item,
+                    "arguments": {},
+                }
+            )
+            continue
+
+        if not isinstance(item, dict):
+            continue
+
+        name = item.get("name") or item.get("tool")
+        arguments = item.get(
+            "arguments",
+            item.get("args", {}),
+        )
+
+        if not name or not isinstance(arguments, dict):
+            continue
+
+        normalized.append(
+            {
+                "name": str(name).strip(),
+                "arguments": arguments,
+            }
+        )
+
+    return normalized
+
+
+def ai_plan_tool_calls(user_input, tools, llm_client):
+    """Låt LLM skapa strukturerade verktygsanrop med argument."""
+    tool_specs = []
+
+    for name, tool in tools.items():
+        tool_specs.append(
+            {
+                "name": name,
+                "description": tool.get("description", ""),
+                "parameters": tool.get(
+                    "parameters",
+                    {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                ),
+            }
+        )
+
+    prompt = f"""
+Du är verktygsplanerare för MyAI.
+
+Välj de verktyg som behövs och fyll endast i argument som stöds
+av respektive parameters-schema.
+
+Tillgängliga verktyg:
+{json.dumps(tool_specs, ensure_ascii=False)}
+
+Användaren frågar:
+{user_input}
+
+Svara ENDAST med giltig JSON.
+
+Format:
+[
+  {{"name": "verktygsnamn", "arguments": {{}}}}
+]
+
+Om inget verktyg behövs:
+[]
+"""
+
+    raw = llm_client.chat(
+        [
+            {
+                "role": "system",
+                "content": prompt,
+            }
+        ],
+        timeout=120,
+    )
+
+    parsed = json.loads(_strip_json_fence(raw))
+
+    if not isinstance(parsed, list):
+        raise ValueError(
+            "Verktygsplanen måste vara en JSON-lista."
+        )
+
+    calls = normalize_tool_calls(parsed)
+    validated = []
+
+    for call in calls:
+        name = call["name"]
+
+        if name not in tools:
+            continue
+
+        validate_tool_arguments(
+            name,
+            call["arguments"],
+            tools,
+        )
+        validated.append(call)
+
+    return validated
+
+
+def select_tool_calls(user_input, tools, llm_client):
+    """Välj bakåtkompatibla verktygsanrop med valfria argument."""
+    direct_names = detect_tools(user_input)
+
+    if direct_names:
+        return [
+            {
+                "name": name,
+                "arguments": {},
+            }
+            for name in direct_names
+            if name in tools
+        ]
+
+    try:
+        return ai_plan_tool_calls(
             user_input,
             tools,
             llm_client,
         )
+    except (ValueError, TypeError, json.JSONDecodeError):
+        legacy_names = ai_detect_tools(
+            user_input,
+            tools,
+            llm_client,
+        )
+        return [
+            {
+                "name": name,
+                "arguments": {},
+            }
+            for name in legacy_names
+            if name in tools
+        ]
 
+
+def select_tools(user_input, tools, llm_client):
+    """Kompatibilitetsfunktion som returnerar endast verktygsnamn."""
     return [
-        tool_name
-        for tool_name in tools_to_run
-        if tool_name in tools
+        call["name"]
+        for call in select_tool_calls(
+            user_input,
+            tools,
+            llm_client,
+        )
     ]
 
 
-def run_tools(tool_names, tools):
-    """Kör flera verktyg och samla varje resultat separat."""
+def run_tools(tool_calls, tools):
+    """Kör verktyg med eller utan argument och samla resultaten."""
     results = {}
 
-    for tool_name in tool_names:
+    for call in normalize_tool_calls(tool_calls):
+        tool_name = call["name"]
+
         if tool_name not in tools:
             continue
 
         try:
+            arguments = validate_tool_arguments(
+                tool_name,
+                call["arguments"],
+                tools,
+            )
             tool_function = tools[tool_name]["function"]
-            results[tool_name] = tool_function()
+            results[tool_name] = tool_function(**arguments)
         except Exception as error:
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
