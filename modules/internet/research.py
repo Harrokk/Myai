@@ -1,12 +1,17 @@
 from core.config import load_settings
-from core.source_evaluation import evaluate_candidates
+from core.source_evaluation import (
+    apply_deep_verification,
+    evaluate_candidates,
+)
 from modules.internet.search import search_web
+from modules.internet.verify import verify_source_page_data
 
 
 def research_top_three_data(
     query,
     settings=None,
     search_function=None,
+    verify_function=None,
 ):
     settings = settings or load_settings()
     config = settings.get("research", {})
@@ -20,7 +25,16 @@ def research_top_three_data(
         min(int(config.get("top_results", 3)), 3),
     )
     weights = config.get("weights", {})
+    deep_enabled = bool(
+        config.get("deep_verification_enabled", False)
+    )
+    deep_blend = float(
+        config.get("deep_blend", 0.40)
+    )
     active_search = search_function or search_web
+    active_verify = (
+        verify_function or verify_source_page_data
+    )
 
     search_result = active_search(
         query=query,
@@ -46,15 +60,75 @@ def research_top_three_data(
         weights=weights,
     )
 
+    verified_count = 0
+    final_candidates = []
+
+    for candidate in evaluated:
+        if not deep_enabled:
+            item = dict(candidate)
+            item["deep_verification_status"] = "disabled"
+            final_candidates.append(item)
+            continue
+
+        try:
+            verification_result = active_verify(
+                url=candidate.get("url", ""),
+                query=query,
+                settings=settings,
+            )
+        except Exception as error:
+            item = dict(candidate)
+            item["deep_verification_status"] = "failed"
+            item["deep_verification_reason"] = str(error)
+            final_candidates.append(item)
+            continue
+
+        if not verification_result.get("available"):
+            item = dict(candidate)
+            item["deep_verification_status"] = "unavailable"
+            item["deep_verification_reason"] = (
+                verification_result.get(
+                    "reason",
+                    "Djupverifiering saknas.",
+                )
+            )
+            final_candidates.append(item)
+            continue
+
+        verification = verification_result.get(
+            "verification",
+            {},
+        )
+        item = apply_deep_verification(
+            candidate,
+            verification,
+            weights=weights,
+            deep_blend=deep_blend,
+        )
+        verified_count += 1
+        final_candidates.append(item)
+
+    final_candidates.sort(
+        key=lambda item: (
+            item["combined_score"],
+            item["source_reliability"]["score"],
+            item["information_confidence"]["score"],
+        ),
+        reverse=True,
+    )
+
     return {
         "available": True,
         "query": query,
         "candidate_count": len(candidates),
-        "candidates": evaluated,
-        "top": evaluated[:top_results],
+        "deep_verification_enabled": deep_enabled,
+        "deep_verified_count": verified_count,
+        "candidates": final_candidates,
+        "top": final_candidates[:top_results],
         "assessment_note": (
-            "Procentsiffrorna är interna heuristiska bedömningar baserade "
-            "på sökmetadata och utdrag, inte matematiska sannolikheter."
+            "Procentsiffrorna är interna heuristiska bedömningar, inte "
+            "matematiska sannolikheter. När djupverifiering lyckas blandas "
+            "sidans transparens- och evidenssignaler in i slutpoängen."
         ),
     }
 
@@ -106,6 +180,34 @@ def format_research_top_three(result):
         lines.append(
             f"   Intern totalscore: {item['combined_score']:.1f}"
         )
+
+        status = item.get(
+            "deep_verification_status",
+            "disabled",
+        )
+
+        if status == "verified":
+            verification = item.get(
+                "deep_verification",
+                {},
+            )
+            lines.append(
+                "   Djupverifiering: ja | "
+                f"transparens {verification.get('transparency_score', 0):.1f}% | "
+                f"evidenssignaler {verification.get('evidence_signal_score', 0):.1f}%"
+            )
+        elif status in {"failed", "unavailable"}:
+            lines.append(
+                "   Djupverifiering: nej | "
+                + item.get(
+                    "deep_verification_reason",
+                    "ingen verifieringsdata",
+                )
+            )
+        else:
+            lines.append(
+                "   Djupverifiering: avstängd"
+            )
 
     return "\n".join(lines)
 
