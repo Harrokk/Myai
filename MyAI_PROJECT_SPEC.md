@@ -494,6 +494,22 @@ Excel-stödet använder det valbara beroendet i `requirements-excel.txt`, så gr
 
 CI använder en injicerad workbook-backend för att testa parser, sökväg, läsning, skrivflöde och radvalidering utan att kräva Excel-biblioteket i grundmiljön. Verklig `.xlsx`-kompatibilitet med openpyxl ska verifieras lokalt innan Excel-skrivning aktiveras som standard.
 
+### 10.3 Teknisk status för cellredigering och formler
+
+Excel-lagret kan nu även ändra en specifik cell i en befintlig arbetsbok via verktyget `excel_set_cell`.
+
+Första stödda naturliga syntaxen omfattar exempelvis:
+- `Sätt B2 till 42 i "budget.xlsx"`
+- `Sätt C2 till =SUM(B2:B10) i "budget.xlsx"`
+- `Skriv =A2+B2 i cell C2 i "budget.xlsx"`
+
+Cellreferenser valideras i A1-format och konverteras internt till rad/kolumn. Formler som börjar med `=` sparas som formler och beräknas inte av MyAI självt.
+
+Samma säkerhetsregler gäller som för övriga Excel-skrivningar: filen måste ligga i workspace, vara `.xlsx`, och `excel.write_enabled` måste vara aktiverad. Skrivning sker via temporär fil + atomisk replace.
+
+Första versionen redigerar det aktiva arbetsbladet. Explicit bladval och mer avancerad formatering byggs som separata steg.
+
+
 
 ---
 
@@ -1224,6 +1240,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - bakåtkompatibelt verktygsindatalager där nya verktyg kan välja input_mode=user_text
 - sandboxat fil-workspace med säker listning/läsning och standardavstängd textskrivning
 - separat Excel-workspace för skapa/läsa/append med standardavstängd Excel-skrivning
+- Excel-cellredigering i A1-format med stöd för att bevara formler
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

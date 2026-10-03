@@ -3,14 +3,33 @@ from pathlib import Path
 from modules.files import excel
 
 
+class FakeCell:
+    def __init__(self, value=None):
+        self.value = value
+
+
 class FakeSheet:
     def __init__(self, title="Sheet"):
         self.title = title
         self.rows = []
         self.freeze_panes = None
+        self.cells = {}
 
     def append(self, row):
         self.rows.append(list(row))
+
+    def cell(self, row, column):
+        key = (row, column)
+
+        if key not in self.cells:
+            value = None
+
+            if row <= len(self.rows) and column <= len(self.rows[row - 1]):
+                value = self.rows[row - 1][column - 1]
+
+            self.cells[key] = FakeCell(value)
+
+        return self.cells[key]
 
     @property
     def max_row(self):
@@ -216,3 +235,104 @@ def test_excel_tools_use_user_text_mode():
     assert excel.TOOLS["excel_create"]["input_mode"] == "user_text"
     assert excel.TOOLS["excel_read"]["input_mode"] == "user_text"
     assert excel.TOOLS["excel_append"]["input_mode"] == "user_text"
+
+
+
+def test_parse_cell_reference_converts_a1_to_coordinates():
+    assert excel.parse_cell_reference("B2") == {
+        "reference": "B2",
+        "row": 2,
+        "column": 2,
+    }
+    assert excel.parse_cell_reference("AA10") == {
+        "reference": "AA10",
+        "row": 10,
+        "column": 27,
+    }
+
+
+def test_parse_cell_reference_rejects_invalid_reference():
+    try:
+        excel.parse_cell_reference("2B")
+    except ValueError as error:
+        assert "A1-format" in str(error)
+    else:
+        raise AssertionError("Invalid cell reference should fail")
+
+
+def test_parse_set_cell_request_reads_value_and_formula():
+    request = excel.parse_set_cell_request(
+        'Sätt B2 till 42 i "budget.xlsx".'
+    )
+
+    assert request["path"] == "budget.xlsx"
+    assert request["cell"] == "B2"
+    assert request["row"] == 2
+    assert request["column"] == 2
+    assert request["value"] == 42
+
+    formula = excel.parse_set_cell_request(
+        'Sätt C2 till =SUM(B2:B10) i "budget.xlsx".'
+    )
+
+    assert formula["value"] == "=SUM(B2:B10)"
+
+
+def test_set_excel_cell_updates_value_and_closes_workbook(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+    fake = FakeOpenpyxl(
+        rows=[
+            ["Namn", "Belopp"],
+            ["Kaffe", 35],
+        ]
+    )
+
+    result = excel.set_excel_cell(
+        {
+            "path": "budget.xlsx",
+            "cell": "B2",
+            "row": 2,
+            "column": 2,
+            "value": 40,
+        },
+        cfg,
+        openpyxl_module=fake,
+    )
+
+    workbook = fake.loaded[0]["workbook"]
+    assert result["previous"] == 35
+    assert result["value"] == 40
+    assert workbook.active.cell(2, 2).value == 40
+    assert workbook.closed is True
+    assert path.exists()
+
+
+def test_set_excel_cell_respects_write_disabled(tmp_path):
+    cfg = settings(tmp_path, excel_write=False)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+
+    try:
+        excel.set_excel_cell(
+            {
+                "path": "budget.xlsx",
+                "cell": "B2",
+                "row": 2,
+                "column": 2,
+                "value": 40,
+            },
+            cfg,
+            openpyxl_module=FakeOpenpyxl(),
+        )
+    except RuntimeError as error:
+        assert "avstängd" in str(error)
+    else:
+        raise AssertionError("Excel edit should be disabled")
+
+
+def test_excel_set_cell_tool_uses_user_text_mode():
+    assert excel.TOOLS["excel_set_cell"]["input_mode"] == "user_text"
