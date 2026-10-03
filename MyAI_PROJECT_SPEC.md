@@ -888,6 +888,28 @@ Detta är en grund för framtida videoström, inte ännu ett kontinuerligt realt
 
 Kodvägar och resursstängning testas i CI med simulerad kamera och videowriter.
 
+### 16.1.9 Teknisk status för representativa videobildrutor
+
+På utvecklingsgren finns nu verktyget `camera_sample_video_frames` som väljer den senast sparade videon och plockar ut ett litet antal jämnt fördelade bildrutor över hela klippet.
+
+Konfigurationen innehåller:
+- `camera.video_frame_dir` med standard `runtime/video_frames`
+- `camera.video_sample_count` med standard 5 bildrutor
+
+Samplingslagret:
+- läser videons rapporterade antal bildrutor
+- väljer jämnt fördelade index från början till slut av klippet
+- begränsar antalet samplingar till det faktiska antalet bildrutor
+- sparar JPEG-bilder under en egen katalog per videoklipp
+- stänger videoläsaren efter användning
+- rapporterar tydligt om videon saknas, inte kan öppnas, saknar användbart frame count eller om en vald bildruta inte kan läsas/sparas
+
+Multi-tool-routing stödjer också flödet **spela in video → plocka ut representativa bildrutor** i ett användarkommando.
+
+Detta lager gör ingen visuell tolkning. Det skapar ett kontrollerat och resurssnålt underlag som senare kan skickas till visionmodellen i stället för att analysera varje videobildruta.
+
+Urval, filhantering, routing och felvägar testas i CI. Fysisk verifiering av frame count, seek-beteende och bildkvalitet sparas till den samlade kamerarundan.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1056,6 +1078,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - flerbildsstöd och separat förändringsdetektering mellan de två senaste kamerabilderna
 - konfigurerbart standardkameraindex och capture-katalog för stillbildstagning
 - separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
+- representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
