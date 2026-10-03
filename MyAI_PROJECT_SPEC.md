@@ -699,6 +699,29 @@ Logiken testas i CI för moms inkluderad/separat, okänd moms, okända avgifter,
 
 Detta lager söker ännu inte själv på webben. Det tar emot normaliserade erbjudanden från en framtida sök-/shoppingprovider och återanvänder den centrala fem-kandidaters valideringsmotorn.
 
+### 13.6 Teknisk status för webbsökning via SearXNG
+
+På utvecklingsgren finns nu ett första verkligt internetverktyg `internet_search`.
+
+Standardläget är avstängt. Konfigurationen innehåller:
+- `internet.enabled=false`
+- provider `searxng`
+- lokal standardendpoint `http://localhost:8080`
+- timeout 15 sekunder
+- högst 5 sökresultat
+- språk `sv-SE`
+- safesearch nivå 1
+
+Sökmodulen skickar en vanlig webbsökfråga till den konfigurerade SearXNG-instansen och normaliserar titel, URL, utdrag, sökmotor och publiceringsdatum när uppgifterna finns.
+
+Råa sökresultat markeras uttryckligen som **icke validerade kandidater**. Webbsökningen ger alltså inte automatiskt källtillförlitlighet eller informationskonfidens bara för att ett resultat hittas.
+
+Verktygssystemet har samtidigt utökats bakåtkompatibelt så att ett verktyg kan deklarera `pass_user_input=true`. Sådana verktyg får hela användarens fråga som argument, medan alla befintliga nollargumentsverktyg fortsätter köras som tidigare. Detta behövs för sökning och framtida parameterberoende verktyg.
+
+SearXNG valdes som första provider eftersom den kan köras lokalt och inte kräver att MyAI hårdkodas mot en extern API-nyckel. Andra providers kan senare läggas till bakom samma modul.
+
+Provideranrop, query-extraktion, normalisering, resultatgräns, avstängt läge och query-aware tool execution testas i CI. En verklig lokal SearXNG-instans ska senare installeras och nätverksverifieras innan internetfunktionen aktiveras i normal drift.
+
 ---
 
 ## 14. Position och lokalisering
@@ -1223,6 +1246,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - standardavstängd seriell NMEA-GPS med checksummevalidering och no-guess-position
 - konfigurerbar fem-kandidaters valideringsmotor med separata käll-/informationspoäng och topp-tre-urval
 - svensk prisjämförelsekärna med verifierbart totalpris, Sverigeleverans, lagerfilter och topp tre billigaste godkända alternativ
+- standardavstängd lokal-först webbsökning via konfigurerbar SearXNG-provider och query-aware verktygskörning
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
