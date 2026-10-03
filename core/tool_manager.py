@@ -167,6 +167,21 @@ def detect_tools(user_input):
             "capture photo",
         )
     )
+    asks_ocr = any(
+        phrase in text
+        for phrase in (
+            "läs texten",
+            "läs text i bilden",
+            "läs texten i bilden",
+            "vad står det",
+            "vad står på bilden",
+            "ocr",
+            "transkribera bilden",
+            "extract text",
+            "read text",
+        )
+    )
+
     asks_vision_analysis = any(
         phrase in text
         for phrase in (
@@ -181,6 +196,12 @@ def detect_tools(user_input):
             "describe image",
         )
     )
+
+    if asks_camera_capture and asks_ocr:
+        return ["camera_capture", "vision_read_text"]
+
+    if asks_ocr:
+        return ["vision_read_text"]
 
     if asks_camera_capture and asks_vision_analysis:
         return ["camera_capture", "vision_analyze"]
