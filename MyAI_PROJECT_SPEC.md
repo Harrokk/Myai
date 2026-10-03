@@ -438,6 +438,34 @@ Särskilt viktigt:
 
 På sikt kan systemet även utökas till fler dokumentformat.
 
+### 10.1 Teknisk status för sandboxat fil-workspace
+
+På utvecklingsgren finns nu ett separat filverktygslager begränsat till ett konfigurerat arbetsområde.
+
+Standardkonfiguration:
+- `files.enabled = true`
+- `files.workspace_root = "runtime/workspace"`
+- `files.write_enabled = false`
+- max 20 000 tecken per textläsning
+- max 100 poster per fillistning
+- allmän skrivning begränsad till `.txt`, `.md`, `.csv` och `.json`
+
+Verktygen:
+- `workspace_list` listar filer i arbetsområdet
+- `workspace_read` läser namngivna UTF-8-textfiler
+- `workspace_write` kan skapa/skriva tillåtna textfiler när skrivning uttryckligen är aktiverad
+
+Säkerhetsregler:
+- absoluta sökvägar avvisas
+- path traversal utanför workspace avvisas även efter path resolution
+- allmän workspace-skrivning får inte skriva Python-/kodfiler
+- skrivning är avstängd som standard
+- skrivning sker via temporär fil + atomisk replace
+- stora textfiler trunkeras enligt konfigurerad läsgräns och markeras som trunkerade
+
+Filverktygen använder det nya `input_mode: "user_text"` så användarens naturliga instruktion kan nå verktyget utan specialkod i terminalgränssnittet.
+
+
 ---
 
 ## 11. Programmering och självuppdatering
@@ -1165,6 +1193,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - read-only normaliserad positionskärna med GPS/nätverk/Bluetooth/manual-källa och stale-kontroll
 - seriell NMEA-RMC GPS-provider med checksummevalidering och atomisk positionsuppdatering
 - bakåtkompatibelt verktygsindatalager där nya verktyg kan välja input_mode=user_text
+- sandboxat fil-workspace med säker listning/läsning och standardavstängd textskrivning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
