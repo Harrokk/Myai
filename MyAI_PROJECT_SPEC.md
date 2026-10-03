@@ -699,6 +699,33 @@ Konfigurationen `shopping` innehåller standardgränser för toppresultat, minst
 
 Detta lager är själva jämförelse- och räknemotorn. Automatisk extraktion av produktpris, frakt, moms, lager och leveransinformation från webbsidor byggs som ett separat nästa lager så att parsning och felrisk kan testas oberoende.
 
+#### 13.1.2 Teknisk status för strukturerad produktutvinning
+
+På utvecklingsgren finns nu verktyget `web_product_offer` för säker utvinning av strukturerad produktinformation från publika produktsidor.
+
+Den säkra webbhämtaren fångar nu `application/ld+json` separat från vanlig sidtext. Vanliga scripts fortsätter att ignoreras.
+
+Produktutvinningen letar i första hand efter schema.org-objekt av typerna `Product`, `Offer` och `AggregateOffer` och kan läsa:
+- produktnamn
+- produktpris
+- valuta
+- lagerstatus
+- säljarnamn när det finns
+- explicit VAT-inkluderingsflagga när sidan anger den
+- explicit fraktkostnad i SEK när den anges i strukturerad data
+- explicit leveransdestination Sverige när den anges
+
+MyAI ska inte anta:
+- att priset är i SEK om annan valuta anges
+- att moms ingår om det inte uttryckligen framgår
+- att frakt är gratis om fraktfält saknas
+- att butiken levererar till Sverige om destination saknas
+- att en sida utan JSON-LD saknar produkt eller erbjudande
+
+Om strukturerad Product/Offer-data saknas ska verktyget därför rapportera att data saknas i stället för att gissa värden ur sidtexten.
+
+Detta lager är avsett att ge högkvalitativa strukturerade indata till totalprisjämförelsemotorn. Valutakonvertering, säljarbedömning och sammanslagning av flera produktsidor byggs i separata lager.
+
 ### 13.2 Källgranskning och konfidensbedömning
 
 Vid informationssökning ska MyAI inte enbart hämta ett svar utan även granska underlaget.
@@ -1234,6 +1261,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
 - konservativ numerisk motsägelseanalys mellan oberoende domäner med konfidenssänkning
 - svensk totalprisjämförelsemotor med separata kostnader, lager, Sverige-leverans och säljartröskel
+- säker schema.org/JSON-LD-produktutvinning för pris, valuta, lager, säljare och explicit Sverige-frakt
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
