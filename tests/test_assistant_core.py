@@ -15,6 +15,15 @@ class FakeMemory:
     def save(self, category, content):
         self.saved.append((category, content))
 
+    def save_if_new(self, category, content):
+        item = (category, content)
+
+        if item in self.saved:
+            return False
+
+        self.saved.append(item)
+        return True
+
     def get_all(self):
         return []
 
@@ -245,3 +254,91 @@ def test_core_executes_parameterized_tool_call(tmp_path):
         "lookup_file": "läste:rapport.xlsx",
     }
     assert result["answer"] == "Filen är behandlad."
+
+
+def test_core_auto_saves_explicit_memory_request(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Kom ihåg att jag föredrar modulär kod."
+    )
+
+    assert result["memory_decision"]["action"] == "save"
+    assert result["memory_decision"]["saved"] is True
+    assert memory.saved
+
+
+def test_core_does_not_auto_save_sensitive_memory(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Kom ihåg att mitt lösenord är hemligt123."
+    )
+
+    assert result["memory_decision"]["sensitive"] is True
+    assert result["memory_decision"]["saved"] is False
+    assert memory.saved == []
+
+
+def test_core_reports_review_without_saving(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Jag föredrar modulär kod framför stora monoliter."
+    )
+
+    assert result["memory_decision"]["action"] == "review"
+    assert result["memory_decision"]["saved"] is False
+    assert memory.saved == []
+
+
+def test_core_can_disable_auto_memory_assessment(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"]["auto_assess_enabled"] = False
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Kom ihåg att jag föredrar modulär kod."
+    )
+
+    assert result["memory_decision"]["action"] == "disabled"
+    assert memory.saved == []
