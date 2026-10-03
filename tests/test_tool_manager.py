@@ -362,3 +362,72 @@ def test_run_tools_keeps_other_results_if_one_tool_fails():
 
     assert result["cpu_status"] == "CPU OK"
     assert "testfel" in result["ram_status"]
+
+
+
+def test_run_tools_passes_user_text_only_to_opt_in_tool():
+    received = []
+
+    tools = {
+        "legacy_status": {
+            "function": lambda: "LEGACY OK",
+            "description": "legacy",
+        },
+        "text_tool": {
+            "function": lambda text: received.append(text) or "TEXT OK",
+            "description": "text",
+            "input_mode": "user_text",
+        },
+    }
+
+    result = tool_manager.run_tools(
+        ["legacy_status", "text_tool"],
+        tools,
+        user_input="Skapa en fil som heter test.txt",
+    )
+
+    assert result == {
+        "legacy_status": "LEGACY OK",
+        "text_tool": "TEXT OK",
+    }
+    assert received == ["Skapa en fil som heter test.txt"]
+
+
+def test_run_tools_reports_missing_user_text_for_text_tool():
+    tools = {
+        "text_tool": {
+            "function": lambda text: text,
+            "description": "text",
+            "input_mode": "user_text",
+        },
+    }
+
+    result = tool_manager.run_tools(
+        ["text_tool"],
+        tools,
+    )
+
+    assert "kräver användarens text" in result["text_tool"]
+
+
+def test_run_tools_reports_unknown_input_mode_without_breaking_other_tools():
+    tools = {
+        "bad_tool": {
+            "function": lambda: "bad",
+            "description": "bad",
+            "input_mode": "mystery",
+        },
+        "good_tool": {
+            "function": lambda: "GOOD",
+            "description": "good",
+        },
+    }
+
+    result = tool_manager.run_tools(
+        ["bad_tool", "good_tool"],
+        tools,
+        user_input="test",
+    )
+
+    assert "okänt input_mode" in result["bad_tool"]
+    assert result["good_tool"] == "GOOD"
