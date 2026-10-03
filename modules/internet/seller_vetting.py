@@ -35,6 +35,53 @@ HIGH_RISK_PAYMENT_TERMS = (
 )
 
 
+def _walk_structured(value):
+    if isinstance(value, dict):
+        yield value
+
+        for child in value.values():
+            yield from _walk_structured(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_structured(child)
+
+
+def _structured_commerce_signals(page):
+    has_return_policy = False
+    has_organization = False
+
+    for root in page.get("structured_data") or []:
+        for node in _walk_structured(root):
+            node_type = node.get("@type")
+            types = (
+                node_type
+                if isinstance(node_type, list)
+                else [node_type]
+            )
+            normalized = {
+                str(item).lower()
+                for item in types
+                if item
+            }
+
+            if "merchantreturnpolicy" in normalized:
+                has_return_policy = True
+
+            if normalized & {
+                "organization",
+                "onlinebusiness",
+                "onlinestore",
+                "store",
+                "corporation",
+            }:
+                has_organization = True
+
+    return {
+        "structured_return_policy": has_return_policy,
+        "structured_organization": has_organization,
+    }
+
+
 def _contains(text, terms):
     lowered = (text or "").lower()
     return any(term in lowered for term in terms)
@@ -60,6 +107,9 @@ def assess_seller_page(verification_result):
     )
     parsed = urlparse(final_url)
 
+    structured_signals = _structured_commerce_signals(
+        page
+    )
     signals = {
         "https": parsed.scheme == "https",
         "contact": _contains(text, CONTACT_TERMS),
@@ -72,6 +122,7 @@ def assess_seller_page(verification_result):
             text,
             HIGH_RISK_PAYMENT_TERMS,
         ),
+        **structured_signals,
     }
 
     score = 20.0
@@ -103,6 +154,8 @@ def assess_seller_page(verification_result):
         ("privacy", 5, "Integritetsinformation hittades."),
         ("organization", 10, "Organisations-/VAT-information hittades."),
         ("normal_payment", 8, "Etablerat betalningsalternativ nämns."),
+        ("structured_return_policy", 8, "Strukturerad MerchantReturnPolicy hittades."),
+        ("structured_organization", 6, "Strukturerad organisations-/butiksidentitet hittades."),
     )
 
     for signal, points, reason in bonuses:
