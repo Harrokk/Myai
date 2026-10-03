@@ -138,7 +138,7 @@ def test_high_confidence_low_risk_uses_only_primary():
     assert primary.calls == 1
     assert backup.calls == 0
     assert assistant.messages == [
-        "Hur mycket RAM används?"
+        "RAM-status tack"
     ]
 
 
@@ -283,7 +283,7 @@ def test_semantic_fallback_can_resolve_low_risk_transcripts():
     resolver = FakeSemanticResolver(
         {
             "accepted": True,
-            "text": "Hur mycket RAM används?",
+            "text": "RAM-status tack",
             "support": 2,
             "confidence": 0.95,
             "reason": "Samma avsikt.",
@@ -293,20 +293,20 @@ def test_semantic_fallback_can_resolve_low_risk_transcripts():
         assistant,
         FakeSTT(
             {
-                "text": "Hur mycket minne går åt?",
+                "text": "Visa arbetsminnets belastning",
                 "confidence": 0.3,
             }
         ),
         backup_stt=[
             FakeSTT(
                 {
-                    "text": "Hur mycket RAM används?",
+                    "text": "RAM-status tack",
                     "confidence": 0.4,
                 }
             ),
             FakeSTT(
                 {
-                    "text": "Visa minnesbelastningen",
+                    "text": "Kontrollera mängden använt minne",
                     "confidence": 0.4,
                 }
             ),
@@ -348,13 +348,13 @@ def test_semantic_fallback_is_not_used_for_high_risk_by_default():
         backup_stt=[
             FakeSTT(
                 {
-                    "text": "Ta bort rapportfilen",
+                    "text": "Starta om datorn",
                     "confidence": 0.9,
                 }
             ),
             FakeSTT(
                 {
-                    "text": "Spara rapporten",
+                    "text": "Visa nätverksstatus",
                     "confidence": 0.9,
                 }
             ),
@@ -392,13 +392,13 @@ def test_semantic_fallback_failure_still_requires_clarification():
         backup_stt=[
             FakeSTT(
                 {
-                    "text": "fråga två",
+                    "text": "processorns temperatur",
                     "confidence": 0.2,
                 }
             ),
             FakeSTT(
                 {
-                    "text": "fråga tre",
+                    "text": "lista usb enheter",
                     "confidence": 0.2,
                 }
             ),
