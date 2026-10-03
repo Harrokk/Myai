@@ -46,6 +46,10 @@ DEFAULT_SETTINGS = {
             "information_confidence": 0.25,
         },
     },
+    "shopping": {
+        "top_results": 3,
+        "min_source_reliability": 50,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
