@@ -32,5 +32,9 @@
     "url": "http://localhost:11434/api/chat",
     "model": "",
     "timeout_seconds": 120
+  },
+  "camera": {
+    "default_index": 0,
+    "capture_dir": "runtime/captures"
   }
 }
