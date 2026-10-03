@@ -90,3 +90,18 @@ def test_non_sek_offer_is_not_practical_for_sweden():
     )
 
     assert commerce_extraction.practical_for_sweden(offer) is False
+
+
+def test_product_price_before_shipping_label_is_not_shipping():
+    offer = commerce_extraction.extract_offer(
+        page(
+            text=(
+                "Pris 160 kr. Frakt beräknas i kassan. "
+                "Inkl moms. I lager. Leverans till Sverige."
+            )
+        )
+    )
+
+    assert offer["product_price"] == 160
+    assert offer["shipping_sek"] is None
+    assert offer["total_price_sek"] is None
