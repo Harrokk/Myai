@@ -38,6 +38,8 @@ DEFAULT_SETTINGS = {
         "tts_rate": 180,
         "tts_volume": 1.0,
         "tts_voice_id": "",
+        "tts_async": True,
+        "tts_stop_timeout_seconds": 2.0,
         "semantic_consensus_enabled": False,
         "semantic_consensus_for_high_risk": False,
         "semantic_consensus_min_confidence": 0.85,
