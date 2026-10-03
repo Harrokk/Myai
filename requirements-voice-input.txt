@@ -1,0 +1,3 @@
+# Optional live microphone dependency for the voice module.
+# Install with: python -m pip install -r requirements-voice-input.txt
+sounddevice>=0.5,<1
