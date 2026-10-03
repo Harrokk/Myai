@@ -11,6 +11,12 @@ DEFAULT_SETTINGS = {
         "url": "http://localhost:11434/api/chat",
         "model": "qwen3:8b",
     },
+    "vision": {
+        "enabled": False,
+        "url": "http://localhost:11434/api/chat",
+        "model": "",
+        "timeout_seconds": 120,
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
