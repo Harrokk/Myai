@@ -739,3 +739,63 @@ def test_confirmation_prompt_can_be_spoken_without_executing_command():
     assert assistant.messages == []
     assert len(tts.spoken) == 1
     assert "bekräfta" in tts.spoken[0].lower()
+
+
+
+def test_missing_confirmation_confidence_can_use_redundant_stt_majority():
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=FakeClock()
+    )
+    pipeline.process_utterance(b"danger")
+
+    primary.result = {
+        "text": "bekräfta",
+        "confidence": None,
+    }
+    pipeline.backup_stt[0].result = {
+        "text": "bekräfta",
+        "confidence": None,
+    }
+    pipeline.backup_stt[1].result = {
+        "text": "bekräfta",
+        "confidence": None,
+    }
+
+    result = pipeline.process_utterance(
+        b"confirm"
+    )
+
+    assert result["status"] == "completed"
+    assert result["confirmation"]["confirmed"] is True
+    assert result["confirmation"]["support"] == 3
+    assert assistant.messages == [
+        "Radera filen rapport txt"
+    ]
+
+
+def test_missing_confirmation_confidence_without_majority_does_not_execute():
+    pipeline, assistant, primary, _ = high_risk_pipeline(
+        clock=FakeClock()
+    )
+    pipeline.process_utterance(b"danger")
+
+    primary.result = {
+        "text": "bekräfta",
+        "confidence": None,
+    }
+    pipeline.backup_stt[0].result = {
+        "text": "något annat",
+        "confidence": None,
+    }
+    pipeline.backup_stt[1].result = {
+        "text": "avbryt",
+        "confidence": None,
+    }
+
+    result = pipeline.process_utterance(
+        b"confirm"
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is not None
