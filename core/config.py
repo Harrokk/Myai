@@ -50,8 +50,12 @@ DEFAULT_SETTINGS = {
     },
     "shopping": {
         "top_results": 3,
+        "candidate_pages": 5,
         "min_seller_reliability": 50.0,
         "max_offers": 20,
+        "fx_provider": "frankfurter",
+        "frankfurter_url": "https://api.frankfurter.app",
+        "fx_timeout_seconds": 10,
     },
     "memory": {
         "database": "memory.db",
