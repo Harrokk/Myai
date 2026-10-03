@@ -54,6 +54,7 @@ DEFAULT_SETTINGS = {
         "enabled": False,
         "stt_provider": "",
         "tts_provider": "",
+        "speak_responses": True,
         "primary_confidence_threshold": 0.80,
         "consensus_confidence_threshold": 0.75,
         "high_risk_confidence_threshold": 0.90,
