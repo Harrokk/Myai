@@ -527,6 +527,22 @@ Exempel:
 
 Bladnamnsparsing och val av befintligt blad testas i CI. Mer avancerad formatering och skapande av flera blad i en befintlig arbetsbok ligger i separata senare steg.
 
+### 10.5 Teknisk status för flerbladshantering
+
+Excel-lagret har nu separata verktyg för att arbeta med arbetsbokens bladstruktur:
+- `excel_list_sheets` listar bladnamn och vilket blad som är aktivt
+- `excel_create_sheet` skapar ett nytt namngivet blad i en befintlig arbetsbok
+
+Nya bladnamn valideras mot Excels grundläggande begränsningar: tomma namn, namn över 31 tecken, dubbletter och förbjudna tecken avvisas.
+
+Skapande av blad följer samma säkerhetsmodell som andra Excel-ändringar: arbetsboken måste ligga i workspace och `excel.write_enabled` måste vara aktiverad. Skrivningen sker via temporär fil + atomisk replace.
+
+Exempel:
+- `Lista blad i "budget.xlsx"`
+- `Skapa blad "Februari" i "budget.xlsx"`
+
+Bladlistning, skapande, dubblettkontroll, namnvalidering och routing testas i CI.
+
 
 
 ---
@@ -1260,6 +1276,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat Excel-workspace för skapa/läsa/append med standardavstängd Excel-skrivning
 - Excel-cellredigering i A1-format med stöd för att bevara formler
 - explicit Excel-bladval för skapa/läsa/append/cellredigering
+- Excel-flerbladshantering för listning och skapande av arbetsblad
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

@@ -74,6 +74,11 @@ class FakeWorkbook:
     def __getitem__(self, name):
         return self._sheets[name]
 
+    def create_sheet(self, title):
+        sheet = FakeSheet(title=title)
+        self._sheets[title] = sheet
+        return sheet
+
     def save(self, path):
         Path(path).write_bytes(b"fake-xlsx")
 
@@ -443,3 +448,115 @@ def test_set_cell_request_keeps_named_sheet():
     )
 
     assert request["sheet"] == "Januari"
+
+
+
+def test_parse_create_sheet_request():
+    request = excel.parse_create_sheet_request(
+        'Skapa blad "Februari" i "budget.xlsx".'
+    )
+
+    assert request == {
+        "path": "budget.xlsx",
+        "sheet": "Februari",
+    }
+
+
+def test_list_excel_sheets_returns_names_and_active(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+    fake = FakeOpenpyxl(
+        sheets={
+            "Januari": [["Namn", "Belopp"]],
+            "Februari": [["Namn", "Belopp"]],
+        }
+    )
+
+    result = excel.list_excel_sheets(
+        "budget.xlsx",
+        cfg,
+        openpyxl_module=fake,
+    )
+
+    assert result["sheets"] == ["Januari", "Februari"]
+    assert result["active"] == "Januari"
+    assert fake.loaded[0]["workbook"].closed is True
+
+
+def test_create_excel_sheet_adds_named_sheet(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+    fake = FakeOpenpyxl(
+        sheets={
+            "Januari": [["Namn", "Belopp"]],
+        }
+    )
+
+    result = excel.create_excel_sheet(
+        {
+            "path": "budget.xlsx",
+            "sheet": "Februari",
+        },
+        cfg,
+        openpyxl_module=fake,
+    )
+
+    assert result["sheet"] == "Februari"
+    assert "Februari" in result["sheets"]
+    assert path.exists()
+
+
+def test_create_excel_sheet_rejects_duplicate(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+    fake = FakeOpenpyxl(
+        sheets={
+            "Januari": [["Namn"]],
+        }
+    )
+
+    try:
+        excel.create_excel_sheet(
+            {
+                "path": "budget.xlsx",
+                "sheet": "Januari",
+            },
+            cfg,
+            openpyxl_module=fake,
+        )
+    except ValueError as error:
+        assert "finns redan" in str(error)
+    else:
+        raise AssertionError("Duplicate sheet should fail")
+
+
+def test_create_excel_sheet_rejects_invalid_name(tmp_path):
+    cfg = settings(tmp_path, excel_write=True)
+    path = tmp_path / "workspace" / "budget.xlsx"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake")
+
+    try:
+        excel.create_excel_sheet(
+            {
+                "path": "budget.xlsx",
+                "sheet": "Bad/Name",
+            },
+            cfg,
+            openpyxl_module=FakeOpenpyxl(),
+        )
+    except ValueError as error:
+        assert "otillåtet" in str(error)
+    else:
+        raise AssertionError("Invalid sheet name should fail")
+
+
+def test_sheet_management_tools_use_user_text_mode():
+    assert excel.TOOLS["excel_list_sheets"]["input_mode"] == "user_text"
+    assert excel.TOOLS["excel_create_sheet"]["input_mode"] == "user_text"
