@@ -51,3 +51,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["research"]["weights"]["information_confidence"] == 0.25
     assert settings["shopping"]["top_results"] == 3
     assert settings["shopping"]["min_source_reliability"] == 50
+    assert settings["voice"]["enabled"] is False
+    assert settings["voice"]["stt_provider"] == ""
+    assert settings["voice"]["tts_provider"] == ""
+    assert settings["voice"]["primary_confidence_threshold"] == 0.80
+    assert settings["voice"]["high_risk_confidence_threshold"] == 0.90
+    assert settings["voice"]["max_interpretations"] == 3
+    assert settings["voice"]["redundant_for_high_risk"] is True
