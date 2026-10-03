@@ -213,6 +213,26 @@ Grinden tar emot små ljudramar tillsammans med VAD-providerns beslut `is_speech
 
 Standardvärden är två talramar för start, tre tysta ramar för avslut och högst 500 ramar per yttrande. Själva VAD-motorn och mikrofoninsamlingen är fortfarande utbytbara providers och ska verifieras fysiskt senare.
 
+### 4.10 Teknisk status för lokala röstproviders
+
+På utvecklingsgren finns nu konkreta men valbara lokala provider-adaptrar:
+- `SoundDeviceMicrophone` för rå PCM-mikrofoninsamling
+- `WebRTCVADProvider` för WebRTC-baserad tal-/tystnadsdetektering
+- `FasterWhisperSTT` för lokal tal-till-text
+- `Pyttsx3TTS` för lokal text-till-tal där plattformens röstmotor stöds
+
+Alla externa röstberoenden ligger i `requirements-voice.txt` och laddas först när röstfunktionen faktiskt används. Grundinstallationen behöver därför inte installera de tunga röstpaketen.
+
+Standardljudformatet är 16 kHz, mono, 16-bit PCM med 20 ms ramar. Dessa värden ligger i konfiguration och kan bytas för annan hårdvara.
+
+`FasterWhisperSTT` kan ta emot rå PCM från VAD-grinden, skriva en tillfällig WAV-fil, transkribera den lokalt och radera filen efteråt. Providern hittar inte på en confidence-procent när den underliggande modellen inte ger ett lämpligt kalibrerat värde.
+
+`Pyttsx3TTS` stödjer konfigurerbar talhastighet, volym och valfri voice-id samt `stop()` för avbrott.
+
+`voice_factory` bygger providers från konfigurationen. Backup-STT-modeller är tomma som standard; högriskkommandon ska därför hellre kräva förtydligande än att systemet låtsas ha redundans som inte är installerad.
+
+Providerlogik testas i CI med simulerade ljudenheter och motorer. Verkliga drivrutiner, mikrofon, GPU-accelererad faster-whisper, lokala röster och Bluetooth-ljud verifieras senare på Windows och Raspberry Pi.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1364,6 +1384,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - strukturerad leveranstid och MerchantReturnPolicy som separata shopping-/säljartransparenssignaler
 - adaptiv röstpipeline med STT-confidence, riskklassning, redundant konsensus och TTS-avbrott
 - hårdvaruoberoende VAD-grind för talstart, tystnadsavslut, maxlängd och omedelbart TTS-avbrott
+- valbara lokala SoundDevice/WebRTC-VAD/faster-whisper/pyttsx3-providers med konfigurationsfabrik
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:

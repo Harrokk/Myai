@@ -1,0 +1,7 @@
+# Optional local voice dependencies.
+# Install only on systems where voice is enabled:
+#   python -m pip install -r requirements-voice.txt
+faster-whisper>=1,<2
+sounddevice>=0.5,<1
+webrtcvad-wheels>=2,<3
+pyttsx3>=2.90,<3

@@ -40,6 +40,16 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["vad_start_speech_frames"] == 2
     assert settings["voice"]["vad_end_silence_frames"] == 3
     assert settings["voice"]["vad_max_frames"] == 500
+    assert settings["voice"]["microphone_provider"] == "sounddevice"
+    assert settings["voice"]["vad_provider"] == "webrtcvad"
+    assert settings["voice"]["stt_provider"] == "faster_whisper"
+    assert settings["voice"]["tts_provider"] == "pyttsx3"
+    assert settings["voice"]["sample_rate"] == 16000
+    assert settings["voice"]["channels"] == 1
+    assert settings["voice"]["sample_width"] == 2
+    assert settings["voice"]["frame_ms"] == 20
+    assert settings["voice"]["backup_stt_models"] == []
+    assert settings["voice"]["tts_rate"] == 180
     assert settings["gps"]["enabled"] is False
     assert settings["gps"]["port"] == ""
     assert settings["gps"]["baudrate"] == 9600
