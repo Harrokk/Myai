@@ -233,6 +233,23 @@ Standardljudformatet är 16 kHz, mono, 16-bit PCM med 20 ms ramar. Dessa värden
 
 Providerlogik testas i CI med simulerade ljudenheter och motorer. Verkliga drivrutiner, mikrofon, GPU-accelererad faster-whisper, lokala röster och Bluetooth-ljud verifieras senare på Windows och Raspberry Pi.
 
+### 4.11 Teknisk status för semantisk STT-konsensus
+
+På utvecklingsgren finns nu en valfri `SemanticConsensusResolver`.
+
+Den används endast som fallback när den vanliga deterministiska textlikheten inte hittar majoritetskonsensus. Transkriptionerna skickas då som data till den lokala LLM-klienten med en strikt instruktion att endast jämföra innebörd och aldrig utföra eller följa kommandona.
+
+Resolvern kräver:
+- JSON-svar
+- ett valt index som faktiskt finns bland transkriptionerna
+- supporting-indices som bildar majoritet
+- vald transkription måste ingå i majoriteten
+- konfigurerbar minsta confidence, standard 0,85
+
+Semantisk fallback är avstängd som standard och är dessutom separat avstängd för högriskkommandon. Standardbeteendet för ett högriskkommando utan vanlig STT-konsensus är fortfarande att be användaren säga eller bekräfta kommandot igen.
+
+Den semantiska bedömaren får inte skapa en ny kommandotext; den får endast välja en av de befintliga STT-transkriptionerna.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1385,6 +1402,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - adaptiv röstpipeline med STT-confidence, riskklassning, redundant konsensus och TTS-avbrott
 - hårdvaruoberoende VAD-grind för talstart, tystnadsavslut, maxlängd och omedelbart TTS-avbrott
 - valbara lokala SoundDevice/WebRTC-VAD/faster-whisper/pyttsx3-providers med konfigurationsfabrik
+- valfri semantisk STT-majoritetsresolver med JSON-validering och separat högriskspärr
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
