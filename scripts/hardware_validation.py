@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from modules.bluetooth.proximity import scan_nearby_devices
 from modules.camera.camera import get_camera_inventory, format_camera_inventory
 from modules.camera.capture import capture_from_settings, format_capture_result
+from modules.camera.video import format_video_result, record_video_from_settings
 from modules.hardware.hardware import (
     compare_hardware_snapshots,
     get_hardware_inventory,
@@ -302,6 +303,58 @@ def camera_capture_check(results):
     return True
 
 
+def camera_video_check(results):
+    print()
+    print("=" * 60)
+    print("DEL 7 - Kort videoinspelning")
+    print("=" * 60)
+
+    devices = get_camera_inventory()
+
+    if not devices:
+        record(
+            results,
+            "Videoinspelning",
+            "SKIP",
+            "Ingen kamera upptäcktes.",
+        )
+        return True
+
+    input(
+        "Kontrollera att standardkameran är fri och tryck Enter "
+        "för att spela in ett kort testklipp: "
+    )
+
+    try:
+        video_result = record_video_from_settings()
+    except Exception as error:
+        record(results, "Videoinspelning", "FAIL", str(error))
+        return False
+
+    print(format_video_result(video_result))
+
+    if not video_result.get("success"):
+        record(
+            results,
+            "Videoinspelning",
+            "FAIL",
+            video_result.get("error") or "okänt fel",
+        )
+        return False
+
+    record(
+        results,
+        "Videoinspelning",
+        "PASS",
+        (
+            f"{video_result.get('frames')} bildrutor | "
+            f"kameraindex {video_result.get('camera_index')} -> "
+            f"{video_result.get('path')}"
+        ),
+    )
+    return True
+
+
 def main():
     results = []
 
@@ -330,6 +383,8 @@ def main():
     camera_inventory_check(results)
 
     camera_capture_check(results)
+
+    camera_video_check(results)
 
     path = save_report(results)
 
