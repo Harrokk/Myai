@@ -419,7 +419,11 @@ class VoicePipeline:
             'Säg "bekräfta" för att köra eller "avbryt".'
         )
 
-    def _handle_pending_confirmation(self, primary):
+    def _handle_pending_confirmation(
+        self,
+        primary,
+        audio,
+    ):
         pending = self.pending_confirmation
 
         if pending is None:
@@ -454,11 +458,16 @@ class VoicePipeline:
         normalized = normalize_transcript(
             primary["text"]
         )
-
-        if normalized in {
+        confirm_phrases = {
+            normalize_transcript(value)
+            for value in VOICE_CONFIRM_PHRASES
+        }
+        cancel_phrases = {
             normalize_transcript(value)
             for value in VOICE_CANCEL_PHRASES
-        }:
+        }
+
+        if normalized in cancel_phrases:
             self.pending_confirmation = None
             message = "Kommandot avbröts."
             self._speak_control_message(message)
@@ -469,10 +478,7 @@ class VoicePipeline:
                 "pending_transcript": pending["transcript"],
             }
 
-        if normalized in {
-            normalize_transcript(value)
-            for value in VOICE_CONFIRM_PHRASES
-        }:
+        if normalized in confirm_phrases:
             confidence = primary.get("confidence")
             threshold = float(
                 config.get(
@@ -480,11 +486,64 @@ class VoicePipeline:
                     0.80,
                 )
             )
+            confirmation_transcripts = [
+                primary
+            ]
+            confirmed = (
+                confidence is not None
+                and confidence >= threshold
+            )
 
-            if (
-                confidence is None
-                or confidence < threshold
-            ):
+            if not confirmed:
+                desired = max(
+                    2,
+                    int(
+                        config.get(
+                            "high_risk_confirmation_transcript_count",
+                            3,
+                        )
+                    ),
+                )
+
+                for provider in self.backup_stt:
+                    if len(
+                        confirmation_transcripts
+                    ) >= desired:
+                        break
+
+                    confirmation_transcripts.append(
+                        self._transcribe(
+                            provider,
+                            audio,
+                        )
+                    )
+
+                normalized_confirmations = [
+                    normalize_transcript(
+                        item["text"]
+                    )
+                    for item in confirmation_transcripts
+                ]
+                support = sum(
+                    1
+                    for value in normalized_confirmations
+                    if value in confirm_phrases
+                )
+                majority = (
+                    len(
+                        confirmation_transcripts
+                    ) // 2 + 1
+                )
+                confirmed = (
+                    len(
+                        confirmation_transcripts
+                    ) >= desired
+                    and support >= majority
+                )
+            else:
+                support = 1
+
+            if not confirmed:
                 message = (
                     "Bekräftelsen var för osäker. "
                     'Säg tydligt "bekräfta" eller "avbryt".'
@@ -495,6 +554,9 @@ class VoicePipeline:
                     "message": message,
                     "transcript": pending["transcript"],
                     "confirmation_confidence": confidence,
+                    "confirmation_transcripts": (
+                        confirmation_transcripts
+                    ),
                 }
 
             self.pending_confirmation = None
@@ -516,6 +578,7 @@ class VoicePipeline:
                     "confirmed": True,
                     "heard": primary["text"],
                     "confidence": confidence,
+                    "support": support,
                     "age_seconds": round(age, 3),
                 },
             }
@@ -584,7 +647,8 @@ class VoicePipeline:
             }
 
         pending_result = self._handle_pending_confirmation(
-            primary
+            primary,
+            audio,
         )
 
         if pending_result is not None:
