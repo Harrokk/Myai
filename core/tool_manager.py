@@ -167,6 +167,29 @@ def detect_tools(user_input):
             "capture photo",
         )
     )
+    asks_vision_text = any(
+        phrase in text
+        for phrase in (
+            "läs texten i bilden",
+            "läs text i bilden",
+            "vad står det på bilden",
+            "vad står på bilden",
+            "ocr",
+            "read text in image",
+            "read image text",
+        )
+    )
+    asks_vision_objects = any(
+        phrase in text
+        for phrase in (
+            "identifiera objekt",
+            "vilka objekt",
+            "objekt i bilden",
+            "vilka saker finns på bilden",
+            "detect objects",
+            "objects in image",
+        )
+    )
     asks_vision_analysis = any(
         phrase in text
         for phrase in (
@@ -182,8 +205,20 @@ def detect_tools(user_input):
         )
     )
 
+    if asks_camera_capture and asks_vision_text:
+        return ["camera_capture", "vision_read_text"]
+
+    if asks_camera_capture and asks_vision_objects:
+        return ["camera_capture", "vision_detect_objects"]
+
     if asks_camera_capture and asks_vision_analysis:
         return ["camera_capture", "vision_analyze"]
+
+    if asks_vision_text:
+        return ["vision_read_text"]
+
+    if asks_vision_objects:
+        return ["vision_detect_objects"]
 
     if asks_camera_capture:
         return ["camera_capture"]
