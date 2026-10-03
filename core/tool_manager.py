@@ -155,6 +155,21 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_research = any(
+        phrase in text
+        for phrase in (
+            "researcha ",
+            "gör research om ",
+            "undersök källor",
+            "jämför källor om ",
+            "verifiera information om ",
+            "deep research",
+        )
+    )
+
+    if asks_research:
+        return ["research_top_three"]
+
     asks_source_verification = (
         ("http://" in text or "https://" in text)
         and any(
