@@ -929,6 +929,27 @@ Detta är inte kontinuerlig videoanalys. Ett kort urval kan missa händelser mel
 
 Samplingsfel, frame-begränsning, flerbildsanrop, routing och promptbeteende testas i CI. Verklig videokvalitet och visionmodellens träffsäkerhet ska verifieras senare med fysisk kamera och lokal multimodal modell.
 
+### 16.1.11 Teknisk status för begränsat kamerastream-lager
+
+På utvecklingsgren finns nu ett kontrollerat streamlager med verktyget `camera_stream_status`.
+
+Standardläget är avstängt genom `camera.stream_enabled=false`. När funktionen aktiveras gäller dessutom hårda säkerhets- och resursgränser:
+- `camera.stream_duration_seconds` med standard 5 sekunder och maximal tillåten längd 60 sekunder
+- `camera.stream_fps` med standard 2 fps och maximal tillåten nivå 30 fps
+- `camera.stream_max_frames` med standard 10 och absolut max 300 frames
+
+Streamlagret:
+- använder samma konfigurerade kameraindex som övriga kamerafunktioner
+- öppnar kameran endast under den begränsade sessionen
+- kan lämna varje frame till en separat callback för framtida analys
+- stänger alltid kameran efter sessionen eller vid fel
+- startar ingen bakgrundstråd och ingen obegränsad kontinuerlig övervakning
+- skriver inte automatiskt streamens frames till disk
+
+Detta är ett fundament för senare livevideo och realtidsanalys, inte ännu en permanent kamerabevakning. Den samlade fysiska hårdvaruverifieringen innehåller ett kort explicit stream-test som tillfälligt aktiverar funktionen utan att ändra den sparade konfigurationen.
+
+Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Raspberry Pi.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1098,6 +1119,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - konfigurerbart standardkameraindex och capture-katalog för stillbildstagning
 - separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
 - representativ sampling och försiktig multimodal analys av videobildrutor
+- standardavstängt och hårt begränsat kamerastream-lager som grund för senare livevideo
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
