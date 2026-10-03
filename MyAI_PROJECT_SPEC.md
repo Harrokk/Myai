@@ -1249,6 +1249,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - standardavstängd lokal-först webbsökning via konfigurerbar SearXNG-provider och query-aware verktygskörning
 - säker publik webbsideshämtning med blockering av privata/lokala IP-adresser, redirect-kontroll, innehållstypfilter och storleksgräns
 - sidbaserad källgranskning med metadata-, transparens- och evidenssignaler samt konservativt begränsade heuristiska käll-/informationspoäng
+- sammanhängande researchflöde som söker upp till fem kandidater, hämtar och verifierar sidor, upptäcker tydliga numeriska motsägelser mellan oberoende domäner och rangordnar topp tre
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:

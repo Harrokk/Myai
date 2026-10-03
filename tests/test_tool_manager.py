@@ -55,6 +55,13 @@ def test_detect_tools_routes_explicit_source_verification():
     assert result == ["source_verify_page"]
 
 
+def test_detect_tools_routes_multi_source_research():
+    result = tool_manager.detect_tools(
+        "Jämför källor om Raspberry Pi 5 strömförbrukning."
+    )
+    assert result == ["research_top_three"]
+
+
 def test_detect_tools_routes_gps_location():
     result = tool_manager.detect_tools(
         "Vilka koordinater har jag enligt GPS?"
