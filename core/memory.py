@@ -45,6 +45,38 @@ class MemoryStore:
                 (category, content, datetime.now().isoformat()),
             )
 
+    def contains(self, category, content):
+        value = (content or "").strip()
+
+        if not value:
+            return False
+
+        with sqlite3.connect(self.database_path) as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM memories
+                WHERE lower(category) = lower(?)
+                  AND lower(trim(content)) = lower(trim(?))
+                LIMIT 1
+                """,
+                (category, value),
+            ).fetchone()
+
+        return row is not None
+
+    def save_if_new(self, category, content):
+        value = (content or "").strip()
+
+        if not value:
+            raise ValueError("Minnesinnehållet får inte vara tomt.")
+
+        if self.contains(category, value):
+            return False
+
+        self.save(category, value)
+        return True
+
     def get_all(self):
         with sqlite3.connect(self.database_path) as conn:
             return conn.execute(
