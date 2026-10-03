@@ -60,6 +60,8 @@
       "information_confidence": 0.25
     },
     "deep_verification_enabled": true,
-    "deep_blend": 0.4
+    "deep_blend": 0.4,
+    "conflict_penalty": 10,
+    "conflict_relative_tolerance": 0.05
   }
 }
