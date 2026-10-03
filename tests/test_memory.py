@@ -35,3 +35,36 @@ def test_memory_store_rejects_empty_memory(tmp_path):
         assert "tomt" in str(error)
     else:
         raise AssertionError("Tomt minne ska ge ValueError")
+
+
+def test_memory_store_save_if_new_prevents_duplicate(tmp_path):
+    memory = MemoryStore(tmp_path / "memory.db")
+    memory.init()
+
+    first = memory.save_if_new(
+        "preference",
+        "Jag föredrar modulär kod.",
+    )
+    second = memory.save_if_new(
+        "preference",
+        "  jag föredrar modulär kod.  ",
+    )
+
+    assert first is True
+    assert second is False
+    assert len(memory.get_all()) == 1
+
+
+def test_memory_store_duplicate_is_category_specific(tmp_path):
+    memory = MemoryStore(tmp_path / "memory.db")
+    memory.init()
+
+    assert memory.save_if_new(
+        "preference",
+        "Samma text",
+    ) is True
+    assert memory.save_if_new(
+        "project",
+        "Samma text",
+    ) is True
+    assert len(memory.get_all()) == 2

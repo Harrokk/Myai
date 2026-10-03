@@ -86,6 +86,10 @@ DEFAULT_SETTINGS = {
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
+        "auto_assess_enabled": True,
+        "auto_save_enabled": True,
+        "auto_save_threshold": 80,
+        "review_threshold": 55,
     },
     "conversation": {
         "max_turns": 6,
