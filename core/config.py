@@ -24,6 +24,14 @@ DEFAULT_SETTINGS = {
         "timeout_seconds": 2,
         "max_lines": 20,
     },
+    "internet": {
+        "enabled": False,
+        "provider": "searxng",
+        "searxng_url": "",
+        "timeout_seconds": 15,
+        "max_results": 5,
+        "language": "sv-SE",
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
