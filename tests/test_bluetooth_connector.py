@@ -295,3 +295,30 @@ def test_short_bluetooth_uuid_matches_full_bleak_uuid():
     )
 
     assert result["success"] is True
+
+
+
+def test_get_client_returns_only_active_connector_owned_client():
+    factory = ClientFactory()
+    connector = BleakGattConnector(
+        settings(),
+        client_factory=factory,
+    )
+
+    assert connector.get_client(
+        "car-terminal"
+    ) is None
+
+    connector.connect(
+        "car-terminal"
+    )
+    assert connector.get_client(
+        "car-terminal"
+    ) is factory.clients[0]
+
+    connector.disconnect(
+        "car-terminal"
+    )
+    assert connector.get_client(
+        "car-terminal"
+    ) is None
