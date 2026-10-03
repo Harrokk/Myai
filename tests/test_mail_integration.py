@@ -124,3 +124,69 @@ def test_stop_voice_session_delegates_to_session(monkeypatch):
 
     assert mail.stop_voice_session() is True
     assert session.stop_calls == 1
+
+
+
+class OneShotVoiceSession(FakeVoiceSession):
+    def __init__(self, result=None, error=None, enabled=True):
+        super().__init__(
+            enabled=enabled,
+            running=False,
+        )
+        self.result = result or {
+            "status": "utterance_complete",
+        }
+        self.error = error
+        self.run_calls = 0
+
+    def run_once(self):
+        self.run_calls += 1
+
+        if self.error is not None:
+            raise self.error
+
+        self.running = True
+        return self.result
+
+
+def test_run_voice_once_stops_session_after_success():
+    session = OneShotVoiceSession()
+
+    result = mail.run_voice_once(
+        session=session
+    )
+
+    assert result["status"] == "utterance_complete"
+    assert session.run_calls == 1
+    assert session.stop_calls == 1
+
+
+def test_run_voice_once_stops_session_after_error():
+    session = OneShotVoiceSession(
+        error=RuntimeError("testfel")
+    )
+
+    try:
+        mail.run_voice_once(
+            session=session
+        )
+    except RuntimeError as error:
+        assert "testfel" in str(error)
+    else:
+        raise AssertionError("Voice error should propagate")
+
+    assert session.stop_calls == 1
+
+
+def test_run_voice_once_does_not_start_disabled_session():
+    session = OneShotVoiceSession(
+        enabled=False
+    )
+
+    result = mail.run_voice_once(
+        session=session
+    )
+
+    assert result["status"] == "disabled"
+    assert session.run_calls == 0
+    assert session.stop_calls == 0
