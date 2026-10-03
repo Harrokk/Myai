@@ -46,6 +46,8 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["research"]["top_results"] == 3
     assert settings["research"]["deep_verification_enabled"] is True
     assert settings["research"]["deep_blend"] == 0.40
+    assert settings["research"]["conflict_penalty"] == 10.0
+    assert settings["research"]["conflict_relative_tolerance"] == 0.05
     assert settings["research"]["weights"]["relevance"] == 0.40
     assert settings["research"]["weights"]["source_reliability"] == 0.35
     assert settings["research"]["weights"]["information_confidence"] == 0.25

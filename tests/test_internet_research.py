@@ -202,3 +202,73 @@ def test_deep_research_formatter_reports_verification():
     assert "Djupverifiering: ja" in text
     assert "transparens" in text
     assert "evidenssignaler" in text
+
+
+def conflict_settings():
+    value = settings()
+    value["research"]["conflict_penalty"] = 12
+    value["research"]["conflict_relative_tolerance"] = 0.05
+    return value
+
+
+def conflict_search(query, limit, settings):
+    return {
+        "available": True,
+        "query": query,
+        "results": [
+            {
+                "title": "Power test A",
+                "url": "https://one.example/report",
+                "snippet": "Raspberry Pi power draw under load was measured at 10 W.",
+                "engines": ["engine"],
+                "published_date": "2026-10-03",
+            },
+            {
+                "title": "Power test B",
+                "url": "https://two.example/report",
+                "snippet": "Raspberry Pi power draw under load was measured at 6 W.",
+                "engines": ["engine"],
+                "published_date": "2026-10-03",
+            },
+            {
+                "title": "General notes",
+                "url": "https://three.example/report",
+                "snippet": "Raspberry Pi power measurements and thermal notes.",
+                "engines": ["engine"],
+                "published_date": "2026-10-03",
+            },
+        ],
+    }
+
+
+def test_research_detects_numeric_conflicts():
+    result = research.research_top_three_data(
+        "Raspberry Pi power draw",
+        settings=conflict_settings(),
+        search_function=conflict_search,
+    )
+
+    assert result["conflict_count"] == 1
+    affected = [
+        item
+        for item in result["candidates"]
+        if item["conflict_count"] == 1
+    ]
+    assert len(affected) == 2
+    assert all(
+        item["information_confidence"]["score"]
+        < 75
+        for item in affected
+    )
+
+
+def test_research_formatter_warns_about_conflicts():
+    result = research.research_top_three_data(
+        "Raspberry Pi power draw",
+        settings=conflict_settings(),
+        search_function=conflict_search,
+    )
+
+    text = research.format_research_top_three(result)
+
+    assert "numerisk konflikt" in text

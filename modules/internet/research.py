@@ -1,4 +1,8 @@
 from core.config import load_settings
+from core.source_conflicts import (
+    apply_conflict_penalties,
+    detect_numeric_conflicts,
+)
 from core.source_evaluation import (
     apply_deep_verification,
     evaluate_candidates,
@@ -108,13 +112,20 @@ def research_top_three_data(
         verified_count += 1
         final_candidates.append(item)
 
-    final_candidates.sort(
-        key=lambda item: (
-            item["combined_score"],
-            item["source_reliability"]["score"],
-            item["information_confidence"]["score"],
+    conflict_penalty = float(
+        config.get("conflict_penalty", 10.0)
+    )
+    conflicts = detect_numeric_conflicts(
+        final_candidates,
+        relative_tolerance=float(
+            config.get("conflict_relative_tolerance", 0.05)
         ),
-        reverse=True,
+    )
+    final_candidates = apply_conflict_penalties(
+        final_candidates,
+        conflicts,
+        weights=weights,
+        penalty_per_conflict=conflict_penalty,
     )
 
     return {
@@ -123,6 +134,8 @@ def research_top_three_data(
         "candidate_count": len(candidates),
         "deep_verification_enabled": deep_enabled,
         "deep_verified_count": verified_count,
+        "conflicts": conflicts,
+        "conflict_count": len(conflicts),
         "candidates": final_candidates,
         "top": final_candidates[:top_results],
         "assessment_note": (
@@ -149,6 +162,13 @@ def format_research_top_three(result):
     if count < 5:
         lines.append(
             "Underlaget innehåller färre än fem kandidater."
+        )
+
+    conflict_count = result.get("conflict_count", 0)
+
+    if conflict_count:
+        lines.append(
+            f"Varning: {conflict_count} numerisk konflikt(er) hittades mellan oberoende domäner."
         )
 
     top = result.get("top", [])
@@ -207,6 +227,13 @@ def format_research_top_three(result):
         else:
             lines.append(
                 "   Djupverifiering: avstängd"
+            )
+
+        conflict_count = item.get("conflict_count", 0)
+
+        if conflict_count:
+            lines.append(
+                f"   Konflikter: {conflict_count} tydlig numerisk konflikt(er) med andra domäner"
             )
 
     return "\n".join(lines)
