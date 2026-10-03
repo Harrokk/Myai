@@ -60,6 +60,10 @@ DEFAULT_SETTINGS = {
         "echo_guard_similarity_threshold": 0.78,
         "echo_guard_min_words": 3,
         "echo_guard_for_high_risk": False,
+        "high_risk_confirmation_enabled": True,
+        "high_risk_confirmation_window_seconds": 15.0,
+        "high_risk_confirmation_min_confidence": 0.80,
+        "high_risk_confirmation_transcript_count": 3,
     },
     "gps": {
         "enabled": False,
