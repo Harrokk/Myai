@@ -80,6 +80,9 @@
     "redundancy_when_confidence_missing": false,
     "primary_confidence_threshold": 0.72,
     "consensus_similarity_threshold": 0.62,
-    "redundant_transcript_count": 3
+    "redundant_transcript_count": 3,
+    "vad_start_speech_frames": 2,
+    "vad_end_silence_frames": 3,
+    "vad_max_frames": 500
   }
 }
