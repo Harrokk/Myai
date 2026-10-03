@@ -53,6 +53,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["tts_async"] is True
     assert settings["voice"]["tts_stop_timeout_seconds"] == 2.0
     assert settings["voice"]["session_max_wait_frames"] == 1500
+    assert settings["voice"]["handsfree_enabled"] is False
+    assert settings["voice"]["handsfree_max_wait_frames"] == 1500
+    assert settings["voice"]["handsfree_stop_timeout_seconds"] == 3.0
     assert settings["voice"]["semantic_consensus_enabled"] is False
     assert settings["voice"]["semantic_consensus_for_high_risk"] is False
     assert settings["voice"]["semantic_consensus_min_confidence"] == 0.85
