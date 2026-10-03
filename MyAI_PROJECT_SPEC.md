@@ -766,6 +766,23 @@ Shoppingflödet bevarar samma konservativa regler som tidigare lager: saknad val
 
 Detta innebär också att ett verkligt automatiskt shoppingresultat ibland kan innehålla noll fullt jämförbara alternativ. Då ska MyAI redovisa vilka uppgifter som saknas i stället för att fylla i dem med antaganden.
 
+#### 13.1.5 Teknisk status för leveranstid och returpolicy
+
+På utvecklingsgren läser produktutvinningen nu även strukturerad leveranstid och returpolicy när schema.org-data uttryckligen innehåller dem.
+
+För leveranstid stöds `ShippingDeliveryTime` med `handlingTime` och `transitTime` uttryckta som `QuantitativeValue` i dagar. När både hantering och transport finns används den konservativa övre gränsen för respektive del och summeras till `delivery_days`. Tidsenheter som inte uttryckligen känns igen som dagar lämnas okända i stället för att omvandlas genom gissning.
+
+`MerchantReturnPolicy` kan extrahera:
+- tillämpligt land
+- returpolicykategori
+- antal returdagar
+- returmetod
+- returavgiftskategori
+
+Säljargranskningen använder nu också strukturerad `MerchantReturnPolicy` och strukturerad organisations-/butiksidentitet som separata positiva transparenssignaler. De kan höja den interna säljarbedömningen men ersätter inte övriga kontroller och kan aldrig göra bedömningen till en säkerhetsgaranti.
+
+Strukturerad leveranstid och returpolicy testas i CI. Saknas dessa fält ska värdena förbli okända.
+
 ### 13.2 Källgranskning och konfidensbedömning
 
 Vid informationssökning ska MyAI inte enbart hämta ett svar utan även granska underlaget.
@@ -1303,6 +1320,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - svensk totalprisjämförelsemotor med separata kostnader, lager, Sverige-leverans och säljartröskel
 - säker schema.org/JSON-LD-produktutvinning för pris, valuta, lager, säljare och explicit Sverige-frakt
 - faktisk FX-konvertering till SEK, separat säljargranskning och flerbutiks-shopping-research
+- strukturerad leveranstid och MerchantReturnPolicy som separata shopping-/säljartransparenssignaler
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
