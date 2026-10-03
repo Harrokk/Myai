@@ -197,6 +197,22 @@ Röstfunktionen är avstängd som standard. Standardkonfigurationen använder tr
 
 Fysiska mikrofoner, VAD, lokala STT-/TTS-motorer, Bluetooth-ljud och verklig avbrottstid ska verifieras i senare ljud-/hårdvarutester.
 
+### 4.9 Teknisk status för röstaktivitetsgrind
+
+På utvecklingsgren finns nu en hårdvaruoberoende `VoiceActivityGate` och `VoiceStreamController`.
+
+Grinden tar emot små ljudramar tillsammans med VAD-providerns beslut `is_speech=true/false` och:
+- kräver flera efterföljande talramar innan ett yttrande startas
+- nollställer falska enstaka talstarter
+- samlar ljudramar medan användaren talar
+- avslutar yttrandet efter ett konfigurerbart antal tysta ramar
+- har en maximal ramgräns så att ett fastnat VAD-flöde inte kan samla obegränsat ljud
+- återställs automatiskt efter slutfört yttrande
+
+`VoiceStreamController` kopplar VAD-grinden till `VoicePipeline`. När tal startar anropas TTS-avbrottet omedelbart. När ett yttrande är färdigt sammanfogas ljudramarna och skickas till STT-/röstpipelinens befintliga säkerhetsflöde.
+
+Standardvärden är två talramar för start, tre tysta ramar för avslut och högst 500 ramar per yttrande. Själva VAD-motorn och mikrofoninsamlingen är fortfarande utbytbara providers och ska verifieras fysiskt senare.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1347,6 +1363,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - faktisk FX-konvertering till SEK, separat säljargranskning och flerbutiks-shopping-research
 - strukturerad leveranstid och MerchantReturnPolicy som separata shopping-/säljartransparenssignaler
 - adaptiv röstpipeline med STT-confidence, riskklassning, redundant konsensus och TTS-avbrott
+- hårdvaruoberoende VAD-grind för talstart, tystnadsavslut, maxlängd och omedelbart TTS-avbrott
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
