@@ -167,9 +167,31 @@ def detect_tools(user_input):
             "record a video",
         )
     )
+    asks_video_sampling = any(
+        phrase in text
+        for phrase in (
+            "plocka ut bildrutor",
+            "plocka bildrutor",
+            "representativa bildrutor",
+            "sampla videon",
+            "sampla video",
+            "bildrutor ur videon",
+            "extract video frames",
+            "sample video frames",
+        )
+    )
+
+    if asks_video_recording and asks_video_sampling:
+        return [
+            "camera_record_video",
+            "camera_sample_video_frames",
+        ]
 
     if asks_video_recording:
         return ["camera_record_video"]
+
+    if asks_video_sampling:
+        return ["camera_sample_video_frames"]
 
     asks_camera_capture = any(
         phrase in text
