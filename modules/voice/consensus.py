@@ -101,11 +101,18 @@ def transcript_similarity(first, second):
     if a == b:
         return 1.0
 
-    sequence = SequenceMatcher(
-        None,
-        a,
-        b,
-    ).ratio()
+    sequence = max(
+        SequenceMatcher(
+            None,
+            a,
+            b,
+        ).ratio(),
+        SequenceMatcher(
+            None,
+            a.replace(" ", ""),
+            b.replace(" ", ""),
+        ).ratio(),
+    )
     a_tokens = _tokens(a)
     b_tokens = _tokens(b)
     union = a_tokens | b_tokens
