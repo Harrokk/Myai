@@ -34,6 +34,13 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_explicit_internet_search():
+    result = tool_manager.detect_tools(
+        "Sök på internet efter Raspberry Pi 5."
+    )
+    assert result == ["internet_search"]
+
+
 def test_detect_tools_routes_gps_location():
     result = tool_manager.detect_tools(
         "Vilka koordinater har jag enligt GPS?"
@@ -348,3 +355,46 @@ def test_run_tools_keeps_other_results_if_one_tool_fails():
 
     assert result["cpu_status"] == "CPU OK"
     assert "testfel" in result["ram_status"]
+
+
+
+def test_run_tools_passes_user_input_only_to_query_aware_tool():
+    seen = {}
+
+    tools = {
+        "internet_search": {
+            "function": lambda query: seen.setdefault("query", query) or "ok",
+            "description": "search",
+            "pass_user_input": True,
+        },
+        "cpu_status": {
+            "function": lambda: "CPU OK",
+            "description": "cpu",
+        },
+    }
+
+    result = tool_manager.run_tools(
+        ["internet_search", "cpu_status"],
+        tools,
+        user_input="Sök på internet efter test",
+    )
+
+    assert seen["query"] == "Sök på internet efter test"
+    assert result["cpu_status"] == "CPU OK"
+
+
+def test_run_tools_reports_missing_user_input_for_query_tool():
+    tools = {
+        "internet_search": {
+            "function": lambda query: query,
+            "description": "search",
+            "pass_user_input": True,
+        }
+    }
+
+    result = tool_manager.run_tools(
+        ["internet_search"],
+        tools,
+    )
+
+    assert "kräver användarens fråga" in result["internet_search"]
