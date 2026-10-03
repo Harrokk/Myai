@@ -50,6 +50,12 @@ DEFAULT_SETTINGS = {
             ".json",
         ],
     },
+    "excel": {
+        "enabled": True,
+        "write_enabled": False,
+        "max_rows_read": 100,
+        "default_sheet": "Data",
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
