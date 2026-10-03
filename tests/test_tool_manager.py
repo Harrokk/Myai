@@ -34,6 +34,13 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_gps_location():
+    result = tool_manager.detect_tools(
+        "Vilka koordinater har jag enligt GPS?"
+    )
+    assert result == ["location_status"]
+
+
 def test_detect_tools_routes_live_vision():
     result = tool_manager.detect_tools(
         "Analysera livekameran."
