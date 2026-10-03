@@ -1,0 +1,3 @@
+# Optional serial GPS dependency.
+# Install with: python -m pip install -r requirements-gps.txt
+pyserial>=3.5,<4
