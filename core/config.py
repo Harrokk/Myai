@@ -52,6 +52,9 @@ DEFAULT_SETTINGS = {
         "vad_end_silence_frames": 3,
         "vad_max_frames": 500,
         "session_max_wait_frames": 1500,
+        "handsfree_enabled": False,
+        "handsfree_max_wait_frames": 1500,
+        "handsfree_stop_timeout_seconds": 3.0,
     },
     "gps": {
         "enabled": False,
