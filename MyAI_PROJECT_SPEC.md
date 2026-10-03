@@ -645,6 +645,35 @@ Topp tre-listan ska inte enbart bygga på ett enda mått. Bedömningen ska väga
 
 Vid prisjämförelser gäller dessutom reglerna i avsnitt 13.1 om totalpris, frakt, moms, lagerstatus, leveransmöjlighet till Sverige och säljarens trovärdighet.
 
+### 13.4 Teknisk status för kandidatvalidering och topp tre
+
+På utvecklingsgren finns nu en återanvändbar valideringsmotor för arbetsflödet **upp till fem kandidater → validering → topp tre**.
+
+Motorn kräver separata poäng 0–100 för:
+- relevans
+- källans tillförlitlighet
+- informationens konfidens
+
+Praktisk användbarhet kan också anges och viktas när den finns. Om praktikpoäng saknas normaliseras vikterna över de dimensioner som faktiskt finns i stället för att hitta på ett värde.
+
+Standardkonfigurationen är:
+- högst 5 kandidater i valideringssteget
+- topp 3 som slutresultat
+- miniminivå 40 % för källtillförlitlighet, informationskonfidens och relevans
+- vikter 30 % relevans, 30 % källtillförlitlighet, 30 % informationskonfidens och 10 % praktik
+- mindre varningssignaler ger konfigurerbart avdrag
+- kritisk varning eller uttrycklig diskvalificering sorterar bort kandidaten
+
+Motorn behåller **källtillförlitlighet** och **informationskonfidens** som två separata värden. Den beräknar dessutom ett internt `selection_score` för sortering, men detta beskrivs uttryckligen som en heuristik och inte som sannolikheten att uppgiften är sann.
+
+Om färre än fem kandidater finns markeras det uttryckligen. Om fler än fem skickas in utvärderas endast den konfigurerade gränsen och resultatet markerar att indata trunkerades; en framtida sökprovider ansvarar för att kandidatpoolen redan är relevansordnad innan detta steg.
+
+Trösklar, vikter och varningsavdrag ligger i konfigurationen enligt principen om löpande finjustering.
+
+Själva sökningen på internet är ännu inte implementerad i detta lager. Den aktuella motorn tar emot redan insamlade kandidater och är avsedd att återanvändas av framtida webb-/prisjämförelseverktyg.
+
+Poängvalidering, bortsortering, varningsavdrag, färre-än-fem-fall, femgräns och topp-tre-sortering testas i CI.
+
 ---
 
 ## 14. Position och lokalisering
@@ -1167,6 +1196,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - standardavstängt och hårt begränsat kamerastream-lager som grund för senare livevideo
 - standardavstängd begränsad live-vision med in-memory-frames och utan automatisk disksparning
 - standardavstängd seriell NMEA-GPS med checksummevalidering och no-guess-position
+- konfigurerbar fem-kandidaters valideringsmotor med separata käll-/informationspoäng och topp-tre-urval
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
