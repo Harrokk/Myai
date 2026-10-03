@@ -47,3 +47,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["location"]["serial_port"] == ""
     assert settings["location"]["baudrate"] == 9600
     assert settings["location"]["max_lines"] == 20
+    assert settings["research"]["candidate_limit"] == 5
+    assert settings["research"]["top_n"] == 3
+    assert settings["research"]["min_source_reliability"] == 40
+    assert settings["research"]["min_information_confidence"] == 40
+    assert settings["research"]["weights"]["relevance"] == 0.30
+    assert settings["research"]["weights"]["practicality"] == 0.10
