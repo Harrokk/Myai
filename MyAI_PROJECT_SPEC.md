@@ -818,6 +818,23 @@ Efter djupverifiering kan:
 
 En kandidat straffas inte automatiskt bara för att sidan inte gick att hämta. Om djupverifieringen misslyckas eller saknas behålls den preliminära bedömningen och statusen redovisas som misslyckad eller otillgänglig.
 
+### 13.7 Konservativ motsägelseanalys
+
+På utvecklingsgren finns nu en första konfliktmotor för tydliga numeriska motsägelser mellan oberoende domäner.
+
+Första versionen flaggar endast konflikter när:
+- två olika domäner beskriver liknande kontext
+- båda anger ett numeriskt värde med samma stödda enhet
+- skillnaden överskrider en konfigurerbar relativ tolerans
+
+Standardtoleransen är 5 %. Exempel: två källor som beskriver samma effektmätning som 10 W respektive 6 W kan flaggas som konflikt.
+
+Resultat från samma domän räknas inte som oberoende motsägelse.
+
+När en konflikt hittas sänks informationens konfidens för de berörda kandidaterna med en konfigurerbar konfliktpåföljd, standard 10 poäng per konflikt och högst 30 poäng totalt. Rankingen räknas därefter om.
+
+Konfliktmotorn är avsiktligt konservativ och täcker ännu inte fria språkliga motsägelser som “ökar” kontra “minskar” eller komplexa vetenskapliga slutsatser. Sådana semantiska konflikter ska byggas som ett separat senare lager för att undvika falska motsägelseflaggor.
+
 Djupverifiering är aktiverad i projektets research-standardkonfiguration, men faktisk nätåtkomst är fortfarande blockerad tills `internet.enabled=true` och en sökbackend har konfigurerats.
 
 Även de djupverifierade procentsiffrorna är interna heuristiska bedömningar, inte matematiska sannolikheter för att ett påstående är sant.
@@ -1186,6 +1203,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - preliminär käll-/konfidensbedömning och konfigurerbart fem-kandidater-till-topp-tre-flöde
 - säker publik webbsideshämtning med SSRF-, redirect-, innehållstyp- och storleksskydd
 - djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
+- konservativ numerisk motsägelseanalys mellan oberoende domäner med konfidenssänkning
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
