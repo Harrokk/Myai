@@ -910,6 +910,25 @@ Detta lager gör ingen visuell tolkning. Det skapar ett kontrollerat och resurss
 
 Urval, filhantering, routing och felvägar testas i CI. Fysisk verifiering av frame count, seek-beteende och bildkvalitet sparas till den samlade kamerarundan.
 
+### 16.1.10 Teknisk status för analys av samplad video
+
+På utvecklingsgren finns nu verktyget `vision_analyze_video`.
+
+Standardflödet är:
+1. välj den senast sparade videon
+2. plocka ut det konfigurerade antalet representativa bildrutor
+3. begränsa analysen till högst åtta jämnt fördelade bildrutor
+4. skicka bildrutorna i kronologisk ordning till den konfigurerade lokala multimodala visionmodellen
+5. sammanfatta vad som faktiskt stöds av de samplade bilderna
+
+Prompten förbjuder modellen att påstå att den har sett varje bildruta eller att gissa ljud, identitet, orsak, exakt rörelse eller händelser som inte kan fastställas från urvalet.
+
+Multi-tool-routing stödjer även **spela in video → analysera video**. Analysverktyget gör då sin egen representativa sampling av den senast inspelade videon.
+
+Detta är inte kontinuerlig videoanalys. Ett kort urval kan missa händelser mellan samplingspunkterna. Resultatet ska därför behandlas som en försiktig sammanfattning av representativa frames, inte som en fullständig tidslinje.
+
+Samplingsfel, frame-begränsning, flerbildsanrop, routing och promptbeteende testas i CI. Verklig videokvalitet och visionmodellens träffsäkerhet ska verifieras senare med fysisk kamera och lokal multimodal modell.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1078,6 +1097,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - flerbildsstöd och separat förändringsdetektering mellan de två senaste kamerabilderna
 - konfigurerbart standardkameraindex och capture-katalog för stillbildstagning
 - separat kort videoinspelning med konfigurerbar längd, fps och lokal videokatalog
+- representativ sampling och försiktig multimodal analys av videobildrutor
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
