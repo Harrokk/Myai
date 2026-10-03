@@ -101,6 +101,9 @@
     "backup_stt_models": [],
     "tts_rate": 180,
     "tts_volume": 1,
-    "tts_voice_id": ""
+    "tts_voice_id": "",
+    "semantic_consensus_enabled": false,
+    "semantic_consensus_for_high_risk": false,
+    "semantic_consensus_min_confidence": 0.85
   }
 }

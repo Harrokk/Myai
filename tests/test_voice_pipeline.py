@@ -266,3 +266,151 @@ def test_interrupt_calls_tts_stop():
 
     assert pipeline.interrupt() is True
     assert tts.stopped is True
+
+
+class FakeSemanticResolver:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def resolve(self, transcripts):
+        self.calls.append(list(transcripts))
+        return dict(self.result)
+
+
+def test_semantic_fallback_can_resolve_low_risk_transcripts():
+    assistant = FakeAssistant()
+    resolver = FakeSemanticResolver(
+        {
+            "accepted": True,
+            "text": "RAM-status tack",
+            "support": 2,
+            "confidence": 0.95,
+            "reason": "Samma avsikt.",
+        }
+    )
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT(
+            {
+                "text": "Visa arbetsminnets belastning",
+                "confidence": 0.3,
+            }
+        ),
+        backup_stt=[
+            FakeSTT(
+                {
+                    "text": "RAM-status tack",
+                    "confidence": 0.4,
+                }
+            ),
+            FakeSTT(
+                {
+                    "text": "Kontrollera mängden använt minne",
+                    "confidence": 0.4,
+                }
+            ),
+        ],
+        settings=settings(
+            semantic_consensus_enabled=True,
+        ),
+        semantic_resolver=resolver,
+    )
+
+    result = pipeline.process_utterance(b"audio")
+
+    assert result["status"] == "completed"
+    assert result["consensus"]["method"] == "semantic"
+    assert assistant.messages == [
+        "RAM-status tack"
+    ]
+    assert len(resolver.calls) == 1
+
+
+def test_semantic_fallback_is_not_used_for_high_risk_by_default():
+    assistant = FakeAssistant()
+    resolver = FakeSemanticResolver(
+        {
+            "accepted": True,
+            "text": "Radera filen rapport.txt",
+            "support": 2,
+            "confidence": 0.99,
+        }
+    )
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT(
+            {
+                "text": "Radera filen rapport.txt",
+                "confidence": 0.9,
+            }
+        ),
+        backup_stt=[
+            FakeSTT(
+                {
+                    "text": "Starta om datorn",
+                    "confidence": 0.9,
+                }
+            ),
+            FakeSTT(
+                {
+                    "text": "Visa nätverksstatus",
+                    "confidence": 0.9,
+                }
+            ),
+        ],
+        settings=settings(
+            semantic_consensus_enabled=True,
+            semantic_consensus_for_high_risk=False,
+        ),
+        semantic_resolver=resolver,
+    )
+
+    result = pipeline.process_utterance(b"audio")
+
+    assert result["status"] == "clarify"
+    assert resolver.calls == []
+    assert assistant.messages == []
+
+
+def test_semantic_fallback_failure_still_requires_clarification():
+    assistant = FakeAssistant()
+    resolver = FakeSemanticResolver(
+        {
+            "accepted": False,
+            "reason": "Ingen majoritet.",
+        }
+    )
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT(
+            {
+                "text": "fråga ett",
+                "confidence": 0.2,
+            }
+        ),
+        backup_stt=[
+            FakeSTT(
+                {
+                    "text": "processorns temperatur",
+                    "confidence": 0.2,
+                }
+            ),
+            FakeSTT(
+                {
+                    "text": "lista usb enheter",
+                    "confidence": 0.2,
+                }
+            ),
+        ],
+        settings=settings(
+            semantic_consensus_enabled=True,
+        ),
+        semantic_resolver=resolver,
+    )
+
+    result = pipeline.process_utterance(b"audio")
+
+    assert result["status"] == "clarify"
+    assert len(resolver.calls) == 1
+    assert assistant.messages == []
