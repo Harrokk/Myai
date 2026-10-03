@@ -247,6 +247,32 @@ Detta innebär att röstkedjan nu är sammankopplad i kod från PCM-ramar till V
 
 CI testar pre-roll, TTS-avbrott, talslut, maxlängd och överlämning av exakt ett ljudblock till röstsessionen.
 
+### 4.12 Teknisk status för konkreta STT/TTS-adaptrar
+
+På utvecklingsgren finns nu de första konkreta lokala röstleverantörerna.
+
+**Faster-Whisper STT**
+- är ett valbart lokalt beroende i `requirements-voice-stt.txt`
+- laddas först när providern `faster_whisper` faktiskt används
+- tar emot mono PCM16 från den befintliga röstkedjan
+- skapar temporär WAV endast under transkriberingen och raderar den därefter
+- kan välja modell, device, compute type, språk och beam size via konfiguration
+- använder ordsannolikheter när de finns för confidence och antal osäkra ord
+- kan byggas som flera STT-profiler med olika inställningar för redundant konsensus
+
+**Windows SAPI TTS**
+- använder Windows inbyggda `System.Speech` via PowerShell och kräver inget extra Python-TTS-paket
+- stöder konfigurerbart röstnamn, talhastighet och volym
+- skickar text och röstnamn base64-kodade till PowerShell i stället för att interpolera användartext som kod
+- kör uppläsningen i en separat process
+- kan stoppa processen via `stop()` och kan därför användas av barge-in-flödet
+
+Både STT- och TTS-provider är fortsatt tomma i standardkonfigurationen och hela röstfunktionen är fortsatt avstängd som standard.
+
+CI testar PCM16→WAV-konvertering, confidence/uncertain-word-normalisering, temporärfilstädning, provider-fabriker, SAPI-kommandots datasäkerhet samt stoppbar TTS-process.
+
+Faktisk Faster-Whisper-modellnedladdning, RTX 3060-prestanda, svensk transkriptionskvalitet, installerade Windows-röster och verklig ljudlatency ska verifieras lokalt senare. Raspberry Pi kan få andra STT/TTS-adaptrar utan att `VoiceSession`, VAD eller MyAI-kärnan ändras.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1306,6 +1332,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - hårdvaruoberoende röstsession för STT → MyAI → TTS med stoppbar uppläsning
 - lätt PCM16-baserad VAD för konfigurerbar talstart och talslut
 - PCM-ramkontroller med pre-roll, barge-in/TTS-avbrott och automatisk överlämning av färdigt yttrande till röstsessionen
+- valbar lokal Faster-Whisper STT och avbrytbar Windows SAPI TTS som utbytbara röstproviders
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
