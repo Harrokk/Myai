@@ -775,6 +775,28 @@ Detta lager är grunden för djupare källgranskning. En lyckad sidinhämtning h
 
 SSRF-skydd, redirect-kontroll, innehållstyper, storleksgränser och HTML-textutvinning testas i CI.
 
+### 13.5 Djupare sidverifiering
+
+På utvecklingsgren finns nu verktyget `web_verify_source` som använder den säkra publika webbhämtaren och bedömer verifieringssignaler på själva sidan.
+
+HTML-hämtaren extraherar nu även:
+- författarmetadata när sådan finns
+- publiceringsdatum när sådan finns
+- beskrivningsmetadata
+- webbplats/utgivarnamn när det anges
+- canonical-URL
+- externa länkar
+
+Sidverifieringen håller två nya mått separata:
+1. **Transparensscore** – om sidan tydligt visar titel, författare, datum, beskrivning, canonical/utgivare, substantiell text och diskussion om begränsningar.
+2. **Evidenssignalscore** – om sidtexten innehåller tydliga signaler om metod, data/resultat, referenser, DOI-liknande källor, externa länkar och begränsningar.
+
+Transparensscore är begränsad till högst 90 % och evidenssignalscore till högst 85 %. Inte heller dessa mått är en sannolikhet för att sidans påståenden är sanna; de mäter endast synliga transparens- och evidenssignaler.
+
+Verktyget kan även mäta enkel frågeöverlapp mellan användarens ämne och sidans text för att visa om den hämtade sidan faktiskt verkar handla om frågan.
+
+Denna nivå är djupare än sökmetadata, men ännu inte full påståendefaktakontroll. Automatisk uppdatering av topp-tre-rankingen från dessa siddata byggs som nästa separat testat lager.
+
 ---
 
 ## 14. Position och lokalisering
@@ -1138,6 +1160,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - standardavstängd parameteriserad internetsökning via konfigurerbar SearXNG-backend
 - preliminär käll-/konfidensbedömning och konfigurerbart fem-kandidater-till-topp-tre-flöde
 - säker publik webbsideshämtning med SSRF-, redirect-, innehållstyp- och storleksskydd
+- djupare webbkällgranskning med sidmetadata, transparens- och evidenssignalpoäng
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
