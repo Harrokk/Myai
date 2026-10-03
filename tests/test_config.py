@@ -52,6 +52,8 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["shopping"]["top_results"] == 3
     assert settings["shopping"]["min_source_reliability"] == 50
     assert settings["voice"]["enabled"] is False
+    assert settings["voice"]["microphone_provider"] == ""
+    assert settings["voice"]["microphone_device"] == ""
     assert settings["voice"]["stt_provider"] == ""
     assert settings["voice"]["stt_model"] == "small"
     assert settings["voice"]["stt_device"] == "auto"
