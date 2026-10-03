@@ -51,6 +51,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["shopping"]["top_results"] == 3
     assert settings["shopping"]["min_seller_reliability"] == 50.0
     assert settings["shopping"]["max_offers"] == 20
+    assert settings["shopping"]["candidate_pages"] == 5
+    assert settings["shopping"]["fx_provider"] == "frankfurter"
+    assert settings["shopping"]["frankfurter_url"] == "https://api.frankfurter.app"
+    assert settings["shopping"]["fx_timeout_seconds"] == 10
     assert settings["research"]["weights"]["relevance"] == 0.40
     assert settings["research"]["weights"]["source_reliability"] == 0.35
     assert settings["research"]["weights"]["information_confidence"] == 0.25
