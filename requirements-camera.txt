@@ -1,0 +1,3 @@
+# Optional camera capture dependency.
+# Install with: python -m pip install -r requirements-camera.txt
+opencv-python-headless>=4.10,<5
