@@ -468,6 +468,35 @@ Filverktygen använder det nya `input_mode: "user_text"` så användarens naturl
 
 ---
 
+### 10.2 Teknisk status för Excel-workspace
+
+På utvecklingsgren finns nu ett separat Excel-lager inne i samma sandboxade workspace.
+
+Verktyg:
+- `excel_create` skapar en `.xlsx`-fil från kolumner och rader i användarens instruktion
+- `excel_read` läser värden och formler från en namngiven `.xlsx`-fil
+- `excel_append` lägger till en rad i en befintlig arbetsbok
+
+Säkerhets- och arkitekturregler:
+- endast `.xlsx` tillåts av Excel-lagret
+- sökvägar måste stanna inom det konfigurerade workspace
+- Excel-skrivning styrs separat av `excel.write_enabled` och är avstängd som standard
+- arbetsböcker sparas via temporär fil + atomisk replace
+- läsning begränsas av `excel.max_rows_read`
+- formler som börjar med `=` bevaras som formler i arbetsboken
+- en append-rad måste ha samma antal värden som det aktiva arbetsbladets kolumner
+
+Första naturliga create-syntaxen stöder exempelvis:
+
+> Skapa Excel-filen "budget.xlsx" med kolumner Namn, Belopp och rader Kaffe, 35; Lunch, 120
+
+Excel-stödet använder det valbara beroendet i `requirements-excel.txt`, så grundinstallationen behöver inte bära Excel-biblioteket när funktionen inte används.
+
+CI använder en injicerad workbook-backend för att testa parser, sökväg, läsning, skrivflöde och radvalidering utan att kräva Excel-biblioteket i grundmiljön. Verklig `.xlsx`-kompatibilitet med openpyxl ska verifieras lokalt innan Excel-skrivning aktiveras som standard.
+
+
+---
+
 ## 11. Programmering och självuppdatering
 
 AI:n ska kunna hjälpa till att utveckla sin egen kodbas.
@@ -1194,6 +1223,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - seriell NMEA-RMC GPS-provider med checksummevalidering och atomisk positionsuppdatering
 - bakåtkompatibelt verktygsindatalager där nya verktyg kan välja input_mode=user_text
 - sandboxat fil-workspace med säker listning/läsning och standardavstängd textskrivning
+- separat Excel-workspace för skapa/läsa/append med standardavstängd Excel-skrivning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
