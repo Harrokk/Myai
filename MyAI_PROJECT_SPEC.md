@@ -448,6 +448,32 @@ Standardläget är säkert: automatiska terminalanslutningar är avstängda och 
 
 Fysisk anslutning, faktisk terminalidentifiering och praktisk kalibrering av RSSI-trösklar ska verifieras senare i den samlade hårdvarurundan.
 
+### 6.2 Teknisk status för kontinuerlig terminal-handoff
+
+På utvecklingsgren finns nu `TerminalHandoffMonitor`, som använder befintlig BLE/RSSI-skanning och terminalpolicyn för att skapa stabila handoff-beslut över tid.
+
+Monitorn:
+- skannar enligt konfigurerbart intervall
+- följer endast terminaler som finns i `trusted_terminals.terminals`
+- kräver flera efterföljande starka observationer innan en anslutningshändelse skapas
+- använder befintliga separata connect/disconnect-RSSI-gränser som hysteres
+- kräver flera svaga observationer innan frånkopplingshändelse
+- räknar även upprepade missade skanningar som frånvaro efter att terminalen tidigare blivit närhets-latchad
+- undviker att skapa samma connect-event vid varje skanning genom ett internt närhets-läge
+- isolerar scannerfel via callback i bakgrundsloopen
+
+Standardvärden:
+- skanningsintervall: 5 sekunder
+- skanningstid: 5 sekunder
+- två bekräftande starka skanningar för connect-läge
+- tre svaga eller missade skanningar för disconnect-läge
+
+Monitorn har en separat `auto_execute`-brytare. Standardvärdet är `false`, vilket innebär att connect/disconnect endast rapporteras som rekommendationer. Faktisk exekvering kräver både `auto_execute=true` och en explicit connector-implementation.
+
+Om `auto_execute=true` men connector saknas ska monitorn fail-closed och rapportera att ingen anslutning utfördes.
+
+Detta lager innehåller alltså kontinuerlig närhets- och handofflogik men ingen generell Bluetooth-transport för fysisk terminalanslutning ännu. Den fysiska transporten ska läggas som ett separat lager eftersom BLE GATT, klassisk Bluetooth, ljudenheter och framtida MyAI-terminaler kan kräva olika anslutningsmekanismer.
+
 ---
 
 ## 7. Raspberry Pi – systemåtkomst
@@ -1537,6 +1563,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - stoppbar handsfree-runner i bakgrundstråd med /voice on/off och separat standardavstängd säkerhetsbrytare
 - textbaserat TTS-själveko-filter med tidsfönster, likhetströskel och högriskundantag
 - explicit högriskbekräftelse med timeout, avbrytfraser och redundant STT-fallback när confidence saknas
+- kontinuerlig trusted-terminal handoff-monitor med RSSI-hysteres, stabilitetskrav och standardavstängd exekvering
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
