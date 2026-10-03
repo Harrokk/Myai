@@ -674,6 +674,31 @@ Själva sökningen på internet är ännu inte implementerad i detta lager. Den 
 
 Poängvalidering, bortsortering, varningsavdrag, färre-än-fem-fall, femgräns och topp-tre-sortering testas i CI.
 
+### 13.5 Teknisk status för svensk prisjämförelse
+
+På utvecklingsgren finns nu en prisjämförelsekärna ovanpå kandidatvalideringen i avsnitt 13.4.
+
+För att en kandidat ska kunna rankas som ett praktiskt köpalternativ krävs som standard:
+- verifierbart produktpris i SEK
+- verifierad frakt till Sverige
+- känd momsstatus; om moms inte ingår måste momsbeloppet vara känt
+- verifierade kända extra avgifter, inklusive uttrycklig bekräftelse när beloppet är 0
+- bekräftelse att säljaren levererar till Sverige
+- tillräckligt verifierad lagerstatus
+- källtillförlitlighet, informationskonfidens och relevans över researchmotorns trösklar
+
+Kärnan gör **ingen tyst valutakonvertering**. Om ett pris endast finns i annan valuta diskvalificeras det tills en framtida växelkursprovider har omvandlat och verifierat beloppet.
+
+Ett totalpris skapas endast när produktpris, frakt, moms och kända extra avgifter är tillräckligt verifierbara. Kandidater med okänd moms, okänd frakt eller oklara extra avgifter får därför inte ett låtsat komplett totalpris.
+
+Efter researchvalideringen sorteras de godkända kandidaterna på lägsta verifierbara totalpris. Vid lika totalpris används researchmotorns interna urvalspoäng och därefter källtillförlitlighet/informationskonfidens som sekundära kriterier.
+
+Lagerstatus `in_stock` och `limited` kan vara valbara; slut i lager eller okänd lagerstatus diskvalificerar standardmässigt kandidaten. Okänd leveranstid sänker den praktiska poängen men behöver inte ensam diskvalificera ett annars verifierat alternativ.
+
+Logiken testas i CI för moms inkluderad/separat, okänd moms, okända avgifter, Sverigeleverans, lagerstatus, annan valuta, tillförlitlighetsfilter, färre än fem kandidater och topp tre efter lägsta kompletta totalpris.
+
+Detta lager söker ännu inte själv på webben. Det tar emot normaliserade erbjudanden från en framtida sök-/shoppingprovider och återanvänder den centrala fem-kandidaters valideringsmotorn.
+
 ---
 
 ## 14. Position och lokalisering
@@ -1197,6 +1222,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - standardavstängd begränsad live-vision med in-memory-frames och utan automatisk disksparning
 - standardavstängd seriell NMEA-GPS med checksummevalidering och no-guess-position
 - konfigurerbar fem-kandidaters valideringsmotor med separata käll-/informationspoäng och topp-tre-urval
+- svensk prisjämförelsekärna med verifierbart totalpris, Sverigeleverans, lagerfilter och topp tre billigaste godkända alternativ
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
