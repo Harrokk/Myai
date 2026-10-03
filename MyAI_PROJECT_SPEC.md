@@ -669,6 +669,24 @@ Systemet ska skilja mellan:
 - ungefärlig nätverksposition
 - uppskattad närhet från Bluetooth
 
+### 14.1 Teknisk status för lokal GPS-position
+
+På utvecklingsgren finns nu ett separat verktyg `gps_status` för seriella NMEA-GPS-mottagare.
+
+Lagret:
+- är avstängt som standard
+- kräver uttryckligen konfigurerad seriell port
+- använder ett separat valbart `pyserial`-beroende
+- verifierar NMEA-checksumman innan en rad accepteras
+- stöder RMC- och GGA-meningar
+- konverterar latitud/longitud till decimalgrader
+- kan rapportera höjd, satellitantal, GPS-tid och hastighet när uppgifterna finns
+- stänger serieporten efter varje läsförsök
+
+Ogiltiga checksummor eller NMEA-rader utan giltig fix ska inte användas som position.
+
+Parser, koordinatomvandling och felhantering testas i CI. Verklig GPS-port, mottagare och satellitfix ska verifieras senare i den samlade fysiska hårdvarurundan.
+
 ---
 
 ## 15. Minne
@@ -983,6 +1001,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
 - separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
 - specialiserade visionverktyg för textläsning och försiktig objektidentifiering
+- checksummeverifierad, standardavstängd seriell GPS/NMEA-positionering
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
