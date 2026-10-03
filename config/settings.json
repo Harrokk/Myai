@@ -68,5 +68,14 @@
       "information_confidence": 0.3,
       "practicality": 0.1
     }
+  },
+  "internet": {
+    "enabled": false,
+    "provider": "searxng",
+    "searxng_url": "http://localhost:8080",
+    "timeout_seconds": 15,
+    "max_results": 5,
+    "language": "sv-SE",
+    "safesearch": 1
   }
 }
