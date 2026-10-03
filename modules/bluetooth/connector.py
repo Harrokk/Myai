@@ -4,7 +4,29 @@ from core.terminal_policy import find_terminal_config
 
 
 def _normalize_uuid(value):
-    return str(value or "").strip().lower()
+    text = str(value or "").strip().lower()
+
+    if len(text) == 4:
+        try:
+            int(text, 16)
+        except ValueError:
+            return text
+
+        return (
+            f"0000{text}-0000-1000-8000-00805f9b34fb"
+        )
+
+    if len(text) == 8:
+        try:
+            int(text, 16)
+        except ValueError:
+            return text
+
+        return (
+            f"{text}-0000-1000-8000-00805f9b34fb"
+        )
+
+    return text
 
 
 def _service_uuids(client):
