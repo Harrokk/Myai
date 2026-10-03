@@ -32,6 +32,15 @@ DEFAULT_SETTINGS = {
         "max_results": 5,
         "language": "sv-SE",
     },
+    "research": {
+        "candidate_limit": 5,
+        "top_results": 3,
+        "weights": {
+            "relevance": 0.40,
+            "source_reliability": 0.35,
+            "information_confidence": 0.25,
+        },
+    },
     "memory": {
         "database": "memory.db",
         "max_search_results": 10,
