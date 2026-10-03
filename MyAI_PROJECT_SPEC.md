@@ -438,6 +438,22 @@ Särskilt viktigt:
 
 På sikt kan systemet även utökas till fler dokumentformat.
 
+### 10.1 Teknisk status för Excel
+
+På utvecklingsgren finns nu parameteriserade Excel-verktyg:
+- `excel_create` för att skapa en arbetsbok
+- `excel_read` för att läsa ett begränsat antal rader
+- `excel_write_cell` för att skriva en specificerad cell
+- `excel_append_row` för att lägga till en rad
+
+Excel-filer hanteras initialt i den lokala, versionsignorerade mappen `runtime/documents/`. Absoluta sökvägar, enhetsbeteckningar och sökvägstraversering utanför den mappen blockeras.
+
+Befintliga filer skrivs inte över vid skapande utan att `overwrite=true` uttryckligen anges.
+
+Cellvärden begränsas till enkla Excel-värden. Strängar som börjar med `=` blockeras som standard för att undvika oavsiktliga formler. En formel får endast skrivas om `allow_formula=true` uttryckligen anges.
+
+Excel-funktionerna använder det nya parameteriserade verktygssystemet och testas med riktiga `.xlsx`-filer i CI.
+
 ---
 
 ## 11. Programmering och självuppdatering
@@ -1025,6 +1041,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - specialiserade visionverktyg för textläsning och försiktig objektidentifiering
 - checksummeverifierad, standardavstängd seriell GPS/NMEA-positionering
 - bakåtkompatibelt stöd för parameteriserade verktygsanrop med JSON-schema-validering
+- säkra parameteriserade Excel-verktyg för skapa, läsa, skriva cell och lägga till rad
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
