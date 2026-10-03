@@ -50,6 +50,7 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["voice"]["frame_ms"] == 20
     assert settings["voice"]["backup_stt_models"] == []
     assert settings["voice"]["tts_rate"] == 180
+    assert settings["voice"]["session_max_wait_frames"] == 1500
     assert settings["voice"]["semantic_consensus_enabled"] is False
     assert settings["voice"]["semantic_consensus_for_high_risk"] is False
     assert settings["voice"]["semantic_consensus_min_confidence"] == 0.85
