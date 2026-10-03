@@ -509,6 +509,24 @@ Samma säkerhetsregler gäller som för övriga Excel-skrivningar: filen måste 
 
 Första versionen redigerar det aktiva arbetsbladet. Explicit bladval och mer avancerad formatering byggs som separata steg.
 
+### 10.4 Teknisk status för explicit bladval
+
+Excel-lagret kan nu välja ett namngivet arbetsblad genom formuleringar som `på blad "Januari"` eller `i blad "Januari"`.
+
+Bladvalet används av:
+- skapande av ny arbetsbok, där det valda namnet blir det första bladets namn
+- läsning
+- append av ny rad
+- cellredigering och formler
+
+Om inget blad anges används det aktiva arbetsbladet precis som tidigare. Om ett uttryckligen angivet blad inte finns ska operationen avbrytas med ett tydligt fel i stället för att tyst använda ett annat blad.
+
+Exempel:
+- `Läs Excel-filen "budget.xlsx" på blad "Januari"`
+- `Sätt B2 till 42 i "budget.xlsx" på blad "Januari"`
+
+Bladnamnsparsing och val av befintligt blad testas i CI. Mer avancerad formatering och skapande av flera blad i en befintlig arbetsbok ligger i separata senare steg.
+
 
 
 ---
@@ -1241,6 +1259,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - sandboxat fil-workspace med säker listning/läsning och standardavstängd textskrivning
 - separat Excel-workspace för skapa/läsa/append med standardavstängd Excel-skrivning
 - Excel-cellredigering i A1-format med stöd för att bevara formler
+- explicit Excel-bladval för skapa/läsa/append/cellredigering
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
