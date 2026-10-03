@@ -189,6 +189,26 @@ Den första konsensusmotorn använder deterministisk text-/tokenlikhet och confi
 
 Ingen faktisk mikrofon, VAD, STT- eller TTS-motor är aktiverad av detta steg. Röstfunktionen är avstängd som standard tills sådana motorer konfigureras och verifieras lokalt.
 
+### 4.9 Teknisk status för röstsession och avbrott
+
+På utvecklingsgren finns nu en hårdvaruoberoende `VoiceSession` som kopplar ihop röstflödet runt MyAI-kärnan.
+
+Sessionsflödet är:
+1. kör primär STT
+2. låt den adaptiva konsensuspolicyn avgöra om resultatet räcker
+3. kör ytterligare STT-motorer endast när det behövs
+4. stoppa och begär förtydligande om konsensus saknas
+5. skicka accepterad text till MyAI-kärnans vanliga `respond()`
+6. skicka svaret till TTS när uppläsning är aktiverad
+
+Låg-risk-kommandon med hög confidence kan därmed använda endast den primära STT-motorn, medan riskfyllda eller osäkra kommandon kan använda två eller tre tolkningar.
+
+TTS-fel får inte radera eller ogiltigförklara MyAI:s textsvar. Sessionen returnerar därför svaret även om uppläsningen misslyckas.
+
+`VoiceSession.interrupt()` kan anropa TTS-motorns `stop()`-funktion. Det gör att den framtida mikrofon/VAD-loopen kan stoppa pågående uppläsning när användaren börjar prata, utan att samtalsminnet eller AI-kärnan återställs.
+
+STT- och TTS-motorerna är duck-typed/utbytbara och ligger utanför AI-kärnan. CI testar orkestreringen med simulerade motorer. Faktisk mikrofon, hörlurar/högtalare, latency och verkligt avbrott under tal ska verifieras lokalt senare.
+
 ### 4.4 Lokal och framtidssäker röstbehandling
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
@@ -1245,6 +1265,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 - Sverige-anpassad produktprisjämförelse med konservativ extraktion av pris, frakt, moms, lager och leveransstatus
 - adaptiv STT-konsensus och riskpolicy för framtida röstinmatning
+- hårdvaruoberoende röstsession för STT → MyAI → TTS med stoppbar uppläsning
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

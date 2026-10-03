@@ -188,3 +188,12 @@ def test_action_signature_distinguishes_file_operations():
     assert consensus.command_action_signature(
         "Skapa filen rapport.txt"
     ) == "file_create"
+
+
+def test_similarity_handles_split_swedish_compound_words():
+    score = consensus.transcript_similarity(
+        "Visa systemstatus",
+        "Visa system status",
+    )
+
+    assert score >= 0.72
