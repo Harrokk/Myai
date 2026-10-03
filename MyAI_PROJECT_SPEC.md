@@ -836,6 +836,24 @@ Objektidentifiering från en generell multimodal modell är inte samma sak som e
 
 Routing, promptbeteende och felvägar testas i CI. Verklig objektidentifiering ska verifieras senare med lokal visionmodell och verkliga kamerabilder.
 
+### 16.1.6 Teknisk status för förändringsdetektering
+
+På utvecklingsgren finns nu verktyget `vision_detect_change` för jämförelse mellan de två senaste sparade kamerabilderna.
+
+Lagret:
+- skickar den äldre och den nyare bilden i tydlig ordning till visionmodellen
+- beskriver endast tydliga visuella skillnader mellan bilderna
+- instruerar modellen att inte gissa orsak, rörelse, identitet eller händelser som inte kan fastställas från två stillbilder
+- kräver minst två sparade bilder
+- stöder multi-tool-flödet **ta bild → jämför med föregående bild**
+- återanvänder samma standardavstängda och uttryckligt konfigurerade lokala visionmodell som övriga visionverktyg
+
+Detta är visuell jämförelse mellan stillbilder och ska inte behandlas som säker rörelsedetektering eller händelseförståelse. För verklig kontinuerlig övervakning behövs senare ett separat video-/sensorflöde.
+
+Visionklienten har samtidigt utökats med flerbildsstöd utan att ändra det befintliga enbildsgränssnittet.
+
+Flerbildskodning, routing, promptbeteende och felvägar testas i CI. Verklig förändringsdetektering ska verifieras senare med lokal visionmodell och verkliga kamerabilder.
+
 ### 16.2 Multimodal utbyggbarhet
 
 Arkitekturen ska förberedas för att AI:n på sikt kan arbeta med flera typer av information samtidigt, exempelvis:
@@ -1001,6 +1019,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - separat, konfigurerbart och standardavstängt visionlager för analys av senaste kamerabild
 - separat OCR/textläsningslager för senaste kamerabild med no-guess-prompt
 - separat objektidentifieringslager med försiktiga konfidensnivåer och no-guess-regler
+- flerbildsstöd och separat förändringsdetektering mellan de två senaste kamerabilderna
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`

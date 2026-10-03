@@ -10,19 +10,37 @@ class VisionClient:
         self.model = model
         self.enabled = bool(enabled)
 
-    def analyze(self, image_path, prompt, timeout=120):
+    def _validate_ready(self):
         if not self.enabled:
             raise RuntimeError("Visionanalys är avstängd i konfigurationen.")
 
         if not self.model:
             raise RuntimeError("Ingen visionmodell är konfigurerad.")
 
-        path = Path(image_path)
+    def analyze(self, image_path, prompt, timeout=120):
+        return self.analyze_images(
+            [image_path],
+            prompt,
+            timeout=timeout,
+        )
 
-        if not path.exists() or not path.is_file():
-            raise FileNotFoundError(f"Bildfilen finns inte: {path}")
+    def analyze_images(self, image_paths, prompt, timeout=120):
+        self._validate_ready()
 
-        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        paths = [Path(path) for path in image_paths]
+
+        if not paths:
+            raise ValueError("Minst en bild krävs för visionanalys.")
+
+        encoded_images = []
+
+        for path in paths:
+            if not path.exists() or not path.is_file():
+                raise FileNotFoundError(f"Bildfilen finns inte: {path}")
+
+            encoded_images.append(
+                base64.b64encode(path.read_bytes()).decode("ascii")
+            )
 
         payload = {
             "model": self.model,
@@ -30,7 +48,7 @@ class VisionClient:
                 {
                     "role": "user",
                     "content": prompt,
-                    "images": [encoded],
+                    "images": encoded_images,
                 }
             ],
             "stream": False,

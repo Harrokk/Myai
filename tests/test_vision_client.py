@@ -76,3 +76,51 @@ def test_vision_client_sends_base64_image(tmp_path, monkeypatch):
     assert seen["json"]["messages"][0]["content"] == "Beskriv bilden"
     encoded = seen["json"]["messages"][0]["images"][0]
     assert base64.b64decode(encoded) == b"fake-image"
+
+
+
+def test_vision_client_sends_multiple_images_in_order(tmp_path, monkeypatch):
+    first = tmp_path / "first.jpg"
+    second = tmp_path / "second.jpg"
+    first.write_bytes(b"first-image")
+    second.write_bytes(b"second-image")
+    seen = {}
+
+    def fake_post(url, json, timeout):
+        seen["json"] = json
+        return FakeResponse(
+            {"message": {"content": "Skillnad hittad."}}
+        )
+
+    monkeypatch.setattr(vision_client.requests, "post", fake_post)
+
+    client = vision_client.VisionClient(
+        "http://localhost:11434/api/chat",
+        "vision-model",
+        enabled=True,
+    )
+    answer = client.analyze_images(
+        [first, second],
+        "Jämför bilderna",
+    )
+
+    assert answer == "Skillnad hittad."
+    encoded = seen["json"]["messages"][0]["images"]
+    assert len(encoded) == 2
+    assert base64.b64decode(encoded[0]) == b"first-image"
+    assert base64.b64decode(encoded[1]) == b"second-image"
+
+
+def test_vision_client_requires_at_least_one_image():
+    client = vision_client.VisionClient(
+        "http://localhost:11434/api/chat",
+        "vision-model",
+        enabled=True,
+    )
+
+    try:
+        client.analyze_images([], "Jämför")
+    except ValueError as error:
+        assert "Minst en bild" in str(error)
+    else:
+        raise AssertionError("VisionClient should require an image")
