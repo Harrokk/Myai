@@ -155,6 +155,24 @@ def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
 
+    asks_gps_refresh = any(
+        phrase in text
+        for phrase in (
+            "uppdatera gps",
+            "uppdatera gps-position",
+            "uppdatera gps position",
+            "hämta gps-position",
+            "hämta gps position",
+            "läs gps",
+            "läs av gps",
+            "refresh gps",
+            "get gps fix",
+        )
+    )
+
+    if asks_gps_refresh:
+        return ["gps_refresh_location"]
+
     asks_location_status = any(
         phrase in text
         for phrase in (
