@@ -39,6 +39,9 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["internet"]["provider"] == "searxng"
     assert settings["internet"]["searxng_url"] == ""
     assert settings["internet"]["max_results"] == 5
+    assert settings["internet"]["max_page_bytes"] == 1_000_000
+    assert settings["internet"]["max_page_chars"] == 20_000
+    assert settings["internet"]["max_redirects"] == 5
     assert settings["research"]["candidate_limit"] == 5
     assert settings["research"]["top_results"] == 3
     assert settings["research"]["weights"]["relevance"] == 0.40
