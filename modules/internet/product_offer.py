@@ -179,6 +179,7 @@ def _shipping_data(offer):
             "shipping_currency": None,
             "shipping_sek": None,
             "ships_to_sweden": None,
+            "delivery_days": None,
         }
 
     best_value = None
