@@ -34,6 +34,23 @@ def test_detect_tools_finds_usb():
     assert result == ["usb_status"]
 
 
+def test_detect_tools_routes_video_frame_sampling():
+    result = tool_manager.detect_tools(
+        "Plocka ut representativa bildrutor ur videon."
+    )
+    assert result == ["camera_sample_video_frames"]
+
+
+def test_detect_tools_routes_record_then_sample_video():
+    result = tool_manager.detect_tools(
+        "Spela in en video och plocka ut bildrutor."
+    )
+    assert result == [
+        "camera_record_video",
+        "camera_sample_video_frames",
+    ]
+
+
 def test_detect_tools_routes_video_recording():
     result = tool_manager.detect_tools(
         "Spela in en video med kameran."
