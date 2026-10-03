@@ -26,5 +26,11 @@
     "connect_rssi": -60,
     "disconnect_rssi": -75,
     "terminals": []
+  },
+  "vision": {
+    "enabled": false,
+    "url": "http://localhost:11434/api/chat",
+    "model": "",
+    "timeout_seconds": 120
   }
 }
