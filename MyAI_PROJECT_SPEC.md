@@ -285,6 +285,24 @@ Om röstläget är avstängt i konfigurationen får `/voice once` inte starta mi
 
 Vid `/exit` eller Ctrl+C stoppas även en eventuell skapad röstsession. Automatisk kontinuerlig lyssning är fortfarande inte aktiverad före fysisk ljudverifiering.
 
+### 4.14 Teknisk status för interruptibel bakgrunds-TTS
+
+På utvecklingsgren finns nu `InterruptibleTTS`, som kan lägga den underliggande TTS-motorns blockerande `speak()` i en separat daemon-tråd.
+
+Detta gör att röstsessionens mikrofon-/VAD-loop kan fortsätta efter att ett svar har skickats till TTS, i stället för att vänta på att hela uppläsningen ska bli färdig.
+
+När VAD senare upptäcker att användaren börjar tala kan det befintliga avbrottsflödet anropa `stop()` medan TTS fortfarande är aktiv. Wrappern:
+- tillåter högst en aktiv uppläsning åt gången
+- försöker stoppa föregående uppläsning innan en ny startas
+- har konfigurerbar stop-timeout
+- exponerar `is_speaking`
+- sparar bakgrundsfel för diagnos
+- kan vänta på att en uppläsning avslutas via `wait()`
+
+Standardkonfigurationen använder asynkron TTS när TTS väl är aktiverat, med två sekunders stop-timeout. Själva röstläget och TTS är fortfarande avstängda som standard tills lokal ljudverifiering har genomförts.
+
+Tråd- och avbrottslogiken testas i CI med en simulerad blockerande TTS-provider. Verklig pyttsx3-trådbeteende och faktisk barge-in-latens ska verifieras på Windows-hårdvaran.
+
 
 Önskade funktioner:
 - ta emot talade kommandon
@@ -1440,6 +1458,7 @@ Den pågående utvecklingsgrenen innehåller nu:
 - valfri semantisk STT-majoritetsresolver med JSON-validering och separat högriskspärr
 - körbar VoiceSession som binder ihop mikrofon, VAD, STT, konsensus, MyAI-kärna och TTS utan automatisk start
 - lazy terminalkommandon för röststatus, ett yttrande och stop utan röstimport/start vid textläge
+- interruptibel bakgrunds-TTS som låter mikrofon/VAD fortsätta under uppläsning och möjliggör verkligt barge-in
 - djupverifierad omrankning av fem kandidater till topp tre med konfigurerbar blandningsvikt och per-kandidat fallback
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
