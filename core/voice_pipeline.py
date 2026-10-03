@@ -1,5 +1,6 @@
 from difflib import SequenceMatcher
 import re
+import time
 
 
 HIGH_RISK_TERMS = (
@@ -92,6 +93,43 @@ def transcript_similarity(first, second):
     ).ratio()
 
     return round(max(jaccard, sequence), 3)
+
+
+def tts_echo_similarity(
+    transcript,
+    spoken_text,
+    min_words=3,
+):
+    heard = normalize_transcript(transcript)
+    spoken = normalize_transcript(spoken_text)
+
+    if not heard or not spoken:
+        return 0.0
+
+    heard_words = heard.split()
+
+    if len(heard_words) < max(1, int(min_words)):
+        return 0.0
+
+    heard_tokens = set(heard_words)
+    spoken_tokens = set(spoken.split())
+    containment = (
+        len(heard_tokens & spoken_tokens)
+        / len(heard_tokens)
+        if heard_tokens
+        else 0.0
+    )
+
+    return round(
+        max(
+            transcript_similarity(
+                heard,
+                spoken,
+            ),
+            containment,
+        ),
+        3,
+    )
 
 
 def classify_voice_risk(text):
@@ -242,6 +280,7 @@ class VoicePipeline:
         tts=None,
         settings=None,
         semantic_resolver=None,
+        clock=None,
     ):
         self.assistant = assistant
         self.primary_stt = primary_stt
@@ -251,6 +290,9 @@ class VoicePipeline:
         self.tts = tts
         self.settings = settings or {}
         self.semantic_resolver = semantic_resolver
+        self.clock = clock or time.monotonic
+        self.last_tts_text = ""
+        self.last_tts_started_at = None
 
     @property
     def voice_settings(self):
@@ -260,6 +302,82 @@ class VoicePipeline:
         return normalize_stt_result(
             provider.transcribe(audio)
         )
+
+    def _probable_tts_echo(
+        self,
+        transcript,
+        risk,
+    ):
+        config = self.voice_settings
+
+        if not config.get(
+            "echo_guard_enabled",
+            True,
+        ):
+            return None
+
+        if (
+            risk.get("level") == "high"
+            and not config.get(
+                "echo_guard_for_high_risk",
+                False,
+            )
+        ):
+            return None
+
+        if (
+            not self.last_tts_text
+            or self.last_tts_started_at is None
+        ):
+            return None
+
+        window = max(
+            0.0,
+            float(
+                config.get(
+                    "echo_guard_window_seconds",
+                    5.0,
+                )
+            ),
+        )
+        age = (
+            self.clock()
+            - self.last_tts_started_at
+        )
+
+        if age < 0 or age > window:
+            return None
+
+        similarity = tts_echo_similarity(
+            transcript,
+            self.last_tts_text,
+            min_words=config.get(
+                "echo_guard_min_words",
+                3,
+            ),
+        )
+        threshold = float(
+            config.get(
+                "echo_guard_similarity_threshold",
+                0.78,
+            )
+        )
+
+        if similarity < threshold:
+            return None
+
+        return {
+            "status": "ignored_echo",
+            "message": (
+                "Ignorerade sannolikt själveko från den senaste TTS-uppläsningen."
+            ),
+            "transcript": transcript,
+            "echo_similarity": similarity,
+            "echo_age_seconds": round(
+                age,
+                3,
+            ),
+        }
 
     def _needs_redundancy(
         self,
@@ -315,6 +433,14 @@ class VoicePipeline:
         risk = classify_voice_risk(
             primary["text"]
         )
+        echo = self._probable_tts_echo(
+            primary["text"],
+            risk,
+        )
+
+        if echo is not None:
+            return echo
+
         transcripts = [primary]
 
         if self._needs_redundancy(
@@ -446,6 +572,8 @@ class VoicePipeline:
             and config.get("tts_enabled", False)
             and answer
         ):
+            self.last_tts_text = answer
+            self.last_tts_started_at = self.clock()
             self.tts.speak(answer)
 
         return {
