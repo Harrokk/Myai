@@ -187,3 +187,61 @@ def test_short_term_history_is_bounded(tmp_path):
     assert core.conversation_history[0]["content"] == (
         "Hur mycket CPU används nu?"
     )
+
+
+class SequenceLLM:
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.calls = []
+
+    def chat(self, messages, timeout=300):
+        self.calls.append((messages, timeout))
+        return self.replies.pop(0)
+
+
+def test_core_executes_parameterized_tool_call(tmp_path):
+    memory = FakeMemory()
+    llm = SequenceLLM(
+        [
+            '[{"name":"lookup_file","arguments":{"filename":"rapport.xlsx"}}]',
+            "Filen är behandlad.",
+        ]
+    )
+    tools = {
+        "lookup_file": {
+            "function": lambda filename: f"läste:{filename}",
+            "description": "Läs en fil",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string"},
+                },
+                "required": ["filename"],
+                "additionalProperties": False,
+            },
+        }
+    }
+
+    core = MyAICore(
+        deepcopy(DEFAULT_SETTINGS),
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond("Läs rapport.xlsx")
+
+    assert result["tools"] == ["lookup_file"]
+    assert result["tool_calls"] == [
+        {
+            "name": "lookup_file",
+            "arguments": {
+                "filename": "rapport.xlsx",
+            },
+        }
+    ]
+    assert result["tool_results"] == {
+        "lookup_file": "läste:rapport.xlsx",
+    }
+    assert result["answer"] == "Filen är behandlad."

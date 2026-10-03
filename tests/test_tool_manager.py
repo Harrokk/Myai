@@ -1,3 +1,5 @@
+import json
+
 from core import tool_manager
 
 
@@ -283,3 +285,141 @@ def test_run_tools_keeps_other_results_if_one_tool_fails():
 
     assert result["cpu_status"] == "CPU OK"
     assert "testfel" in result["ram_status"]
+
+
+class PlanningLLM:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def chat(self, messages, timeout=120):
+        return self.reply
+
+
+def test_normalize_tool_calls_keeps_legacy_names():
+    result = tool_manager.normalize_tool_calls(
+        ["cpu_status", "ram_status"]
+    )
+
+    assert result == [
+        {"name": "cpu_status", "arguments": {}},
+        {"name": "ram_status", "arguments": {}},
+    ]
+
+
+def test_run_tools_passes_validated_arguments():
+    tools = {
+        "set_value": {
+            "function": lambda value: f"value={value}",
+            "description": "Set a test value",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "integer"},
+                },
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        }
+    }
+
+    result = tool_manager.run_tools(
+        [
+            {
+                "name": "set_value",
+                "arguments": {"value": 7},
+            }
+        ],
+        tools,
+    )
+
+    assert result["set_value"] == "value=7"
+
+
+def test_run_tools_rejects_wrong_argument_type():
+    tools = {
+        "set_value": {
+            "function": lambda value: value,
+            "description": "Set a test value",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "integer"},
+                },
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        }
+    }
+
+    result = tool_manager.run_tools(
+        [
+            {
+                "name": "set_value",
+                "arguments": {"value": "seven"},
+            }
+        ],
+        tools,
+    )
+
+    assert "fel typ" in result["set_value"]
+
+
+def test_ai_plan_tool_calls_parses_json_arguments():
+    tools = {
+        "lookup_file": {
+            "function": lambda filename: filename,
+            "description": "Read a named file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string"},
+                },
+                "required": ["filename"],
+                "additionalProperties": False,
+            },
+        }
+    }
+    llm = PlanningLLM(
+        json.dumps(
+            [
+                {
+                    "name": "lookup_file",
+                    "arguments": {
+                        "filename": "rapport.xlsx",
+                    },
+                }
+            ]
+        )
+    )
+
+    calls = tool_manager.ai_plan_tool_calls(
+        "Läs rapport.xlsx",
+        tools,
+        llm,
+    )
+
+    assert calls == [
+        {
+            "name": "lookup_file",
+            "arguments": {
+                "filename": "rapport.xlsx",
+            },
+        }
+    ]
+
+
+def test_select_tools_remains_backwards_compatible():
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU",
+            "description": "cpu",
+        }
+    }
+
+    result = tool_manager.select_tools(
+        "Hur mycket CPU används?",
+        tools,
+        object(),
+    )
+
+    assert result == ["cpu_status"]
