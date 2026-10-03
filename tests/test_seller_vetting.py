@@ -93,3 +93,47 @@ def test_tool_declares_url_parameter():
     schema = seller_vetting.TOOLS["seller_vetting"]["parameters"]
 
     assert schema["required"] == ["url"]
+
+
+def test_structured_return_policy_and_org_raise_score():
+    base_page = {
+        "final_url": "https://shop.example/product",
+        "text": "Produkt.",
+        "structured_data": [],
+    }
+    structured_page = {
+        **base_page,
+        "structured_data": [
+            {
+                "@type": "Organization",
+                "name": "Shop AB",
+                "hasMerchantReturnPolicy": {
+                    "@type": "MerchantReturnPolicy",
+                    "merchantReturnDays": 30,
+                },
+            }
+        ],
+    }
+
+    base = seller_vetting.assess_seller_page(
+        {
+            "available": True,
+            "page": base_page,
+            "verification": {
+                "transparency_score": 40,
+            },
+        }
+    )
+    structured = seller_vetting.assess_seller_page(
+        {
+            "available": True,
+            "page": structured_page,
+            "verification": {
+                "transparency_score": 40,
+            },
+        }
+    )
+
+    assert structured["seller_reliability"] > base["seller_reliability"]
+    assert structured["signals"]["structured_return_policy"] is True
+    assert structured["signals"]["structured_organization"] is True
