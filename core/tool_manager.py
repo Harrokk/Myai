@@ -167,9 +167,29 @@ def detect_tools(user_input):
             "capture photo",
         )
     )
+    asks_vision_analysis = any(
+        phrase in text
+        for phrase in (
+            "vad ser du",
+            "analysera bilden",
+            "analysera bild",
+            "analysera fotot",
+            "beskriv bilden",
+            "vad finns på bilden",
+            "vad är på bilden",
+            "analyze image",
+            "describe image",
+        )
+    )
+
+    if asks_camera_capture and asks_vision_analysis:
+        return ["camera_capture", "vision_analyze"]
 
     if asks_camera_capture:
         return ["camera_capture"]
+
+    if asks_vision_analysis:
+        return ["vision_analyze"]
 
     mentions_pi = any(
         word in text
