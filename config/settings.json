@@ -76,6 +76,7 @@
     "agreement_threshold": 0.72,
     "uncertain_word_limit": 1,
     "max_interpretations": 3,
-    "redundant_for_high_risk": true
+    "redundant_for_high_risk": true,
+    "speak_responses": true
   }
 }
