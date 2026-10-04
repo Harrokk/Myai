@@ -29,7 +29,15 @@
     "enabled": false,
     "connect_rssi": -60,
     "disconnect_rssi": -75,
-    "terminals": []
+    "terminals": [],
+    "scan_interval_seconds": 5,
+    "scan_timeout_seconds": 5,
+    "connect_confirm_scans": 2,
+    "disconnect_confirm_scans": 3,
+    "auto_execute": false,
+    "connector_provider": "none",
+    "connector_timeout_seconds": 10,
+    "require_service_uuid": true
   },
   "vision": {
     "enabled": false,
