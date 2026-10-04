@@ -2,6 +2,8 @@ import requests
 
 
 class OllamaClient:
+    provider_name = "ollama"
+
     def __init__(self, url, model):
         self.url = url
         self.model = model
