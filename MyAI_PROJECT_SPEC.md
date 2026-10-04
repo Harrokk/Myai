@@ -4,7 +4,7 @@
 
 MyAI ska vara en lokal, personlig AI-assistent som i första hand körs lokalt på användarens egen hårdvara men som kan använda internet när det behövs.
 
-Systemet ska vara modulärt, utbyggbart och kunna växa från nuvarande Windows-baserade utvecklingsmiljö till att i framtiden köras på en Raspberry Pi 5B med utökat RAM-minne.
+Systemet ska vara modulärt, utbyggbart och kunna växa från nuvarande Windows-baserade utvecklingsmiljö till att i framtiden köras på en Arduino VENTUNO Q med Qualcomm Dragonwing IQ-8275 och 16 GB RAM.
 
 Målet är att skapa en AI-assistent som kan förstå naturliga röstkommandon, arbeta med lokal hårdvara och externa enheter, använda verktyg, läsa och ändra filer, skriva kod, testa uppdateringar och ge tydliga svar utan att hitta på information.
 
@@ -52,12 +52,17 @@ Användaren ska inte behöva känna till interna kommandon, funktionsnamn eller 
 - modulärt verktygssystem
 
 ### Framtida målplattform
-- Raspberry Pi 5B
-- utökat RAM-minne
-- lokal AI-modell anpassad efter tillgänglig prestanda
+- Arduino VENTUNO Q
+- Qualcomm Dragonwing IQ-8275
+- 16 GB LPDDR5 och 64 GB eMMC
+- Qualcomm GenieX/QAIRT som primär lokal AI-backend
+- Qwen3-4B som planerad normal lokal språkmodell
+- separat STM32-baserad realtidsdel för tidskritisk I/O
 - möjlighet att ansluta externa sensorer, terminaler och annan hårdvara
 
-Arkitekturen ska byggas så att så mycket kod som möjligt kan återanvändas vid flytten från Windows till Raspberry Pi.
+Arkitekturen ska byggas så att så mycket kod som möjligt kan återanvändas vid flytten från Windows till VENTUNO Q. Ollama ska fortsatt kunna användas i Windows-utvecklingsmiljön medan AI-kärnan använder ett provider-neutralt gränssnitt mot vald lokal modellmotor.
+
+Raspberry Pi-stödet som redan finns i projektet behålls som alternativ hårdvaruprofil och som återanvändbara Linux-/GPIO-moduler, men Raspberry Pi 5B är inte längre primär målplattform.
 
 ---
 
@@ -71,7 +76,7 @@ Röstfunktionen ska byggas som en separat modul runt AI-kärnan.
 
 Grundflödet ska vara:
 
-**Mikrofon → röstaktivitetsdetektering → tal-till-text → MyAI-kärna → Ollama/LLM → text-till-tal → hörlurar/högtalare**
+**Mikrofon → röstaktivitetsdetektering → tal-till-text → MyAI-kärna → vald lokal LLM-provider → text-till-tal → hörlurar/högtalare**
 
 Röstmodulen ska kunna bytas eller uppgraderas utan att dialogsystemet, minnet eller verktygssystemet behöver skrivas om.
 
@@ -152,7 +157,7 @@ Ytterligare tolkningar ska kunna aktiveras när:
 
 På kraftfull hårdvara kan tre tolkningar köras parallellt.
 
-På Raspberry Pi 5B ska systemet kunna använda en resurssnål strategi där extra tolkningar endast körs vid behov.
+På den framtida målplattformen ska systemet kunna använda en resurssnål strategi där extra tolkningar endast körs vid behov.
 
 ### 4.7 Säkerhet före gissning
 
@@ -168,7 +173,7 @@ För röstkommandon med potentiellt stora konsekvenser ska MyAI hellre:
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
 
-Vid framtida flytt till Raspberry Pi 5B ska röstmodulerna kunna bytas mot lättare alternativ utan att resten av MyAI behöver ändras.
+Vid framtida flytt till VENTUNO Q ska röstmodulerna kunna använda Qualcomm-accelererade alternativ utan att resten av MyAI behöver ändras.
 
 Röstbehandling ska i första hand kunna fungera lokalt, men externa tjänster ska kunna användas som valbara verktyg om användaren tillåter det och det ger en tydlig fördel.
 
@@ -1384,6 +1389,23 @@ De fem ursprungliga systemverktygen ska fortsatt fungera:
 
 Därutöver finns:
 - `usb_status`
+
+### 21.1 Påbörjad VENTUNO Q-migrering
+
+Efter pre-hardware-checkpointen har en separat VENTUNO Q-anpassning påbörjats.
+
+Första migrationslagret:
+- behåller Ollama som standardprovider i Windows-utvecklingsmiljön
+- introducerar ett provider-neutralt LLM-fabrikslager
+- lägger till en separat GenieX-klient mot det lokala OpenAI-kompatibla API:t
+- stödjer konfigurationsvalet `llm.provider=ollama|geniex`
+- förbereder GenieX på `http://127.0.0.1:18181/v1`
+- använder `ai-hub-models/Qwen3-4B-Instruct-2507` som första planerade VENTUNO Q-modell
+- låter MyAI-kärnan, verktygssystemet och minnet fortsätta använda samma `chat(messages)`-gränssnitt
+- gör terminalens smoke-test provider-neutralt
+- lämnar GenieX avstängt som standard tills fysisk VENTUNO Q finns för verifiering
+
+Detta steg verifierar endast mjukvaruarkitekturen med mockade HTTP-svar i CI. NPU/QAIRT, modelladdning, verklig Qwen3-4B-latens, Whisper/VLM, minnestryck, temperatur och långvarig multi-model-drift ska verifieras på fysisk VENTUNO Q innan providerbytet görs permanent.
 
 Aktuell teknisk status är nu **pre-hardware checkpoint** för denna integrationsrunda. De mjukvarulager som planerades före nästa fysiska verifiering är sammanförda och automatiskt testade.
 
