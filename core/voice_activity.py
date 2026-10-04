@@ -95,10 +95,14 @@ class VoiceStreamController:
         vad,
         gate,
         pipeline,
+        before_process=None,
+        after_process=None,
     ):
         self.vad = vad
         self.gate = gate
         self.pipeline = pipeline
+        self.before_process = before_process
+        self.after_process = after_process
 
     def feed_frame(self, frame):
         is_speech = bool(
@@ -123,9 +127,18 @@ class VoiceStreamController:
             audio = b"".join(
                 event["frames"]
             )
-            result = self.pipeline.process_utterance(
-                audio
-            )
+
+            if self.before_process is not None:
+                self.before_process()
+
+            try:
+                result = self.pipeline.process_utterance(
+                    audio
+                )
+            finally:
+                if self.after_process is not None:
+                    self.after_process()
+
             return {
                 **event,
                 "pipeline_result": result,
