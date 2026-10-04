@@ -29,6 +29,15 @@ DEFAULT_SETTINGS = {
         "model": "",
         "timeout_seconds": 120,
     },
+    "ventuno": {
+        "enabled": False,
+        "rpc_enabled": False,
+        "rpc_write_enabled": False,
+        "rpc_connect_timeout_seconds": 5.0,
+        "rpc_call_timeout_seconds": 5.0,
+        "rpc_allowed_read_methods": [],
+        "rpc_allowed_write_methods": [],
+    },
     "voice": {
         "enabled": False,
         "tts_enabled": False,
