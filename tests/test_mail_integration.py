@@ -337,3 +337,87 @@ def test_stop_voice_handsfree_reports_false_when_already_stopped(monkeypatch):
 
     assert mail.stop_voice_handsfree() is False
     assert runner.stop_calls == 1
+
+
+
+class FakeTerminalHandoff:
+    def __init__(self, running=False):
+        self.is_running = running
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start(self):
+        self.start_calls += 1
+
+        if self.is_running:
+            return False
+
+        self.is_running = True
+        return True
+
+    def stop(self, timeout=3.0):
+        self.stop_calls += 1
+        self.is_running = False
+        return True
+
+    def status(self):
+        return {
+            "enabled": True,
+            "running": self.is_running,
+            "auto_execute": False,
+            "scan_interval_seconds": 5.0,
+            "tracked_terminals": {},
+        }
+
+
+def test_mail_does_not_create_terminal_handoff_on_import():
+    assert mail.TERMINAL_HANDOFF is None
+
+
+def test_get_terminal_handoff_is_lazy_and_cached(monkeypatch):
+    monkeypatch.setattr(mail, "TERMINAL_HANDOFF", None)
+    created = []
+
+    def factory():
+        monitor = FakeTerminalHandoff()
+        created.append(monitor)
+        return monitor
+
+    first = mail.get_terminal_handoff(factory=factory)
+    second = mail.get_terminal_handoff(factory=factory)
+
+    assert first is second
+    assert len(created) == 1
+
+
+def test_terminal_status_does_not_create_monitor(monkeypatch):
+    monkeypatch.setattr(mail, "TERMINAL_HANDOFF", None)
+
+    text = mail.terminal_handoff_status_text()
+
+    assert "ingen monitor skapad" in text
+    assert mail.TERMINAL_HANDOFF is None
+
+
+def test_terminal_status_reports_running_monitor(monkeypatch):
+    monitor = FakeTerminalHandoff(running=True)
+    monkeypatch.setattr(mail, "TERMINAL_HANDOFF", monitor)
+
+    text = mail.terminal_handoff_status_text()
+
+    assert "aktiv" in text
+    assert "auto_execute=False" in text
+
+
+def test_stop_terminal_handoff_is_safe_before_initialization(monkeypatch):
+    monkeypatch.setattr(mail, "TERMINAL_HANDOFF", None)
+
+    assert mail.stop_terminal_handoff() is False
+
+
+def test_stop_terminal_handoff_delegates_to_monitor(monkeypatch):
+    monitor = FakeTerminalHandoff(running=True)
+    monkeypatch.setattr(mail, "TERMINAL_HANDOFF", monitor)
+
+    assert mail.stop_terminal_handoff() is True
+    assert monitor.stop_calls == 1
