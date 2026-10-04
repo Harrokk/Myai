@@ -263,13 +263,39 @@ Tröskelvärden och anslutningsregler ska kunna konfigureras.
 
 ### 6.1 Teknisk status för betrodda terminaler
 
-På utvecklingsgren finns nu en separat policy för automatiska terminalanslutningar. Policyn gör ingen faktisk Bluetooth-anslutning ännu, utan avgör endast om en observerad enhet får anslutas, ska behålla anslutningen eller bör kopplas från.
+På utvecklingsgren finns nu ett komplett, standardavstängt terminalhandoff-lager.
+Policyn kräver att terminalen uttryckligen finns i konfigurationen, är markerad
+som betrodd och har automatisk anslutning aktiverad. Separata RSSI-trösklar
+för anslutning och frånkoppling ger hysteres.
 
-Policyn kräver att terminalen uttryckligen finns i konfigurationen, är markerad som betrodd och har automatisk anslutning aktiverad. Den använder separata RSSI-trösklar för anslutning och frånkoppling för att skapa hysteres och undvika att en terminal kopplar upp och ner vid små signalvariationer.
+Handoff-monitorn kräver dessutom flera efterföljande starka respektive svaga
+eller missade skanningar innan ett connect/disconnect-event skapas. Detta
+minskar risken för att en terminal växlar tillstånd på grund av enstaka
+radiomätningar.
 
-Standardläget är säkert: automatiska terminalanslutningar är avstängda och listan över betrodda terminaler är tom. Trösklar och per-terminal-regler kan justeras via konfiguration utan ändringar i kärnkoden.
+Standardläget är säkert:
+- `trusted_terminals.enabled=false`
+- `auto_execute=false`
+- `connector_provider="none"`
+- listan över betrodda terminaler är tom
+- connect kräver normalt två bekräftande skanningar
+- disconnect kräver normalt tre bekräftande svaga/missade skanningar
 
-Fysisk anslutning, faktisk terminalidentifiering och praktisk kalibrering av RSSI-trösklar ska verifieras senare i den samlade hårdvarurundan.
+När explicit aktiverat finns en BLE GATT-connector via Bleak. Den ansluter
+endast till en terminal som är markerad som betrodd, har
+`transport="bleak_gatt"` och normalt har ett förväntat `service_uuid`.
+Efter anslutning verifieras att den förväntade GATT-servicen faktiskt finns;
+annars kopplas klienten från igen.
+
+Policy, hysteres, handoff-state machine, fail-closed-beteende, providerfactory,
+GATT-servicekontroll och connect/disconnect-livscykel testas i CI med mockad
+scanner och mockad BLE-klient. Två separata lokala verifieringsskript finns
+för framtida riktig RSSI/handoff respektive explicit GATT connect/disconnect.
+
+Riktig Windows Bluetooth-adapter, annonserande BLE-terminal, fysisk RSSI,
+praktiska närhetströsklar, GATT-service och stabil connect/disconnect är nu
+hårdvaruverifiering och ska inte betraktas som godkända förrän de lokala
+testen har körts.
 
 ---
 
