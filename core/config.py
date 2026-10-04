@@ -69,6 +69,8 @@ DEFAULT_SETTINGS = {
         "stream_tts_min_chars": 24,
         "stream_tts_max_chars": 220,
         "stream_tts_stop_timeout_seconds": 2.0,
+        "release_microphone_during_inference": False,
+        "model_handoff_delay_seconds": 0.0,
         "semantic_consensus_enabled": False,
         "semantic_consensus_for_high_risk": False,
         "semantic_consensus_min_confidence": 0.85,
