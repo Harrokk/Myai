@@ -55,8 +55,11 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["camera"]["stream_fps"] == 2
     assert settings["camera"]["stream_max_frames"] == 10
     assert settings["vision"]["enabled"] is False
+    assert settings["vision"]["provider"] == "ollama"
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
+    assert settings["vision"]["max_tokens"] == 256
+    assert settings["vision"]["temperature"] == 0.2
     assert settings["location"]["enabled"] is False
     assert settings["location"]["source"] == "gps_serial"
     assert settings["location"]["serial_port"] == ""
