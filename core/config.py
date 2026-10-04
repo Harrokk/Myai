@@ -18,6 +18,10 @@ DEFAULT_SETTINGS = {
         "base_url": "http://127.0.0.1:18181/v1",
         "model": "ai-hub-models/Qwen3-4B-Instruct-2507",
         "api_key": "geniex",
+        "max_tokens": 256,
+        "temperature": 0.4,
+        "enable_think": False,
+        "stream_enabled": True,
     },
     "vision": {
         "enabled": False,
