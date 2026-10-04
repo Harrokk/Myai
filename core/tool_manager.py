@@ -113,6 +113,13 @@ TOOL_KEYWORDS = {
         "anslutna enheter",
         "inkopplade enheter",
     ],
+    "ventuno_rpc_status": [
+        "ventuno rpc",
+        "stm32 rpc",
+        "arduino router",
+        "ventuno brygga",
+        "ventuno bridge",
+    ],
     "hardware_changes": [
         "ny hårdvara",
         "nya enheter",
