@@ -60,6 +60,11 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["vision"]["timeout_seconds"] == 120
     assert settings["vision"]["max_tokens"] == 256
     assert settings["vision"]["temperature"] == 0.2
+    assert (
+        settings["voice"]["release_microphone_during_inference"]
+        is False
+    )
+    assert settings["voice"]["model_handoff_delay_seconds"] == 0.0
     assert settings["location"]["enabled"] is False
     assert settings["location"]["source"] == "gps_serial"
     assert settings["location"]["serial_port"] == ""
