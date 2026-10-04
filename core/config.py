@@ -26,9 +26,12 @@ DEFAULT_SETTINGS = {
     },
     "vision": {
         "enabled": False,
+        "provider": "ollama",
         "url": "http://localhost:11434/api/chat",
         "model": "",
         "timeout_seconds": 120,
+        "max_tokens": 256,
+        "temperature": 0.2,
     },
     "ventuno": {
         "enabled": False,
