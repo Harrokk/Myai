@@ -1366,6 +1366,14 @@ Den pågående utvecklingsgrenen innehåller nu:
 - sidbaserad källgranskning med metadata-, transparens- och evidenssignaler samt konservativt begränsade heuristiska käll-/informationspoäng
 - sammanhängande researchflöde som söker upp till fem kandidater, hämtar och verifierar sidor, upptäcker tydliga numeriska motsägelser mellan oberoende domäner och rangordnar topp tre
 - representativ bildrutssampling från senaste videon som grund för resurssnål videoanalys
+- sandboxad lokal filyta med säkra textfilverktyg och standardavstängd skrivning
+- Excel-stöd för skapa/läsa/rader/celler/blad med separat standardavstängd skrivning
+- automatisk långtidsminnespolicy med save/review/ignore, känslighetsfilter och dubblettskydd
+- komplett standardavstängd lokal röstpipeline med VAD, STT-konsensus, TTS, avbrott, handsfree, eko-skydd och högriskbekräftelse
+- terminalkommandon för lazy röstsession och handsfree-läge utan ljudinitiering vid vanlig start
+- komplett standardavstängt terminalhandoff-lager med fler-skanningsbekräftelse, RSSI-hysteres och fail-closed-policy
+- valbar BLE GATT-connector som endast arbetar med uttryckligt betrodda terminaler och verifierar konfigurerad service UUID
+- separata lokala verifieringsskript för terminal-RSSI/handoff och explicit GATT connect/disconnect
 
 De fem ursprungliga systemverktygen ska fortsatt fungera:
 - `gpu_status`
@@ -1377,9 +1385,22 @@ De fem ursprungliga systemverktygen ska fortsatt fungera:
 Därutöver finns:
 - `usb_status`
 
-Aktuell teknisk prioritet är att stabilisera den modulära kärnan och därefter fortsätta lägga till nya funktioner som separata moduler utan att bygga om terminalgränssnittet eller kärnan i onödan.
+Aktuell teknisk status är nu **pre-hardware checkpoint** för denna integrationsrunda. De mjukvarulager som planerades före nästa fysiska verifiering är sammanförda och automatiskt testade.
 
-Innan utvecklingsgrenen mergas till `main` ska den även köras som ett lokalt smoke-test på Windows-datorn med riktig Ollama, NVIDIA-GPU och faktisk hårdvara, eftersom GitHub Actions inte kan verifiera all lokal hårdvaruåtkomst.
+Nästa steg är därför inte mer blind funktionsutbyggnad utan samlad lokal verifiering på Windows-datorn:
+- smoke-test med riktig Ollama och NVIDIA-GPU
+- fysisk USB/hårdvaruförändring
+- BLE-skanning och verklig RSSI
+- terminalhandoff nära/långt med auto_execute avstängt
+- explicit GATT connect/disconnect till en konfigurerad testterminal
+- mikrofon/VAD/STT/TTS och verkligt barge-in
+- kamera/stillbild/video/live-vision där lokal visionmodell finns
+- GPS om fysisk mottagare finns
+- Raspberry Pi-delarna när Pi 5B-hårdvaran finns tillgänglig
+
+Funktioner som kräver saknad fysisk utrustning ska markeras som uppskjutna i stället för att simulerade CI-resultat behandlas som hårdvaruverifiering.
+
+Innan utvecklingskedjan mergas till `main` ska den också köras som ett lokalt smoke-test på Windows-datorn med riktig Ollama, NVIDIA-GPU och faktisk tillgänglig hårdvara, eftersom GitHub Actions inte kan verifiera dessa miljöberoenden.
 
 ---
 
