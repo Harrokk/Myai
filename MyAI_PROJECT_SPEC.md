@@ -182,6 +182,35 @@ Röstbehandling ska i första hand kunna fungera lokalt, men externa tjänster s
 
 På sikt ska användaren kunna använda AI:n utan att behöva titta på en skärm.
 
+### 4.8 Teknisk status för lokal röstpipeline
+
+På utvecklingsgren finns nu ett komplett, men standardavstängt, lokalt röstlager
+runt MyAI-kärnan. Lagret är byggt så att mikrofon, VAD, STT och TTS kan bytas
+utan att dialog-, minnes- eller verktygskoden behöver skrivas om.
+
+Den nuvarande provideruppsättningen stöder:
+- mikrofonramar via `sounddevice`
+- WebRTC VAD
+- lokal STT via `faster-whisper`
+- lokal TTS via `pyttsx3`
+- interruptibel/asynkron TTS
+- kontinuerlig handsfree-session i separat daemontråd
+- primär STT plus valfria redundanta STT-tolkningar
+- syntaktisk och valfri semantisk konsensus
+- adaptiv extra STT vid låg confidence och högriskkommandon
+- eko-skydd mot att nyligen uppläst TTS återtolkas som nytt användarkommando
+- explicit röstbekräftelse före högriskkommandon
+
+Standardläget är `voice.enabled=false` och `voice.tts_enabled=false`.
+Röstberoendena ligger separat i `requirements-voice.txt`, så grundinstallationen
+behöver inte installera eller initiera ljudbiblioteken.
+
+VAD-state machine, STT-konsensus, semantisk resolver, providergränssnitt,
+session, handsfree-loop, TTS-avbrott, eko-skydd och riskbekräftelse testas med
+mockade ljudproviders i CI. Verklig mikrofon, ljudkort, Bluetooth-headset,
+full-duplex, praktisk latens, röstkvalitet och verkligt barge-in ska verifieras
+senare i den samlade hårdvarurundan.
+
 ---
 
 ## 5. Bluetooth
