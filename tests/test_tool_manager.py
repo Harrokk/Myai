@@ -468,3 +468,13 @@ def test_run_tools_reports_missing_user_input_for_query_tool():
     )
 
     assert "kräver användarens fråga" in result["internet_search"]
+
+
+
+def test_detect_tools_routes_ventuno_rpc_status():
+    result = tool_manager.detect_tools(
+        "Visa status för Ventuno RPC."
+    )
+    assert result == [
+        "ventuno_rpc_status"
+    ]
