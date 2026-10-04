@@ -25,6 +25,9 @@ def build_llm_client(settings):
             config["base_url"],
             config["model"],
             api_key=config.get("api_key", "geniex"),
+            max_tokens=config.get("max_tokens", 256),
+            temperature=config.get("temperature", 0.4),
+            enable_think=config.get("enable_think", False),
         )
 
     raise ValueError(
