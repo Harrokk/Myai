@@ -1,3 +1,5 @@
+import time
+
 from core.config import load_settings
 from core.voice_activity import VoiceActivityGate, VoiceStreamController
 from core.voice_factory import build_voice_components
@@ -13,6 +15,7 @@ class VoiceSession:
         components=None,
         semantic_resolver=None,
         llm_client=None,
+        sleep_fn=None,
     ):
         self.assistant = assistant
         self.settings = settings or load_settings()
@@ -25,6 +28,8 @@ class VoiceSession:
         self.running = False
         self.frame_count = 0
         self.overflow_count = 0
+        self._sleep = sleep_fn or time.sleep
+        self.microphone_paused_for_inference = False
 
         if semantic_resolver is None and self.voice.get(
             "semantic_consensus_enabled",
@@ -81,6 +86,8 @@ class VoiceSession:
                 vad=self.components["vad"],
                 gate=self.gate,
                 pipeline=self.pipeline,
+                before_process=self._before_inference,
+                after_process=self._after_inference,
             )
         else:
             self.pipeline = None
@@ -102,6 +109,9 @@ class VoiceSession:
         return {
             "enabled": True,
             "running": self.running,
+            "microphone_paused_for_inference": (
+                self.microphone_paused_for_inference
+            ),
             "microphone": type(
                 self.components["microphone"]
             ).__name__,
@@ -131,6 +141,65 @@ class VoiceSession:
             ),
         }
 
+    def _before_inference(self):
+        if not self.voice.get(
+            "release_microphone_during_inference",
+            False,
+        ):
+            return False
+
+        if (
+            not self.running
+            or self.microphone_paused_for_inference
+        ):
+            return False
+
+        stopped = self.components[
+            "microphone"
+        ].stop()
+
+        if stopped is False:
+            raise RuntimeError(
+                "Mikrofonen kunde inte frigöras före AI-inference."
+            )
+
+        self.microphone_paused_for_inference = True
+
+        delay = max(
+            0.0,
+            float(
+                self.voice.get(
+                    "model_handoff_delay_seconds",
+                    0.0,
+                )
+            ),
+        )
+
+        if delay > 0:
+            self._sleep(delay)
+
+        return True
+
+    def _after_inference(self):
+        if not self.microphone_paused_for_inference:
+            return False
+
+        self.microphone_paused_for_inference = False
+
+        if not self.running:
+            return False
+
+        started = self.components[
+            "microphone"
+        ].start()
+
+        if started is False:
+            raise RuntimeError(
+                "Mikrofonen kunde inte återstartas efter AI-inference."
+            )
+
+        return True
+
     def start(self):
         if not self.enabled:
             raise RuntimeError(
@@ -157,8 +226,11 @@ class VoiceSession:
             )
 
         if self.running:
-            self.components["microphone"].stop()
+            if not self.microphone_paused_for_inference:
+                self.components["microphone"].stop()
+
             self.running = False
+            self.microphone_paused_for_inference = False
             changed = True
 
         self.gate.reset()
