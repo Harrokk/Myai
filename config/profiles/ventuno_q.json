@@ -33,7 +33,11 @@
     "rpc_write_enabled": false,
     "rpc_connect_timeout_seconds": 5,
     "rpc_call_timeout_seconds": 5,
-    "rpc_allowed_read_methods": [],
+    "rpc_allowed_read_methods": [
+      "myai_ping",
+      "myai_uptime_ms",
+      "myai_mcu_status"
+    ],
     "rpc_allowed_write_methods": []
   },
   "vision": {
