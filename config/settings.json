@@ -171,6 +171,10 @@
     "high_risk_confirmation_enabled": true,
     "high_risk_confirmation_window_seconds": 15,
     "high_risk_confirmation_min_confidence": 0.8,
-    "high_risk_confirmation_transcript_count": 3
+    "high_risk_confirmation_transcript_count": 3,
+    "llm_streaming_enabled": false,
+    "stream_tts_min_chars": 24,
+    "stream_tts_max_chars": 220,
+    "stream_tts_stop_timeout_seconds": 2
   }
 }
