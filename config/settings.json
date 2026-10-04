@@ -5,7 +5,11 @@
   },
   "memory": {
     "database": "memory.db",
-    "max_search_results": 10
+    "max_search_results": 10,
+    "auto_assess_enabled": true,
+    "auto_save_enabled": true,
+    "auto_save_threshold": 80,
+    "review_threshold": 55
   },
   "assistant": {
     "name": "MyAI v2",
