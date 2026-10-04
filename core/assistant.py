@@ -174,7 +174,7 @@ Svara kort och tydligt på svenska.
 
         return decision
 
-    def respond(self, user_message):
+    def _prepare_response(self, user_message):
         tool_names = select_tools(
             user_message,
             self.tools,
@@ -201,9 +201,7 @@ Svara kort och tydligt på svenska.
                 "content": system_message,
             }
         ]
-
         messages.extend(self.conversation_history)
-
         messages.append(
             {
                 "role": "user",
@@ -211,11 +209,16 @@ Svara kort och tydligt på svenska.
             }
         )
 
-        answer = self.llm.chat(
-            messages,
-            timeout=300,
-        )
+        return tool_names, tool_results, messages
 
+    def _finalize_response(
+        self,
+        user_message,
+        answer,
+        tool_names,
+        tool_results,
+        streamed=False,
+    ):
         memory_decision = self._consider_long_term_memory(
             user_message
         )
@@ -230,7 +233,88 @@ Svara kort och tydligt på svenska.
             "tools": tool_names,
             "tool_results": tool_results or {},
             "memory_decision": memory_decision,
+            "streamed": bool(streamed),
         }
+
+    def respond(self, user_message):
+        (
+            tool_names,
+            tool_results,
+            messages,
+        ) = self._prepare_response(user_message)
+
+        answer = self.llm.chat(
+            messages,
+            timeout=300,
+        )
+
+        return self._finalize_response(
+            user_message,
+            answer,
+            tool_names,
+            tool_results,
+            streamed=False,
+        )
+
+    def respond_stream(
+        self,
+        user_message,
+        on_chunk=None,
+    ):
+        (
+            tool_names,
+            tool_results,
+            messages,
+        ) = self._prepare_response(user_message)
+
+        stream = getattr(
+            self.llm,
+            "chat_stream",
+            None,
+        )
+
+        if not callable(stream):
+            answer = self.llm.chat(
+                messages,
+                timeout=300,
+            )
+
+            if on_chunk is not None and answer:
+                on_chunk(answer)
+
+            return self._finalize_response(
+                user_message,
+                answer,
+                tool_names,
+                tool_results,
+                streamed=False,
+            )
+
+        chunks = []
+
+        for chunk in stream(
+            messages,
+            timeout=300,
+        ):
+            value = str(chunk or "")
+
+            if not value:
+                continue
+
+            chunks.append(value)
+
+            if on_chunk is not None:
+                on_chunk(value)
+
+        answer = "".join(chunks)
+
+        return self._finalize_response(
+            user_message,
+            answer,
+            tool_names,
+            tool_results,
+            streamed=True,
+        )
 
     def _remember_conversation_turn(self, user_message, answer):
         if self.max_conversation_turns <= 0:
