@@ -77,9 +77,8 @@ class FakeAssistant:
         }
 
 
-def settings(enabled=True, tts=False):
-    return {
-        "voice": {
+def settings(enabled=True, tts=False, **overrides):
+    voice = {
             "enabled": enabled,
             "tts_enabled": tts,
             "redundancy_enabled": True,
@@ -94,6 +93,9 @@ def settings(enabled=True, tts=False):
             "semantic_consensus_enabled": False,
             "semantic_consensus_min_confidence": 0.85,
         }
+    voice.update(overrides)
+    return {
+        "voice": voice,
     }
 
 
@@ -280,3 +282,128 @@ def test_status_reports_provider_shapes():
     assert status["vad"] == "FakeVAD"
     assert status["primary_stt"] == "FakeSTT"
     assert status["backup_stt_count"] == 0
+
+
+
+class TrackingMicrophone(FakeMicrophone):
+    def __init__(self, frames):
+        super().__init__(frames)
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start(self):
+        self.start_calls += 1
+        return super().start()
+
+    def stop(self):
+        self.stop_calls += 1
+        return super().stop()
+
+
+def test_ventuno_handoff_releases_microphone_before_inference():
+    mic = TrackingMicrophone(
+        [
+            {
+                "frame": b"a",
+                "overflowed": False,
+            },
+            {
+                "frame": b"b",
+                "overflowed": False,
+            },
+            {
+                "frame": b"c",
+                "overflowed": False,
+            },
+        ]
+    )
+    delays = []
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(
+            release_microphone_during_inference=True,
+            model_handoff_delay_seconds=1.5,
+        ),
+        components=components(
+            mic,
+            FakeVAD(
+                [True, False, False]
+            ),
+        ),
+        sleep_fn=delays.append,
+    )
+
+    result = session.run_once()
+
+    assert result["status"] == "utterance_complete"
+    assert mic.start_calls == 2
+    assert mic.stop_calls == 1
+    assert delays == [1.5]
+    assert session.running is True
+    assert (
+        session.microphone_paused_for_inference
+        is False
+    )
+
+
+def test_default_voice_profile_keeps_microphone_open_during_inference():
+    mic = TrackingMicrophone(
+        [
+            {
+                "frame": b"a",
+                "overflowed": False,
+            },
+            {
+                "frame": b"b",
+                "overflowed": False,
+            },
+            {
+                "frame": b"c",
+                "overflowed": False,
+            },
+        ]
+    )
+    delays = []
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(),
+        components=components(
+            mic,
+            FakeVAD(
+                [True, False, False]
+            ),
+        ),
+        sleep_fn=delays.append,
+    )
+
+    session.run_once()
+
+    assert mic.start_calls == 1
+    assert mic.stop_calls == 0
+    assert delays == []
+
+
+def test_stop_while_microphone_is_paused_does_not_restart_it():
+    mic = TrackingMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(
+            release_microphone_during_inference=True,
+        ),
+        components=components(
+            mic,
+            FakeVAD([]),
+        ),
+    )
+    session.start()
+    session._before_inference()
+
+    assert mic.start_calls == 1
+    assert mic.stop_calls == 1
+    assert session.microphone_paused_for_inference is True
+
+    assert session.stop() is True
+    assert session.running is False
+    assert session.microphone_paused_for_inference is False
+    assert mic.start_calls == 1
+    assert mic.stop_calls == 1
