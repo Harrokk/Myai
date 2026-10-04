@@ -921,5 +921,5 @@ class VoicePipeline:
         if not callable(stop):
             return changed
 
-        result = stop()
-        return bool(result) or changed
+        stop()
+        return True
