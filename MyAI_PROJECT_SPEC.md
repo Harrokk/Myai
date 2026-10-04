@@ -839,7 +839,38 @@ Korttidsminnet ska användas för det aktuella samtalet och pågående uppgifter
 
 Minnet ska inte spara allt automatiskt. Tillfällig, oviktig eller känslig information ska behandlas försiktigt och minnessystemet ska använda tydliga regler för vad som är lämpligt att bevara.
 
-### 15.2 Minneshantering
+### 15.2 Teknisk status för automatisk långtidsminnespolicy
+
+På utvecklingsgren finns nu en deterministisk minnespolicy som bedömer varje
+användarmeddelande innan det eventuellt förs över från korttidskontexten till
+SQLite-baserat långtidsminne.
+
+Policyn använder konfigurerbara trösklar och separerar tre utfall:
+- `save` för tydliga bestående minnen
+- `review` för information som verkar viktig men inte bör sparas automatiskt
+- `ignore` för tillfällig, svag eller olämplig information
+
+Starka signaler inkluderar uttryckliga "kom ihåg"-instruktioner, bestående
+preferenser, återanvändbara regler och projektbeslut. Återkommande liknande
+uppgifter i korttidskontexten kan höja minnesvärdet. Tydliga tidsmarkörer som
+"idag", "just nu" och "den här gången" sänker det.
+
+Automatisk lagring blockerar dessutom tydliga hemlighets- och
+identifieringssignaler såsom lösenord, PIN-koder, API-nycklar, tokens,
+privata nycklar, kortnummer och personnummer. Exakta dubbletter sparas inte
+igen.
+
+Standardvärdena är:
+- `memory.auto_assess_enabled=true`
+- `memory.auto_save_enabled=true`
+- `memory.auto_save_threshold=80`
+- `memory.review_threshold=55`
+
+Bedömning, känslighetsfilter, återkomstsignal, automatisk lagring och
+dubblettskydd testas i CI. Konflikthantering, ersättning av gamla minnen och
+livscykelregler återstår som senare steg.
+
+### 15.3 Minneshantering
 
 På sikt ska det finnas tydliga regler för:
 - vad som får sparas
