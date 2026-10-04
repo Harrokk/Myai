@@ -897,3 +897,45 @@ def test_voice_interrupt_stops_streaming_tts_queue():
     pipeline.interrupt()
 
     assert tts.stopped is True
+
+
+
+def test_resource_handoff_hook_runs_after_stt_before_assistant():
+    events = []
+
+    class OrderedSTT:
+        def transcribe(self, audio):
+            events.append("stt")
+            return {
+                "text": "Hej",
+                "confidence": 0.99,
+            }
+
+    class OrderedAssistant:
+        def respond(self, message):
+            events.append("assistant")
+            return {
+                "answer": "Svar",
+                "tools": [],
+                "tool_results": {},
+            }
+
+    pipeline = VoicePipeline(
+        OrderedAssistant(),
+        OrderedSTT(),
+        settings=settings(),
+        before_assistant=lambda: events.append(
+            "handoff"
+        ),
+    )
+
+    result = pipeline.process_utterance(
+        b"audio"
+    )
+
+    assert result["status"] == "completed"
+    assert events == [
+        "stt",
+        "handoff",
+        "assistant",
+    ]
