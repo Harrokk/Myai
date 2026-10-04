@@ -7,9 +7,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.json"
 
 DEFAULT_SETTINGS = {
+    "llm": {
+        "provider": "ollama",
+    },
     "ollama": {
         "url": "http://localhost:11434/api/chat",
         "model": "qwen3:8b",
+    },
+    "geniex": {
+        "base_url": "http://127.0.0.1:18181/v1",
+        "model": "ai-hub-models/Qwen3-4B-Instruct-2507",
+        "api_key": "geniex",
     },
     "vision": {
         "enabled": False,
@@ -163,10 +171,11 @@ DEFAULT_SETTINGS = {
     },
     "assistant": {
         "name": "MyAI v2",
-        "engine": "Ollama",
+        "engine": "Local LLM provider",
         "gpu": "NVIDIA RTX 3060 12 GB",
         "memory_label": "SQLite",
-        "future_target": "Raspberry Pi 5 B",
+        "current_platform": "Windows-dator",
+        "future_target": "Arduino VENTUNO Q / Dragonwing IQ-8275",
     },
 }
 
