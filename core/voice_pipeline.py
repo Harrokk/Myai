@@ -301,6 +301,7 @@ class VoicePipeline:
         settings=None,
         semantic_resolver=None,
         clock=None,
+        before_assistant=None,
     ):
         self.assistant = assistant
         self.primary_stt = primary_stt
@@ -315,6 +316,7 @@ class VoicePipeline:
         self.last_tts_started_at = None
         self.pending_confirmation = None
         self.streaming_tts = None
+        self.before_assistant = before_assistant
 
     @property
     def voice_settings(self):
@@ -427,6 +429,9 @@ class VoicePipeline:
         return True
 
     def _respond_and_speak(self, transcript):
+        if self.before_assistant is not None:
+            self.before_assistant()
+
         config = self.voice_settings
         tts_enabled = bool(
             self.tts is not None
