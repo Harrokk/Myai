@@ -81,3 +81,72 @@ def test_default_internet_page_fetch_limits_exist():
     assert internet["max_page_bytes"] == 1_000_000
     assert internet["max_page_chars"] == 20_000
     assert internet["max_redirects"] == 5
+
+
+
+def test_environment_can_select_settings_profile(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "ventuno.json"
+    path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "geniex",
+                },
+                "assistant": {
+                    "current_platform": "VENTUNO test",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "MYAI_SETTINGS",
+        str(path),
+    )
+
+    settings = load_settings()
+
+    assert settings["llm"]["provider"] == "geniex"
+    assert settings["assistant"]["current_platform"] == "VENTUNO test"
+    assert settings["ollama"]["model"] == "qwen3:8b"
+
+
+def test_explicit_settings_path_overrides_environment(
+    tmp_path,
+    monkeypatch,
+):
+    env_path = tmp_path / "env.json"
+    explicit_path = tmp_path / "explicit.json"
+    env_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "geniex",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    explicit_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "ollama",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "MYAI_SETTINGS",
+        str(env_path),
+    )
+
+    settings = load_settings(
+        explicit_path
+    )
+
+    assert settings["llm"]["provider"] == "ollama"
