@@ -102,9 +102,17 @@ The first physical RPC test must be read-only. GPIO/motor writes are deferred un
 
 ## Voice resource handoff
 
-On VENTUNO Q, the profile can stop/release the microphone stream before the LLM/VLM phase and wait 1.5 seconds before inference. The microphone is restarted afterwards.
+On VENTUNO Q, the voice state machine follows this resource order:
 
-This keeps listening/ASR and heavy model wake-up from unnecessarily competing for the same platform resources.
+1. finish capturing the utterance
+2. stop/release the live microphone stream
+3. transcribe the captured audio with STT
+4. let an accelerated STT provider release inference resources when it supports `release_for_inference()`
+5. wait the configured 1.5 second handoff delay
+6. wake/run the LLM or VLM
+7. restart the microphone after the response-generation phase returns
+
+This avoids unnecessarily keeping the live audio stream active while the model works, and places the handoff delay between STT and the LLM rather than before transcription.
 
 The existing `faster-whisper` path remains a fallback. A Qualcomm/Arduino-accelerated Whisper provider is intentionally not hard-coded until a stable documented API has been verified on the physical VENTUNO software image.
 
