@@ -478,3 +478,13 @@ def test_detect_tools_routes_ventuno_rpc_status():
     assert result == [
         "ventuno_rpc_status"
     ]
+
+
+
+def test_detect_tools_routes_ventuno_mcu_status():
+    result = tool_manager.detect_tools(
+        "Visa STM32 status."
+    )
+    assert result == [
+        "ventuno_mcu_status"
+    ]
