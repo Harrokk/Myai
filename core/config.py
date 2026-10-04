@@ -1,4 +1,5 @@
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
 
@@ -213,9 +214,32 @@ def _merge_settings(defaults, overrides):
     return result
 
 
+def _settings_path(path=None):
+    if path is not None:
+        return Path(path)
+
+    configured = os.environ.get(
+        "MYAI_SETTINGS",
+        "",
+    ).strip()
+
+    if configured:
+        candidate = Path(configured)
+
+        if not candidate.is_absolute():
+            candidate = (
+                PROJECT_ROOT
+                / candidate
+            )
+
+        return candidate
+
+    return DEFAULT_SETTINGS_PATH
+
+
 def load_settings(path=None):
     """Ladda konfiguration och fyll i saknade värden med säkra standarder."""
-    settings_path = Path(path) if path else DEFAULT_SETTINGS_PATH
+    settings_path = _settings_path(path)
 
     if not settings_path.exists():
         return deepcopy(DEFAULT_SETTINGS)
