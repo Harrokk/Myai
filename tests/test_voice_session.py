@@ -407,3 +407,59 @@ def test_stop_while_microphone_is_paused_does_not_restart_it():
     assert session.microphone_paused_for_inference is False
     assert mic.start_calls == 1
     assert mic.stop_calls == 1
+
+
+
+class ReleasableSTT(FakeSTT):
+    def __init__(self, text="Hej"):
+        super().__init__(text)
+        self.release_calls = 0
+
+    def release_for_inference(self):
+        self.release_calls += 1
+
+
+def test_ventuno_handoff_releases_stt_provider_before_llm():
+    mic = TrackingMicrophone(
+        [
+            {
+                "frame": b"a",
+                "overflowed": False,
+            },
+            {
+                "frame": b"b",
+                "overflowed": False,
+            },
+            {
+                "frame": b"c",
+                "overflowed": False,
+            },
+        ]
+    )
+    stt = ReleasableSTT(
+        "Hur mycket RAM används?"
+    )
+    delays = []
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(
+            release_microphone_during_inference=True,
+            model_handoff_delay_seconds=1.5,
+        ),
+        components=components(
+            mic,
+            FakeVAD(
+                [True, False, False]
+            ),
+            stt=stt,
+        ),
+        sleep_fn=delays.append,
+    )
+
+    result = session.run_once()
+
+    assert result["status"] == "utterance_complete"
+    assert stt.release_calls == 1
+    assert delays == [1.5]
+    assert mic.stop_calls == 1
+    assert mic.start_calls == 2
