@@ -1390,39 +1390,58 @@ De fem ursprungliga systemverktygen ska fortsatt fungera:
 Därutöver finns:
 - `usb_status`
 
-### 21.1 Påbörjad VENTUNO Q-migrering
+### 21.1 Pågående VENTUNO Q-migrering
 
-Efter pre-hardware-checkpointen har en separat VENTUNO Q-anpassning påbörjats.
+Efter pre-hardware-checkpointen har MyAI:s primära målhårdvara ändrats till Arduino VENTUNO Q med Qualcomm Dragonwing IQ-8275 och 16 GB RAM. Raspberry Pi-lagren behålls som alternativa Linux-/GPIO-moduler men är inte längre huvudmålet.
 
-Första migrationslagret:
-- behåller Ollama som standardprovider i Windows-utvecklingsmiljön
-- introducerar ett provider-neutralt LLM-fabrikslager
-- lägger till en separat GenieX-klient mot det lokala OpenAI-kompatibla API:t
-- stödjer konfigurationsvalet `llm.provider=ollama|geniex`
-- förbereder GenieX på `http://127.0.0.1:18181/v1`
-- använder `ai-hub-models/Qwen3-4B-Instruct-2507` som första planerade VENTUNO Q-modell
-- låter MyAI-kärnan, verktygssystemet och minnet fortsätta använda samma `chat(messages)`-gränssnitt
-- gör terminalens smoke-test provider-neutralt
-- lämnar GenieX avstängt som standard tills fysisk VENTUNO Q finns för verifiering
+Följande VENTUNO-anpassning är nu implementerad på separat utvecklingsgren:
 
-Detta steg verifierar endast mjukvaruarkitekturen med mockade HTTP-svar i CI. NPU/QAIRT, modelladdning, verklig Qwen3-4B-latens, Whisper/VLM, minnestryck, temperatur och långvarig multi-model-drift ska verifieras på fysisk VENTUNO Q innan providerbytet görs permanent.
+- Ollama är fortsatt standardprovider i Windows-utvecklingsmiljön
+- provider-neutralt LLM-lager med `llm.provider=ollama|geniex`
+- separat GenieX-klient mot det lokala OpenAI-kompatibla API:t
+- planerad normalmodell `ai-hub-models/Qwen3-4B-Instruct-2507`
+- tokenstreaming för både Ollama och GenieX
+- provider-neutral `MyAICore.respond_stream()` som fortfarande sparar komplett svar och samtalskontext
+- meningsbuffrad streaming-TTS så generering och uppläsning kan överlappa utan token-för-token-tal
+- avbrott av pågående streaming-TTS med tömning av väntande talkö
+- separat runtime-profil `config/profiles/ventuno_q.json`
+- profilval genom `MYAI_SETTINGS` utan manuell redigering av standardkonfigurationen
+- launcher `scripts/start_ventuno.sh`
+- provider-neutral visionfabrik med befintlig Ollama-vision och ny GenieX-VLM-klient
+- OpenAI-kompatibla multimodala GenieX-anrop med base64-bilder för stillbild, OCR, objekt, förändring, video och live-vision
+- planerad VENTUNO-VLM `qualcomm/Qwen3-VL-4B-Instruct`, fortfarande avstängd tills fysisk verifiering
+- resurs-handoff för röst där VENTUNO-profilen kan frigöra mikrofonströmmen före tung AI-inference och återstarta den efteråt
+- VENTUNO-profilens handoff-delay är 1,5 sekunder; Windows-standard är fortsatt avstängd handoff
+- separat, lazy och fail-closed STM32/RPC-klient ovanpå officiella `arduino-router-bridge`
+- RPC-skrivning är avstängd som standard och varje läs-/skrivmetod måste finnas i separat allowlist
+- `ventuno_rpc_status` kan visa policy/status utan att ansluta till STM32
+- `requirements-ventuno.txt` håller VENTUNO-specifika beroenden separerade från grundinstallationen
+- read-only `scripts/ventuno_preflight.py` kontrollerar Linux ARM64, GenieX-provider/CLI, lokal endpoint, modellkonfiguration, Router Bridge, Unix-socket och RPC-skrivskydd utan inference eller fysisk styrning
+- systemverktygen har gjorts mer plattformsneutrala: diskstatus använder filsystemet där MyAI ligger och temperatur kan falla tillbaka till Linux thermal sysfs
+- befintliga Windows/Ollama-, minnes-, verktygs-, Bluetooth-, fil-, Excel- och säkerhetslager är fortsatt återanvända
 
-Aktuell teknisk status är nu **pre-hardware checkpoint** för denna integrationsrunda. De mjukvarulager som planerades före nästa fysiska verifiering är sammanförda och automatiskt testade.
+All ovanstående mjukvarulogik verifieras med automatiska tester och mockade providers. CI-resultat får inte beskrivas som verifiering av Dragonwing-NPU, QAIRT, VENTUNO-kamera, STM32, verklig ljudpipeline eller fysisk I/O.
 
-Nästa steg är därför inte mer blind funktionsutbyggnad utan samlad lokal verifiering på Windows-datorn:
-- smoke-test med riktig Ollama och NVIDIA-GPU
-- fysisk USB/hårdvaruförändring
-- BLE-skanning och verklig RSSI
-- terminalhandoff nära/långt med auto_execute avstängt
-- explicit GATT connect/disconnect till en konfigurerad testterminal
-- mikrofon/VAD/STT/TTS och verkligt barge-in
-- kamera/stillbild/video/live-vision där lokal visionmodell finns
-- GPS om fysisk mottagare finns
-- Raspberry Pi-delarna när Pi 5B-hårdvaran finns tillgänglig
+### 21.2 Kvarvarande fysisk VENTUNO-verifiering
 
-Funktioner som kräver saknad fysisk utrustning ska markeras som uppskjutna i stället för att simulerade CI-resultat behandlas som hårdvaruverifiering.
+När VENTUNO Q finns tillgänglig ska nästa verifieringsrunda ske på målhårdvaran i denna ordning:
 
-Innan utvecklingskedjan mergas till `main` ska den också köras som ett lokalt smoke-test på Windows-datorn med riktig Ollama, NVIDIA-GPU och faktisk tillgänglig hårdvara, eftersom GitHub Actions inte kan verifiera dessa miljöberoenden.
+1. installera och versionslåsa den VENTUNO/Qualcomm-mjukvarustack som faktiskt används
+2. verifiera `geniex` och köra read-only `scripts/ventuno_preflight.py`
+3. hämta och verifiera den valda Qwen3-4B-bundlen för IQ-8275
+4. starta GenieX lokalt och mäta kallstart, TTFT, tokens/s, RAM och temperatur
+5. verifiera tokenstreaming och meningsbuffrad TTS
+6. verifiera mikrofon/VAD/STT och den 1,5 sekunders resurs-handoff som används innan LLM/VLM väcks
+7. välja och verifiera dokumenterad Qualcomm-/Arduino-accelererad Whisper-backend; tills dess är `faster-whisper` endast en fallback
+8. verifiera VLM med riktig kamera och därefter stillbild, OCR, objekt, förändring, video och begränsad live-vision
+9. verifiera Arduino Router-socket och endast en uttryckligt allowlistad read-only STM32-RPC-metod
+10. aktivera fysisk RPC-skrivning först efter separat säkerhetsgranskning, MCU-watchdog och explicita allowlists
+11. verifiera Bluetooth, Wi-Fi, USB, GPS och övrig faktisk kringutrustning
+12. genomföra ett minst 72 timmar långt stabilitetstest med modellbyten, röst, VLM, SQLite, nätverk, STM32-RPC, omstarter, temperatur och återhämtning efter fel
+
+Utvecklingen får fortsätta mjukvarumässigt fram till den punkt där nästa steg kräver verklig VENTUNO-hårdvara, men sådana steg ska då markeras som uppskjutna i stället för simulerade som godkända.
+
+VENTUNO-providerbytet ska inte mergas till `main` som permanent standard förrän grundläggande fysisk GenieX/QAIRT-verifiering är genomförd. Ollama förblir därför säker standard i huvudkonfigurationen under migrationsfasen.
 
 ---
 
