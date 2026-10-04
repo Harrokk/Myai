@@ -1443,6 +1443,36 @@ Utvecklingen får fortsätta mjukvarumässigt fram till den punkt där nästa st
 
 VENTUNO-providerbytet ska inte mergas till `main` som permanent standard förrän grundläggande fysisk GenieX/QAIRT-verifiering är genomförd. Ollama förblir därför säker standard i huvudkonfigurationen under migrationsfasen.
 
+
+### 21.3 Paus/checkpoint 2026-10-04
+
+Arbetet pausas här på användarens begäran.
+
+GitHub-läge vid pausen:
+- aktiv utvecklingsgren: `dev/ventuno-q-provider`
+- draft-PR: **#85 – Begin Arduino VENTUNO Q / GenieX migration**
+- senast verifierade kodcommit före denna dokumentationscheckpoint: `cbcf661c147bdeb76701605fd18b6f94d545f638`
+- GitHub Actions-run `37213237747` för commit `cbcf661c` är **success**
+- Ollama är fortfarande säker standardprovider i Windows-konfigurationen
+- VENTUNO Q / GenieX är förberett genom separat profil och är inte permanent aktiverat i huvudkonfigurationen
+- inga fysiska VENTUNO Q-tester har genomförts ännu
+
+Senast färdigställda kodpunkt:
+- röst-state-machine har korrigerats så ordningen är **fånga tal → stoppa live-mikrofon → STT → frigör eventuell accelererad STT-provider → 1,5 s handoff → LLM/VLM → återstarta mikrofon**
+- 1,5-sekunders väntan ligger alltså mellan STT och LLM/VLM, inte före transkriberingen
+- read-only STM32-bridge-skelett finns med endast `myai_ping`, `myai_uptime_ms` och `myai_mcu_status`
+- skrivande STM32-RPC är fortfarande avstängt och write-allowlisten är tom
+- VENTUNO preflight, GenieX LLM/VLM-provider, streaming, meningsbuffrad TTS och Linux-portabla systemverktyg är implementerade
+
+Exakt återstartspunkt:
+1. kontrollera att senaste GitHub Actions för denna checkpoint fortfarande är grön
+2. fortsätt från VENTUNO-röst/STT-lagret
+3. hardkoda inte ett Qualcomm-/Arduino-accelererat Whisper-API förrän det finns en dokumenterad och verifierbar backend för den faktiska VENTUNO-mjukvarustacken
+4. behåll `faster-whisper` som fallback tills fysisk hårdvara finns
+5. därefter fortsätt endast med mjukvaruarbete som inte kräver påhittad NPU/STM32-hårdvaruverifiering
+6. när VENTUNO Q finns, börja med `scripts/ventuno_preflight.py` och följ den fysiska verifieringsordningen i avsnitt 21.2
+
+
 ---
 
 ## 22. Övergripande vision
