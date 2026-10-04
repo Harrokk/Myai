@@ -24,6 +24,7 @@ TOOLS = CORE.tools
 MEMORY = CORE.memory
 LLM = CORE.llm
 OLLAMA_URL = CORE.ollama_url
+LLM_URL = CORE.llm_url
 MODEL = CORE.model
 DEVICE_REGISTRY = DeviceRegistry()
 VOICE_SESSION = None
@@ -326,7 +327,8 @@ def main():
     print("==========================================")
     print()
     print(f"Modell:          {MODEL}")
-    print(f"Motor:           {SETTINGS['assistant']['engine']}")
+    print(f"LLM-provider:    {CORE.llm_provider}")
+    print(f"LLM-endpoint:    {LLM_URL}")
     print(f"GPU:             {SETTINGS['assistant']['gpu']}")
     print(f"Långtidsminne:   {SETTINGS['assistant']['memory_label']}")
     print(f"Framtida mål:    {SETTINGS['assistant']['future_target']}")
@@ -734,7 +736,10 @@ def main():
 
         except requests.exceptions.ConnectionError:
             print()
-            print("Kunde inte ansluta till Ollama.")
+            print(
+                f"Kunde inte ansluta till LLM-provider "
+                f"{CORE.llm_provider} på {CORE.llm_url}."
+            )
             print()
 
         except Exception as error:
