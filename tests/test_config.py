@@ -24,6 +24,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["ollama"]["url"] == DEFAULT_SETTINGS["ollama"]["url"]
     assert settings["geniex"]["base_url"] == "http://127.0.0.1:18181/v1"
     assert settings["geniex"]["model"] == "ai-hub-models/Qwen3-4B-Instruct-2507"
+    assert settings["geniex"]["max_tokens"] == 256
+    assert settings["geniex"]["temperature"] == 0.4
+    assert settings["geniex"]["enable_think"] is False
+    assert settings["geniex"]["stream_enabled"] is True
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
     assert settings["assistant"]["future_target"] == (
         "Arduino VENTUNO Q / Dragonwing IQ-8275"
