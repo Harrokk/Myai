@@ -56,7 +56,10 @@
     "enabled": false,
     "url": "http://localhost:11434/api/chat",
     "model": "",
-    "timeout_seconds": 120
+    "timeout_seconds": 120,
+    "provider": "ollama",
+    "max_tokens": 256,
+    "temperature": 0.2
   },
   "camera": {
     "default_index": 0,
