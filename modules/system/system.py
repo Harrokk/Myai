@@ -1,18 +1,31 @@
+import shutil
 import subprocess
+from pathlib import Path
+
 import psutil
 
 
 def gpu_status():
     try:
+        executable = shutil.which(
+            "nvidia-smi"
+        )
+
+        if executable is None:
+            return (
+                "NVIDIA GPU-status är inte tillgänglig på denna plattform. "
+                "Integrerade AI-acceleratorer hanteras av sina egna providers."
+            )
+
         result = subprocess.run(
             [
-                "nvidia-smi",
+                executable,
                 "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu",
-                "--format=csv,noheader,nounits"
+                "--format=csv,noheader,nounits",
             ],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
@@ -23,10 +36,15 @@ def gpu_status():
         if not data:
             return "Ingen GPU-information hittades."
 
-        parts = [x.strip() for x in data.split(",")]
+        parts = [
+            value.strip()
+            for value in data.split(",")
+        ]
 
         if len(parts) < 5:
-            return f"GPU-information: {data}"
+            return (
+                f"GPU-information: {data}"
+            )
 
         name = parts[0]
         memory_used = parts[1]
@@ -41,17 +59,20 @@ def gpu_status():
             f"Temperatur: {temperature} °C"
         )
 
-    except FileNotFoundError:
-        return "nvidia-smi hittades inte."
-
     except Exception as error:
-        return f"Fel vid GPU-avläsning: {error}"
+        return (
+            f"Fel vid GPU-avläsning: {error}"
+        )
 
 
 def cpu_status():
     try:
-        cpu_usage = psutil.cpu_percent(interval=1)
-        cpu_count = psutil.cpu_count(logical=True)
+        cpu_usage = psutil.cpu_percent(
+            interval=1
+        )
+        cpu_count = psutil.cpu_count(
+            logical=True
+        )
 
         return (
             f"CPU-belastning: {cpu_usage}%\n"
@@ -59,85 +80,240 @@ def cpu_status():
         )
 
     except Exception as error:
-        return f"Fel vid CPU-avläsning: {error}"
+        return (
+            f"Fel vid CPU-avläsning: {error}"
+        )
 
 
 def ram_status():
     try:
         memory = psutil.virtual_memory()
 
-        used_gb = memory.used / (1024 ** 3)
-        total_gb = memory.total / (1024 ** 3)
+        used_gb = (
+            memory.used
+            / (1024 ** 3)
+        )
+        total_gb = (
+            memory.total
+            / (1024 ** 3)
+        )
 
         return (
-            f"RAM: {used_gb:.1f} GB / {total_gb:.1f} GB\n"
-            f"RAM-belastning: {memory.percent}%"
+            f"RAM: {used_gb:.1f} GB / "
+            f"{total_gb:.1f} GB\n"
+            f"RAM-belastning: "
+            f"{memory.percent}%"
         )
 
     except Exception as error:
-        return f"Fel vid RAM-avläsning: {error}"
-def temperature_status():
-    results = []
-
-    # GPU-temperatur via nvidia-smi
-    try:
-        gpu_result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,temperature.gpu",
-                "--format=csv,noheader,nounits"
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10
+        return (
+            f"Fel vid RAM-avläsning: {error}"
         )
 
-        if gpu_result.returncode == 0:
-            data = gpu_result.stdout.strip()
 
-            if data:
+def _linux_thermal_zones(
+    base_path=Path(
+        "/sys/class/thermal"
+    ),
+):
+    results = []
+
+    try:
+        zones = sorted(
+            base_path.glob(
+                "thermal_zone*"
+            )
+        )
+    except OSError:
+        return results
+
+    for zone in zones:
+        try:
+            raw = (
+                zone
+                .joinpath("temp")
+                .read_text(
+                    encoding="utf-8"
+                )
+                .strip()
+            )
+            value = float(raw)
+
+            if abs(value) > 1000:
+                value /= 1000.0
+
+            label_path = (
+                zone
+                / "type"
+            )
+            label = (
+                label_path.read_text(
+                    encoding="utf-8"
+                ).strip()
+                if label_path.exists()
+                else zone.name
+            )
+
+            if (
+                -50.0
+                <= value
+                <= 200.0
+            ):
+                results.append(
+                    (
+                        label
+                        or zone.name,
+                        value,
+                    )
+                )
+        except (
+            OSError,
+            ValueError,
+        ):
+            continue
+
+    return results
+
+
+def temperature_status():
+    results = []
+    seen = set()
+
+    executable = shutil.which(
+        "nvidia-smi"
+    )
+
+    if executable is not None:
+        try:
+            gpu_result = subprocess.run(
+                [
+                    executable,
+                    "--query-gpu=name,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            if gpu_result.returncode == 0:
+                data = (
+                    gpu_result.stdout
+                    .strip()
+                )
+
                 for line in data.splitlines():
-                    parts = [x.strip() for x in line.split(",")]
+                    parts = [
+                        value.strip()
+                        for value
+                        in line.split(",")
+                    ]
 
                     if len(parts) >= 2:
-                        results.append(
-                            f"GPU ({parts[0]}): {parts[1]} °C"
+                        text = (
+                            f"GPU ({parts[0]}): "
+                            f"{parts[1]} °C"
                         )
 
-    except Exception:
-        pass
+                        if text not in seen:
+                            seen.add(text)
+                            results.append(
+                                text
+                            )
+        except Exception:
+            pass
 
-    # Försök läsa övriga temperatursensorer via psutil.
     try:
-        if hasattr(psutil, "sensors_temperatures"):
-            temperatures = psutil.sensors_temperatures()
+        if hasattr(
+            psutil,
+            "sensors_temperatures",
+        ):
+            temperatures = (
+                psutil
+                .sensors_temperatures()
+                or {}
+            )
 
-            for name, entries in temperatures.items():
+            for name, entries in (
+                temperatures.items()
+            ):
                 for entry in entries:
-                    label = entry.label if entry.label else name
-
-                    results.append(
-                        f"{label}: {entry.current} °C"
+                    label = (
+                        entry.label
+                        if entry.label
+                        else name
+                    )
+                    text = (
+                        f"{label}: "
+                        f"{entry.current} °C"
                     )
 
+                    if text not in seen:
+                        seen.add(text)
+                        results.append(
+                            text
+                        )
     except Exception:
         pass
 
-    if results:
-        return "\n".join(results)
+    if not results:
+        for label, value in (
+            _linux_thermal_zones()
+        ):
+            text = (
+                f"{label}: "
+                f"{value:.1f} °C"
+            )
 
-    return "Inga temperaturvärden kunde läsas."
+            if text not in seen:
+                seen.add(text)
+                results.append(
+                    text
+                )
+
+    if results:
+        return "\n".join(
+            results
+        )
+
+    return (
+        "Inga temperaturvärden "
+        "kunde läsas."
+    )
+
+
+def _project_disk_root():
+    anchor = (
+        Path(__file__)
+        .resolve()
+        .anchor
+    )
+
+    return anchor or "/"
+
 
 def disk_status():
     try:
-        disk = psutil.disk_usage("F:\\")
+        path = _project_disk_root()
+        disk = psutil.disk_usage(
+            path
+        )
 
-        used_gb = disk.used / (1024 ** 3)
-        total_gb = disk.total / (1024 ** 3)
-        free_gb = disk.free / (1024 ** 3)
+        used_gb = (
+            disk.used
+            / (1024 ** 3)
+        )
+        total_gb = (
+            disk.total
+            / (1024 ** 3)
+        )
+        free_gb = (
+            disk.free
+            / (1024 ** 3)
+        )
 
         return (
-            f"Disk F:\\\n"
+            f"Disk {path}\n"
             f"Använt: {used_gb:.1f} GB\n"
             f"Ledigt: {free_gb:.1f} GB\n"
             f"Totalt: {total_gb:.1f} GB\n"
@@ -145,30 +321,43 @@ def disk_status():
         )
 
     except Exception as error:
-        return f"Fel vid diskläsning: {error}"
+        return (
+            f"Fel vid diskläsning: {error}"
+        )
+
+
 TOOLS = {
     "gpu_status": {
         "function": gpu_status,
-        "description": "Visar status för NVIDIA-grafikkortet, inklusive belastning, temperatur och VRAM."
+        "description": (
+            "Visar NVIDIA GPU-status när nvidia-smi finns; "
+            "integrerade acceleratorer hanteras separat."
+        ),
     },
-
     "cpu_status": {
         "function": cpu_status,
-        "description": "Visar CPU-belastning och antal logiska CPU-kärnor."
+        "description": (
+            "Visar CPU-belastning och antal logiska CPU-kärnor."
+        ),
     },
-
     "ram_status": {
         "function": ram_status,
-        "description": "Visar RAM-användning och total mängd RAM."
+        "description": (
+            "Visar RAM-användning och total mängd RAM."
+        ),
     },
-
     "temperature_status": {
         "function": temperature_status,
-        "description": "Kontrollerar temperaturer i datorn."
+        "description": (
+            "Kontrollerar tillgängliga temperaturer "
+            "via GPU, psutil eller Linux thermal sysfs."
+        ),
     },
-
     "disk_status": {
         "function": disk_status,
-        "description": "Visar information om disk och ledigt lagringsutrymme."
-    }
+        "description": (
+            "Visar ledigt lagringsutrymme på filsystemet "
+            "där MyAI-koden körs."
+        ),
+    },
 }
