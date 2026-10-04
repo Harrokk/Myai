@@ -21,6 +21,7 @@ EXPECTED_TOOLS = [
     "disk_status",
     "usb_status",
     "bluetooth_status",
+    "ventuno_rpc_status",
 ]
 
 
