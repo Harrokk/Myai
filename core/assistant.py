@@ -1,4 +1,5 @@
 from core.memory import MemoryStore
+from core.memory_policy import assess_memory_candidate
 from core.ollama_client import OllamaClient
 from core.tool_manager import load_tools, run_tools, select_tools
 
@@ -89,6 +90,52 @@ Svara kort och tydligt på svenska.
 
         return system_message
 
+    def _prior_user_messages(self):
+        return [
+            item["content"]
+            for item in self.conversation_history
+            if item.get("role") == "user"
+        ]
+
+    def _consider_long_term_memory(self, user_message):
+        config = self.settings.get("memory", {})
+
+        if not config.get("auto_assess_enabled", True):
+            return {
+                "action": "disabled",
+                "saved": False,
+                "score": 0,
+                "category": "other",
+                "content": "",
+                "sensitive": False,
+                "reasons": [
+                    "Automatisk minnesbedömning är avstängd."
+                ],
+            }
+
+        decision = assess_memory_candidate(
+            user_message,
+            settings=self.settings,
+            prior_messages=self._prior_user_messages(),
+        )
+        decision = dict(decision)
+        decision["saved"] = False
+
+        if (
+            decision.get("action") == "save"
+            and config.get("auto_save_enabled", True)
+            and not decision.get("sensitive")
+            and decision.get("content")
+        ):
+            decision["saved"] = bool(
+                self.memory.save_if_new(
+                    decision["category"],
+                    decision["content"],
+                )
+            )
+
+        return decision
+
     def respond(self, user_message):
         tool_names = select_tools(
             user_message,
@@ -131,6 +178,10 @@ Svara kort och tydligt på svenska.
             timeout=300,
         )
 
+        memory_decision = self._consider_long_term_memory(
+            user_message
+        )
+
         self._remember_conversation_turn(
             user_message,
             answer,
@@ -140,6 +191,7 @@ Svara kort och tydligt på svenska.
             "answer": answer,
             "tools": tool_names,
             "tool_results": tool_results or {},
+            "memory_decision": memory_decision,
         }
 
     def _remember_conversation_turn(self, user_message, answer):
