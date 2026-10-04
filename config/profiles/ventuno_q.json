@@ -23,7 +23,9 @@
     "llm_streaming_enabled": true,
     "stream_tts_min_chars": 24,
     "stream_tts_max_chars": 220,
-    "stream_tts_stop_timeout_seconds": 2
+    "stream_tts_stop_timeout_seconds": 2,
+    "release_microphone_during_inference": true,
+    "model_handoff_delay_seconds": 1.5
   },
   "ventuno": {
     "enabled": true,
