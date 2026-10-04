@@ -1,0 +1,4 @@
+# Optional VENTUNO Q Linux/STM32 bridge dependency.
+# Install only on Arduino VENTUNO Q:
+#   python -m pip install -r requirements-ventuno.txt
+arduino-router-bridge==0.5.0
