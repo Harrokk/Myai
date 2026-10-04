@@ -38,6 +38,11 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["trusted_terminals"]["enabled"] is False
     assert settings["trusted_terminals"]["connect_rssi"] == -60
     assert settings["trusted_terminals"]["disconnect_rssi"] == -75
+    assert settings["ventuno"]["enabled"] is False
+    assert settings["ventuno"]["rpc_enabled"] is False
+    assert settings["ventuno"]["rpc_write_enabled"] is False
+    assert settings["ventuno"]["rpc_allowed_read_methods"] == []
+    assert settings["ventuno"]["rpc_allowed_write_methods"] == []
     assert settings["camera"]["default_index"] == 0
     assert settings["camera"]["capture_dir"] == "runtime/captures"
     assert settings["camera"]["video_dir"] == "runtime/video"
