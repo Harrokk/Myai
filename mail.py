@@ -28,6 +28,7 @@ MODEL = CORE.model
 DEVICE_REGISTRY = DeviceRegistry()
 VOICE_SESSION = None
 VOICE_HANDSFREE = None
+TERMINAL_HANDOFF = None
 
 
 def _create_voice_session():
@@ -187,6 +188,77 @@ def run_voice_once(session=None):
         active_session.stop()
 
 
+
+
+def _print_terminal_handoff_event(event):
+    from core.terminal_handoff import format_terminal_handoff_event
+
+    print()
+    print("[Terminal]")
+    print(format_terminal_handoff_event(event))
+    print()
+
+
+def _print_terminal_handoff_error(error):
+    print()
+    print("[Terminal]")
+    print(f"Fel i terminalhandoff: {error}")
+    print()
+
+
+def _create_terminal_handoff():
+    from core.terminal_connector_factory import build_terminal_handoff_monitor
+
+    return build_terminal_handoff_monitor(
+        SETTINGS,
+        on_event=_print_terminal_handoff_event,
+        on_error=_print_terminal_handoff_error,
+    )
+
+
+def get_terminal_handoff(factory=None):
+    global TERMINAL_HANDOFF
+
+    if TERMINAL_HANDOFF is None:
+        builder = factory or _create_terminal_handoff
+        TERMINAL_HANDOFF = builder()
+
+    return TERMINAL_HANDOFF
+
+
+def terminal_handoff_status_text():
+    config = SETTINGS.get("trusted_terminals", {})
+
+    if TERMINAL_HANDOFF is None:
+        return (
+            "Terminalhandoff: "
+            + ("konfigurerat men inte startat" if config.get("enabled", False) else "avstängt")
+            + " (ingen monitor skapad)."
+        )
+
+    status = TERMINAL_HANDOFF.status()
+    running = "aktiv" if status.get("running") else "stoppad"
+    return (
+        f"Terminalhandoff: {running} | "
+        f"auto_execute={status.get('auto_execute')} | "
+        f"intervall={status.get('scan_interval_seconds')} s | "
+        f"spårade={len(status.get('tracked_terminals', {}))}"
+    )
+
+
+def stop_terminal_handoff():
+    if TERMINAL_HANDOFF is None:
+        return False
+
+    was_running = bool(
+        TERMINAL_HANDOFF.is_running
+    )
+    stopped = bool(
+        TERMINAL_HANDOFF.stop()
+    )
+    return was_running and stopped
+
+
 def _print_hardware_changes(changes):
     text = format_hardware_changes(changes)
 
@@ -240,6 +312,13 @@ def main():
 
     if SETTINGS.get("hardware_watch", {}).get("enabled", True):
         HARDWARE_MONITOR.start()
+
+    if SETTINGS.get("trusted_terminals", {}).get("enabled", False):
+        try:
+            get_terminal_handoff().start()
+        except Exception as error:
+            print("Terminalhandoff kunde inte startas:")
+            print(error)
     print(f"Verktyg laddade: {len(TOOLS)}")
     print()
     print("==========================================")
@@ -269,6 +348,9 @@ def main():
     print("  /voice on      Starta kontinuerligt handsfree-läge")
     print("  /voice off     Stoppa kontinuerligt handsfree-läge")
     print("  /voice stop    Stoppa all pågående röstsession/TTS")
+    print("  /terminal      Visa terminalhandoff-status")
+    print("  /terminal on   Starta terminalhandoff")
+    print("  /terminal off  Stoppa terminalhandoff")
     print("  /exit          Avsluta")
     print()
 
@@ -279,6 +361,7 @@ def main():
         except KeyboardInterrupt:
             HARDWARE_MONITOR.stop()
             stop_voice_session()
+            stop_terminal_handoff()
             print()
             print("Avslutar.")
             break
@@ -289,6 +372,7 @@ def main():
         if user_input.lower() == "/exit":
             HARDWARE_MONITOR.stop()
             stop_voice_session()
+            stop_terminal_handoff()
             print("Avslutar.")
             break
 
@@ -435,6 +519,50 @@ def main():
             except Exception as error:
                 print("Röstsessionen kunde inte köras:")
                 print(error)
+
+            print()
+            continue
+
+        if user_input.lower() == "/terminal":
+            print(terminal_handoff_status_text())
+            print()
+            continue
+
+        if user_input.lower() == "/terminal on":
+            config = SETTINGS.get("trusted_terminals", {})
+
+            if not config.get("enabled", False):
+                print(
+                    "Terminalhandoff är avstängt i konfigurationen. "
+                    "Ingen Bluetooth-skanning startades."
+                )
+                print()
+                continue
+
+            try:
+                monitor = get_terminal_handoff()
+                started = monitor.start()
+
+                if started:
+                    print("Terminalhandoff startades.")
+                elif monitor.is_running:
+                    print("Terminalhandoff är redan aktivt.")
+                else:
+                    print("Terminalhandoff kunde inte startas.")
+            except Exception as error:
+                print("Terminalhandoff kunde inte startas:")
+                print(error)
+
+            print()
+            continue
+
+        if user_input.lower() == "/terminal off":
+            stopped = stop_terminal_handoff()
+
+            if stopped:
+                print("Terminalhandoff stoppades.")
+            else:
+                print("Terminalhandoff var inte aktivt.")
 
             print()
             continue
