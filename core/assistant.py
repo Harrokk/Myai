@@ -1,6 +1,6 @@
 from core.memory import MemoryStore
 from core.memory_policy import assess_memory_candidate
-from core.ollama_client import OllamaClient
+from core.llm_factory import build_llm_client
 from core.tool_manager import load_tools, run_tools, select_tools
 
 
@@ -8,8 +8,23 @@ class MyAICore:
     def __init__(self, settings, project_root, tools=None, memory=None, llm=None):
         self.settings = settings
 
+        self.llm_provider = (
+            settings.get("llm", {})
+            .get("provider", "ollama")
+            .strip()
+            .lower()
+        )
         self.ollama_url = settings["ollama"]["url"]
-        self.model = settings["ollama"]["model"]
+
+        provider_config = (
+            settings.get("geniex", {})
+            if self.llm_provider == "geniex"
+            else settings["ollama"]
+        )
+        configured_model = provider_config.get(
+            "model",
+            settings["ollama"]["model"],
+        )
 
         database_path = project_root / settings["memory"]["database"]
 
@@ -18,9 +33,21 @@ class MyAICore:
             max_search_results=settings["memory"]["max_search_results"],
         )
 
-        self.llm = llm or OllamaClient(
+        self.llm = llm or build_llm_client(settings)
+        self.llm_provider = getattr(
+            self.llm,
+            "provider_name",
+            self.llm_provider,
+        )
+        self.model = getattr(
+            self.llm,
+            "model",
+            configured_model,
+        )
+        self.llm_url = getattr(
+            self.llm,
+            "url",
             self.ollama_url,
-            self.model,
         )
 
         self.tools = tools if tools is not None else load_tools()
@@ -33,19 +60,30 @@ class MyAICore:
 
     def _build_system_profile(self):
         assistant = self.settings["assistant"]
+        provider_label = {
+            "ollama": "Ollama",
+            "geniex": "Qualcomm GenieX",
+        }.get(
+            self.llm_provider,
+            self.llm_provider,
+        )
+        current_platform = assistant.get(
+            "current_platform",
+            "Windows-dator",
+        )
 
         return f"""
 Du är MyAI, en lokal personlig AI-assistent.
 
 Din språkmodell är {self.model}.
-Du körs genom {assistant["engine"]}.
-Du kör för närvarande på en Windows-dator.
-Datorns GPU är {assistant["gpu"]}.
+Du körs genom {provider_label}.
+Du kör för närvarande på {current_platform}.
+Beräkningsprofil: {assistant["gpu"]}.
 
 Du har ett separat långtidsminne som hanteras av Python och SQLite.
 
-Användaren utvecklar denna AI på Windows och planerar senare
-att kunna flytta systemet till en {assistant["future_target"]}.
+Utvecklingsmiljön kan använda en annan LLM-provider än målhårdvaran.
+Planerad målhårdvara är {assistant["future_target"]}.
 
 Svara på svenska när användaren skriver svenska.
 Var saklig och tydlig.
