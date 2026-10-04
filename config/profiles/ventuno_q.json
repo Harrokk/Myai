@@ -1,0 +1,37 @@
+{
+  "llm": {
+    "provider": "geniex"
+  },
+  "geniex": {
+    "base_url": "http://127.0.0.1:18181/v1",
+    "model": "ai-hub-models/Qwen3-4B-Instruct-2507",
+    "api_key": "geniex",
+    "max_tokens": 256,
+    "temperature": 0.4,
+    "enable_think": false,
+    "stream_enabled": true
+  },
+  "assistant": {
+    "name": "MyAI v2",
+    "engine": "Qualcomm GenieX / QAIRT",
+    "gpu": "Qualcomm Dragonwing IQ-8275 / Hexagon NPU",
+    "memory_label": "SQLite",
+    "current_platform": "Arduino VENTUNO Q",
+    "future_target": "Arduino VENTUNO Q / Dragonwing IQ-8275"
+  },
+  "voice": {
+    "llm_streaming_enabled": true,
+    "stream_tts_min_chars": 24,
+    "stream_tts_max_chars": 220,
+    "stream_tts_stop_timeout_seconds": 2
+  },
+  "ventuno": {
+    "enabled": true,
+    "rpc_enabled": false,
+    "rpc_write_enabled": false,
+    "rpc_connect_timeout_seconds": 5,
+    "rpc_call_timeout_seconds": 5,
+    "rpc_allowed_read_methods": [],
+    "rpc_allowed_write_methods": []
+  }
+}
