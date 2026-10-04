@@ -113,6 +113,13 @@ TOOL_KEYWORDS = {
         "anslutna enheter",
         "inkopplade enheter",
     ],
+    "ventuno_mcu_status": [
+        "ventuno mcu",
+        "stm32 status",
+        "mcu status",
+        "stm32 diagnostik",
+        "mcu diagnostik",
+    ],
     "ventuno_rpc_status": [
         "ventuno rpc",
         "stm32 rpc",
