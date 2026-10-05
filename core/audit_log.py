@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -314,3 +315,168 @@ class AuditLogger:
             details=details,
             required=False,
         )
+
+
+
+def _rotated_paths(
+    path,
+    *,
+    backups,
+):
+    target = Path(
+        path
+    )
+    paths = [
+        target
+    ]
+
+    for index in range(
+        1,
+        max(
+            0,
+            int(
+                backups
+            ),
+        )
+        + 1,
+    ):
+        paths.append(
+            Path(
+                str(
+                    target
+                )
+                + f".{index}"
+            )
+        )
+
+    return paths
+
+
+def read_recent_audit(
+    path,
+    *,
+    limit=20,
+    backups=5,
+):
+    count = min(
+        50,
+        max(
+            1,
+            int(
+                limit
+            ),
+        ),
+    )
+    records = []
+    malformed_count = 0
+
+    for candidate in _rotated_paths(
+        path,
+        backups=backups,
+    ):
+        if len(
+            records
+        ) >= count:
+            break
+
+        try:
+            lines = candidate.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        except (
+            FileNotFoundError,
+            OSError,
+        ):
+            continue
+
+        for line in reversed(
+            lines
+        ):
+            if len(
+                records
+            ) >= count:
+                break
+
+            if not line.strip():
+                continue
+
+            try:
+                value = json.loads(
+                    line
+                )
+            except (
+                json.JSONDecodeError,
+                TypeError,
+            ):
+                malformed_count += 1
+                continue
+
+            if not isinstance(
+                value,
+                dict,
+            ):
+                malformed_count += 1
+                continue
+
+            records.append(
+                {
+                    "written_unix_time": value.get(
+                        "written_unix_time"
+                    ),
+                    "action": _compact(
+                        value.get(
+                            "action",
+                            "unknown",
+                        ),
+                        max_chars=96,
+                    ),
+                    "component": _compact(
+                        value.get(
+                            "component",
+                            "unknown",
+                        ),
+                        max_chars=96,
+                    ),
+                    "outcome": _compact(
+                        value.get(
+                            "outcome",
+                            "unknown",
+                        ),
+                        max_chars=32,
+                    ),
+                    "target": (
+                        _compact(
+                            value.get(
+                                "target"
+                            ),
+                            max_chars=240,
+                        )
+                        if value.get(
+                            "target"
+                        )
+                        else None
+                    ),
+                    "details": (
+                        value.get(
+                            "details"
+                        )
+                        if isinstance(
+                            value.get(
+                                "details"
+                            ),
+                            dict,
+                        )
+                        else {}
+                    ),
+                }
+            )
+
+    return {
+        "records": records,
+        "count": len(
+            records
+        ),
+        "malformed_count": (
+            malformed_count
+        ),
+    }
