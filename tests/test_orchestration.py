@@ -190,13 +190,13 @@ def test_planner_respects_local_capture_disable_flag():
         "cpu_status",
     )
 
-    plan = tool_manager.select_tool_plan(
+    plan = build_safe_orchestration_plan(
         (
             "Ta en bild och analysera bilden "
             "och visa CPU status"
         ),
-        available,
-        FailLLM(),
+        available_tools=available,
+        detect_function=tool_manager.detect_tools,
         settings=settings,
     )
 
