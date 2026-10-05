@@ -250,6 +250,26 @@ def detect_tools(user_input):
             "myai_recent_errors"
         ]
 
+    asks_ventuno_stability = any(
+        phrase in text
+        for phrase in (
+            "ventuno stabilitetsrapport",
+            "ventuno stabilitet",
+            "stabilitetsrapport",
+            "analysera stabilitetsloggen",
+            "analysera 72-timmarstestet",
+            "analysera 72 timmarstestet",
+            "72-timmarsrapport",
+            "72 timmars rapport",
+            "ventuno stability report",
+        )
+    )
+
+    if asks_ventuno_stability:
+        return [
+            "ventuno_stability_report"
+        ]
+
     mentions_xlsx = ".xlsx" in text
 
     if mentions_xlsx:

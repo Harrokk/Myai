@@ -621,3 +621,16 @@ def test_detect_tools_routes_recent_myai_errors():
     ) == [
         "myai_recent_errors"
     ]
+
+
+def test_detect_tools_routes_ventuno_stability_report():
+    assert tool_manager.detect_tools(
+        "Visa VENTUNO stabilitetsrapport."
+    ) == [
+        "ventuno_stability_report"
+    ]
+    assert tool_manager.detect_tools(
+        "Analysera 72-timmarstestet."
+    ) == [
+        "ventuno_stability_report"
+    ]
