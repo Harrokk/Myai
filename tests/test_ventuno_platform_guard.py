@@ -270,3 +270,21 @@ def test_reserved_router_uart_is_referenced_only_by_ventuno_guard_code():
                 )
 
     assert unexpected == []
+
+
+def test_ble_is_optional_not_a_base_runtime_dependency():
+    base = (
+        PROJECT_ROOT
+        / "requirements.txt"
+    ).read_text(
+        encoding="utf-8"
+    )
+    bluetooth = (
+        PROJECT_ROOT
+        / "requirements-bluetooth.txt"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert "bleak" not in base.lower()
+    assert "bleak==3.0.2" in bluetooth
