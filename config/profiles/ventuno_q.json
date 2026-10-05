@@ -89,5 +89,12 @@
     "heartbeat_path": "runtime/myai_runtime.json",
     "heartbeat_interval_seconds": 10,
     "shutdown_timeout_seconds": 10
+  },
+  "selfdev": {
+    "enabled": false,
+    "workspace_root": "runtime/selfdev",
+    "promotion_enabled": false,
+    "require_bubblewrap": true,
+    "verification_timeout_seconds": 300
   }
 }
