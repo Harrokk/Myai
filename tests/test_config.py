@@ -20,6 +20,8 @@ def test_load_settings_merges_partial_override(tmp_path):
     settings = load_settings(path)
 
     assert settings["llm"]["provider"] == "ollama"
+    assert settings["llm"]["fallback"]["enabled"] is False
+    assert settings["llm"]["fallback"]["model"] == ""
     assert settings["ollama"]["model"] == "test-model"
     assert settings["ollama"]["url"] == DEFAULT_SETTINGS["ollama"]["url"]
     assert settings["geniex"]["base_url"] == "http://127.0.0.1:18181/v1"
