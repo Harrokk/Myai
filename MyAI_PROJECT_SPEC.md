@@ -1699,6 +1699,36 @@ Verifiering:
 - Python-kompilering och full pytest-svit passerade
 - ingen fysisk VENTUNO-verifiering krävs eller påstås av detta read-only mjukvarulager
 
+
+### 21.11 Återupptaget arbete 2026-10-05 – analys av VENTUNO-stabilitetstest
+
+Första rekommenderade mjukvarusteget efter avsnitt 21.10 är nu implementerat: ett helt read-only analyslager för den senare 72-timmarskörningen.
+
+Implementerat:
+- `core.ventuno_stability.read_stability_records()` läser aktuell och roterad stabilitets-JSONL i kronologisk ordning utan att ändra filer
+- läsningen är minnesbegränsad genom `stability_analysis.max_records` och har ett absolut tak på 100000 poster
+- ogiltiga JSONL-rader räknas och ignoreras i stället för att krascha hela rapporten
+- `analyze_stability_records()` sammanställer lyckade/misslyckade iterationer, lyckandegrad, längsta felserie och observerat tidsomfång
+- latens rapporteras som p50, p95 och max för både first-token/first-chunk och total svarstid
+- backendfördelning och antal backendbyten sammanställs
+- CPU, RAM, disk och temperatur sammanställs från faktiskt loggade mätvärden utan att hitta på saknade värden
+- relativa trendmått jämför median i början och slutet av loggen; standardflagga för latensförsämring är 1.25× och kan justeras i konfiguration
+- `stability_analysis.target_hours=72` markerar endast om loggens observerade tidsomfång når målperioden; detta är inte ett hårdvarugodkännande
+- `scripts/ventuno_stability_report.py` kan skriva svensk text eller maskinläsbar JSON från befintlig logg
+- read-only verktyget `ventuno_stability_report` kan anropas med naturligt språk, exempelvis `Visa VENTUNO stabilitetsrapport`
+- rapporten saknar alla restart-, skriv-, STM32-, GPIO- och NPU-styråtgärder
+- rapportens `physical_hardware_approval` är uttryckligen `false`; fysisk acceptans ligger fortsatt separat i avsnitt 21.2
+- configvalidering blockerar ogiltig loggsökväg, record-gräns, målperiod, trendfönster och degraderingskvot
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `a28987d87789ff380fb35fbd207184c74cdd2c63`
+- GitHub Actions-run `37279410066` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker roterade loggar, truncering, trasiga loggrader, statistik, felserier, backendbyten, relativa trender, read-only-beteende, configgränser och språkroute
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller härletts från rapporten
+
+Nästa rekommenderade rena mjukvaruspår är minneslivscykel och konflikthantering enligt avsnitt 15.2–15.3, fortsatt utan beroende av fysisk VENTUNO-hårdvara.
+
 ---
 
 ## 22. Övergripande vision
