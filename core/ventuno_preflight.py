@@ -136,6 +136,8 @@ def run_ventuno_preflight(
     *,
     machine=None,
     system=None,
+    python_version=None,
+    board_model=None,
     which=None,
     path_exists=None,
     module_available=None,
@@ -182,6 +184,11 @@ def run_ventuno_preflight(
         if system is not None
         else platform.system()
     )
+    python_version = (
+        python_version
+        if python_version is not None
+        else platform.python_version()
+    )
 
     checks = []
     normalized_machine = str(
@@ -207,6 +214,77 @@ def run_ventuno_preflight(
             (
                 f"system={system}, "
                 f"machine={machine}"
+            ),
+        )
+    )
+
+    normalized_python = str(
+        python_version
+        or ""
+    )
+    checks.append(
+        _check(
+            "Python 3.12",
+            (
+                "PASS"
+                if normalized_python.startswith(
+                    "3.12"
+                )
+                else "WARN"
+            ),
+            (
+                f"python={normalized_python or 'okänd'}; "
+                "Arduino VENTUNO-exempel använder Python 3.12"
+            ),
+        )
+    )
+
+    if board_model is None:
+        try:
+            board_model = (
+                Path(
+                    "/proc/device-tree/model"
+                )
+                .read_text(
+                    encoding="utf-8"
+                )
+                .strip(
+                    "\x00\n "
+                )
+            )
+        except (
+            OSError,
+            UnicodeError,
+        ):
+            board_model = ""
+
+    normalized_board = str(
+        board_model
+        or ""
+    ).lower()
+    board_recognized = any(
+        marker in normalized_board
+        for marker in (
+            "ventuno",
+            "qcs8275",
+        )
+    )
+    checks.append(
+        _check(
+            "VENTUNO board identity",
+            (
+                "PASS"
+                if board_recognized
+                else "WARN"
+            ),
+            (
+                str(
+                    board_model
+                    or (
+                        "board identity kunde inte verifieras "
+                        "read-only; kontrollera fysisk VENTUNO Q"
+                    )
+                )
             ),
         )
     )
@@ -419,51 +497,74 @@ def run_ventuno_preflight(
             )
         )
 
+    ventuno = settings.get(
+        "ventuno",
+        {},
+    )
+    rpc_enabled = bool(
+        ventuno.get(
+            "rpc_enabled",
+            False,
+        )
+    )
     bridge_available = (
         module_available(
             "arduino.router_bridge"
         )
     )
-    checks.append(
-        _check(
-            "Arduino Router Bridge Python",
-            (
-                "PASS"
-                if bridge_available
-                else "WARN"
-            ),
-            (
-                "arduino.router_bridge kan importeras"
-                if bridge_available
-                else (
-                    "Valfritt beroende saknas; "
-                    "installera requirements-ventuno.txt."
-                )
-            ),
-        )
-    )
 
-    socket_present = path_exists(
-        DEFAULT_ROUTER_SOCKET
-    )
-    checks.append(
-        _check(
-            "Arduino Router Unix-socket",
-            (
-                "PASS"
-                if socket_present
-                else "WARN"
-            ),
-            str(
-                DEFAULT_ROUTER_SOCKET
-            ),
+    if rpc_enabled:
+        checks.append(
+            _check(
+                "Arduino Router Bridge Python",
+                (
+                    "PASS"
+                    if bridge_available
+                    else "FAIL"
+                ),
+                (
+                    "arduino.router_bridge kan importeras"
+                    if bridge_available
+                    else (
+                        "RPC är aktiverat men arduino.router_bridge "
+                        "saknas; installera requirements-ventuno.txt."
+                    )
+                ),
+            )
         )
-    )
 
-    ventuno = settings.get(
-        "ventuno",
-        {},
-    )
+        socket_present = path_exists(
+            DEFAULT_ROUTER_SOCKET
+        )
+        checks.append(
+            _check(
+                "Arduino Router Unix-socket",
+                (
+                    "PASS"
+                    if socket_present
+                    else "FAIL"
+                ),
+                str(
+                    DEFAULT_ROUTER_SOCKET
+                ),
+            )
+        )
+    else:
+        checks.append(
+            _check(
+                "Arduino Router Bridge Python",
+                "SKIP",
+                "VENTUNO RPC är avstängt.",
+            )
+        )
+        checks.append(
+            _check(
+                "Arduino Router Unix-socket",
+                "SKIP",
+                "VENTUNO RPC är avstängt.",
+            )
+        )
+
     write_enabled = bool(
         ventuno.get(
             "rpc_write_enabled",
@@ -488,6 +589,166 @@ def run_ventuno_preflight(
             ),
         )
     )
+
+    feature_dependencies = []
+
+    camera = settings.get(
+        "camera",
+        {},
+    )
+    if camera.get(
+        "enabled",
+        True,
+    ):
+        feature_dependencies.append(
+            (
+                "VENTUNO camera dependency",
+                "cv2",
+                "camera.enabled=true kräver OpenCV.",
+            )
+        )
+
+    voice = settings.get(
+        "voice",
+        {},
+    )
+    if voice.get(
+        "enabled",
+        False,
+    ):
+        feature_dependencies.extend(
+            [
+                (
+                    "VENTUNO microphone dependency",
+                    "sounddevice",
+                    "voice.enabled=true kräver sounddevice.",
+                ),
+                (
+                    "VENTUNO VAD dependency",
+                    "webrtcvad",
+                    "voice.enabled=true kräver webrtcvad.",
+                ),
+                (
+                    "VENTUNO STT dependency",
+                    "faster_whisper",
+                    "voice.enabled=true kräver faster-whisper "
+                    "tills verifierad Qualcomm-provider finns.",
+                ),
+            ]
+        )
+
+        if voice.get(
+            "tts_enabled",
+            False,
+        ):
+            feature_dependencies.append(
+                (
+                    "VENTUNO TTS dependency",
+                    "pyttsx3",
+                    "voice.tts_enabled=true kräver pyttsx3 "
+                    "för nuvarande fallback-provider.",
+                )
+            )
+
+    location = settings.get(
+        "location",
+        {},
+    )
+    if location.get(
+        "enabled",
+        False,
+    ):
+        feature_dependencies.append(
+            (
+                "VENTUNO GPS dependency",
+                "serial",
+                "location.enabled=true kräver pyserial.",
+            )
+        )
+
+    terminals = settings.get(
+        "trusted_terminals",
+        {},
+    )
+    if (
+        terminals.get(
+            "enabled",
+            False,
+        )
+        and str(
+            terminals.get(
+                "connector_provider",
+                "",
+            )
+        ).strip().lower()
+        == "bleak_gatt"
+    ):
+        feature_dependencies.append(
+            (
+                "VENTUNO Bluetooth dependency",
+                "bleak",
+                "bleak_gatt kräver bleak.",
+            )
+        )
+
+    for name, module_name, details in feature_dependencies:
+        checks.append(
+            _check(
+                name,
+                (
+                    "PASS"
+                    if module_available(
+                        module_name
+                    )
+                    else "FAIL"
+                ),
+                (
+                    f"{module_name} kan importeras"
+                    if module_available(
+                        module_name
+                    )
+                    else details
+                ),
+            )
+        )
+
+    hardware_watch = settings.get(
+        "hardware_watch",
+        {},
+    )
+    if hardware_watch.get(
+        "enabled",
+        False,
+    ):
+        commands = {
+            name: bool(
+                which(
+                    name
+                )
+            )
+            for name in (
+                "lsusb",
+                "lspci",
+            )
+        }
+        checks.append(
+            _check(
+                "VENTUNO hardware inventory tools",
+                (
+                    "PASS"
+                    if any(
+                        commands.values()
+                    )
+                    else "WARN"
+                ),
+                (
+                    " ".join(
+                        f"{name}={'ja' if present else 'nej'}"
+                        for name, present in commands.items()
+                    )
+                ),
+            )
+        )
 
     vision = settings.get(
         "vision",
@@ -652,6 +913,13 @@ def run_ventuno_preflight(
         "platform": {
             "system": str(system),
             "machine": str(machine),
+            "python": str(
+                python_version
+            ),
+            "board_model": str(
+                board_model
+                or ""
+            ),
         },
         "checks": checks,
         "passed": not failures,
