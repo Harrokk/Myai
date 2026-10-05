@@ -34,6 +34,12 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["geniex_supervisor"]["restart_enabled"] is False
     assert settings["geniex_supervisor"]["restart_command"] == []
     assert settings["geniex_supervisor"]["failure_threshold"] == 3
+    assert settings["geniex_supervisor"]["state_path"] == (
+        "runtime/geniex_health.json"
+    )
+    assert settings["geniex_supervisor"]["state_stale_seconds"] == 30.0
+    assert settings["health"]["state_path"] == "runtime/myai_health.json"
+    assert settings["health"]["state_stale_seconds"] == 60.0
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
     assert settings["assistant"]["future_target"] == (
         "Arduino VENTUNO Q / Dragonwing IQ-8275"
