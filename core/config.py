@@ -54,6 +54,13 @@ DEFAULT_SETTINGS = {
         "jsonl_max_bytes": 5_000_000,
         "jsonl_backups": 5,
     },
+    "selfdev": {
+        "enabled": False,
+        "workspace_root": "runtime/selfdev",
+        "promotion_enabled": False,
+        "require_bubblewrap": True,
+        "verification_timeout_seconds": 300.0,
+    },
     "vision": {
         "enabled": False,
         "provider": "ollama",
