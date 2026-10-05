@@ -521,7 +521,7 @@ def test_snapshot_mutating_hardware_changes_is_not_orchestration_safe():
     ):
         result = []
 
-        if "hårdvara" in text.lower():
+        if "hårdvar" in text.lower():
             result.append(
                 "hardware_changes"
             )
