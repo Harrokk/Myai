@@ -65,6 +65,7 @@ DEFAULT_SETTINGS = {
         "require_for_writes": True,
         "path": "runtime/audit.jsonl",
         "max_detail_chars": 200,
+        "recent_limit": 20,
     },
     "stability_analysis": {
         "log_path": "runtime/ventuno_stability.jsonl",
