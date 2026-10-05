@@ -1,5 +1,9 @@
 from pathlib import Path
 
+from core.audit_log import (
+    AuditLogger,
+    audit_outcome_for_exception,
+)
 from core.error_log import ErrorLogger
 from core.memory import MemoryStore
 from core.memory_lifecycle import apply_memory_lifecycle
@@ -18,6 +22,10 @@ class MyAICore:
         self.settings = settings
         self.project_root = project_root
         self.error_logger = ErrorLogger(
+            settings,
+            project_root,
+        )
+        self.audit_logger = AuditLogger(
             settings,
             project_root,
         )
@@ -185,6 +193,198 @@ Svara kort och tydligt på svenska.
             if item.get("role") == "user"
         ]
 
+    def _queue_memory_review(
+        self,
+        decision,
+    ):
+        enqueue = getattr(
+            self.memory,
+            "enqueue_review",
+            None,
+        )
+
+        if not callable(
+            enqueue
+        ):
+            decision[
+                "review_queued"
+            ] = False
+            return decision
+
+        config = self.settings.get(
+            "memory",
+            {},
+        )
+
+        if not config.get(
+            "review_queue_enabled",
+            True,
+        ):
+            decision[
+                "review_queued"
+            ] = False
+            return decision
+
+        conflicts = [
+            item.get(
+                "id"
+            )
+            for item in (
+                decision.get(
+                    "conflicts",
+                    [],
+                )
+                or []
+            )
+            if isinstance(
+                item,
+                dict,
+            )
+            and item.get(
+                "id"
+            ) is not None
+        ]
+        reason_parts = [
+            str(
+                item
+            ).strip()
+            for item in (
+                decision.get(
+                    "reasons",
+                    [],
+                )
+                or []
+            )
+            if str(
+                item
+            ).strip()
+        ]
+
+        lifecycle_action = str(
+            decision.get(
+                "lifecycle_action",
+                ""
+            )
+            or ""
+        ).strip()
+
+        if lifecycle_action:
+            reason_parts.append(
+                (
+                    "lifecycle_action="
+                    + lifecycle_action
+                )
+            )
+
+        try:
+            self.audit_logger.write_attempt(
+                action="memory_review_enqueue",
+                component="memory",
+                target=(
+                    "memory_review/pending"
+                ),
+                details={
+                    "category": decision.get(
+                        "category",
+                        "other",
+                    ),
+                    "conflict_count": len(
+                        conflicts
+                    ),
+                },
+            )
+        except Exception as error:
+            decision[
+                "review_queued"
+            ] = False
+            decision[
+                "review_queue_error"
+            ] = str(
+                error
+            )
+            return decision
+
+        try:
+            result = enqueue(
+                decision.get(
+                    "category",
+                    "other",
+                ),
+                decision.get(
+                    "content",
+                    "",
+                ),
+                reason="; ".join(
+                    reason_parts
+                ),
+                conflict_ids=conflicts,
+            )
+        except Exception as error:
+            self.audit_logger.write_result(
+                action="memory_review_enqueue",
+                component="memory",
+                outcome=(
+                    audit_outcome_for_exception(
+                        error
+                    )
+                ),
+                target="memory_review/pending",
+                details={
+                    "error_type": type(
+                        error
+                    ).__name__,
+                },
+            )
+            decision[
+                "review_queued"
+            ] = False
+            decision[
+                "review_queue_error"
+            ] = str(
+                error
+            )
+            return decision
+
+        decision[
+            "review_queued"
+        ] = True
+        decision[
+            "review_id"
+        ] = result.get(
+            "review_id"
+        )
+        decision[
+            "review_created"
+        ] = bool(
+            result.get(
+                "created"
+            )
+        )
+        self.audit_logger.write_result(
+            action="memory_review_enqueue",
+            component="memory",
+            outcome="success",
+            target=(
+                "memory_review/"
+                + str(
+                    result.get(
+                        "review_id"
+                    )
+                )
+            ),
+            details={
+                "created": bool(
+                    result.get(
+                        "created"
+                    )
+                ),
+                "conflict_count": len(
+                    conflicts
+                ),
+            },
+        )
+        return decision
+
     def _consider_long_term_memory(self, user_message):
         config = self.settings.get("memory", {})
 
@@ -215,14 +415,113 @@ Svara kort och tydligt på svenska.
             and not decision.get("sensitive")
             and decision.get("content")
         ):
-            lifecycle = apply_memory_lifecycle(
-                self.memory,
-                decision,
-                original_text=user_message,
-                settings=self.settings,
-            )
+            try:
+                self.audit_logger.write_attempt(
+                    action="memory_auto_store",
+                    component="memory",
+                    target=(
+                        "memory/"
+                        + str(
+                            decision.get(
+                                "category",
+                                "other",
+                            )
+                        )
+                    ),
+                    details={
+                        "category": decision.get(
+                            "category",
+                            "other",
+                        ),
+                    },
+                )
+            except Exception as error:
+                decision[
+                    "saved"
+                ] = False
+                decision[
+                    "lifecycle_action"
+                ] = "audit_blocked"
+                decision[
+                    "audit_error"
+                ] = str(
+                    error
+                )
+                return decision
+
+            try:
+                lifecycle = apply_memory_lifecycle(
+                    self.memory,
+                    decision,
+                    original_text=user_message,
+                    settings=self.settings,
+                )
+            except Exception as error:
+                self.audit_logger.write_result(
+                    action="memory_auto_store",
+                    component="memory",
+                    outcome=(
+                        audit_outcome_for_exception(
+                            error
+                        )
+                    ),
+                    target=(
+                        "memory/"
+                        + str(
+                            decision.get(
+                                "category",
+                                "other",
+                            )
+                        )
+                    ),
+                    details={
+                        "error_type": type(
+                            error
+                        ).__name__,
+                    },
+                )
+                decision[
+                    "saved"
+                ] = False
+                decision[
+                    "lifecycle_action"
+                ] = "failed"
+                decision[
+                    "memory_error"
+                ] = str(
+                    error
+                )
+                return decision
+
             decision.update(
                 lifecycle
+            )
+            self.audit_logger.write_result(
+                action="memory_auto_store",
+                component="memory",
+                outcome="success",
+                target=(
+                    "memory/"
+                    + str(
+                        decision.get(
+                            "category",
+                            "other",
+                        )
+                    )
+                ),
+                details={
+                    "saved": bool(
+                        lifecycle.get(
+                            "saved"
+                        )
+                    ),
+                    "lifecycle_action": (
+                        lifecycle.get(
+                            "lifecycle_action",
+                            ""
+                        )
+                    ),
+                },
             )
 
             if lifecycle.get(
@@ -232,6 +531,23 @@ Svara kort och tydligt på svenska.
                 decision[
                     "action"
                 ] = "review"
+
+        if (
+            decision.get(
+                "action"
+            )
+            == "review"
+            and not decision.get(
+                "sensitive",
+                False,
+            )
+            and decision.get(
+                "content"
+            )
+        ):
+            self._queue_memory_review(
+                decision
+            )
 
         return decision
 
