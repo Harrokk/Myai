@@ -776,7 +776,7 @@ För att en kandidat ska kunna rankas som ett praktiskt köpalternativ krävs so
 - tillräckligt verifierad lagerstatus
 - källtillförlitlighet, informationskonfidens och relevans över researchmotorns trösklar
 
-Kärnan gör **ingen tyst valutakonvertering**. Om ett pris endast finns i annan valuta diskvalificeras det tills en framtida växelkursprovider har omvandlat och verifierat beloppet.
+Kärnan gör **ingen tyst valutakonvertering**. Om ett pris endast finns i annan valuta diskvalificeras det om inte shoppingorkestreringen först har omvandlat relevanta belopp med en verifierad växelkurs enligt avsnitt 13.8.
 
 Ett totalpris skapas endast när produktpris, frakt, moms och kända extra avgifter är tillräckligt verifierbara. Kandidater med okänd moms, okänd frakt eller oklara extra avgifter får därför inte ett låtsat komplett totalpris.
 
@@ -811,8 +811,9 @@ Följande får extraheras när sidan anger det uttryckligt:
 - leveranstid i dagar
 
 Säkerhets-/kvalitetsregler:
-- ingen valutakonvertering görs i detta lager
-- pris i annan valuta blir inte automatiskt SEK
+- ingen uppskattad eller tyst valutakonvertering görs
+- pris i annan valuta blir endast SEK efter verifierad FX-quote enligt avsnitt 13.8
+- om verifierad FX saknas förblir erbjudandet i originalvaluta och diskvalificeras från SEK-rankningen
 - saknad frakt, momsstatus, extra avgifter, Sverigeleverans eller lagerstatus gissas inte
 - en ohämtbar säljsida får inga påhittade värden och diskvalificeras
 - källtillförlitlighet bygger på sidans transparenssignaler, medan informationskonfidens bygger på hur många relevanta erbjudandefakta som faktiskt kunde verifieras
@@ -822,6 +823,52 @@ Säkerhets-/kvalitetsregler:
 Naturliga fraser som `Jämför pris på ...`, `Prisjämför ...` och `Hitta billigaste ...` routas till detta verktyg.
 
 Tester täcker komplett svensk säljsida, fem kandidater → topp tre, saknad frakt, annan valuta, ohämtbar sida, konservativ formattering och språkroute.
+
+### 13.8 Teknisk status för verifierad växelkurs till SEK
+
+På utvecklingsgren finns nu ett separat FX-lager i `modules/internet/fx.py`.
+
+Första providern är Europeiska centralbankens euroreferenskurser. Providerkonfigurationen är fail-closed:
+- `fx.enabled=false` som standard
+- `fx.provider="ecb"`
+- ECB-feed måste använda HTTPS
+- slutlig URL efter fetch/redirect måste ligga på `ecb.europa.eu`
+- målvalutan för shopping är `SEK`
+- `fx.max_age_days=7`
+- aktiverad FX kräver även `internet.enabled=true`
+
+ECB-feedens valutakurser tolkas som antal valutaenheter per EUR. Cross-rate till SEK beräknas därför genom de två publicerade EUR-referenskurserna; ingen kurs är hårdkodad.
+
+En quote blir `verified=true` endast när:
+- källa/provider är tillåten
+- XML kan parsas
+- referensdatum finns och inte ligger i framtiden
+- referensdatum inte är äldre än konfigurerad maxålder
+- både källvalutan och målvalutan finns med positiva kurser
+- valutakoder och kursvärden är giltiga
+
+Quoten innehåller bland annat:
+- provider
+- valutapar
+- beräknad cross-rate
+- referensdatum
+- ålder i dagar
+- slutlig käll-URL
+- underliggande source/target rate per EUR
+
+`convert_verified_amount()` vägrar konvertering om quote saknas, inte är tillgänglig eller inte är verifierad.
+
+ECB-referenskurserna behandlas som informations-/referensdata och inte som den faktiska transaktionskurs en bank, kortutgivare eller betalningsleverantör kommer att använda.
+
+Shoppingintegrationen:
+- bevarar originalvaluta och originalbelopp
+- kan extrahera explicit frakt-/momsbelopp även i EUR, USD och GBP utöver SEK
+- hämtar högst en quote per källvaluta inom samma prisjämförelse och återanvänder den
+- fyller SEK-fälten först efter verifierad konvertering
+- behåller erbjudandet i originalvaluta och bortsorterar det om FX saknas eller är ogiltig
+- gör inga köp och skickar inga betalningsinstruktioner
+
+Tester täcker ECB XML-parsning, EUR/SEK och USD/SEK-cross-rate, framtida/stale referensdatum, fel host efter redirect, saknad valuta, avstängd FX, identity-pair, blockerad overifierad konvertering samt shoppingintegration och quote-cache.
 
 ### 13.6 Teknisk status för webbsökning via SearXNG
 
@@ -2085,6 +2132,34 @@ Viktigt:
 - shoppinglagret gör fortfarande inga köp eller beställningar
 - befintlig prisjämförelsekärna ska fortsatt diskvalificera icke-SEK när verifierad konvertering saknas
 - inga antaganden om Qualcomm/GenieX/App Lab/STM32 ska införas i detta arbete
+
+
+### 21.20 Fortsatt hårdvaruoberoende arbete 2026-10-05 – verifierad ECB FX till SEK
+
+Arbetet efter checkpoint 21.19 fortsatte endast i det hårdvaruoberoende shopping-/internetlagret.
+
+Implementerat:
+- nytt `modules/internet/fx.py`
+- ECB som första verifierbara, nyckelfria referensrate-provider
+- strikt HTTPS-/host-pinning till ECB
+- parser för ECB:s dagliga XML-feed
+- verifiering av referensdatum och konfigurerbar maxålder
+- cross-rate via EUR för valutor som finns i samma feed
+- `convert_verified_amount()` kräver uttryckligen verifierad quote
+- `fx.enabled=false` som default; aktivering kräver internet
+- fail-closed configvalidering för provider, målvaluta, URL/host och maxålder
+- shopping bevarar originalvaluta/originalbelopp och konverterar endast när verifierad quote finns
+- samma FX-quote återanvänds för samma valuta inom ett shoppinganrop
+- om FX saknas eller är stale förblir icke-SEK-erbjudandet ej rankningsbart
+- inga transaktionskurser, bankpåslag, kortavgifter eller betalningsresultat antas
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `8ab4e923f2917b736320abd08357593b570fb68e`
+- GitHub Actions-run `37311026210` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av FX-lagret
+
+Nästa hårdvaruoberoende förbättring bör väljas efter ny genomgång av project_spec; VENTUNO-specifika steg ligger fortsatt kvar bakom fysisk verifiering enligt avsnitt 21.2.
 
 ---
 
