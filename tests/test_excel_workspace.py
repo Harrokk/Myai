@@ -671,7 +671,8 @@ def test_excel_write_disabled_is_audited_as_denied(
     )
 
     result = excel.excel_create(
-        'Skapa Excel-filen "budget.xlsx" med kolumner A, B'
+        'Skapa Excel-filen "budget.xlsx" med kolumner '
+        'A, B och rader test, 1'
     )
 
     assert "avstängd" in result
