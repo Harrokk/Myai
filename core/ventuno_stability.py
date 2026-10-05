@@ -1,8 +1,9 @@
-import json
 from pathlib import Path
 import time
 
 import psutil
+
+from core.jsonl_log import append_jsonl
 
 
 def _temperature_snapshot():
@@ -241,6 +242,8 @@ class VentunoStabilityLogger:
         *,
         clock=None,
         wall_clock=None,
+        max_bytes=5_000_000,
+        backups=5,
     ):
         self.path = Path(path)
         self.clock = (
@@ -255,6 +258,18 @@ class VentunoStabilityLogger:
             self.clock()
         )
         self.sequence = 0
+        self.max_bytes = max(
+            0,
+            int(
+                max_bytes
+            ),
+        )
+        self.backups = max(
+            0,
+            int(
+                backups
+            ),
+        )
 
     def append(
         self,
@@ -284,25 +299,11 @@ class VentunoStabilityLogger:
             ),
         }
 
-        self.path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
+        append_jsonl(
+            self.path,
+            record,
+            max_bytes=self.max_bytes,
+            backups=self.backups,
         )
-
-        with self.path.open(
-            "a",
-            encoding="utf-8",
-        ) as handle:
-            handle.write(
-                json.dumps(
-                    record,
-                    ensure_ascii=False,
-                    separators=(
-                        ",",
-                        ":",
-                    ),
-                )
-                + "\n"
-            )
 
         return record
