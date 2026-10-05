@@ -367,6 +367,7 @@ def read_stability_records(
     )
     records = []
     malformed_count = 0
+    total_valid = 0
     source_files = []
 
     for candidate in _rotated_stability_paths(
@@ -412,6 +413,7 @@ def read_stability_records(
                     malformed_count += 1
                     continue
 
+                total_valid += 1
                 records.append(
                     value
                 )
@@ -422,60 +424,6 @@ def read_stability_records(
                     records.pop(
                         0
                     )
-
-    truncated = False
-
-    if records:
-        valid_seen = len(
-            records
-        )
-        # If the retained list exactly reached the cap we cannot infer
-        # truncation without tracking all valid rows, so count them explicitly
-        # during a second lightweight condition below.
-        total_valid = 0
-
-        for candidate in _rotated_stability_paths(
-            path,
-            backups=backups,
-        ):
-            try:
-                with candidate.open(
-                    "r",
-                    encoding="utf-8",
-                ) as handle:
-                    for line in handle:
-                        if not line.strip():
-                            continue
-                        try:
-                            value = json.loads(
-                                line
-                            )
-                        except (
-                            json.JSONDecodeError,
-                            TypeError,
-                        ):
-                            continue
-                        if isinstance(
-                            value,
-                            dict,
-                        ):
-                            total_valid += 1
-                            if total_valid > limit:
-                                truncated = True
-                                break
-            except (
-                FileNotFoundError,
-                OSError,
-            ):
-                continue
-
-            if truncated:
-                break
-
-        if not truncated:
-            total_valid = valid_seen
-    else:
-        total_valid = 0
 
     return {
         "records": records,
@@ -489,11 +437,13 @@ def read_stability_records(
             malformed_count
         ),
         "truncated": bool(
-            truncated
+            total_valid
+            > len(
+                records
+            )
         ),
         "source_files": source_files,
     }
-
 
 def _numeric(
     value,
