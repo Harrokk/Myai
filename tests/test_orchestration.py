@@ -639,3 +639,32 @@ def test_public_plan_exposes_deferred_dependency_without_raw_input():
     assert "researcha det du ser" not in str(
         result
     )
+
+
+def test_dependent_visual_research_without_current_source_is_blocked():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    available = {
+        "research_top_three": {
+            "function": lambda query: query,
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        "Researcha det du ser.",
+        available,
+        FailLLM(),
+        settings=settings,
+    )
+
+    assert plan[
+        "source"
+    ] == (
+        "dependent_visual_research_requires_intermediate"
+    )
+    assert plan[
+        "steps"
+    ] == []
