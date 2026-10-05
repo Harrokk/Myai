@@ -16,8 +16,6 @@ _REQUIRED_FIELDS = (
     ("geniex", "version"),
     ("packages", "requests"),
     ("packages", "psutil"),
-    ("packages", "bleak"),
-    ("packages", "arduino-router-bridge"),
     ("files", "requirements.txt", "sha256"),
     ("files", "requirements-ventuno.txt", "sha256"),
     ("files", "requirements-camera.txt", "sha256"),
@@ -229,6 +227,7 @@ def collect_ventuno_stack(
     requirement_files = (
         "requirements.txt",
         "requirements-ventuno.txt",
+        "requirements-bluetooth.txt",
         "requirements-camera.txt",
         "requirements-voice.txt",
         "requirements-gps.txt",
