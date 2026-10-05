@@ -36,34 +36,23 @@ def migrate_config_document(
     if raw_version is None:
         source_version = 0
     else:
-        if isinstance(
-            raw_version,
-            bool,
+        if (
+            isinstance(
+                raw_version,
+                bool,
+            )
+            or not isinstance(
+                raw_version,
+                int,
+            )
         ):
             raise ValueError(
                 "schema_version måste vara ett heltal."
             )
 
-        try:
-            source_version = int(
-                raw_version
-            )
-        except (
-            TypeError,
-            ValueError,
-        ) as error:
-            raise ValueError(
-                "schema_version måste vara ett heltal."
-            ) from error
-
-        if str(
+        source_version = int(
             raw_version
-        ).strip() != str(
-            source_version
-        ):
-            raise ValueError(
-                "schema_version måste vara ett heltal."
-            )
+        )
 
     if source_version < 0:
         raise ValueError(
