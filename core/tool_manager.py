@@ -153,7 +153,7 @@ TOOL_KEYWORDS = {
 }
 
 
-def load_tools():
+def load_tools(error_logger=None):
     """Ladda alla TOOLS-register från moduler under paketet modules."""
     tools = {}
 
@@ -171,6 +171,13 @@ def load_tools():
                 tools.update(module_tools)
 
         except Exception as error:
+            if error_logger is not None:
+                error_logger.log_exception(
+                    "module_load_error",
+                    module_name,
+                    error,
+                )
+
             print(
                 f"Varning: kunde inte ladda modulen "
                 f"{module_name}: {error}"
@@ -844,7 +851,12 @@ def select_tools(user_input, tools, llm_client):
     ]
 
 
-def run_tools(tool_names, tools, user_input=None):
+def run_tools(
+    tool_names,
+    tools,
+    user_input=None,
+    error_logger=None,
+):
     """Kör flera verktyg och samla varje resultat separat."""
     results = {}
 
@@ -866,6 +878,13 @@ def run_tools(tool_names, tools, user_input=None):
             else:
                 results[tool_name] = tool_function()
         except Exception as error:
+            if error_logger is not None:
+                error_logger.log_exception(
+                    "tool_error",
+                    tool_name,
+                    error,
+                )
+
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
             )
