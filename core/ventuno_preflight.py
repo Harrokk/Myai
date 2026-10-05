@@ -1,5 +1,6 @@
 import importlib.util
 import platform
+import subprocess
 from pathlib import Path
 import shutil
 from urllib.parse import urlparse
@@ -53,6 +54,72 @@ def _is_loopback_http(url):
     )
 
 
+def _default_command_runner(command):
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+
+def _command_text(result):
+    stdout = str(
+        getattr(
+            result,
+            "stdout",
+            "",
+        )
+        or ""
+    ).strip()
+    stderr = str(
+        getattr(
+            result,
+            "stderr",
+            "",
+        )
+        or ""
+    ).strip()
+
+    return (
+        stdout
+        if stdout
+        else stderr
+    )
+
+
+def _model_list_contains(
+    output,
+    configured_model,
+):
+    text = str(
+        output
+        or ""
+    ).lower()
+    model = str(
+        configured_model
+        or ""
+    ).strip().lower()
+
+    if not text or not model:
+        return False
+
+    candidates = {
+        model,
+        model.removeprefix(
+            "ai-hub-models/"
+        ),
+        model.split("/")[-1],
+    }
+
+    return any(
+        candidate
+        and candidate in text
+        for candidate in candidates
+    )
+
+
 def run_ventuno_preflight(
     settings,
     *,
@@ -61,6 +128,7 @@ def run_ventuno_preflight(
     which=None,
     path_exists=None,
     module_available=None,
+    command_runner=None,
 ):
     """Read-only checks. Does not connect to STM32 and does not run inference."""
 
@@ -72,6 +140,10 @@ def run_ventuno_preflight(
     module_available = (
         module_available
         or _module_available
+    )
+    command_runner = (
+        command_runner
+        or _default_command_runner
     )
     machine = (
         machine
@@ -196,6 +268,129 @@ def run_ventuno_preflight(
             ),
         )
     )
+
+    if geniex_path:
+        try:
+            version_result = command_runner(
+                [
+                    str(geniex_path),
+                    "--version",
+                ]
+            )
+            version_text = _command_text(
+                version_result
+            )
+            version_ok = (
+                getattr(
+                    version_result,
+                    "returncode",
+                    1,
+                )
+                == 0
+                and bool(version_text)
+            )
+            checks.append(
+                _check(
+                    "GenieX version",
+                    (
+                        "PASS"
+                        if version_ok
+                        else "WARN"
+                    ),
+                    (
+                        version_text
+                        or "version kunde inte läsas"
+                    ),
+                )
+            )
+        except Exception as error:
+            checks.append(
+                _check(
+                    "GenieX version",
+                    "WARN",
+                    f"versionskontroll misslyckades: {error}",
+                )
+            )
+
+        try:
+            model_result = command_runner(
+                [
+                    str(geniex_path),
+                    "model",
+                    "list",
+                ]
+            )
+            model_output = _command_text(
+                model_result
+            )
+            model_command_ok = (
+                getattr(
+                    model_result,
+                    "returncode",
+                    1,
+                )
+                == 0
+            )
+
+            if model_command_ok:
+                compatible = (
+                    _model_list_contains(
+                        model_output,
+                        model,
+                    )
+                )
+                checks.append(
+                    _check(
+                        "GenieX chipset-modell",
+                        (
+                            "PASS"
+                            if compatible
+                            else "FAIL"
+                        ),
+                        (
+                            model
+                            if compatible
+                            else (
+                                f"{model or 'saknas'} hittades inte "
+                                "i geniex model list"
+                            )
+                        ),
+                    )
+                )
+            else:
+                checks.append(
+                    _check(
+                        "GenieX chipset-modell",
+                        "WARN",
+                        (
+                            model_output
+                            or "geniex model list misslyckades"
+                        ),
+                    )
+                )
+        except Exception as error:
+            checks.append(
+                _check(
+                    "GenieX chipset-modell",
+                    "WARN",
+                    f"modellistan kunde inte läsas: {error}",
+                )
+            )
+    else:
+        checks.append(
+            _check(
+                "GenieX version",
+                "SKIP",
+                "CLI saknas",
+            )
+        )
+        checks.append(
+            _check(
+                "GenieX chipset-modell",
+                "SKIP",
+                "CLI saknas",
+            )
+        )
 
     bridge_available = (
         module_available(
