@@ -61,6 +61,12 @@ def test_load_settings_merges_partial_override(tmp_path):
         "Arduino VENTUNO Q / Dragonwing IQ-8275"
     )
     assert settings["conversation"]["max_turns"] == 6
+    assert settings["runtime"]["require_preflight"] is False
+    assert settings["runtime"]["heartbeat_path"] == (
+        "runtime/myai_runtime.json"
+    )
+    assert settings["runtime"]["heartbeat_interval_seconds"] == 10.0
+    assert settings["runtime"]["shutdown_timeout_seconds"] == 10.0
     assert settings["hardware_watch"]["enabled"] is True
     assert settings["hardware_watch"]["interval_seconds"] == 10
     assert settings["trusted_terminals"]["enabled"] is False
