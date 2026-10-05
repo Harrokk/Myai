@@ -3,6 +3,9 @@ import pkgutil
 
 import modules
 
+from core.intermediate_results import (
+    dependent_visual_research,
+)
 from core.orchestration import (
     build_safe_orchestration_plan,
     is_orchestration_safe_tool,
@@ -1099,6 +1102,21 @@ def select_tool_plan(
             False,
         ):
             return planned
+
+        if dependent_visual_research(
+            user_input
+        ):
+            return {
+                "enabled": True,
+                "orchestrated": False,
+                "source": (
+                    "dependent_visual_research_requires_intermediate"
+                ),
+                "steps": [],
+                "deferred_steps": [],
+                "blocked_tools": [],
+                "truncated": False,
+            }
 
     if direct:
         return _direct_plan(
