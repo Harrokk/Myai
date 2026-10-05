@@ -295,3 +295,39 @@ Visa MyAI status.
 These route only to the read-only `myai_health_status` tool.
 
 There is still no natural-language tool for restarting GenieX or writing to STM32/GPIO.
+
+
+## Health-aware backend recovery
+
+MyAI now has a watchdog-driven routing policy for the optional local LLM fallback.
+
+The VENTUNO profile prepares:
+
+```json
+{
+  "failure_threshold": 3,
+  "recovery_success_threshold": 3
+}
+```
+
+The policy uses `runtime/geniex_health.json` and applies hysteresis:
+
+1. while the primary backend is healthy, requests stay on the primary model
+2. after the configured number of consecutive unhealthy GenieX checks, routing can move directly to the fallback model without first waiting for another primary request to fail
+3. once fallback is active, it remains active while recovery is incomplete
+4. returning to the primary model requires the configured number of consecutive successful watchdog checks
+5. the recovery streak must come from watchdog snapshots written after fallback activation; historical successes cannot immediately restore the primary backend
+6. missing or stale watchdog state never forces a backend switch
+7. with health-aware routing disabled, transient fallback behavior remains backward compatible: the next request retries the primary model
+
+The routing layer records a human-readable `routing_reason` and exposes the current failure/success streak through MyAI health metadata.
+
+Important: the VENTUNO profile still has `llm.fallback.enabled=false` and no reserve model configured. Therefore health-aware routing is prepared but cannot switch models until a physical-board-compatible reserve model is selected and explicitly enabled.
+
+Health-aware recovery does not grant:
+- GenieX restart authority
+- shell execution
+- STM32 writes
+- GPIO/motor control
+
+Service restart remains a separate supervisor policy and is still disabled.
