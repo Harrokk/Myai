@@ -162,9 +162,9 @@ class HealthAwareBackendPolicy:
 
         if not self.enabled:
             self.last_reason = (
-                "health-aware routing disabled"
+                "health-aware routing disabled; try primary"
             )
-            return current
+            return "primary"
 
         state = self._state()
 
