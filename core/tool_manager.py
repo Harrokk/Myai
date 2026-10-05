@@ -1107,20 +1107,43 @@ def select_tool_plan(
             source="direct",
         )
 
+    fallback_tools = tools
+    fallback_source = "llm_fallback"
+
+    if settings is not None and settings.get(
+        "orchestration",
+        {},
+    ).get(
+        "enabled",
+        True,
+    ):
+        fallback_tools = {
+            name: tool
+            for name, tool in tools.items()
+            if is_orchestration_safe_tool(
+                name,
+                user_input=user_input,
+                settings=settings,
+            )
+        }
+        fallback_source = (
+            "llm_safe_fallback"
+        )
+
     tools_to_run = ai_detect_tools(
         user_input,
-        tools,
+        fallback_tools,
         llm_client,
     )
     selected = [
         tool_name
         for tool_name in tools_to_run
-        if tool_name in tools
+        if tool_name in fallback_tools
     ]
     return _direct_plan(
         user_input,
         selected,
-        source="llm_fallback",
+        source=fallback_source,
     )
 
 
