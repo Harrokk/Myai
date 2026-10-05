@@ -17,6 +17,7 @@ python3 -m pip install -r requirements-ventuno.txt
 ```
 
 Optional physical features keep separate dependency files:
+- Bluetooth LE / trusted-terminal handoff: `requirements-bluetooth.txt`
 - camera: `requirements-camera.txt`
 - voice fallback stack: `requirements-voice.txt`
 - serial GPS: `requirements-gps.txt`
