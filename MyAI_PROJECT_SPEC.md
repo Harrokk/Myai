@@ -1488,6 +1488,7 @@ Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulag
 - streaming-fallback får endast ske innan första primärtoken har skickats; en påbörjad primärström får aldrig blandas med reservmodellens svar
 - programmeringsfel som `TypeError` ska inte döljas av fallback
 - varje MyAI-svar kan bära intern `llm_runtime`-metadata som visar om primär eller fallback-backend användes
+- `scripts/ventuno_stability_test.py` är förberett för den senare 72-timmarskörningen och loggar first-token-latens, total svarstid, primär/fallback-backend, CPU, RAM, disk och temperatur i JSONL utan STM32/GPIO-skrivningar
 - VENTUNO preflight kontrollerar nu även `geniex --version` och `geniex model list`
 - om den konfigurerade Qwen-modellen inte finns i chipsetets kompatibla GenieX-lista blir preflight blockerande FAIL
 - om modellistan inte kan läsas blir kontrollen WARN i stället för att felaktigt påstå kompatibilitet
