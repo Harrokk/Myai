@@ -162,3 +162,27 @@ def test_health_tool_exposes_only_read_only_status():
     ) == {
         "myai_health_status",
     }
+
+
+
+def test_health_format_marks_stale_geniex_as_unknown():
+    text = health.format_myai_health(
+        {
+            "level": "unknown",
+            "llm_runtime": {
+                "active_backend": "primary",
+                "provider": "geniex",
+                "model": "primary-model",
+            },
+            "geniex_healthy": False,
+            "geniex_state_stale": True,
+            "geniex_consecutive_failures": 2,
+            "reasons": [
+                "GenieX watchdog-status saknas eller är för gammal.",
+            ],
+            "snapshot_stale": True,
+        }
+    )
+
+    assert "GenieX readiness: stale/unknown" in text
+    assert "GenieX readiness: unhealthy" not in text
