@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from core.error_log import ErrorLogger
 from core.memory import MemoryStore
 from core.memory_policy import assess_memory_candidate
 from core.llm_factory import build_llm_client
@@ -15,6 +16,10 @@ class MyAICore:
     def __init__(self, settings, project_root, tools=None, memory=None, llm=None):
         self.settings = settings
         self.project_root = project_root
+        self.error_logger = ErrorLogger(
+            settings,
+            project_root,
+        )
 
         self.llm_provider = (
             settings.get("llm", {})
@@ -61,7 +66,13 @@ class MyAICore:
             self.ollama_url,
         )
 
-        self.tools = tools if tools is not None else load_tools()
+        self.tools = (
+            tools
+            if tools is not None
+            else load_tools(
+                error_logger=self.error_logger,
+            )
+        )
         self.max_conversation_turns = settings.get(
             "conversation",
             {},
@@ -226,6 +237,7 @@ Svara kort och tydligt på svenska.
                 tool_names,
                 self.tools,
                 user_input=user_message,
+                error_logger=self.error_logger,
             )
 
         system_message = self.build_system_message(
