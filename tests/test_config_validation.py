@@ -2,7 +2,11 @@ from copy import deepcopy
 
 import pytest
 
-from core.config import DEFAULT_SETTINGS
+from core.config import (
+    DEFAULT_SETTINGS,
+    PROJECT_ROOT,
+    load_settings,
+)
 from core.config_validation import (
     require_valid_settings,
     validate_settings,
@@ -507,3 +511,38 @@ def test_config_schema_version_mismatch_is_blocking():
         == "unsupported_config_schema"
         for item in result["errors"]
     )
+
+
+def test_versioned_repository_profiles_validate_cleanly():
+    main = load_settings(
+        PROJECT_ROOT
+        / "config"
+        / "settings.json"
+    )
+    ventuno = load_settings(
+        PROJECT_ROOT
+        / "config"
+        / "profiles"
+        / "ventuno_q.json"
+    )
+
+    main_result = validate_settings(
+        main
+    )
+    ventuno_result = validate_settings(
+        ventuno,
+        require_ventuno_profile=True,
+    )
+
+    assert main_result[
+        "valid"
+    ] is True
+    assert main_result[
+        "errors"
+    ] == []
+    assert ventuno_result[
+        "valid"
+    ] is True
+    assert ventuno_result[
+        "errors"
+    ] == []
