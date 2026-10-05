@@ -870,6 +870,46 @@ Shoppingintegrationen:
 
 Tester täcker ECB XML-parsning, EUR/SEK och USD/SEK-cross-rate, framtida/stale referensdatum, fel host efter redirect, saknad valuta, avstängd FX, identity-pair, blockerad overifierad konvertering samt shoppingintegration och quote-cache.
 
+### 13.9 Teknisk status för hårdvaruoberoende väder via Open-Meteo
+
+På utvecklingsgren finns nu verktyget `weather_forecast` för aktuell väderstatus och kort prognos utan krav på GPS-hårdvara.
+
+Provider och flöde:
+- `weather.provider="open_meteo"`
+- `weather.enabled=false` som säker standard
+- aktiverat väder kräver `internet.enabled=true`
+- platsnamn geokodas via Open-Meteo:s geocoding-endpoint
+- prognos hämtas via Open-Meteo:s forecast-endpoint med latitud/longitud
+- geokodning och forecast använder separata HTTPS-hosts som är allowlistade och kontrolleras igen efter eventuell redirect
+- användaren kan ange plats naturligt, exempelvis `Väder i Stockholm`
+- om plats saknas används endast uttryckligt konfigurerad `weather.default_location`; MyAI gissar inte plats
+- GPS-modulen anropas inte av detta verktyg
+
+Rapporten innehåller när data finns:
+- löst platsnamn, region, land och timezone
+- aktuell temperatur
+- upplevd temperatur
+- aktuell nederbörd
+- väderkod översatt till svensk beskrivning
+- vindhastighet
+- daglig min/max-temperatur
+- daglig nederbördssumma
+- maximal nederbördssannolikhet
+- kort prognos, standard tre dagar och maximalt sju dagar
+
+Geokodningsresultatet redovisar när flera alternativa träffar fanns, så användaren kan upptäcka att ett platsnamn var tvetydigt.
+
+Konfiguration:
+- `weather.geocoding_url=https://geocoding-api.open-meteo.com/v1/search`
+- `weather.forecast_url=https://api.open-meteo.com/v1/forecast`
+- `weather.default_location=""`
+- `weather.language="sv"`
+- `weather.forecast_days=3`
+
+Fail-closed validering blockerar otillåten provider/host, icke-HTTPS-endpoint, ogiltig språkkod, prognoslängd utanför 1–7 dagar och aktiverat väder utan internet.
+
+CI använder endast fake JSON-svar och gör inga riktiga väderanrop. Tester täcker svensk/engelsk platsparser, geokodning, current/daily forecast, default location, tom plats, avstängt läge, redirect till fel host, ogiltig JSON, formattering, configvalidering och språkroute.
+
 ### 13.6 Teknisk status för webbsökning via SearXNG
 
 På utvecklingsgren finns nu ett första verkligt internetverktyg `internet_search`.
@@ -2160,6 +2200,34 @@ Verifiering:
 - ingen fysisk VENTUNO-verifiering krävs eller påstås av FX-lagret
 
 Nästa hårdvaruoberoende förbättring bör väljas efter ny genomgång av project_spec; VENTUNO-specifika steg ligger fortsatt kvar bakom fysisk verifiering enligt avsnitt 21.2.
+
+
+### 21.21 Fortsatt hårdvaruoberoende arbete 2026-10-05 – Open-Meteo-väder
+
+Efter verifierad FX valdes väder som nästa tydliga hårdvaruoberoende lucka eftersom målbilden uttryckligen innehåller frågan `Vad blir det för väder idag?`.
+
+Implementerat:
+- nytt `modules/internet/weather.py`
+- platsnamn extraheras ur svenska och engelska väderfrågor
+- explicit `weather.default_location` kan användas när frågan saknar plats
+- ingen exakt användarposition, GPS eller hårdvarusensor krävs
+- Open-Meteo geocoding används för plats → WGS84-koordinater
+- Open-Meteo forecast används för current + kort daily forecast
+- endpoint och slutlig redirect-host valideras fail-closed mot separata Open-Meteo-allowlists
+- API-fel, ogiltig JSON och ogiltiga koordinater ger tydligt fel i stället för gissad prognos
+- språkroute känner igen bland annat `Väder i ...`, `Väder idag`, `Prognos för ...` och engelska motsvarigheter
+- weather är avstängt som standard och kräver internet när det aktiveras
+- väderkoder mappas till korta svenska beskrivningar
+- inga skrivande åtgärder eller fysiska VENTUNO-funktioner ingår
+
+Verifiering:
+- första CI-run `37312118445` hittade ett isolerat regex-escape-fel i platsparsern medan Python-kompileringen passerade
+- regexen korrigerades utan ändring av övrig arkitektur
+- korrigerad feature-head före denna dokumentationscommit: `d9e12ad5a5aa406e3f89bd16183b7799689f7293`
+- GitHub Actions-run `37312236426` är **success**
+- Python-kompilering och full pytest-svit passerade
+- CI använder endast syntetiska/fake Open-Meteo-svar och kräver ingen extern tjänst
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av väderlagret
 
 ---
 
