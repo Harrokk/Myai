@@ -417,3 +417,132 @@ def test_orchestration_disabled_preserves_direct_behavior():
     ] == [
         "weather_forecast"
     ]
+
+
+class WriteChoosingLLM:
+    def __init__(self):
+        self.prompt = ""
+
+    def chat(
+        self,
+        messages,
+        timeout=120,
+    ):
+        self.prompt = messages[
+            0
+        ][
+            "content"
+        ]
+        return "workspace_write"
+
+
+def test_llm_fallback_cannot_select_write_tool_when_orchestration_enabled():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    llm = WriteChoosingLLM()
+    available = {
+        "workspace_write": {
+            "function": lambda query: "WRITE",
+            "description": "write",
+            "pass_user_input": True,
+        },
+        "cpu_status": {
+            "function": lambda: "CPU",
+            "description": "cpu",
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        "Gör något okänt med systemet.",
+        available,
+        llm,
+        settings=settings,
+    )
+
+    assert plan[
+        "source"
+    ] == "llm_safe_fallback"
+    assert plan[
+        "steps"
+    ] == []
+    assert "workspace_write" not in llm.prompt
+
+
+def test_explicit_workspace_write_keeps_existing_direct_route():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    available = {
+        "workspace_write": {
+            "function": lambda query: "WRITE",
+            "description": "write",
+            "pass_user_input": True,
+        },
+        "cpu_status": {
+            "function": lambda: "CPU",
+            "description": "cpu",
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        'Skapa fil "test.txt" med innehållet hej.',
+        available,
+        FailLLM(),
+        settings=settings,
+    )
+
+    assert plan[
+        "source"
+    ] == "direct_non_orchestrated"
+    assert [
+        step[
+            "tool"
+        ]
+        for step in plan[
+            "steps"
+        ]
+    ] == [
+        "workspace_write",
+    ]
+
+
+def test_snapshot_mutating_hardware_changes_is_not_orchestration_safe():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    available = tools(
+        "hardware_changes",
+        "ram_status",
+    )
+
+    def detect(
+        text,
+    ):
+        result = []
+
+        if "hårdvara" in text.lower():
+            result.append(
+                "hardware_changes"
+            )
+
+        if "ram" in text.lower():
+            result.append(
+                "ram_status"
+            )
+
+        return result
+
+    plan = build_safe_orchestration_plan(
+        "Kontrollera hårdvaruförändringar och RAM",
+        available_tools=available,
+        detect_function=detect,
+        settings=settings,
+    )
+
+    assert "hardware_changes" in plan[
+        "blocked_tools"
+    ]
+    assert plan[
+        "orchestrated"
+    ] is False
