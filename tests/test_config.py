@@ -56,6 +56,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["health"]["state_stale_seconds"] == 60.0
     assert settings["logging"]["jsonl_max_bytes"] == 5_000_000
     assert settings["logging"]["jsonl_backups"] == 5
+    assert settings["selfdev"]["enabled"] is False
+    assert settings["selfdev"]["promotion_enabled"] is False
+    assert settings["selfdev"]["require_bubblewrap"] is True
+    assert settings["selfdev"]["workspace_root"] == "runtime/selfdev"
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
     assert settings["assistant"]["future_target"] == (
         "Arduino VENTUNO Q / Dragonwing IQ-8275"
