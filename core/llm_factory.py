@@ -1,3 +1,5 @@
+from core.backend_recovery import HealthAwareBackendPolicy
+from core.config import PROJECT_ROOT
 from core.geniex_client import GenieXClient
 from core.ollama_client import OllamaClient
 from core.resilient_llm import ResilientLLMClient
@@ -55,7 +57,10 @@ def _build_provider(
     )
 
 
-def build_llm_client(settings):
+def build_llm_client(
+    settings,
+    project_root=None,
+):
     """Skapa vald lokal LLM-provider och valfri lokal fallback."""
 
     llm = settings.get(
@@ -112,9 +117,18 @@ def build_llm_client(settings):
         fallback_provider,
         model_override=fallback_model,
     )
+    policy = HealthAwareBackendPolicy(
+        settings,
+        (
+            project_root
+            if project_root is not None
+            else PROJECT_ROOT
+        ),
+    )
 
     return ResilientLLMClient(
         primary,
         fallback=fallback_client,
         enabled=True,
+        backend_policy=policy,
     )
