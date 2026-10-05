@@ -1449,6 +1449,103 @@ def validate_settings(
             )
         )
 
+    orchestration = settings.get(
+        "orchestration",
+        {},
+    )
+
+    if not isinstance(
+        orchestration.get(
+            "enabled",
+            True,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "orchestration_enabled_invalid",
+                (
+                    "orchestration.enabled måste vara true eller false."
+                ),
+            )
+        )
+
+    if not isinstance(
+        orchestration.get(
+            "allow_local_capture",
+            True,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "orchestration_capture_flag_invalid",
+                (
+                    "orchestration.allow_local_capture måste "
+                    "vara true eller false."
+                ),
+            )
+        )
+
+    try:
+        orchestration_max_tools = int(
+            orchestration.get(
+                "max_tools",
+                5,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        orchestration_max_tools = 0
+
+    if not (
+        2
+        <= orchestration_max_tools
+        <= 8
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "orchestration_max_tools_invalid",
+                (
+                    "orchestration.max_tools måste vara mellan 2 och 8."
+                ),
+            )
+        )
+
+    try:
+        orchestration_result_limit = int(
+            orchestration.get(
+                "max_result_chars_per_tool",
+                6000,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        orchestration_result_limit = 0
+
+    if not (
+        256
+        <= orchestration_result_limit
+        <= 20000
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "orchestration_result_limit_invalid",
+                (
+                    "orchestration.max_result_chars_per_tool måste "
+                    "vara mellan 256 och 20000."
+                ),
+            )
+        )
+
     deployment_lock = settings.get(
         "deployment_lock",
         {},
