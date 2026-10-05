@@ -282,3 +282,109 @@ def test_preflight_warns_when_geniex_model_list_command_fails():
         == "WARN"
     )
     assert result["passed"] is True
+
+
+def _locked_stack(version="geniex 0.8.0"):
+    return {
+        "platform": {
+            "system": "Linux",
+            "machine": "aarch64",
+            "python": "3.12.7",
+        },
+        "geniex": {
+            "version": version,
+        },
+        "packages": {
+            "arduino-router-bridge": "0.5.0",
+        },
+        "files": {
+            "requirements-ventuno.txt": {
+                "sha256": "abc123",
+            },
+        },
+        "models": {
+            "llm": "ai-hub-models/Qwen3-4B-Instruct-2507",
+            "vision": None,
+        },
+    }
+
+
+def test_preflight_passes_matching_required_deployment_lock(tmp_path):
+    settings = ventuno_settings()
+    settings["deployment_lock"]["required"] = True
+    settings["deployment_lock"][
+        "lock_path"
+    ] = "config/ventuno_stack_lock.json"
+    observed = _locked_stack()
+    manifest = {
+        "schema_version": 1,
+        "locked": True,
+        "expected": observed,
+    }
+
+    result = run_ventuno_preflight(
+        settings,
+        machine="aarch64",
+        system="Linux",
+        which=lambda name: "/usr/bin/geniex",
+        path_exists=lambda path: True,
+        module_available=lambda name: True,
+        command_runner=lambda command: (
+            fake_geniex_runner(
+                command,
+                model_present=True,
+            )
+        ),
+        deployment_observer=lambda current, root: observed,
+        deployment_manifest_loader=lambda path: manifest,
+        project_root=tmp_path,
+    )
+
+    assert (
+        _statuses(result)[
+            "VENTUNO deployment lock"
+        ]
+        == "PASS"
+    )
+    assert result["passed"] is True
+
+
+def test_preflight_blocks_required_deployment_lock_mismatch(tmp_path):
+    settings = ventuno_settings()
+    settings["deployment_lock"]["required"] = True
+    observed = _locked_stack(
+        "geniex 0.9.0"
+    )
+    manifest = {
+        "schema_version": 1,
+        "locked": True,
+        "expected": _locked_stack(
+            "geniex 0.8.0"
+        ),
+    }
+
+    result = run_ventuno_preflight(
+        settings,
+        machine="aarch64",
+        system="Linux",
+        which=lambda name: "/usr/bin/geniex",
+        path_exists=lambda path: True,
+        module_available=lambda name: True,
+        command_runner=lambda command: (
+            fake_geniex_runner(
+                command,
+                model_present=True,
+            )
+        ),
+        deployment_observer=lambda current, root: observed,
+        deployment_manifest_loader=lambda path: manifest,
+        project_root=tmp_path,
+    )
+
+    assert (
+        _statuses(result)[
+            "VENTUNO deployment lock"
+        ]
+        == "FAIL"
+    )
+    assert result["passed"] is False
