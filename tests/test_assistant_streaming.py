@@ -145,3 +145,46 @@ def test_core_exposes_degraded_local_llm_runtime_state(tmp_path):
     assert runtime["last_error"] == "npu-fel"
     assert runtime["provider"] == "geniex"
     assert runtime["model"] == "primary-model"
+
+
+
+def test_core_persists_combined_health_state(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"]["auto_assess_enabled"] = False
+    settings["health"]["state_path"] = (
+        "runtime/myai_health.json"
+    )
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=FakeMemory(),
+        llm=RuntimeStatusLLM(),
+    )
+
+    result = core.respond(
+        "Hej"
+    )
+
+    assert result["health"]["level"] == "degraded"
+    assert result["health"]["fallback_active"] is True
+
+    state_path = (
+        tmp_path
+        / "runtime"
+        / "myai_health.json"
+    )
+    assert state_path.exists()
+
+    import json
+
+    saved = json.loads(
+        state_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert saved["level"] == "degraded"
+    assert saved["llm_runtime"]["active_backend"] == "fallback"
+    assert "written_unix_time" in saved
