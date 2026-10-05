@@ -226,6 +226,19 @@ DEFAULT_SETTINGS = {
         "target_currency": "SEK",
         "max_age_days": 7,
     },
+    "weather": {
+        "enabled": False,
+        "provider": "open_meteo",
+        "geocoding_url": (
+            "https://geocoding-api.open-meteo.com/v1/search"
+        ),
+        "forecast_url": (
+            "https://api.open-meteo.com/v1/forecast"
+        ),
+        "default_location": "",
+        "language": "sv",
+        "forecast_days": 3,
+    },
     "files": {
         "enabled": True,
         "workspace_root": "runtime/workspace",

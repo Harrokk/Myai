@@ -266,5 +266,14 @@
   },
   "diagnostics": {
     "runtime_stale_seconds": 30
+  },
+  "weather": {
+    "enabled": false,
+    "provider": "open_meteo",
+    "geocoding_url": "https://geocoding-api.open-meteo.com/v1/search",
+    "forecast_url": "https://api.open-meteo.com/v1/forecast",
+    "default_location": "",
+    "language": "sv",
+    "forecast_days": 3
   }
 }
