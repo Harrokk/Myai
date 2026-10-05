@@ -313,7 +313,10 @@ def format_myai_health(
         or 0
     )
 
-    if failures:
+    if (
+        failures
+        and not geniex_stale
+    ):
         lines.append(
             "GenieX-fel i rad: "
             f"{failures}"
@@ -327,7 +330,10 @@ def format_myai_health(
         or 0
     )
 
-    if successes:
+    if (
+        successes
+        and not geniex_stale
+    ):
         lines.append(
             "GenieX lyckade kontroller i rad: "
             f"{successes}"
