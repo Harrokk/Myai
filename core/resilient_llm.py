@@ -99,8 +99,51 @@ class ResilientLLMClient:
             self.last_routing_reason = (
                 str(reason)
             )
+            self._notify_policy_primary(
+                self.last_routing_reason
+            )
 
         return desired
+
+    def _notify_policy_fallback(
+        self,
+        reason,
+    ):
+        if self.backend_policy is None:
+            return
+
+        notify = getattr(
+            self.backend_policy,
+            "note_fallback_activation",
+            None,
+        )
+
+        if callable(
+            notify
+        ):
+            notify(
+                reason
+            )
+
+    def _notify_policy_primary(
+        self,
+        reason,
+    ):
+        if self.backend_policy is None:
+            return
+
+        notify = getattr(
+            self.backend_policy,
+            "note_primary_restored",
+            None,
+        )
+
+        if callable(
+            notify
+        ):
+            notify(
+                reason
+            )
 
     def _mark_primary(
         self,
@@ -129,6 +172,9 @@ class ResilientLLMClient:
         if reason:
             self.last_routing_reason = (
                 str(reason)
+            )
+            self._notify_policy_fallback(
+                self.last_routing_reason
             )
 
     def _fallback_chat(
