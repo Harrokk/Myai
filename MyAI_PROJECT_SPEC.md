@@ -1473,6 +1473,28 @@ Exakt återstartspunkt:
 6. när VENTUNO Q finns, börja med `scripts/ventuno_preflight.py` och följ den fysiska verifieringsordningen i avsnitt 21.2
 
 
+
+### 21.4 Återupptaget arbete 2026-10-05
+
+Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulager har lagts till:
+
+- `faster-whisper` kan nu frivilligt frigöra sin laddade modell efter STT och före LLM/VLM
+- STT-resursfrigöring styrs av `voice.release_stt_before_model` och är avstängd i Windows-standardprofilen
+- VENTUNO-profilen aktiverar resursfrigöring och behåller `faster-whisper` som fungerande fallback tills en accelererad ASR-provider är verifierad
+- primär och backup-STT kan nu använda olika providers genom `stt_provider` respektive `backup_stt_provider`
+- detta förbereder VENTUNO för en framtida Qualcomm/App Lab Whisper-provider som primär och `faster-whisper` som reserv utan ändringar i resten av röstpipen
+- ett nytt `ResilientLLMClient` kan ge lokal modellfallback om primär LLM-backend får ett återhämtningsbart runtime-/anslutnings-/modellsvarsfel
+- LLM-fallback är avstängd i både standard- och VENTUNO-profil tills en fysisk reservmodell är verifierad
+- streaming-fallback får endast ske innan första primärtoken har skickats; en påbörjad primärström får aldrig blandas med reservmodellens svar
+- programmeringsfel som `TypeError` ska inte döljas av fallback
+- varje MyAI-svar kan bära intern `llm_runtime`-metadata som visar om primär eller fallback-backend användes
+- VENTUNO preflight kontrollerar nu även `geniex --version` och `geniex model list`
+- om den konfigurerade Qwen-modellen inte finns i chipsetets kompatibla GenieX-lista blir preflight blockerande FAIL
+- om modellistan inte kan läsas blir kontrollen WARN i stället för att felaktigt påstå kompatibilitet
+- den officiella Arduino VENTUNO Q-guiden använder Whisper Small (quantized) genom App Lab ASR-bricken, men MyAI hårdkodar inte ett odokumenterat fristående Brick-API innan den faktiska VENTUNO-mjukvarustacken kan verifieras
+
+Nästa mjukvarumässiga fokus är robust runtime-/stabilitetsövervakning inför den senare 72-timmarskörningen, samtidigt som fysisk NPU/ASR/VLM/RPC-verifiering fortsatt skjuts upp tills VENTUNO Q finns tillgänglig.
+
 ---
 
 ## 22. Övergripande vision
