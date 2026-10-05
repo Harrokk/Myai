@@ -23,6 +23,15 @@ _ALLOWED_ECB_HOSTS = {
     "www.ecb.europa.eu",
     "ecb.europa.eu",
 }
+_ALLOWED_WEATHER_PROVIDERS = {
+    "open_meteo",
+}
+_ALLOWED_WEATHER_GEOCODING_HOSTS = {
+    "geocoding-api.open-meteo.com",
+}
+_ALLOWED_WEATHER_FORECAST_HOSTS = {
+    "api.open-meteo.com",
+}
 
 
 def _issue(level, code, message):
@@ -129,6 +138,166 @@ def validate_settings(
                 (
                     "Okänd konfigurationsnyckel: "
                     f"{path}"
+                ),
+            )
+        )
+
+    weather = settings.get(
+        "weather",
+        {},
+    )
+    weather_enabled = bool(
+        weather.get(
+            "enabled",
+            False,
+        )
+    )
+    weather_provider = str(
+        weather.get(
+            "provider",
+            "open_meteo",
+        )
+        or ""
+    ).strip().lower()
+
+    if weather_provider not in _ALLOWED_WEATHER_PROVIDERS:
+        issues.append(
+            _issue(
+                "error",
+                "weather_provider_invalid",
+                (
+                    "weather.provider måste vara open_meteo."
+                ),
+            )
+        )
+
+    for key, allowed_hosts, code in (
+        (
+            "geocoding_url",
+            _ALLOWED_WEATHER_GEOCODING_HOSTS,
+            "weather_geocoding_url_invalid",
+        ),
+        (
+            "forecast_url",
+            _ALLOWED_WEATHER_FORECAST_HOSTS,
+            "weather_forecast_url_invalid",
+        ),
+    ):
+        raw_url = str(
+            weather.get(
+                key,
+                "",
+            )
+            or ""
+        ).strip()
+
+        try:
+            parsed_weather_url = urlparse(
+                raw_url
+            )
+            weather_host = (
+                parsed_weather_url.hostname
+                or ""
+            ).lower()
+        except ValueError:
+            parsed_weather_url = None
+            weather_host = ""
+
+        if (
+            parsed_weather_url is None
+            or parsed_weather_url.scheme != "https"
+            or weather_host not in allowed_hosts
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"weather.{key} måste vara en "
+                        "godkänd https-adress hos Open-Meteo."
+                    ),
+                )
+            )
+
+    weather_language = str(
+        weather.get(
+            "language",
+            "sv",
+        )
+        or ""
+    ).strip().lower()
+
+    if not (
+        2
+        <= len(
+            weather_language
+        )
+        <= 8
+        and all(
+            char.isalpha()
+            or char in {
+                "-",
+                "_",
+            }
+            for char in weather_language
+        )
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "weather_language_invalid",
+                (
+                    "weather.language måste vara en kort språkkod."
+                ),
+            )
+        )
+
+    try:
+        weather_forecast_days = int(
+            weather.get(
+                "forecast_days",
+                3,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        weather_forecast_days = 0
+
+    if not (
+        1
+        <= weather_forecast_days
+        <= 7
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "weather_forecast_days_invalid",
+                (
+                    "weather.forecast_days måste vara mellan 1 och 7."
+                ),
+            )
+        )
+
+    if (
+        weather_enabled
+        and not bool(
+            settings.get(
+                "internet",
+                {},
+            ).get(
+                "enabled",
+                False,
+            )
+        )
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "weather_requires_internet",
+                (
+                    "weather.enabled=true kräver internet.enabled=true."
                 ),
             )
         )

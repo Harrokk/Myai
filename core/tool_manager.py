@@ -423,6 +423,34 @@ def detect_tools(user_input):
     ):
         return ["workspace_list"]
 
+    asks_weather = any(
+        phrase in text
+        for phrase in (
+            "väder i ",
+            "vädret i ",
+            "väder idag",
+            "vädret idag",
+            "väder i dag",
+            "vädret i dag",
+            "väder imorgon",
+            "vädret imorgon",
+            "väder i morgon",
+            "vädret i morgon",
+            "väderprognos",
+            "prognos för ",
+            "weather in ",
+            "weather today",
+            "weather tomorrow",
+            "weather forecast",
+            "forecast for ",
+        )
+    )
+
+    if asks_weather:
+        return [
+            "weather_forecast"
+        ]
+
     asks_shopping_compare = any(
         phrase in text
         for phrase in (
