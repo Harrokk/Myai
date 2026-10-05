@@ -1032,6 +1032,64 @@ def validate_settings(
             )
         )
 
+    try:
+        administration_limit = int(
+            memory.get(
+                "administration_limit",
+                50,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        administration_limit = 0
+
+    if not (
+        1
+        <= administration_limit
+        <= 200
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_administration_limit_invalid",
+                (
+                    "memory.administration_limit måste vara "
+                    "mellan 1 och 200."
+                ),
+            )
+        )
+
+    try:
+        stale_review_days = float(
+            memory.get(
+                "stale_review_days",
+                365,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        stale_review_days = 0.0
+
+    if not (
+        1.0
+        <= stale_review_days
+        <= 36500.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_stale_review_days_invalid",
+                (
+                    "memory.stale_review_days måste vara "
+                    "mellan 1 och 36500."
+                ),
+            )
+        )
+
     audit_logging = settings.get(
         "audit_logging",
         {},
