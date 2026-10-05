@@ -1097,6 +1097,59 @@ Viktiga standarder:
 
 Konfigurationen valideras fail-closed för ogiltiga trösklar och gränser. Ingen automatisk minnesradering är implementerad.
 
+### 15.5 Teknisk status för användarstyrd minnesadministration
+
+På utvecklingsgren finns nu en persistent review-kö och separata read-only-/write-verktyg för kontrollerad minnesadministration.
+
+Review-kön lagras i samma SQLite-databas i tabellen `memory_reviews` och innehåller:
+- kategori
+- normaliserat minnesinnehåll
+- begränsad orsakstext
+- ID:n för registrerade konflikter
+- skapad tid
+- status `pending|approved|rejected|replaced`
+- upplösningsdata och relaterade minnes-ID:n
+
+Rå användarprompt lagras inte i review-kön.
+
+MyAICore:
+- köar policyutfall `review` när `memory.review_queue_enabled=true`
+- köar konfliktutfall från livscykellagret
+- deduplicerar identiska väntande review-kandidater
+- audit-loggar nya automatiska minnesskrivningar och review-köskrivningar
+- blockerar minnesmutation om obligatorisk audit inte kan skriva sin attempt-post, utan att dialogen behöver krascha
+
+Read-only verktyget `memory_review_status` kan visa:
+- väntande minnesgranskningar
+- väntande granskningar med konflikter
+- gamla aktiva minnen
+- minneshistorik
+
+Standardgränsen för administrativ listning är `memory.administration_limit=50`. Read-only `Visa gamla minnen` använder `memory.stale_review_days=365` om frågan inte uttryckligen anger ett annat antal dagar. Detta ändrar eller raderar aldrig minnen.
+
+Skrivverktyget `memory_review_action` accepterar endast exakta kommandon:
+- `GODKÄNN MINNESGRANSKNING <id>`
+- `AVVISA MINNESGRANSKNING <id>`
+- `ERSÄTT MINNE <minnes-id> MED GRANSKNING <gransknings-id>`
+- `RADERA MINNE <id>`
+
+Säkerhetsregler:
+- en review med registrerade konflikter får inte godkännas som ett vanligt nytt aktivt minne
+- konflikt-review måste ersätta ett uttryckligt aktivt målminne som finns bland de registrerade konflikterna, eller avvisas
+- ersättning sker atomiskt och bevarar det ersatta minnet som `superseded`
+- permanent radering är aldrig automatisk och kräver exakt `RADERA MINNE <id>`
+- permanent radering kan stängas av med `memory.permanent_delete_enabled=false`
+- alla administrationsmutationer går genom fail-closed audit före databasändring
+- auditloggen innehåller ID:n och åtgärdsmetadata men inte minnesinnehållet
+
+Nya standardvärden:
+- `memory.review_queue_enabled=true`
+- `memory.administration_limit=50`
+- `memory.stale_review_days=365`
+- `memory.permanent_delete_enabled=true`
+
+Konfigurationen valideras för administrativa listgränser och stale-review-gräns.
+
 ---
 
 ## 16. Modulär arkitektur
@@ -2228,6 +2281,40 @@ Verifiering:
 - Python-kompilering och full pytest-svit passerade
 - CI använder endast syntetiska/fake Open-Meteo-svar och kräver ingen extern tjänst
 - ingen fysisk VENTUNO-verifiering krävs eller påstås av väderlagret
+
+
+### 21.22 Fortsatt hårdvaruoberoende arbete 2026-10-05 – minnesadministration
+
+Efter väderlagret valdes användarstyrd minnesadministration som nästa tydliga hårdvaruoberoende lucka i avsnitt 15.
+
+Implementerat:
+- `memory_reviews` som persistent review-kö i SQLite
+- automatisk köläggning för policy-`review` och livscykelkonflikter
+- deduplicering av identiska väntande kandidater
+- read-only listning av pending reviews, konflikter, stale aktiva minnen och historik
+- atomiskt godkännande av konfliktfri review
+- explicit avvisning av review
+- atomisk ersättning från review till registrerat konfliktminne
+- permanent radering genom separat exakt kommando
+- fail-closed audit före alla nya minnesadministrativa mutationer
+- audit även för automatiska minnesskrivningar och review-köskrivningar
+- inga råa användarprompter eller minnesinnehåll skrivs till auditloggen
+- administrativ listgräns och stale-review-gräns är konfigurerbara och validerade
+
+Exakta skrivkommandon:
+- `GODKÄNN MINNESGRANSKNING <id>`
+- `AVVISA MINNESGRANSKNING <id>`
+- `ERSÄTT MINNE <minnes-id> MED GRANSKNING <gransknings-id>`
+- `RADERA MINNE <id>`
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `a55fc62d6c8db895354893513ae8fb9f06fbc566`
+- GitHub Actions-run `37313779564` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker review-deduplicering, konfliktfri approval, blockerad plain approval vid konflikt, korrekt och fel konfliktmål, avvisning, permanent deletion, exakt kommandosyntax, auditspår, auditfel före mutation, read-only statuslistor, MyAICore-köläggning, ambiguous lifecycle conflict, configvalidering och språkroute
+- ingen fysisk VENTUNO-verifiering krävs eller påstås
+
+Nästa större hårdvaruoberoende spår kan nu vara multimodal orkestrering: en säker planerare som kan kombinera flera redan verifierade read-only/modulära verktyg i samma uppgift utan att ge VENTUNO-specifika hårdvaruantaganden.
 
 ---
 
