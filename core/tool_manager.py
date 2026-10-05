@@ -799,14 +799,36 @@ def detect_tools(user_input):
     if asks_vision_analysis:
         return ["vision_analyze"]
 
-    mentions_pi = any(
+    mentions_ventuno = any(
         word in text
-        for word in ("raspberry pi", "raspberrypi", "pi 5", "pi5")
+        for word in (
+            "ventuno",
+            "arduino ventuno",
+            "dragonwing",
+            "qcs8275",
+            "qualcomm",
+        )
     )
 
-    pi_diagnostic_tools = []
+    asks_accelerator = any(
+        phrase in text
+        for phrase in (
+            "npu",
+            "hexagon",
+            "ai accelerator",
+            "ai-accelerator",
+            "accelerator status",
+        )
+    )
 
-    if mentions_pi:
+    if asks_accelerator:
+        return [
+            "geniex_status"
+        ]
+
+    ventuno_diagnostic_tools = []
+
+    if mentions_ventuno:
         if any(
             word in text
             for word in (
@@ -819,7 +841,9 @@ def detect_tools(user_input):
                 "wi-fi",
             )
         ):
-            pi_diagnostic_tools.append("pi_network_status")
+            ventuno_diagnostic_tools.append(
+                "ventuno_network_status"
+            )
 
         if any(
             word in text
@@ -830,7 +854,9 @@ def detect_tools(user_input):
                 "vilka processer",
             )
         ):
-            pi_diagnostic_tools.append("pi_process_status")
+            ventuno_diagnostic_tools.append(
+                "ventuno_process_status"
+            )
 
         if any(
             word in text
@@ -841,7 +867,9 @@ def detect_tools(user_input):
                 "systemd",
             )
         ):
-            pi_diagnostic_tools.append("pi_services_status")
+            ventuno_diagnostic_tools.append(
+                "ventuno_services_status"
+            )
 
         if any(
             word in text
@@ -853,11 +881,14 @@ def detect_tools(user_input):
                 "journal",
             )
         ):
-            pi_diagnostic_tools.append("pi_system_logs")
+            ventuno_diagnostic_tools.append(
+                "ventuno_system_logs"
+            )
 
-    if pi_diagnostic_tools:
-        return pi_diagnostic_tools
-    asks_pi_power = any(
+    if ventuno_diagnostic_tools:
+        return ventuno_diagnostic_tools
+
+    asks_ventuno_power = any(
         word in text
         for word in (
             "strömförbrukning",
@@ -869,10 +900,12 @@ def detect_tools(user_input):
         )
     )
 
-    if mentions_pi and asks_pi_power:
-        return ["pi_power_status"]
+    if mentions_ventuno and asks_ventuno_power:
+        return [
+            "ventuno_power_status"
+        ]
 
-    asks_pi_status = any(
+    asks_ventuno_status = any(
         word in text
         for word in (
             "status",
@@ -882,18 +915,20 @@ def detect_tools(user_input):
             "ram",
             "lagring",
             "disk",
-            "spänning",
-            "ström",
-            "throttl",
-            "underspänning",
             "hur mår",
         )
     )
 
-    if mentions_pi and asks_pi_status:
-        return ["pi_system_status"]
+    if mentions_ventuno and asks_ventuno_status:
+        return [
+            "cpu_status",
+            "ram_status",
+            "temperature_status",
+            "disk_status",
+            "geniex_status",
+        ]
 
-    asks_pi_bus_devices = any(
+    asks_bus_devices = any(
         phrase in text
         for phrase in (
             "i2c-enheter",
@@ -908,31 +943,12 @@ def detect_tools(user_input):
         )
     )
 
-    if mentions_pi and asks_pi_bus_devices:
-        return ["pi_bus_devices_status"]
+    if asks_bus_devices:
+        return [
+            "ventuno_bus_devices_status"
+        ]
 
-    asks_gpio_reference = any(
-        word in text
-        for word in (
-            "gpio",
-            "i2c",
-            "spi",
-            "uart",
-            "3,3 v",
-            "3.3 v",
-            "5 v",
-            "5v",
-            "pinout",
-        )
-    )
-
-    if asks_gpio_reference and (
-        mentions_pi
-        or any(word in text for word in ("gpio", "i2c", "spi", "uart", "pinout"))
-    ):
-        return ["pi_gpio_reference"]
-
-    asks_pi_interfaces = any(
+    asks_ventuno_interfaces = any(
         phrase in text
         for phrase in (
             "vilka gränssnitt",
@@ -942,12 +958,35 @@ def detect_tools(user_input):
             "gpiochip",
             "spidev",
             "i2c-",
+            "ttyhs",
             "ttyama",
         )
     )
 
-    if mentions_pi and asks_pi_interfaces:
-        return ["pi_interfaces_status"]
+    if asks_ventuno_interfaces:
+        return [
+            "ventuno_interfaces_status"
+        ]
+
+    asks_io_reference = any(
+        word in text
+        for word in (
+            "gpio",
+            "i2c",
+            "spi",
+            "uart",
+            "pinout",
+            "vilken pin",
+            "vilken pinne",
+            "koppla in",
+            "inkoppling",
+        )
+    )
+
+    if asks_io_reference:
+        return [
+            "ventuno_io_safety"
+        ]
 
     mentions_bluetooth = any(
         word in text
