@@ -2057,6 +2057,35 @@ Verifiering:
 - Python-kompilering och full pytest-svit passerade
 - ingen fysisk VENTUNO-verifiering krävs eller påstås av shoppinglagret
 
+
+### 21.19 Pauscheckpoint 2026-10-05 – efter svensk shoppingorkestrering
+
+Arbetet pausas här på användarens begäran.
+
+Aktivt läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- draft PR: `#85`
+- integrations-head före denna dokumentationscheckpoint: `e94cbe8a12a12dddb521723e90b65945c0de9ddc`
+- GitHub Actions-run `37306695959` är **success**
+- senaste färdigställda hårdvaruoberoende steg är svensk shopping-/prisorkestrering enligt avsnitt 13.7 och 21.18
+- `main` är fortsatt orörd
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts
+
+Nästa exakta steg vid återupptag:
+1. utgå från aktuell `dev/ventuno-q-provider`
+2. verifiera att branch-head och GitHub Actions fortfarande är gröna
+3. bygg ett separat, hårdvaruoberoende växelkurslager för verifierad konvertering till SEK
+4. växelkurs får endast användas när källa, kurs, valutapar och tidsstämpel kan verifieras
+5. ingen tyst eller uppskattad valutakonvertering får ske
+6. koppla därefter växelkurslagret till shoppingflödet så utländska erbjudanden endast blir rankningsbara efter verifierad konvertering
+7. behåll VENTUNO-specifika fysiska spärrar och ordningen i avsnitt 21.2 oförändrade
+8. kör full CI, dokumentera resultatet och mergea endast om hela sviten är grön
+
+Viktigt:
+- shoppinglagret gör fortfarande inga köp eller beställningar
+- befintlig prisjämförelsekärna ska fortsatt diskvalificera icke-SEK när verifierad konvertering saknas
+- inga antaganden om Qualcomm/GenieX/App Lab/STM32 ska införas i detta arbete
+
 ---
 
 ## 22. Övergripande vision
