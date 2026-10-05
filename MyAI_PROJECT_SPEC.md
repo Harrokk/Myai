@@ -786,7 +786,42 @@ Lagerstatus `in_stock` och `limited` kan vara valbara; slut i lager eller okänd
 
 Logiken testas i CI för moms inkluderad/separat, okänd moms, okända avgifter, Sverigeleverans, lagerstatus, annan valuta, tillförlitlighetsfilter, färre än fem kandidater och topp tre efter lägsta kompletta totalpris.
 
-Detta lager söker ännu inte själv på webben. Det tar emot normaliserade erbjudanden från en framtida sök-/shoppingprovider och återanvänder den centrala fem-kandidaters valideringsmotorn.
+Prisjämförelsekärnan kan nu användas av den webborchestrering som beskrivs i avsnitt 13.7. Kärnan är fortfarande separat från sökningen och kan även ta emot redan normaliserade erbjudanden från andra framtida providers.
+
+### 13.7 Teknisk status för konservativ svensk shopping-/prisorkestrering
+
+På utvecklingsgren finns nu verktyget `shopping_compare_sweden` som kopplar ihop den befintliga SearXNG-sökningen, skyddad sidfetch, sidverifiering och prisjämförelsekärnan.
+
+Standardflödet är:
+1. extrahera produktfrågan ur naturligt språk
+2. sök efter upp till fem relevanta säljsidor med tillägget `pris Sverige`
+3. hämta varje sida genom `PublicWebClient` med befintligt SSRF-/redirect-/storleksskydd
+4. extrahera endast uttryckligt angivna kommersiella fakta från produktmetadata och synlig sidtext
+5. bedöm källtransparens och informationskompletthet separat
+6. skicka erbjudandena genom prisvalideringen i avsnitt 13.5
+7. presentera högst tre kompletta, godkända erbjudanden sorterade på verifierbart totalpris
+
+Följande får extraheras när sidan anger det uttryckligt:
+- produktpris och valuta från produkt-/OpenGraph-/itemprop-metadata
+- lagerstatus
+- leverans till Sverige
+- fraktkostnad eller uttrycklig fri frakt
+- moms inkluderad/exkluderad och explicit momsbelopp när det finns
+- uttrycklig uppgift om inga extra avgifter
+- leveranstid i dagar
+
+Säkerhets-/kvalitetsregler:
+- ingen valutakonvertering görs i detta lager
+- pris i annan valuta blir inte automatiskt SEK
+- saknad frakt, momsstatus, extra avgifter, Sverigeleverans eller lagerstatus gissas inte
+- en ohämtbar säljsida får inga påhittade värden och diskvalificeras
+- källtillförlitlighet bygger på sidans transparenssignaler, medan informationskonfidens bygger på hur många relevanta erbjudandefakta som faktiskt kunde verifieras
+- dessa poäng är heuristiker och inte sannolikheter eller garantier
+- sök-/shoppinglagret gör inga köp eller andra skrivande åtgärder
+
+Naturliga fraser som `Jämför pris på ...`, `Prisjämför ...` och `Hitta billigaste ...` routas till detta verktyg.
+
+Tester täcker komplett svensk säljsida, fem kandidater → topp tre, saknad frakt, annan valuta, ohämtbar sida, konservativ formattering och språkroute.
 
 ### 13.6 Teknisk status för webbsökning via SearXNG
 
@@ -1998,6 +2033,29 @@ Med avsnitt 21.11–21.17 är den rekommenderade mjukvaruhärdningen före fysis
 6. syntetisk felinjektion och återhämtningsprov
 
 Nästa VENTUNO-specifika steg ska därför normalt återgå till den fysiska verifieringsordningen i avsnitt 21.2 när hårdvaran finns. Ytterligare mjukvaruarbete före dess ska endast göras om det är tydligt hårdvaruoberoende och inte kräver antaganden om Qualcomm/GenieX/App Lab/STM32-beteende.
+
+
+### 21.18 Fortsatt hårdvaruoberoende arbete 2026-10-05 – svensk shoppingorkestrering
+
+Efter den förberedande VENTUNO-härdningen i avsnitt 21.11–21.17 fortsatte arbetet endast i ett tydligt hårdvaruoberoende område.
+
+Implementerat:
+- nytt `modules/internet/shopping.py`
+- `shopping_compare_data()` orkestrerar SearXNG-sökning, säker sidfetch, kommersiell faktaextraktion, källbedömning och den befintliga svenska prisjämförelsekärnan
+- upp till fem säljsidor används som underlag
+- endast explicit produktmetadata/sidtext används för pris-, valuta-, lager-, frakt-, moms-, avgifts-, Sverigeleverans- och leveranstidsfält
+- icke-SEK-priser konverteras inte
+- okända avgifter eller leveransuppgifter kompletteras inte med antaganden
+- ofullständiga/ohämtbara kandidater sorteras bort med orsaker bevarade
+- informationskonfidens mäter faktakompletthet separat från källtransparens
+- naturligt språk routar shoppingfrågor till `shopping_compare_sweden`
+- inga köp, beställningar eller skrivande externa åtgärder har lagts till
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `d86d52de14e99959365bc2c56dd7fd8dbd413424`
+- GitHub Actions-run `37306504458` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av shoppinglagret
 
 ---
 
