@@ -759,6 +759,63 @@ def validate_settings(
                 )
             )
 
+    boolean_paths = (
+        ("camera", "enabled", True),
+        ("voice", "enabled", False),
+        ("voice", "tts_enabled", False),
+        ("voice", "handsfree_enabled", False),
+        ("location", "enabled", False),
+        ("hardware_watch", "enabled", True),
+        ("trusted_terminals", "enabled", False),
+        ("ventuno", "enabled", False),
+        ("ventuno", "rpc_enabled", False),
+        ("ventuno", "rpc_write_enabled", False),
+    )
+
+    for section, key, default in boolean_paths:
+        value = settings.get(
+            section,
+            {},
+        ).get(
+            key,
+            default,
+        )
+
+        if not isinstance(
+            value,
+            bool,
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    "hardware_flag_not_boolean",
+                    (
+                        f"{section}.{key} måste vara "
+                        "true eller false."
+                    ),
+                )
+            )
+
+    camera = settings.get(
+        "camera",
+        {},
+    )
+
+    if not isinstance(
+        camera.get(
+            "enabled",
+            True,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "camera_enabled_invalid",
+                "camera.enabled måste vara true eller false.",
+            )
+        )
+
     voice = settings.get(
         "voice",
         {},
