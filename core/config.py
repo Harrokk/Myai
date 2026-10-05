@@ -59,6 +59,12 @@ DEFAULT_SETTINGS = {
     "diagnostics": {
         "runtime_stale_seconds": 30.0,
     },
+    "orchestration": {
+        "enabled": True,
+        "max_tools": 5,
+        "max_result_chars_per_tool": 6000,
+        "allow_local_capture": True,
+    },
     "logging": {
         "jsonl_max_bytes": 5_000_000,
         "jsonl_backups": 5,
