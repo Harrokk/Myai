@@ -5,6 +5,17 @@ from pathlib import Path
 import shutil
 from urllib.parse import urlparse
 
+from core.deployment_lock import (
+    collect_ventuno_stack,
+    load_lock_manifest,
+    resolve_project_path,
+    verify_ventuno_stack,
+)
+
+
+PROJECT_ROOT = Path(
+    __file__
+).resolve().parent.parent
 
 DEFAULT_ROUTER_SOCKET = Path(
     "/var/run/arduino-router.sock"
@@ -129,6 +140,9 @@ def run_ventuno_preflight(
     path_exists=None,
     module_available=None,
     command_runner=None,
+    deployment_observer=None,
+    deployment_manifest_loader=None,
+    project_root=None,
 ):
     """Read-only checks. Does not connect to STM32 and does not run inference."""
 
@@ -144,6 +158,19 @@ def run_ventuno_preflight(
     command_runner = (
         command_runner
         or _default_command_runner
+    )
+    deployment_observer = (
+        deployment_observer
+        or collect_ventuno_stack
+    )
+    deployment_manifest_loader = (
+        deployment_manifest_loader
+        or load_lock_manifest
+    )
+    project_root = Path(
+        project_root
+        if project_root is not None
+        else PROJECT_ROOT
     )
     machine = (
         machine
@@ -510,6 +537,106 @@ def run_ventuno_preflight(
                 (
                     "vision är avstängd tills "
                     "fysisk kamera/NPU-verifiering görs"
+                ),
+            )
+        )
+
+    deployment_lock = settings.get(
+        "deployment_lock",
+        {},
+    )
+
+    if deployment_lock.get(
+        "required",
+        False,
+    ):
+        raw_lock_path = str(
+            deployment_lock.get(
+                "lock_path",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not raw_lock_path:
+            checks.append(
+                _check(
+                    "VENTUNO deployment lock",
+                    "FAIL",
+                    "deployment_lock.lock_path saknas",
+                )
+            )
+        else:
+            try:
+                lock_path = resolve_project_path(
+                    project_root,
+                    raw_lock_path,
+                )
+                manifest = (
+                    deployment_manifest_loader(
+                        lock_path
+                    )
+                )
+                observed = deployment_observer(
+                    settings,
+                    project_root,
+                )
+                verification = (
+                    verify_ventuno_stack(
+                        manifest,
+                        observed,
+                    )
+                )
+
+                if verification["passed"]:
+                    checks.append(
+                        _check(
+                            "VENTUNO deployment lock",
+                            "PASS",
+                            (
+                                "observerad mjukvarustack "
+                                "matchar versionslåset"
+                            ),
+                        )
+                    )
+                else:
+                    details = (
+                        verification["errors"][0]
+                        if verification["errors"]
+                        else (
+                            "mismatch: "
+                            + verification[
+                                "mismatches"
+                            ][0]["path"]
+                        )
+                    )
+                    checks.append(
+                        _check(
+                            "VENTUNO deployment lock",
+                            "FAIL",
+                            details,
+                        )
+                    )
+            except Exception as error:
+                checks.append(
+                    _check(
+                        "VENTUNO deployment lock",
+                        "FAIL",
+                        (
+                            "versionslåset kunde inte "
+                            f"verifieras: {error}"
+                        ),
+                    )
+                )
+    else:
+        checks.append(
+            _check(
+                "VENTUNO deployment lock",
+                "SKIP",
+                (
+                    "versionslåsning är avstängd tills "
+                    "den fysiska VENTUNO-stacken har "
+                    "verifierats"
                 ),
             )
         )
