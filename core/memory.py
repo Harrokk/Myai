@@ -554,10 +554,14 @@ class MemoryStore:
                 (
                     category_value,
                     value,
-                    str(
-                        reason
-                        or ""
-                    ).strip(),
+                    " ".join(
+                        str(
+                            reason
+                            or ""
+                        ).split()
+                    )[
+                        :500
+                    ],
                     conflicts_json,
                     timestamp,
                 ),
