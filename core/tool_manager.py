@@ -423,6 +423,27 @@ def detect_tools(user_input):
     ):
         return ["workspace_list"]
 
+    asks_shopping_compare = any(
+        phrase in text
+        for phrase in (
+            "jämför pris på ",
+            "jämför priser på ",
+            "prisjämför ",
+            "hitta billigaste ",
+            "hitta bästa pris på ",
+            "sök pris på ",
+            "compare price for ",
+            "compare prices for ",
+            "find cheapest ",
+            "find best price for ",
+        )
+    )
+
+    if asks_shopping_compare:
+        return [
+            "shopping_compare_sweden"
+        ]
+
     asks_research = any(
         phrase in text
         for phrase in (
