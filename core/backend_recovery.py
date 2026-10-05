@@ -43,6 +43,7 @@ class HealthAwareBackendPolicy:
         self.last_reason = (
             "health-aware routing disabled"
         )
+        self.fallback_activated_at = None
 
     @property
     def enabled(self):
@@ -119,6 +120,32 @@ class HealthAwareBackendPolicy:
             stale_after > 0
             and age > stale_after
         )
+
+    def note_fallback_activation(
+        self,
+        reason=None,
+    ):
+        self.fallback_activated_at = float(
+            self.clock()
+        )
+
+        if reason:
+            self.last_reason = str(
+                reason
+            )
+
+        return self.fallback_activated_at
+
+    def note_primary_restored(
+        self,
+        reason=None,
+    ):
+        self.fallback_activated_at = None
+
+        if reason:
+            self.last_reason = str(
+                reason
+            )
 
     def choose_backend(
         self,
@@ -213,16 +240,47 @@ class HealthAwareBackendPolicy:
             self.last_reason = (
                 "watchdog failure threshold reached"
             )
+
+            if current != "fallback":
+                self.note_fallback_activation(
+                    self.last_reason
+                )
+
             return "fallback"
 
         if current == "fallback":
+            written = state.get(
+                "written_unix_time"
+            )
+
+            try:
+                state_is_newer = (
+                    self.fallback_activated_at
+                    is None
+                    or float(
+                        written
+                    )
+                    > float(
+                        self.fallback_activated_at
+                    )
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                state_is_newer = False
+
             if (
                 healthy is True
                 and successes
                 >= recovery_threshold
+                and state_is_newer
             ):
                 self.last_reason = (
                     "watchdog recovery threshold reached"
+                )
+                self.note_primary_restored(
+                    self.last_reason
                 )
                 return "primary"
 
@@ -240,4 +298,7 @@ class HealthAwareBackendPolicy:
         return {
             "enabled": self.enabled,
             "last_reason": self.last_reason,
+            "fallback_activated_at": (
+                self.fallback_activated_at
+            ),
         }
