@@ -206,6 +206,12 @@ DEFAULT_SETTINGS = {
     "conversation": {
         "max_turns": 6,
     },
+    "runtime": {
+        "require_preflight": False,
+        "heartbeat_path": "runtime/myai_runtime.json",
+        "heartbeat_interval_seconds": 10.0,
+        "shutdown_timeout_seconds": 10.0,
+    },
     "hardware_watch": {
         "enabled": True,
         "interval_seconds": 10,
