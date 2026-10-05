@@ -3,6 +3,11 @@ import pkgutil
 
 import modules
 
+from core.orchestration import (
+    build_safe_orchestration_plan,
+    is_orchestration_safe_tool,
+)
+
 
 STATUS_WORDS = [
     "hur mycket",
@@ -1021,22 +1026,176 @@ none
     return detected_tools
 
 
-def select_tools(user_input, tools, llm_client):
-    """Välj verktyg: snabb lokal regel först, LLM som fallback."""
-    tools_to_run = detect_tools(user_input)
+def _direct_plan(
+    user_input,
+    tool_names,
+    *,
+    source,
+):
+    return {
+        "enabled": True,
+        "orchestrated": False,
+        "source": source,
+        "steps": [
+            {
+                "tool": tool_name,
+                "input": user_input,
+                "effect": "direct",
+            }
+            for tool_name in tool_names
+        ],
+        "blocked_tools": [],
+        "truncated": False,
+    }
 
-    if not tools_to_run:
-        tools_to_run = ai_detect_tools(
+
+def select_tool_plan(
+    user_input,
+    tools,
+    llm_client,
+    settings=None,
+):
+    """Välj en säker exekveringsplan med befintlig direkt/LLM-routing som fallback."""
+
+    direct = [
+        tool_name
+        for tool_name in (
+            detect_tools(
+                user_input
+            )
+            or []
+        )
+        if tool_name in tools
+    ]
+
+    if (
+        direct
+        and settings is not None
+        and any(
+            not is_orchestration_safe_tool(
+                tool_name,
+                user_input=user_input,
+                settings=settings,
+            )
+            for tool_name in direct
+        )
+    ):
+        return _direct_plan(
             user_input,
-            tools,
-            llm_client,
+            direct,
+            source="direct_non_orchestrated",
         )
 
-    return [
+    if settings is not None:
+        planned = build_safe_orchestration_plan(
+            user_input,
+            available_tools=tools,
+            detect_function=detect_tools,
+            settings=settings,
+        )
+
+        if planned.get(
+            "orchestrated",
+            False,
+        ):
+            return planned
+
+    if direct:
+        return _direct_plan(
+            user_input,
+            direct,
+            source="direct",
+        )
+
+    tools_to_run = ai_detect_tools(
+        user_input,
+        tools,
+        llm_client,
+    )
+    selected = [
         tool_name
         for tool_name in tools_to_run
         if tool_name in tools
     ]
+    return _direct_plan(
+        user_input,
+        selected,
+        source="llm_fallback",
+    )
+
+
+def select_tools(
+    user_input,
+    tools,
+    llm_client,
+    settings=None,
+):
+    """Bakåtkompatibel lista över verktyg från den strukturerade planen."""
+
+    plan = select_tool_plan(
+        user_input,
+        tools,
+        llm_client,
+        settings=settings,
+    )
+    return [
+        step[
+            "tool"
+        ]
+        for step in plan.get(
+            "steps",
+            []
+        )
+    ]
+
+
+def _bounded_tool_result(
+    value,
+    limit,
+):
+    if limit is None:
+        return value
+
+    try:
+        maximum = int(
+            limit
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return value
+
+    if maximum <= 0:
+        return value
+
+    if not isinstance(
+        value,
+        str,
+    ):
+        return value
+
+    if len(
+        value
+    ) <= maximum:
+        return value
+
+    suffix = (
+        "\n...[verktygsresultat trunkerat]"
+    )
+    keep = max(
+        0,
+        maximum
+        - len(
+            suffix
+        ),
+    )
+    return (
+        value[
+            :keep
+        ]
+        + suffix
+    )
 
 
 def run_tools(
@@ -1044,9 +1203,20 @@ def run_tools(
     tools,
     user_input=None,
     error_logger=None,
+    tool_inputs=None,
+    result_char_limit=None,
 ):
-    """Kör flera verktyg och samla varje resultat separat."""
+    """Kör flera verktyg sekventiellt och samla varje resultat separat."""
+
     results = {}
+    per_tool_input = (
+        tool_inputs
+        if isinstance(
+            tool_inputs,
+            dict,
+        )
+        else {}
+    )
 
     for tool_name in tool_names:
         if tool_name not in tools:
@@ -1057,14 +1227,28 @@ def run_tools(
             tool_function = tool["function"]
 
             if tool.get("pass_user_input", False):
-                if user_input is None:
+                effective_input = per_tool_input.get(
+                    tool_name,
+                    user_input,
+                )
+
+                if effective_input is None:
                     raise ValueError(
                         f"{tool_name} kräver användarens fråga som indata."
                     )
 
-                results[tool_name] = tool_function(user_input)
+                result = tool_function(
+                    effective_input
+                )
             else:
-                results[tool_name] = tool_function()
+                result = tool_function()
+
+            results[
+                tool_name
+            ] = _bounded_tool_result(
+                result,
+                result_char_limit,
+            )
         except Exception as error:
             _log_error(
                 error_logger,
