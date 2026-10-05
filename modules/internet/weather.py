@@ -182,11 +182,11 @@ def extract_weather_location(
     )
 
     patterns = (
-        r"vädret?s+is+(.+)",
-        r"väders+is+(.+)",
-        r"prognos(?:en)?s+(?:för|i)s+(.+)",
-        r"weathers+ins+(.+)",
-        r"forecasts+(?:for|in)s+(.+)",
+        r"vädret?\s+i\s+(.+)",
+        r"väder\s+i\s+(.+)",
+        r"prognos(?:en)?\s+(?:för|i)\s+(.+)",
+        r"weather\s+in\s+(.+)",
+        r"forecast\s+(?:for|in)\s+(.+)",
     )
 
     for pattern in patterns:
