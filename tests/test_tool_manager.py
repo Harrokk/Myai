@@ -647,3 +647,16 @@ def test_detect_tools_routes_myai_audit_status():
     ) == [
         "myai_audit_status"
     ]
+
+
+def test_detect_tools_routes_combined_myai_diagnostics():
+    assert tool_manager.detect_tools(
+        "Gör en MyAI diagnostik."
+    ) == [
+        "myai_diagnostic_report"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa samlad diagnostik."
+    ) == [
+        "myai_diagnostic_report"
+    ]
