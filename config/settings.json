@@ -1,6 +1,11 @@
 {
   "llm": {
-    "provider": "ollama"
+    "provider": "ollama",
+    "fallback": {
+      "enabled": false,
+      "provider": "geniex",
+      "model": ""
+    }
   },
   "ollama": {
     "url": "http://localhost:11434/api/chat",
