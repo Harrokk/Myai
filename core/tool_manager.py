@@ -41,6 +41,13 @@ BLUETOOTH_PROXIMITY_WORDS = [
 
 
 TOOL_KEYWORDS = {
+    "myai_health_status": [
+        "myai status",
+        "myai hälsa",
+        "myai health",
+        "systemhälsa",
+        "ai hälsa",
+    ],
     "gpu_status": [
         "gpu",
         "grafikkort",
@@ -175,6 +182,24 @@ def load_tools():
 def detect_tools(user_input):
     """Snabb regelbaserad identifiering för vanliga lokala statusfrågor."""
     text = user_input.lower().strip()
+
+    asks_myai_health = any(
+        phrase in text
+        for phrase in (
+            "hur mår myai",
+            "hur mår du",
+            "myai status",
+            "myai hälsa",
+            "myai health",
+            "systemhälsa",
+            "ai hälsa",
+        )
+    )
+
+    if asks_myai_health:
+        return [
+            "myai_health_status"
+        ]
 
     mentions_xlsx = ".xlsx" in text
 
