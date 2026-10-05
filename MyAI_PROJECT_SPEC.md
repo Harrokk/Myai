@@ -1958,6 +1958,47 @@ Viktigt:
 - fysisk VENTUNO-verifiering enligt avsnitt 21.2 är fortfarande uppskjuten tills hårdvaran finns
 - `main` ska fortsatt lämnas orörd tills VENTUNO-spåret är färdigverifierat
 
+
+### 21.17 Återupptaget arbete 2026-10-05 – syntetisk felinjektion och återhämtningsprov
+
+Sjätte rekommenderade mjukvarusteget efter avsnitt 21.15 är nu implementerat som ett rent CI-/testlager.
+
+Implementerat:
+- nytt `tests/test_fault_injection.py`
+- ny isolerad runner `scripts/run_fault_injection_tests.py`
+- ingen fault-injection-funktion exponeras i produktionsruntime eller verktygsregistret
+- inga riktiga nätverksavbrott, diskfel, restartkommandon eller fysisk VENTUNO-I/O används
+
+Syntetiskt verifierade felbilder:
+- primär LLM-provider timeout i icke-streamat anrop ger tillåten fallback när fallback är aktiverad
+- streamingfel före första token får växla till fallback
+- streamingfel efter första primära token får inte blanda in fallback i samma svar
+- korrupt MyAI-health och runtime-heartbeat behandlas som saknad/stale data utan filmutation
+- korrupta JSONL-rader i error- och auditloggar ignoreras och räknas utan exekvering
+- stale runtime och stale GenieX-watchdog får inte presenteras som frisk status
+- obligatorisk auditlagring som fallerar blockerar workspace-skrivning före filmutation
+- simulerad oskrivbar/full workspace-lagring lämnar ingen färdig målfil
+- simulerat atomiskt replace-fel vid health-snapshot bevarar tidigare snapshot och städar temporär fil
+- upprepade GenieX-timeouts får inte utlösa restart när `restart_enabled=false`
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `c2722126a9065c52bf33fef0297650c3ac161115`
+- GitHub Actions-run `37305600870` är **success**
+- Python-kompilering och full pytest-svit passerade
+- fault-testlagret använder endast fakes, monkeypatching och temporära testfiler
+- befintliga fallback-, audit-, restart-, config- och fysiska säkerhetsgränser har inte försvagats
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller härletts
+
+Med avsnitt 21.11–21.17 är den rekommenderade mjukvaruhärdningen före fysisk VENTUNO-verifiering genomförd:
+1. stabilitetsanalys
+2. minneslivscykel och konflikthantering
+3. fail-closed audit-logg
+4. samlad read-only diagnostik
+5. versionshanterad konfigurationshärdning
+6. syntetisk felinjektion och återhämtningsprov
+
+Nästa VENTUNO-specifika steg ska därför normalt återgå till den fysiska verifieringsordningen i avsnitt 21.2 när hårdvaran finns. Ytterligare mjukvaruarbete före dess ska endast göras om det är tydligt hårdvaruoberoende och inte kräver antaganden om Qualcomm/GenieX/App Lab/STM32-beteende.
+
 ---
 
 ## 22. Övergripande vision
