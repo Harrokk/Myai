@@ -197,3 +197,23 @@ def test_pyttsx3_empty_text_is_ignored():
     )
 
     assert tts.speak("   ") is False
+
+
+
+def test_faster_whisper_can_release_loaded_model(monkeypatch):
+    model = FakeWhisperModel()
+    stt = providers.FasterWhisperSTT(
+        model=model,
+    )
+    collected = []
+
+    monkeypatch.setattr(
+        providers.gc,
+        "collect",
+        lambda: collected.append(True),
+    )
+
+    assert stt.release_for_inference() is True
+    assert stt._model is None
+    assert collected == [True]
+    assert stt.release_for_inference() is False
