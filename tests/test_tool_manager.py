@@ -512,3 +512,99 @@ def test_detect_tools_routes_myai_health():
     ) == [
         "myai_health_status"
     ]
+
+
+class FakeErrorLogger:
+    def __init__(self):
+        self.events = []
+
+    def log_exception(
+        self,
+        event,
+        component,
+        error,
+    ):
+        self.events.append(
+            (
+                event,
+                component,
+                type(error).__name__,
+                str(error),
+            )
+        )
+        return True
+
+
+def test_run_tools_logs_failure_and_keeps_other_results():
+    logger = FakeErrorLogger()
+
+    def broken():
+        raise RuntimeError(
+            "sensor unavailable"
+        )
+
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU OK",
+            "description": "cpu",
+        },
+        "temperature_status": {
+            "function": broken,
+            "description": "temperature",
+        },
+    }
+
+    result = tool_manager.run_tools(
+        [
+            "cpu_status",
+            "temperature_status",
+        ],
+        tools,
+        error_logger=logger,
+    )
+
+    assert result["cpu_status"] == "CPU OK"
+    assert "sensor unavailable" in result[
+        "temperature_status"
+    ]
+    assert logger.events == [
+        (
+            "tool_error",
+            "temperature_status",
+            "RuntimeError",
+            "sensor unavailable",
+        )
+    ]
+
+
+def test_run_tools_survives_error_logger_failure():
+    class BrokenLogger:
+        def log_exception(
+            self,
+            event,
+            component,
+            error,
+        ):
+            raise OSError(
+                "log target unavailable"
+            )
+
+    def broken():
+        raise RuntimeError(
+            "tool failed"
+        )
+
+    result = tool_manager.run_tools(
+        ["ram_status"],
+        {
+            "ram_status": {
+                "function": broken,
+                "description": "ram",
+            }
+        },
+        error_logger=BrokenLogger(),
+    )
+
+    assert "tool failed" in result[
+        "ram_status"
+    ]
