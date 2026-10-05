@@ -5,6 +5,7 @@ import platform
 from core.config import PROJECT_ROOT, load_settings
 from modules.camera.capture import (
     _load_cv2,
+    camera_enabled,
     configured_camera_index,
     resolve_capture_dir,
 )
@@ -163,6 +164,21 @@ def record_video_from_settings(
 ):
     settings = settings or load_settings()
     camera = settings.get("camera", {})
+
+    if not camera_enabled(
+        settings
+    ):
+        return {
+            "success": False,
+            "disabled": True,
+            "camera_index": None,
+            "path": None,
+            "frames": 0,
+            "error": (
+                "Kameran är avstängd i konfigurationen."
+            ),
+        }
+
     index = configured_camera_index(settings)
 
     video_dir_value = camera.get("video_dir", "runtime/video")
