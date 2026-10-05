@@ -186,7 +186,8 @@
     "stream_tts_stop_timeout_seconds": 2,
     "release_microphone_during_inference": false,
     "model_handoff_delay_seconds": 0,
-    "release_stt_before_model": false
+    "release_stt_before_model": false,
+    "backup_stt_provider": "faster_whisper"
   },
   "ventuno": {
     "enabled": false,
