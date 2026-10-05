@@ -50,6 +50,9 @@ DEFAULT_SETTINGS = {
         "state_path": "runtime/myai_health.json",
         "state_stale_seconds": 60.0,
     },
+    "diagnostics": {
+        "runtime_stale_seconds": 30.0,
+    },
     "logging": {
         "jsonl_max_bytes": 5_000_000,
         "jsonl_backups": 5,
