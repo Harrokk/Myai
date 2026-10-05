@@ -1,8 +1,13 @@
+from copy import deepcopy
 import re
 from urllib.parse import urlparse
 
 from core.config import load_settings
 from core.page_verification import verify_page_content
+from modules.internet.fx import (
+    convert_verified_amount,
+    get_verified_fx_quote,
+)
 from modules.internet.price_compare import (
     compare_sweden_prices,
     format_sweden_price_comparison,
@@ -285,8 +290,104 @@ def _shipping_to_sweden(
     return None
 
 
+def _currency_markers(
+    currency,
+):
+    code = str(
+        currency
+        or ""
+    ).upper()
+    markers = [
+        re.escape(
+            code
+        )
+    ]
+    symbols = {
+        "SEK": (
+            "kr",
+        ),
+        "EUR": (
+            "€",
+        ),
+        "USD": (
+            "\\$",
+        ),
+        "GBP": (
+            "£",
+        ),
+    }
+    markers.extend(
+        symbols.get(
+            code,
+            (),
+        )
+    )
+    return (
+        "(?:"
+        + "|".join(
+            markers
+        )
+        + ")"
+    )
+
+
+def _labeled_money(
+    text,
+    labels,
+    currency,
+):
+    marker = _currency_markers(
+        currency
+    )
+    label = (
+        "(?:"
+        + "|".join(
+            labels
+        )
+        + ")"
+    )
+    amount = (
+        r"(\d+(?:[\s.]\d{3})*"
+        r"(?:[,.]\d{1,2})?)"
+    )
+    patterns = (
+        (
+            label
+            + r"[^\d€$£]{0,30}"
+            + marker
+            + r"\s*"
+            + amount
+        ),
+        (
+            label
+            + r"[^\d€$£]{0,30}"
+            + amount
+            + r"\s*"
+            + marker
+        ),
+    )
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            text
+            or "",
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            return _money_value(
+                match.group(
+                    1
+                )
+            )
+
+    return None
+
+
 def _shipping_cost(
     text,
+    currency="SEK",
 ):
     body = str(
         text
@@ -304,25 +405,14 @@ def _shipping_cost(
     ):
         return 0.0
 
-    pattern = re.compile(
-        r"(?:frakt|shipping|delivery)"
-        r"[^\d]{0,30}"
-        r"(\d+(?:[\s.]\d{3})*(?:[,.]\d{1,2})?)"
-        r"\s*(?:kr|sek)\b",
-        re.IGNORECASE,
-    )
-    match = pattern.search(
-        text
-        or ""
-    )
-
-    if not match:
-        return None
-
-    return _money_value(
-        match.group(
-            1
-        )
+    return _labeled_money(
+        text,
+        (
+            "frakt",
+            "shipping",
+            "delivery",
+        ),
+        currency,
     )
 
 
@@ -371,33 +461,48 @@ def _vat_status(
 
 def _vat_amount(
     text,
+    currency="SEK",
 ):
-    patterns = (
-        r"(?:moms|vat)"
-        r"[^\d]{0,20}"
-        r"(\d+(?:[\s.]\d{3})*(?:[,.]\d{1,2})?)"
-        r"\s*(?:kr|sek)\b",
-        r"(\d+(?:[\s.]\d{3})*(?:[,.]\d{1,2})?)"
-        r"\s*(?:kr|sek)"
-        r"[^\w]{0,10}(?:moms|vat)\b",
+    value = _labeled_money(
+        text,
+        (
+            "moms",
+            "vat",
+        ),
+        currency,
     )
 
-    for pattern in patterns:
-        match = re.search(
-            pattern,
-            text
-            or "",
-            flags=re.IGNORECASE,
+    if value is not None:
+        return value
+
+    marker = _currency_markers(
+        currency
+    )
+    amount = (
+        r"(\d+(?:[\s.]\d{3})*"
+        r"(?:[,.]\d{1,2})?)"
+    )
+    pattern = (
+        amount
+        + r"\s*"
+        + marker
+        + r"[^\w]{0,10}(?:moms|vat)\b"
+    )
+    match = re.search(
+        pattern,
+        text
+        or "",
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    return _money_value(
+        match.group(
+            1
         )
-
-        if match:
-            return _money_value(
-                match.group(
-                    1
-                )
-            )
-
-    return None
+    )
 
 
 def _additional_fees(
@@ -609,14 +714,16 @@ def offer_from_page(
         text
     )
     shipping = _shipping_cost(
-        text
+        text,
+        currency,
     )
     vat_included = _vat_status(
         text
     )
     vat_amount = (
         _vat_amount(
-            text
+            text,
+            currency,
         )
         if vat_included is False
         else None
@@ -680,12 +787,21 @@ def offer_from_page(
         "seller": seller,
         "url": final_url,
         "currency": currency,
+        "original_currency": currency,
+        "product_price_amount": price,
+        "shipping_amount": shipping,
+        "vat_amount": vat_amount,
+        "additional_fees_amount": fees,
         "product_price_sek": (
             price
             if currency == "SEK"
             else None
         ),
-        "shipping_sek": shipping,
+        "shipping_sek": (
+            shipping
+            if currency == "SEK"
+            else None
+        ),
         "vat_included": (
             vat_included
         ),
@@ -694,6 +810,13 @@ def offer_from_page(
         ),
         "additional_fees_sek": (
             fees
+            if currency == "SEK"
+            else (
+                0.0
+                if fees_known
+                and fees == 0
+                else None
+            )
         ),
         "ships_to_sweden": ships,
         "stock_status": availability,
@@ -728,7 +851,8 @@ def offer_from_page(
     }
 
     if (
-        vat_included is False
+        currency == "SEK"
+        and vat_included is False
         and vat_amount is not None
     ):
         candidate[
@@ -743,11 +867,198 @@ def offer_from_page(
     return candidate
 
 
+def _call_fx(
+    fx_function,
+    source_currency,
+    settings,
+):
+    try:
+        return fx_function(
+            source_currency,
+            "SEK",
+            settings=settings,
+        )
+    except TypeError:
+        return fx_function(
+            source_currency,
+            "SEK",
+        )
+
+
+def convert_offer_with_verified_fx(
+    candidate,
+    *,
+    settings,
+    fx_function=None,
+    quote_cache=None,
+):
+    item = deepcopy(
+        candidate
+    )
+    source = str(
+        item.get(
+            "original_currency",
+            item.get(
+                "currency",
+                "",
+            ),
+        )
+        or ""
+    ).upper()
+
+    if source in {
+        "",
+        "UNKNOWN",
+        "SEK",
+    }:
+        return item
+
+    cache = (
+        quote_cache
+        if quote_cache is not None
+        else {}
+    )
+
+    if source not in cache:
+        active_fx = (
+            fx_function
+            or get_verified_fx_quote
+        )
+
+        try:
+            cache[
+                source
+            ] = _call_fx(
+                active_fx,
+                source,
+                settings,
+            )
+        except Exception as error:
+            cache[
+                source
+            ] = {
+                "available": False,
+                "verified": False,
+                "reason": (
+                    f"{type(error).__name__}: "
+                    f"{error}"
+                ),
+                "source_currency": source,
+                "target_currency": "SEK",
+            }
+
+    quote = cache[
+        source
+    ]
+
+    if not (
+        isinstance(
+            quote,
+            dict,
+        )
+        and quote.get(
+            "available"
+        )
+        and quote.get(
+            "verified"
+        )
+        and quote.get(
+            "target_currency"
+        )
+        == "SEK"
+    ):
+        warnings = list(
+            item.get(
+                "warning_flags",
+                [],
+            )
+            or []
+        )
+        warnings.append(
+            (
+                "Verifierad växelkurs till SEK saknas: "
+                + str(
+                    (
+                        quote
+                        if isinstance(
+                            quote,
+                            dict,
+                        )
+                        else {}
+                    ).get(
+                        "reason",
+                        "okänd orsak",
+                    )
+                )
+            )
+        )
+        item[
+            "warning_flags"
+        ] = warnings
+        item[
+            "fx_conversion"
+        ] = deepcopy(
+            quote
+        )
+        return item
+
+    for source_key, target_key in (
+        (
+            "product_price_amount",
+            "product_price_sek",
+        ),
+        (
+            "shipping_amount",
+            "shipping_sek",
+        ),
+        (
+            "vat_amount",
+            "vat_amount_sek",
+        ),
+        (
+            "additional_fees_amount",
+            "additional_fees_sek",
+        ),
+    ):
+        value = item.get(
+            source_key
+        )
+
+        if value is None:
+            continue
+
+        item[
+            target_key
+        ] = convert_verified_amount(
+            value,
+            quote,
+        )
+
+    item[
+        "currency"
+    ] = "SEK"
+    item[
+        "fx_converted"
+    ] = True
+    item[
+        "fx_conversion"
+    ] = deepcopy(
+        quote
+    )
+    item[
+        "information_confidence"
+    ] = _information_confidence(
+        item
+    )
+    return item
+
+
 def shopping_compare_data(
     query,
     settings=None,
     search_function=None,
     fetch_function=None,
+    fx_function=None,
 ):
     settings = (
         settings
@@ -821,6 +1132,7 @@ def shopping_compare_data(
         }
 
     offers = []
+    fx_quote_cache = {}
 
     for result in list(
         search_result.get(
@@ -906,12 +1218,19 @@ def shopping_compare_data(
             )
             continue
 
+        offer = offer_from_page(
+            query,
+            result,
+            page,
+        )
+        offer = convert_offer_with_verified_fx(
+            offer,
+            settings=settings,
+            fx_function=fx_function,
+            quote_cache=fx_quote_cache,
+        )
         offers.append(
-            offer_from_page(
-                query,
-                result,
-                page,
-            )
+            offer
         )
 
     comparison = compare_sweden_prices(
@@ -933,7 +1252,8 @@ def shopping_compare_data(
                 "Produktfakta extraheras endast från explicit "
                 "produktmetadata och synlig sidtext. Okänd frakt, "
                 "moms, lagerstatus, Sverigeleverans eller avgift "
-                "gissas aldrig."
+                "gissas aldrig. Utländsk valuta blir endast SEK "
+                "efter verifierad FX-quote med källa och referensdatum."
             ),
         }
     )
