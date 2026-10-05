@@ -38,9 +38,53 @@ def test_geniex_status_is_read_only(monkeypatch):
     assert "Automatisk restart: False" in result
 
 
-def test_geniex_tool_exposes_no_restart_action():
+def test_ventuno_accelerator_status_does_not_invent_npu_utilization(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        geniex,
+        "load_settings",
+        lambda: {
+            "assistant": {
+                "gpu": (
+                    "Qualcomm Dragonwing QCS8275 "
+                    "/ Hexagon NPU"
+                ),
+            },
+            "geniex": {
+                "model": (
+                    "ai-hub-models/"
+                    "Qwen3-4B-Instruct-2507"
+                ),
+            },
+        },
+    )
+    monkeypatch.setattr(
+        geniex,
+        "GenieXSupervisor",
+        FakeSupervisor,
+    )
+
+    result = (
+        geniex
+        .ventuno_accelerator_status()
+    )
+
+    assert "QCS8275" in result
+    assert "GenieX ready" in result
+    assert "Direkt NPU-belastning" in result
+    assert "%" not in result
+
+
+def test_geniex_tools_expose_no_restart_action():
     assert set(
         geniex.TOOLS
     ) == {
         "geniex_status",
+        "ventuno_accelerator_status",
     }
+    assert not any(
+        "restart"
+        in name
+        for name in geniex.TOOLS
+    )
