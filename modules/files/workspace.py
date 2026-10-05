@@ -2,6 +2,10 @@ import os
 import re
 from pathlib import Path
 
+from core.audit_log import (
+    AuditLogger,
+    audit_outcome_for_exception,
+)
 from core.config import PROJECT_ROOT, load_settings
 
 
@@ -271,6 +275,9 @@ def workspace_read(user_text):
 
 
 def workspace_write(user_text):
+    audit = None
+    target = None
+
     try:
         path = extract_file_path(user_text)
         content = extract_write_content(user_text)
@@ -289,12 +296,67 @@ def workspace_write(user_text):
                 "med innehållet Hej."
             )
 
-        result = write_workspace_text(path, content)
+        settings = load_settings()
+        audit = AuditLogger(
+            settings,
+            PROJECT_ROOT,
+        )
+        target = str(
+            path
+        )
+        audit.write_attempt(
+            action="workspace_write",
+            component="files.workspace",
+            target=target,
+            details={
+                "chars": len(
+                    str(
+                        content
+                    )
+                ),
+            },
+        )
+
+        result = write_workspace_text(
+            path,
+            content,
+            settings=settings,
+        )
+        audit.write_result(
+            action="workspace_write",
+            component="files.workspace",
+            outcome="success",
+            target=result[
+                "path"
+            ],
+            details={
+                "chars": result[
+                    "chars_written"
+                ],
+            },
+        )
         return (
             f"Filen {result['path']} sparades i workspace "
             f"({result['chars_written']} tecken)."
         )
     except Exception as error:
+        if audit is not None:
+            audit.write_result(
+                action="workspace_write",
+                component="files.workspace",
+                outcome=(
+                    audit_outcome_for_exception(
+                        error
+                    )
+                ),
+                target=target,
+                details={
+                    "error_type": type(
+                        error
+                    ).__name__,
+                },
+            )
+
         return f"Kunde inte skriva filen: {error}"
 
 

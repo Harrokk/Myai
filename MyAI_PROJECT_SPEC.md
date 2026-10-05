@@ -1330,6 +1330,38 @@ Exempel på åtgärder som bör kräva extra kontroll:
 
 AI:n ska kunna göra mycket själv, men autonomin ska vara kontrollerad och spårbar.
 
+### 18.1 Teknisk status för audit-logg och spårbara skrivåtgärder
+
+På utvecklingsgren finns nu ett separat strukturerat audit-lager för skrivande och säkerhetsrelevanta åtgärder.
+
+Auditlagret:
+- skriver JSONL med tid, åtgärd, komponent, utfall, mål och begränsad metadata
+- skiljer på `attempt`, `success`, `denied` och `failed`
+- återanvänder projektets roterande JSONL-lager
+- sparar inte rå användarprompt, filinnehåll, Excel-cellvärden eller selfdev-godkännandefraser
+- har `audit_logging.require_for_writes=true` som säker standard
+- blockerar skrivåtgärden innan mutation om obligatorisk audit inte kan skriva sin `attempt`-post
+- behandlar efterföljande resultatloggning som best-effort så ett redan genomfört skrivresultat inte döljs av sekundärt loggfel
+
+Audit är inkopplat i:
+- allmän workspace-textskrivning
+- Excel-create, sheet-create, append och celländring
+- selfdev promotion
+- selfdev rollback
+
+För selfdev loggas endast session-/promotion-ID och antal ändrade/tillagda filer; själva approval-fråsen loggas aldrig.
+
+Read-only verktyget `myai_audit_status` visar högst ett konfigurerat antal senaste audit-händelser, med absolut max 50 poster. Det kan inte rensa eller ändra auditloggen.
+
+Standardvärden:
+- `audit_logging.enabled=true`
+- `audit_logging.require_for_writes=true`
+- `audit_logging.path=runtime/audit.jsonl`
+- `audit_logging.max_detail_chars=200`
+- `audit_logging.recent_limit=20`
+
+Fail-closed configvalidering blockerar bland annat obligatorisk men avstängd audit, saknad loggsökväg och ogiltiga storleksgränser.
+
 ---
 
 ## 19. Versionshantering
@@ -1790,6 +1822,36 @@ Verifiering:
 - ingen fysisk VENTUNO-verifiering krävs eller påstås av detta lager
 
 Nästa rekommenderade rena mjukvaruspår är en separat audit-logg för lyckade, nekade och säkerhetsrelevanta skrivande åtgärder enligt avsnitt 18.
+
+
+### 21.13 Återupptaget arbete 2026-10-05 – fail-closed audit-logg
+
+Tredje rekommenderade mjukvarusteget efter avsnitt 21.12 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- nytt `core/audit_log.py` med strukturerade, roterande JSONL-poster
+- `attempt` måste kunna loggas innan en skrivning när `audit_logging.require_for_writes=true`
+- om obligatorisk audit är avstängd eller loggfilen inte kan skrivas blockeras själva skrivningen innan mutation
+- lyckade, nekade och misslyckade utfall loggas separat
+- auditmetadata begränsas och normaliseras
+- rå användarprompt, textfilinnehåll, Excel-värden och selfdev approval-fråser loggas inte
+- workspace-skrivning och Excel-skrivverktyg är inkopplade
+- selfdev promotion och rollback är inkopplade utan att försvaga befintliga exakta godkännandefraser, Bubblewrap-spärrar eller source-drift-skydd
+- `read_recent_audit()` läser auditloggen read-only över roterade filer
+- `myai_audit_status` exponerar endast read-only visning av senaste händelser
+- naturligt språk stödjer exempelvis `Visa auditloggen` och `Vilka ändringar har MyAI gjort?`
+- configvalidering kräver konsistent auditkonfiguration och begränsar read-only-visningen till högst 50 poster
+
+Verifiering:
+- första feature-head `e6f1221ab3cfccfe2f95e3d8faae2cf1cfe84135` gav en testfailure eftersom ett nytt test använde en ogiltig Excel-instruktion och nådde parserfelet innan write-disable-spärren
+- testet korrigerades utan ändring av auditbeteendet
+- korrigerad feature-head före denna dokumentationscommit: `314710f75a967c4351907cd7f0c987afea3982c7`
+- GitHub Actions-run `37284275511` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker obligatorisk audit, lagringsfel, best-effort result logging, nekade försök, loggrotation, workspace, Excel, selfdev promotion/rollback, sekretessregler, read-only auditstatus, språkroute och configvalidering
+- ingen fysisk VENTUNO/NPU/STM32-verifiering krävs eller påstås av auditlagret
+
+Nästa rekommenderade rena mjukvaruspår är en samlad read-only MyAI-diagnostikrapport som kombinerar configvalidering, health, senaste fel, auditstatus, deployment-lock-status och runtime-/providerstatus utan att utföra restart eller fysisk styrning.
 
 ---
 

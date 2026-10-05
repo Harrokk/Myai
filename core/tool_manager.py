@@ -250,6 +250,25 @@ def detect_tools(user_input):
             "myai_recent_errors"
         ]
 
+    asks_myai_audit = any(
+        phrase in text
+        for phrase in (
+            "visa auditloggen",
+            "visa audit loggen",
+            "myai audit",
+            "audit-logg",
+            "audit log",
+            "senaste skrivåtgärder",
+            "vilka ändringar har myai gjort",
+            "myai action log",
+        )
+    )
+
+    if asks_myai_audit:
+        return [
+            "myai_audit_status"
+        ]
+
     asks_ventuno_stability = any(
         phrase in text
         for phrase in (

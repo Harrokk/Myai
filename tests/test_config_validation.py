@@ -405,3 +405,49 @@ def test_memory_lifecycle_scan_and_stale_limits_are_validated():
     }
     assert "memory_conflict_scan_invalid" in codes
     assert "memory_stale_after_days_invalid" in codes
+
+
+def test_required_audit_cannot_be_disabled():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["audit_logging"][
+        "enabled"
+    ] = False
+    settings["audit_logging"][
+        "require_for_writes"
+    ] = True
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "audit_required_but_disabled"
+        for item in result["errors"]
+    )
+
+
+def test_enabled_audit_requires_path_and_safe_limits():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["audit_logging"][
+        "path"
+    ] = ""
+    settings["audit_logging"][
+        "max_detail_chars"
+    ] = 10
+    settings["audit_logging"][
+        "recent_limit"
+    ] = 51
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert "audit_log_path_missing" in codes
+    assert "audit_detail_limit_invalid" in codes
+    assert "audit_recent_limit_invalid" in codes
