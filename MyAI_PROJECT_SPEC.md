@@ -1490,6 +1490,10 @@ Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulag
 - varje MyAI-svar kan bära intern `llm_runtime`-metadata som visar om primär eller fallback-backend användes
 - GenieX supervisor/watchdog använder read-only `GET /v1/models` för readiness utan token-generering; VENTUNO-profilen har health-monitorering på men automatisk restart av, tomt restart-kommando, feltröskel, cooldown och maxförsök
 - naturligt språk kan endast anropa `geniex_status`; ingen restart-action exponeras som MyAI-verktyg
+- watchdoggen skriver senaste GenieX-läge atomiskt till `runtime/geniex_health.json`; MyAI skriver efter varje svar en kombinerad backendstatus till `runtime/myai_health.json`
+- hälsoklassificeringen är `healthy`, `degraded`, `unhealthy` eller `unknown`; gamla snapshots behandlas som stale/unknown i stället för aktuell status
+- varje svar innehåller intern `llm_runtime`- och `health`-metadata, och en kort read-only hälsosammanfattning läggs i systemkontexten så modellen känner till degraderat/fallbackläge
+- naturligt språk kan läsa detta genom `myai_health_status`, men verktyget kan inte trigga restart eller fysisk styrning
 - `scripts/geniex_watchdog.py` kan senare köras separat och loggar watchdog-händelser till JSONL; automatisk restart får inte aktiveras förrän den riktiga VENTUNO-installationens tjänstehantering har verifierats
 - `scripts/ventuno_stability_test.py` är förberett för den senare 72-timmarskörningen och loggar first-token-latens, total svarstid, primär/fallback-backend, CPU, RAM, disk och temperatur i JSONL utan STM32/GPIO-skrivningar
 - VENTUNO preflight kontrollerar nu även `geniex --version` och `geniex model list`
