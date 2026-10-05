@@ -4,7 +4,12 @@
     "fallback": {
       "enabled": false,
       "provider": "geniex",
-      "model": ""
+      "model": "",
+      "health_aware": {
+        "enabled": true,
+        "failure_threshold": 3,
+        "recovery_success_threshold": 3
+      }
     }
   },
   "geniex": {
