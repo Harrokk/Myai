@@ -39,6 +39,7 @@ class GenieXSupervisor:
         )
 
         self.consecutive_failures = 0
+        self.consecutive_successes = 0
         self.restart_attempts = 0
         self.last_restart_at = None
         self.last_check = None
@@ -163,6 +164,9 @@ class GenieXSupervisor:
                 "consecutive_failures": (
                     self.consecutive_failures
                 ),
+                "consecutive_successes": (
+                    self.consecutive_successes
+                ),
                 "restart_attempts": (
                     self.restart_attempts
                 ),
@@ -209,6 +213,7 @@ class GenieXSupervisor:
                 )
 
             self.consecutive_failures = 0
+            self.consecutive_successes += 1
             result = {
                 "enabled": True,
                 "healthy": True,
@@ -218,6 +223,9 @@ class GenieXSupervisor:
                     models
                 ),
                 "consecutive_failures": 0,
+                "consecutive_successes": (
+                    self.consecutive_successes
+                ),
                 "restart_attempts": (
                     self.restart_attempts
                 ),
@@ -225,6 +233,7 @@ class GenieXSupervisor:
             }
         except Exception as error:
             self.consecutive_failures += 1
+            self.consecutive_successes = 0
             result = {
                 "enabled": True,
                 "healthy": False,
@@ -234,6 +243,7 @@ class GenieXSupervisor:
                 "consecutive_failures": (
                     self.consecutive_failures
                 ),
+                "consecutive_successes": 0,
                 "restart_attempts": (
                     self.restart_attempts
                 ),
