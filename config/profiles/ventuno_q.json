@@ -100,5 +100,12 @@
   "deployment_lock": {
     "required": false,
     "lock_path": "config/ventuno_stack_lock.json"
+  },
+  "stability_analysis": {
+    "log_path": "runtime/ventuno_stability.jsonl",
+    "max_records": 10000,
+    "target_hours": 72,
+    "trend_fraction": 0.25,
+    "latency_degradation_ratio": 1.25
   }
 }
