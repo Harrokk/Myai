@@ -660,3 +660,16 @@ def test_detect_tools_routes_combined_myai_diagnostics():
     ) == [
         "myai_diagnostic_report"
     ]
+
+
+def test_detect_tools_routes_sweden_shopping_comparison():
+    assert tool_manager.detect_tools(
+        "Jämför pris på Widget Pro."
+    ) == [
+        "shopping_compare_sweden"
+    ]
+    assert tool_manager.detect_tools(
+        "Hitta billigaste Widget Pro."
+    ) == [
+        "shopping_compare_sweden"
+    ]
