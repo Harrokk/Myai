@@ -276,70 +276,99 @@ def test_detect_tools_routes_bluetooth_distance_to_proximity():
     assert result == ["bluetooth_nearby"]
 
 
-def test_detect_tools_routes_raspberry_pi_status():
+def test_detect_tools_routes_ventuno_status_bundle():
     result = tool_manager.detect_tools(
-        "Hur mår min Raspberry Pi 5, är den varm eller throttlar?"
-    )
-    assert result == ["pi_system_status"]
-
-
-def test_detect_tools_routes_pi_bus_devices():
-    result = tool_manager.detect_tools(
-        "Vilka I2C-enheter och SPI-enheter finns på min Raspberry Pi?"
-    )
-    assert result == ["pi_bus_devices_status"]
-
-
-def test_detect_tools_routes_raspberry_pi_gpio_reference():
-    result = tool_manager.detect_tools(
-        "Vilken GPIO ska jag använda för I2C på Raspberry Pi?"
-    )
-    assert result == ["pi_gpio_reference"]
-
-
-def test_detect_tools_routes_explicit_gpio_without_pi_name():
-    result = tool_manager.detect_tools(
-        "Kan jag koppla en 5 V-signal till GPIO17?"
-    )
-    assert result == ["pi_gpio_reference"]
-
-
-def test_detect_tools_routes_pi_interface_inventory():
-    result = tool_manager.detect_tools(
-        "Vilka gränssnitt och portar finns på min Raspberry Pi?"
-    )
-    assert result == ["pi_interfaces_status"]
-
-
-def test_detect_tools_routes_pi_power_status():
-    result = tool_manager.detect_tools(
-        "Hur mycket ström drar min Raspberry Pi i watt?"
-    )
-    assert result == ["pi_power_status"]
-
-
-def test_detect_tools_routes_pi_network_status():
-    result = tool_manager.detect_tools(
-        "Vilket nätverk och vilka IP-adresser har min Raspberry Pi?"
-    )
-    assert result == ["pi_network_status"]
-
-
-def test_detect_tools_routes_pi_processes_and_services_together():
-    result = tool_manager.detect_tools(
-        "Vilka processer och tjänster körs på min Raspberry Pi?"
+        "Hur mår min Arduino VENTUNO Q, CPU RAM temperatur och disk?"
     )
     assert result == [
-        "pi_process_status",
-        "pi_services_status",
+        "cpu_status",
+        "ram_status",
+        "temperature_status",
+        "disk_status",
+        "geniex_status",
     ]
 
 
-def test_detect_tools_routes_pi_system_logs():
+def test_detect_tools_routes_ventuno_bus_devices():
     result = tool_manager.detect_tools(
-        "Visa systemloggarna på min Raspberry Pi."
+        "Vilka I2C-enheter och SPI-enheter finns på min VENTUNO?"
     )
-    assert result == ["pi_system_logs"]
+    assert result == [
+        "ventuno_bus_devices_status"
+    ]
+
+
+def test_detect_tools_routes_gpio_to_ventuno_safety_not_pi_pinout():
+    result = tool_manager.detect_tools(
+        "Vilken GPIO ska jag använda för I2C på Arduino VENTUNO Q?"
+    )
+    assert result == [
+        "ventuno_io_safety"
+    ]
+
+
+def test_detect_tools_routes_explicit_gpio_to_ventuno_safety():
+    result = tool_manager.detect_tools(
+        "Kan jag koppla en 5 V-signal till GPIO17?"
+    )
+    assert result == [
+        "ventuno_io_safety"
+    ]
+
+
+def test_detect_tools_routes_ventuno_interface_inventory():
+    result = tool_manager.detect_tools(
+        "Vilka gränssnitt och portar finns på min VENTUNO?"
+    )
+    assert result == [
+        "ventuno_interfaces_status"
+    ]
+
+
+def test_detect_tools_routes_ventuno_power_status():
+    result = tool_manager.detect_tools(
+        "Hur mycket ström drar min VENTUNO i watt?"
+    )
+    assert result == [
+        "ventuno_power_status"
+    ]
+
+
+def test_detect_tools_routes_ventuno_network_status():
+    result = tool_manager.detect_tools(
+        "Vilket nätverk och vilka IP-adresser har min VENTUNO?"
+    )
+    assert result == [
+        "ventuno_network_status"
+    ]
+
+
+def test_detect_tools_routes_ventuno_processes_and_services_together():
+    result = tool_manager.detect_tools(
+        "Vilka processer och tjänster körs på min VENTUNO?"
+    )
+    assert result == [
+        "ventuno_process_status",
+        "ventuno_services_status",
+    ]
+
+
+def test_detect_tools_routes_ventuno_system_logs():
+    result = tool_manager.detect_tools(
+        "Visa systemloggarna på min VENTUNO."
+    )
+    assert result == [
+        "ventuno_system_logs"
+    ]
+
+
+def test_detect_tools_routes_npu_to_geniex_status():
+    result = tool_manager.detect_tools(
+        "Visa NPU accelerator status."
+    )
+    assert result == [
+        "geniex_status"
+    ]
 
 
 def test_detect_tools_finds_hardware_inventory():
