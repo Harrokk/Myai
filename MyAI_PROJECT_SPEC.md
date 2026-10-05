@@ -1512,6 +1512,31 @@ Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulag
 
 Nästa mjukvarumässiga fokus är robust runtime-/stabilitetsövervakning inför den senare 72-timmarskörningen, samtidigt som fysisk NPU/ASR/VLM/RPC-verifiering fortsatt skjuts upp tills VENTUNO Q finns tillgänglig.
 
+
+### 21.5 Säker selfdev-staging, verifiering och rollback
+
+Det tidigare stora mjukvarugapet kring säker självkodning har nu fått ett första fail-closed implementationslager.
+
+Implementerat:
+- selfdev är avstängt som standard genom separat `selfdev.enabled=false`
+- promotion har en andra separat spärr `selfdev.promotion_enabled=false`
+- kandidatkod kopieras till isolerad staging under `runtime/selfdev/<session>/workspace`; aktiv kod skrivs inte under förslagsfasen
+- endast explicit tillåtna text-/källkodsytor och filtyper kopieras; `.git`, `runtime`, virtuella miljöer, symlänkar, traversal och binära/otillåtna suffix blockeras
+- sessionen sparar SHA-256-baseline och upptäcker source drift
+- varje staging-skrivning genom API:t ogiltigförklarar tidigare verifiering
+- `scripts/selfdev_review.py` visar exakt unified diff, verifieringsstatus och source drift före promotion
+- verifiering körs endast genom Bubblewrap; saknas `bwrap` vägrar systemet köra i stället för att exekvera kandidatkod osandboxat på host
+- verifieringsmiljön unshare:ar namespaces, saknar nätverk, får minimal syntetisk `/dev`, read-only systembinds och endast staging-workspacen som skrivbar projektarea
+- verifieringen kör ett fast `python -m pytest -q` och binder verifieringsresultatet till staging-manifestets hash
+- filradering är inte tillåten för promotion i denna fas
+- promotion kräver passing Bubblewrap-verifiering, oförändrad staging, ingen source drift, båda config-spärrarna och exakt manuell fras `PROMOTE <session-id>`
+- rollback-backup skapas innan aktiv filskrivning; filersättning sker atomiskt och delvis misslyckad promotion återställs
+- rollback kräver exakt manuell fras `ROLLBACK <session-id> <promotion-id>`
+- rollback vägrar skriva över filer som ändrats efter promotion och tar bort filer som promotionen själv lade till
+- selfdev/promotion/rollback exponeras inte som naturliga MyAI-verktyg, har ingen fri shell-exekvering och gör inga automatiska Git-commits/pushar
+
+Detta är ett staging-/promotion-säkerhetslager, inte ett generellt bevis på att AI-genererad kod är säker. Fysisk VENTUNO-I/O och säkerhetskritisk MCU-funktionalitet ska även fortsättningsvis hållas utanför autonom promotion.
+
 ---
 
 ## 22. Övergripande vision
