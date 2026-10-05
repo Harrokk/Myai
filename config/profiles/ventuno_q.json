@@ -34,7 +34,8 @@
     "release_stt_before_model": true,
     "stt_provider": "faster_whisper",
     "stt_model": "small",
-    "stt_language": "sv"
+    "stt_language": "sv",
+    "backup_stt_provider": "faster_whisper"
   },
   "ventuno": {
     "enabled": true,
