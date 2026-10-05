@@ -271,6 +271,10 @@ DEFAULT_SETTINGS = {
         "supersede_similarity_threshold": 0.85,
         "max_conflict_scan": 200,
         "stale_after_days": 0,
+        "review_queue_enabled": True,
+        "administration_limit": 50,
+        "stale_review_days": 365,
+        "permanent_delete_enabled": True,
     },
     "conversation": {
         "max_turns": 6,
