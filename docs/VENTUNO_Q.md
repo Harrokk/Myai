@@ -171,3 +171,35 @@ The read-only VENTUNO preflight now also checks:
 - whether the configured primary Qwen model appears in the chipset-compatible model catalogue
 
 A successfully executed model list that does not contain the configured model is a blocking failure. A CLI/catalogue error is reported as a warning rather than being treated as proof of incompatibility.
+
+
+## 72-hour stability harness
+
+A hardware stability harness is prepared but is not run in CI:
+
+```bash
+python3 scripts/ventuno_stability_test.py --hours 72
+```
+
+Before inference begins, the script runs the VENTUNO preflight unless `--skip-preflight` is explicitly supplied for debugging.
+
+Each iteration records one JSON object in:
+
+```text
+runtime/ventuno_stability.jsonl
+```
+
+The record includes:
+- success/failure
+- first emitted LLM chunk latency
+- total response duration
+- response character/chunk counts
+- primary/fallback runtime metadata
+- CPU usage
+- RAM usage
+- disk free space
+- temperatures reported through psutil when available
+
+The default interval is 60 seconds. The prompt is intentionally harmless and deterministic.
+
+The stability harness does not enable STM32 RPC writes, GPIO, relays or motors. Hardware actuation must be tested separately after the MCU safety boundary and write allowlists have been approved.
