@@ -470,7 +470,7 @@ def apply_memory_lifecycle(
     conflict_threshold = float(
         config.get(
             "conflict_similarity_threshold",
-            0.72,
+            0.65,
         )
     )
     supersede_threshold = float(
