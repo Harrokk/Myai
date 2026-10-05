@@ -538,6 +538,144 @@ def validate_settings(
             )
         )
 
+    memory = settings.get(
+        "memory",
+        {},
+    )
+
+    try:
+        conflict_threshold = float(
+            memory.get(
+                "conflict_similarity_threshold",
+                0.72,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        conflict_threshold = -1.0
+
+    try:
+        supersede_threshold = float(
+            memory.get(
+                "supersede_similarity_threshold",
+                0.85,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        supersede_threshold = -1.0
+
+    if not (
+        0.0
+        <= conflict_threshold
+        <= 1.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_conflict_threshold_invalid",
+                (
+                    "memory.conflict_similarity_threshold "
+                    "måste vara mellan 0 och 1."
+                ),
+            )
+        )
+
+    if not (
+        0.0
+        <= supersede_threshold
+        <= 1.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_supersede_threshold_invalid",
+                (
+                    "memory.supersede_similarity_threshold "
+                    "måste vara mellan 0 och 1."
+                ),
+            )
+        )
+    elif (
+        0.0
+        <= conflict_threshold
+        <= 1.0
+        and supersede_threshold
+        < conflict_threshold
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_supersede_threshold_too_low",
+                (
+                    "memory.supersede_similarity_threshold "
+                    "får inte vara lägre än conflict-threshold."
+                ),
+            )
+        )
+
+    try:
+        max_conflict_scan = int(
+            memory.get(
+                "max_conflict_scan",
+                200,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        max_conflict_scan = 0
+
+    if not (
+        1
+        <= max_conflict_scan
+        <= 1000
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_conflict_scan_invalid",
+                (
+                    "memory.max_conflict_scan måste vara "
+                    "mellan 1 och 1000."
+                ),
+            )
+        )
+
+    try:
+        stale_after_days = float(
+            memory.get(
+                "stale_after_days",
+                0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        stale_after_days = -1.0
+
+    if not (
+        0.0
+        <= stale_after_days
+        <= 36500.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "memory_stale_after_days_invalid",
+                (
+                    "memory.stale_after_days måste vara "
+                    "mellan 0 och 36500."
+                ),
+            )
+        )
+
     error_logging = settings.get(
         "error_logging",
         {},
