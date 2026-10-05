@@ -145,3 +145,29 @@ When enabled:
 - every completed response carries internal runtime metadata identifying whether the primary or fallback backend was used
 
 The intended VENTUNO use is a high-performance QAIRT/NPU primary model with a smaller, separately validated local GenieX model as emergency fallback. The exact reserve model must be chosen from the models that are actually compatible with the board and validated in the physical test phase.
+
+
+## ASR provider separation
+
+MyAI now supports separate primary and backup STT providers.
+
+Current VENTUNO profile:
+- primary STT: `faster_whisper` until a documented accelerated provider is verified
+- backup STT provider: `faster_whisper`
+- model release before LLM/VLM: enabled on VENTUNO, disabled in the Windows default profile
+
+The intended physical-board configuration is:
+- primary: the verified Qualcomm/Arduino accelerated Whisper path
+- backup: `faster-whisper`
+- same MyAI voice pipeline and safety/consensus logic regardless of provider
+
+The official VENTUNO Q local assistant uses Whisper Small (quantized) through the Arduino App Lab ASR Brick. MyAI does not assume a private or undocumented Brick API.
+
+## Expanded preflight
+
+The read-only VENTUNO preflight now also checks:
+- `geniex --version`
+- `geniex model list`
+- whether the configured primary Qwen model appears in the chipset-compatible model catalogue
+
+A successfully executed model list that does not contain the configured model is a blocking failure. A CLI/catalogue error is reported as a warning rather than being treated as proof of incompatibility.
