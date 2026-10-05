@@ -281,3 +281,43 @@ def test_restart_respects_cooldown_and_max_attempts():
     now[0] = 222.0
     assert supervisor.restart()["attempted"] is False
     assert supervisor.restart_attempts == 2
+
+
+
+def test_supervisor_tracks_success_streak_for_recovery():
+    sequence = iter(
+        [
+            FakeResponse(),
+            FakeResponse(),
+            RuntimeError("down"),
+            FakeResponse(),
+        ]
+    )
+
+    def fake_get(url, timeout):
+        value = next(sequence)
+
+        if isinstance(
+            value,
+            Exception,
+        ):
+            raise value
+
+        return value
+
+    supervisor = GenieXSupervisor(
+        settings(),
+        request_get=fake_get,
+    )
+
+    first = supervisor.check()
+    second = supervisor.check()
+    third = supervisor.check()
+    fourth = supervisor.check()
+
+    assert first["consecutive_successes"] == 1
+    assert second["consecutive_successes"] == 2
+    assert third["consecutive_successes"] == 0
+    assert third["consecutive_failures"] == 1
+    assert fourth["consecutive_successes"] == 1
+    assert fourth["consecutive_failures"] == 0
