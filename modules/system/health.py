@@ -251,8 +251,18 @@ def format_myai_health(
     geniex_healthy = health.get(
         "geniex_healthy"
     )
+    geniex_stale = bool(
+        health.get(
+            "geniex_state_stale",
+            False,
+        )
+    )
 
-    if geniex_healthy is not None:
+    if geniex_stale:
+        lines.append(
+            "GenieX readiness: stale/unknown"
+        )
+    elif geniex_healthy is not None:
         lines.append(
             "GenieX readiness: "
             + (
