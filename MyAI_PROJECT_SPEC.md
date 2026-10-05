@@ -1420,6 +1420,24 @@ Om användaren märker att assistenten beter sig olämpligt eller inkonsekvent s
 
 Inställningar och regler bör så långt som möjligt vara dokumenterade, versionshanterade och möjliga att återställa.
 
+### 20.2 Teknisk status för versionshanterad konfiguration
+
+Konfigurationsformatet har nu ett explicit schema:
+- aktuell `schema_version=1`
+- versionshanterade `config/settings.json` och `config/profiles/ventuno_q.json` anger schema 1
+- äldre filer utan versionsfält migreras endast i minnet till schema 1; källfilen skrivs inte om automatiskt
+- konfiguration med framtida schema_version blockeras i stället för att tolkas på chans
+- schema_version måste vara ett heltal
+
+Fail-closed validering jämför effektiv konfiguration mot kända standardnycklar och blockerar okända/feilstavade nycklar, inklusive nested paths.
+
+Nya read-only verktyg:
+- `scripts/config_profile_compare.py` jämför två effektiva profiler och redigerar känsliga värden som API-nycklar i rapporten
+- `scripts/config_migration_preview.py` visar exakt in-memory migrationskandidat, migrationssteg och okända nycklar utan att skriva källfilen
+- `scripts/validate_config.py` varnar när en äldre fil migrerades i minnet
+
+Ingen automatisk omskrivning av aktiv konfiguration har lagts till.
+
 ---
 
 ## 21. Nuvarande prioritet och teknisk status
@@ -1885,6 +1903,33 @@ Verifiering:
 - ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering har genomförts eller härletts
 
 Nästa rekommenderade rena mjukvaruspår är konfigurationshärdning: schema/version, okända nycklar, profiljämförelse och kontrollerad migrationslogik utan att aktivera fysisk hårdvara.
+
+
+### 21.15 Återupptaget arbete 2026-10-05 – konfigurationshärdning
+
+Femte rekommenderade mjukvarusteget efter avsnitt 21.14 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- nytt `core/config_schema.py`
+- `CURRENT_CONFIG_SCHEMA_VERSION=1`
+- legacy-konfiguration utan versionsfält migreras bakåtkompatibelt till schema 1 endast i minnet
+- framtida schema och icke-heltalsversioner blockeras
+- `load_settings_with_metadata()` redovisar source/effective version och migrationssteg utan att skriva tillbaka filen
+- `validate_settings()` blockerar okända top-level och nested confignycklar
+- checked-in Windows/default- och VENTUNO-profiler har explicit `schema_version=1`
+- profilerna valideras direkt i CI
+- read-only profiljämförelse visar effektiva skillnader med redaction av känsliga fält
+- read-only migrationspreview visar kandidat och okända nycklar utan source mutation
+- befintligt partial-profile merge-beteende bevaras
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `bccf5535a05d2bb11e28d47f2ead7df4dd5c4a68`
+- GitHub Actions-run `37285986641` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker legacy migration utan filändring, framtida schema, felaktig schematyp, okända nested keys, profilskillnader, sekretessredaction, checked-in profiler och befintlig partial override
+- ingen fysisk VENTUNO-verifiering krävs eller påstås
+
+Nästa rekommenderade rena mjukvaruspår är systematisk felinjektion: timeout, korrupta state/loggfiler, auditlagringsfel, stale health/runtime, full-/oskrivbar lagring och providerfel ska kunna provas med mocks utan fysisk VENTUNO-hårdvara.
 
 ---
 

@@ -3,11 +3,17 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
+from core.config_schema import (
+    CURRENT_CONFIG_SCHEMA_VERSION,
+    migrate_config_document,
+)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.json"
 
 DEFAULT_SETTINGS = {
+    "schema_version": CURRENT_CONFIG_SCHEMA_VERSION,
     "llm": {
         "provider": "ollama",
         "fallback": {
@@ -320,17 +326,84 @@ def _settings_path(path=None):
     return DEFAULT_SETTINGS_PATH
 
 
-def load_settings(path=None):
-    """Ladda konfiguration och fyll i saknade värden med säkra standarder."""
-    settings_path = _settings_path(path)
+def load_settings_with_metadata(
+    path=None,
+):
+    """Load settings with in-memory schema migration and provenance metadata."""
+
+    settings_path = _settings_path(
+        path
+    )
 
     if not settings_path.exists():
-        return deepcopy(DEFAULT_SETTINGS)
+        return {
+            "settings": deepcopy(
+                DEFAULT_SETTINGS
+            ),
+            "metadata": {
+                "source_path": str(
+                    settings_path
+                ),
+                "source_exists": False,
+                "source_version": (
+                    CURRENT_CONFIG_SCHEMA_VERSION
+                ),
+                "effective_version": (
+                    CURRENT_CONFIG_SCHEMA_VERSION
+                ),
+                "migration_changed": False,
+                "migration_steps": [],
+            },
+        }
 
-    with settings_path.open("r", encoding="utf-8") as file:
-        loaded = json.load(file)
+    with settings_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        loaded = json.load(
+            file
+        )
 
-    if not isinstance(loaded, dict):
-        raise ValueError("Konfigurationsfilen måste innehålla ett JSON-objekt.")
+    migration = migrate_config_document(
+        loaded
+    )
+    effective = _merge_settings(
+        DEFAULT_SETTINGS,
+        migration[
+            "document"
+        ],
+    )
 
-    return _merge_settings(DEFAULT_SETTINGS, loaded)
+    return {
+        "settings": effective,
+        "metadata": {
+            "source_path": str(
+                settings_path
+            ),
+            "source_exists": True,
+            "source_version": migration[
+                "source_version"
+            ],
+            "effective_version": migration[
+                "effective_version"
+            ],
+            "migration_changed": migration[
+                "changed"
+            ],
+            "migration_steps": list(
+                migration[
+                    "steps"
+                ]
+            ),
+        },
+    }
+
+
+def load_settings(path=None):
+    """Ladda konfiguration och migrera äldre schema endast i minnet."""
+
+    return load_settings_with_metadata(
+        path
+    )[
+        "settings"
+    ]

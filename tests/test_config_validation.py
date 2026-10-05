@@ -2,7 +2,11 @@ from copy import deepcopy
 
 import pytest
 
-from core.config import DEFAULT_SETTINGS
+from core.config import (
+    DEFAULT_SETTINGS,
+    PROJECT_ROOT,
+    load_settings,
+)
 from core.config_validation import (
     require_valid_settings,
     validate_settings,
@@ -469,3 +473,76 @@ def test_diagnostics_runtime_stale_limit_is_validated():
         == "diagnostics_runtime_stale_invalid"
         for item in result["errors"]
     )
+
+
+def test_unknown_config_key_is_blocking():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["voice"][
+        "stt_langauge"
+    ] = "sv"
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "unknown_config_key"
+        and "voice.stt_langauge"
+        in item["message"]
+        for item in result["errors"]
+    )
+
+
+def test_config_schema_version_mismatch_is_blocking():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "schema_version"
+    ] = 999
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "unsupported_config_schema"
+        for item in result["errors"]
+    )
+
+
+def test_versioned_repository_profiles_validate_cleanly():
+    main = load_settings(
+        PROJECT_ROOT
+        / "config"
+        / "settings.json"
+    )
+    ventuno = load_settings(
+        PROJECT_ROOT
+        / "config"
+        / "profiles"
+        / "ventuno_q.json"
+    )
+
+    main_result = validate_settings(
+        main
+    )
+    ventuno_result = validate_settings(
+        ventuno,
+        require_ventuno_profile=True,
+    )
+
+    assert main_result[
+        "valid"
+    ] is True
+    assert main_result[
+        "errors"
+    ] == []
+    assert ventuno_result[
+        "valid"
+    ] is True
+    assert ventuno_result[
+        "errors"
+    ] == []
