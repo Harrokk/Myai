@@ -54,6 +54,10 @@ DEFAULT_SETTINGS = {
         "jsonl_max_bytes": 5_000_000,
         "jsonl_backups": 5,
     },
+    "deployment_lock": {
+        "required": False,
+        "lock_path": "config/ventuno_stack_lock.json",
+    },
     "selfdev": {
         "enabled": False,
         "workspace_root": "runtime/selfdev",
