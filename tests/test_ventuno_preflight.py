@@ -542,6 +542,9 @@ def _locked_stack(
             "requirements-ventuno.txt": {
                 "sha256": "ventuno",
             },
+            "requirements-bluetooth.txt": {
+                "sha256": "bluetooth",
+            },
             "requirements-camera.txt": {
                 "sha256": "camera",
             },
