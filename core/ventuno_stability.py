@@ -1286,3 +1286,228 @@ def analyze_stability_log(
         "total_valid_records"
     ]
     return report
+
+
+
+def _format_optional(
+    value,
+    *,
+    suffix="",
+    digits=2,
+):
+    number = _numeric(
+        value
+    )
+
+    if number is None:
+        return "saknas"
+
+    return (
+        f"{number:.{int(digits)}f}"
+        + suffix
+    )
+
+
+def format_stability_report(
+    report,
+):
+    """Human-readable Swedish summary; never declares hardware approval."""
+
+    records = int(
+        report.get(
+            "records",
+            0,
+        )
+        or 0
+    )
+
+    if records <= 0:
+        return (
+            "VENTUNO stabilitetsrapport: ingen giltig data.\n"
+            "Fysisk VENTUNO-verifiering: inte bedömd av rapporten."
+        )
+
+    latency = report.get(
+        "latency",
+        {},
+    )
+    first = latency.get(
+        "first_chunk",
+        {},
+    )
+    total = latency.get(
+        "total",
+        {},
+    )
+    system = report.get(
+        "system",
+        {},
+    )
+    backend = report.get(
+        "backend",
+        {},
+    )
+    target_reached = bool(
+        report.get(
+            "target_duration_reached",
+            False,
+        )
+    )
+    lines = [
+        "VENTUNO stabilitetsrapport",
+        (
+            f"Poster: {records} | "
+            f"lyckade: {int(report.get('successes', 0) or 0)} | "
+            f"fel: {int(report.get('failures', 0) or 0)}"
+        ),
+        (
+            "Lyckandegrad: "
+            + _format_optional(
+                report.get(
+                    "success_rate_percent"
+                ),
+                suffix="%",
+            )
+        ),
+        (
+            "Observerad tid: "
+            + _format_optional(
+                report.get(
+                    "duration_hours"
+                ),
+                suffix=" h",
+            )
+            + " | målperiod nådd: "
+            + (
+                "ja"
+                if target_reached
+                else "nej"
+            )
+        ),
+        (
+            "First-token-latens p50/p95/max: "
+            + "/".join(
+                [
+                    _format_optional(
+                        first.get(
+                            "p50_seconds"
+                        ),
+                        suffix=" s",
+                    ),
+                    _format_optional(
+                        first.get(
+                            "p95_seconds"
+                        ),
+                        suffix=" s",
+                    ),
+                    _format_optional(
+                        first.get(
+                            "max_seconds"
+                        ),
+                        suffix=" s",
+                    ),
+                ]
+            )
+        ),
+        (
+            "Total svarstid p50/p95/max: "
+            + "/".join(
+                [
+                    _format_optional(
+                        total.get(
+                            "p50_seconds"
+                        ),
+                        suffix=" s",
+                    ),
+                    _format_optional(
+                        total.get(
+                            "p95_seconds"
+                        ),
+                        suffix=" s",
+                    ),
+                    _format_optional(
+                        total.get(
+                            "max_seconds"
+                        ),
+                        suffix=" s",
+                    ),
+                ]
+            )
+        ),
+        (
+            "Längsta felserie: "
+            f"{int(report.get('longest_failure_streak', 0) or 0)}"
+        ),
+        (
+            "Backendbyten: "
+            f"{int(backend.get('switches', 0) or 0)} | "
+            f"fördelning: {backend.get('counts', {})}"
+        ),
+        (
+            "CPU medel/max: "
+            + _format_optional(
+                system.get(
+                    "cpu_mean_percent"
+                ),
+                suffix="%",
+            )
+            + "/"
+            + _format_optional(
+                system.get(
+                    "cpu_max_percent"
+                ),
+                suffix="%",
+            )
+        ),
+        (
+            "RAM medel/max: "
+            + _format_optional(
+                system.get(
+                    "ram_mean_percent"
+                ),
+                suffix="%",
+            )
+            + "/"
+            + _format_optional(
+                system.get(
+                    "ram_max_percent"
+                ),
+                suffix="%",
+            )
+        ),
+        (
+            "Max temperatur: "
+            + _format_optional(
+                system.get(
+                    "temperature_max_celsius"
+                ),
+                suffix=" °C",
+            )
+        ),
+    ]
+
+    observations = report.get(
+        "observations",
+        [],
+    )
+
+    if observations:
+        lines.append(
+            "Observationer:"
+        )
+
+        for item in observations:
+            lines.append(
+                f"- {item}"
+            )
+
+    lines.append(
+        (
+            "Fysisk VENTUNO-verifiering: inte bedömd av rapporten; "
+            "den följer separat enligt project_spec §21.2."
+        )
+    )
+
+    return "\n".join(
+        lines
+    )
