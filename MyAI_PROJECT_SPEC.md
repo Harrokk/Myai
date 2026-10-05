@@ -1488,6 +1488,9 @@ Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulag
 - streaming-fallback får endast ske innan första primärtoken har skickats; en påbörjad primärström får aldrig blandas med reservmodellens svar
 - programmeringsfel som `TypeError` ska inte döljas av fallback
 - varje MyAI-svar kan bära intern `llm_runtime`-metadata som visar om primär eller fallback-backend användes
+- GenieX supervisor/watchdog använder read-only `GET /v1/models` för readiness utan token-generering; VENTUNO-profilen har health-monitorering på men automatisk restart av, tomt restart-kommando, feltröskel, cooldown och maxförsök
+- naturligt språk kan endast anropa `geniex_status`; ingen restart-action exponeras som MyAI-verktyg
+- `scripts/geniex_watchdog.py` kan senare köras separat och loggar watchdog-händelser till JSONL; automatisk restart får inte aktiveras förrän den riktiga VENTUNO-installationens tjänstehantering har verifierats
 - `scripts/ventuno_stability_test.py` är förberett för den senare 72-timmarskörningen och loggar first-token-latens, total svarstid, primär/fallback-backend, CPU, RAM, disk och temperatur i JSONL utan STM32/GPIO-skrivningar
 - VENTUNO preflight kontrollerar nu även `geniex --version` och `geniex model list`
 - om den konfigurerade Qwen-modellen inte finns i chipsetets kompatibla GenieX-lista blir preflight blockerande FAIL
