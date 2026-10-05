@@ -206,6 +206,8 @@
     "restart_command": [],
     "restart_timeout_seconds": 30,
     "restart_cooldown_seconds": 60,
-    "max_restart_attempts": 3
+    "max_restart_attempts": 3,
+    "state_path": "runtime/geniex_health.json",
+    "state_stale_seconds": 30
   }
 }
