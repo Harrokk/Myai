@@ -14,7 +14,12 @@ from core.health_status import (
     read_health_state,
     write_health_state,
 )
-from core.tool_manager import load_tools, run_tools, select_tools
+from core.orchestration import public_plan
+from core.tool_manager import (
+    load_tools,
+    run_tools,
+    select_tool_plan,
+)
 
 
 class MyAICore:
@@ -552,20 +557,51 @@ Svara kort och tydligt på svenska.
         return decision
 
     def _prepare_response(self, user_message):
-        tool_names = select_tools(
+        tool_plan = select_tool_plan(
             user_message,
             self.tools,
             self.llm,
+            settings=self.settings,
         )
+        tool_names = [
+            step[
+                "tool"
+            ]
+            for step in tool_plan.get(
+                "steps",
+                []
+            )
+        ]
+        tool_inputs = {
+            step[
+                "tool"
+            ]: step.get(
+                "input",
+                user_message,
+            )
+            for step in tool_plan.get(
+                "steps",
+                []
+            )
+        }
 
         tool_results = None
 
         if tool_names:
+            orchestration = self.settings.get(
+                "orchestration",
+                {},
+            )
             tool_results = run_tools(
                 tool_names,
                 self.tools,
                 user_input=user_message,
                 error_logger=self.error_logger,
+                tool_inputs=tool_inputs,
+                result_char_limit=orchestration.get(
+                    "max_result_chars_per_tool",
+                    6000,
+                ),
             )
 
         system_message = self.build_system_message(
@@ -587,7 +623,12 @@ Svara kort och tydligt på svenska.
             }
         )
 
-        return tool_names, tool_results, messages
+        return (
+            tool_plan,
+            tool_names,
+            tool_results,
+            messages,
+        )
 
     def _llm_runtime_metadata(self):
         status = getattr(
@@ -700,6 +741,7 @@ Svara kort och tydligt på svenska.
         answer,
         tool_names,
         tool_results,
+        tool_plan=None,
         streamed=False,
     ):
         memory_decision = self._consider_long_term_memory(
@@ -723,6 +765,13 @@ Svara kort och tydligt på svenska.
             "answer": answer,
             "tools": tool_names,
             "tool_results": tool_results or {},
+            "orchestration_plan": public_plan(
+                tool_plan
+                or {
+                    "source": "none",
+                    "steps": [],
+                }
+            ),
             "memory_decision": memory_decision,
             "streamed": bool(streamed),
             "llm_runtime": llm_runtime,
@@ -731,6 +780,7 @@ Svara kort och tydligt på svenska.
 
     def respond(self, user_message):
         (
+            tool_plan,
             tool_names,
             tool_results,
             messages,
@@ -746,6 +796,7 @@ Svara kort och tydligt på svenska.
             answer,
             tool_names,
             tool_results,
+            tool_plan=tool_plan,
             streamed=False,
         )
 
@@ -755,6 +806,7 @@ Svara kort och tydligt på svenska.
         on_chunk=None,
     ):
         (
+            tool_plan,
             tool_names,
             tool_results,
             messages,
@@ -780,6 +832,7 @@ Svara kort och tydligt på svenska.
                 answer,
                 tool_names,
                 tool_results,
+                tool_plan=tool_plan,
                 streamed=False,
             )
 
@@ -806,6 +859,7 @@ Svara kort och tydligt på svenska.
             answer,
             tool_names,
             tool_results,
+            tool_plan=tool_plan,
             streamed=True,
         )
 
