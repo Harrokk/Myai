@@ -38,6 +38,8 @@ DEFAULT_SETTINGS = {
         "restart_timeout_seconds": 30.0,
         "restart_cooldown_seconds": 60.0,
         "max_restart_attempts": 3,
+        "state_path": "runtime/geniex_health.json",
+        "state_stale_seconds": 30.0,
     },
     "vision": {
         "enabled": False,
