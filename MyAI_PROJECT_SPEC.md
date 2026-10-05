@@ -2161,6 +2161,56 @@ Verifiering:
 
 Nästa hårdvaruoberoende förbättring bör väljas efter ny genomgång av project_spec; VENTUNO-specifika steg ligger fortsatt kvar bakom fysisk verifiering enligt avsnitt 21.2.
 
+
+### 21.20 Pauscheckpoint 2026-10-05 – verifierat FX-lager påbörjat
+
+Arbetet pausas här på användarens begäran.
+
+Aktivt läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- aktiv feature-gren: `dev/verified-fx`
+- draft PR för integrationsspåret: `#85`
+- feature-head före denna dokumentationscheckpoint: `3b8fe3fa96391211337d4eddf15bb1cd25e15ca8`
+- senaste gröna integrations-head före FX-arbetet: `f4f5b693b61c7b06c8a248e52b7357d486a1ebbb`
+- GitHub Actions-run för integrations-head `37310093549` är **success**
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts
+
+Genomfört på feature-grenen:
+- nytt `modules/internet/fx.py`
+- första provider är ECB:s officiella euroreferenskurser
+- FX-källan måste använda HTTPS och hostname `ecb.europa.eu` eller `www.ecb.europa.eu`
+- XML-feed parsas till ett verifierbart referensdatum och kurser per EUR
+- valutakoder valideras
+- framtida referensdatum och för gamla kurser avvisas
+- konvertering får endast ske från quote med `available=true` och `verified=true`
+- ingen faktisk växelkurs är hårdkodad
+- SEK→SEK använder identitetskurs 1.0 utan extern hämtning
+- ECB-data beskrivs uttryckligen som referens-/informationskurs, inte garanterat transaktionspris
+
+Ej genomfört vid pausen:
+- shoppingflödet har ännu inte kopplats till FX-lagret
+- en första automatiserad patch mot `modules/internet/shopping.py` avbröts eftersom den förväntade kodtexten för fraktextraktion inte matchade exakt
+- patchförsöket skapade ingen commit och lämnade därför shoppingfilen oförändrad
+- config för `fx`, configvalidering, tester och feature-PR återstår
+- FX-kärnan har ännu inte körts genom full CI och ska därför inte betraktas som verifierad
+
+Nästa exakta steg vid återupptag:
+1. utgå från `dev/verified-fx` och verifiera aktuell feature-head/checkpoint
+2. läs aktuella relevanta delar av `modules/internet/shopping.py` innan någon ny patch görs
+3. koppla originalvaluta/originalbelopp till shoppingkandidaten utan att förstöra befintlig SEK-logik
+4. hämta högst en verifierad FX-quote per valuta och jämförelse och cachea den inom anropet
+5. gör icke-SEK-erbjudanden rankningsbara först efter verifierad konvertering till SEK
+6. om quote saknas, är stale, har fel host/provider eller inte är verifierad ska erbjudandet fortsatt diskvalificeras
+7. lägg till `fx`-konfiguration och fail-closed validering
+8. lägg till tester för ECB XML, cross-rate EUR/USD/SEK, stale/future date, fel host, saknad valuta, verifieringskrav och shoppingintegration
+9. kör full CI och mergea först när hela sviten är grön
+
+Viktigt:
+- inget köp-/beställningsstöd ska införas
+- ingen tyst valutakonvertering eller uppskattad kurs får användas
+- originalvaluta, originalbelopp, provider, referensdatum och verifierad kurs ska bevaras i resultatet för spårbarhet
+- VENTUNO:s fysiska spärrar och verifieringsordning i avsnitt 21.2 ska förbli oförändrade
+
 ---
 
 ## 22. Övergripande vision
