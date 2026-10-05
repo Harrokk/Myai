@@ -620,6 +620,143 @@ def validate_settings(
                 )
             )
 
+    stability = settings.get(
+        "stability_analysis",
+        {},
+    )
+    stability_path = str(
+        stability.get(
+            "log_path",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not stability_path:
+        issues.append(
+            _issue(
+                "error",
+                "stability_log_path_missing",
+                "stability_analysis.log_path saknas.",
+            )
+        )
+
+    try:
+        stability_max_records = int(
+            stability.get(
+                "max_records",
+                10_000,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        stability_max_records = 0
+
+    if not (
+        1
+        <= stability_max_records
+        <= 100_000
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "stability_max_records_invalid",
+                (
+                    "stability_analysis.max_records måste "
+                    "vara mellan 1 och 100000."
+                ),
+            )
+        )
+
+    try:
+        stability_target_hours = float(
+            stability.get(
+                "target_hours",
+                72.0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        stability_target_hours = 0.0
+
+    if not (
+        0.1
+        <= stability_target_hours
+        <= 1_000.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "stability_target_hours_invalid",
+                (
+                    "stability_analysis.target_hours måste "
+                    "vara mellan 0.1 och 1000."
+                ),
+            )
+        )
+
+    try:
+        trend_fraction = float(
+            stability.get(
+                "trend_fraction",
+                0.25,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        trend_fraction = 0.0
+
+    if not (
+        0.1
+        <= trend_fraction
+        <= 0.5
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "stability_trend_fraction_invalid",
+                (
+                    "stability_analysis.trend_fraction måste "
+                    "vara mellan 0.1 och 0.5."
+                ),
+            )
+        )
+
+    try:
+        degradation_ratio = float(
+            stability.get(
+                "latency_degradation_ratio",
+                1.25,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        degradation_ratio = 0.0
+
+    if not (
+        1.0
+        <= degradation_ratio
+        <= 10.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "stability_degradation_ratio_invalid",
+                (
+                    "stability_analysis.latency_degradation_ratio "
+                    "måste vara mellan 1.0 och 10.0."
+                ),
+            )
+        )
+
     deployment_lock = settings.get(
         "deployment_lock",
         {},
