@@ -60,6 +60,12 @@ DEFAULT_SETTINGS = {
         "max_message_chars": 500,
         "recent_limit": 10,
     },
+    "audit_logging": {
+        "enabled": True,
+        "require_for_writes": True,
+        "path": "runtime/audit.jsonl",
+        "max_detail_chars": 200,
+    },
     "stability_analysis": {
         "log_path": "runtime/ventuno_stability.jsonl",
         "max_records": 10_000,
