@@ -1,5 +1,9 @@
 import re
 
+from core.intermediate_results import (
+    dependent_visual_research,
+)
+
 
 SAFE_READ_ONLY_TOOLS = {
     "myai_health_status",
@@ -288,6 +292,7 @@ def _safe_candidate_steps(
 ):
     steps = []
     blocked = []
+    deferred = []
     clauses = _split_clauses(
         user_input
     )
@@ -309,6 +314,30 @@ def _safe_candidate_steps(
                 )
 
         for tool_name in detected:
+            if (
+                dependent_visual_research(
+                    clause
+                )
+                and tool_name in {
+                    "research_top_three",
+                    "internet_search",
+                }
+            ):
+                if (
+                    "research_top_three"
+                    in available_tools
+                ):
+                    deferred.append(
+                        {
+                            "next_tool": (
+                                "research_top_three"
+                            ),
+                            "input": clause,
+                            "requires_confirmation": True,
+                        }
+                    )
+                continue
+
             if tool_name not in available_tools:
                 continue
 
@@ -340,6 +369,30 @@ def _safe_candidate_steps(
     )
 
     for tool_name in direct:
+        if (
+            dependent_visual_research(
+                user_input
+            )
+            and tool_name in {
+                "research_top_three",
+                "internet_search",
+            }
+        ):
+            if (
+                "research_top_three"
+                in available_tools
+            ):
+                deferred.append(
+                    {
+                        "next_tool": (
+                            "research_top_three"
+                        ),
+                        "input": user_input,
+                        "requires_confirmation": True,
+                    }
+                )
+            continue
+
         if tool_name not in available_tools:
             continue
 
@@ -363,17 +416,56 @@ def _safe_candidate_steps(
             }
         )
 
-    return (
-        _ordered_steps(
-            _dedupe_steps(
-                steps
+    ordered_steps = _ordered_steps(
+        _dedupe_steps(
+            steps
+        )
+    )
+    source_tool = None
+
+    for step in ordered_steps:
+        if step.get(
+            "tool"
+        ) in VISION_TOOLS:
+            source_tool = step.get(
+                "tool"
             )
-        ),
+
+    normalized_deferred = []
+
+    if source_tool is not None:
+        seen_targets = set()
+
+        for item in deferred:
+            target = item.get(
+                "next_tool"
+            )
+
+            if (
+                not target
+                or target in seen_targets
+            ):
+                continue
+
+            seen_targets.add(
+                target
+            )
+            normalized_deferred.append(
+                {
+                    "source_tool": source_tool,
+                    "next_tool": target,
+                    "requires_confirmation": True,
+                }
+            )
+
+    return (
+        ordered_steps,
         sorted(
             set(
                 blocked
             )
         ),
+        normalized_deferred,
     )
 
 
@@ -398,6 +490,7 @@ def build_safe_orchestration_plan(
             "source": "disabled",
             "steps": [],
             "blocked_tools": [],
+            "deferred_steps": [],
         }
 
     try:
@@ -420,22 +513,27 @@ def build_safe_orchestration_plan(
             8,
         ),
     )
-    steps, blocked = _safe_candidate_steps(
+    steps, blocked, deferred = _safe_candidate_steps(
         user_input,
         available_tools=available_tools,
         detect_function=detect_function,
         settings=settings,
     )
 
-    if len(
-        steps
-    ) < 2:
+    if (
+        len(
+            steps
+        )
+        < 2
+        and not deferred
+    ):
         return {
             "enabled": True,
             "orchestrated": False,
             "source": "insufficient_safe_tools",
             "steps": steps,
             "blocked_tools": blocked,
+            "deferred_steps": [],
         }
 
     selected = steps[
@@ -448,6 +546,7 @@ def build_safe_orchestration_plan(
         "source": "deterministic_safe",
         "steps": selected,
         "blocked_tools": blocked,
+        "deferred_steps": deferred,
         "truncated": (
             len(
                 steps
@@ -481,6 +580,30 @@ def public_plan(
             }
         )
 
+    deferred_steps = [
+        {
+            "source_tool": item.get(
+                "source_tool"
+            ),
+            "next_tool": item.get(
+                "next_tool"
+            ),
+            "requires_confirmation": bool(
+                item.get(
+                    "requires_confirmation",
+                    True,
+                )
+            ),
+        }
+        for item in (
+            plan.get(
+                "deferred_steps",
+                []
+            )
+            or []
+        )
+    ]
+
     return {
         "orchestrated": bool(
             plan.get(
@@ -493,6 +616,7 @@ def public_plan(
             "direct",
         ),
         "steps": steps,
+        "deferred_steps": deferred_steps,
         "blocked_tools": list(
             plan.get(
                 "blocked_tools",

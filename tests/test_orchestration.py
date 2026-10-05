@@ -546,3 +546,125 @@ def test_snapshot_mutating_hardware_changes_is_not_orchestration_safe():
     assert plan[
         "orchestrated"
     ] is False
+
+
+def test_visual_research_is_deferred_until_confirmation():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    available = {
+        "camera_capture": {
+            "function": lambda: "CAPTURE",
+            "description": "capture",
+        },
+        "vision_analyze": {
+            "function": lambda: "VISION",
+            "description": "vision",
+        },
+        "research_top_three": {
+            "function": lambda query: query,
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        (
+            "Ta en bild och analysera bilden "
+            "och researcha det du ser"
+        ),
+        available,
+        FailLLM(),
+        settings=settings,
+    )
+
+    assert [
+        step[
+            "tool"
+        ]
+        for step in plan[
+            "steps"
+        ]
+    ] == [
+        "camera_capture",
+        "vision_analyze",
+    ]
+    assert plan[
+        "deferred_steps"
+    ] == [
+        {
+            "source_tool": "vision_analyze",
+            "next_tool": "research_top_three",
+            "requires_confirmation": True,
+        }
+    ]
+    assert plan[
+        "orchestrated"
+    ] is True
+
+
+def test_public_plan_exposes_deferred_dependency_without_raw_input():
+    result = public_plan(
+        {
+            "orchestrated": True,
+            "source": "deterministic_safe",
+            "steps": [
+                {
+                    "tool": "vision_analyze",
+                    "input": "analysera bilden",
+                    "effect": "read_only",
+                }
+            ],
+            "deferred_steps": [
+                {
+                    "source_tool": "vision_analyze",
+                    "next_tool": "research_top_three",
+                    "input": "researcha det du ser",
+                    "requires_confirmation": True,
+                }
+            ],
+            "blocked_tools": [],
+        }
+    )
+
+    assert result[
+        "deferred_steps"
+    ] == [
+        {
+            "source_tool": "vision_analyze",
+            "next_tool": "research_top_three",
+            "requires_confirmation": True,
+        }
+    ]
+    assert "researcha det du ser" not in str(
+        result
+    )
+
+
+def test_dependent_visual_research_without_current_source_is_blocked():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    available = {
+        "research_top_three": {
+            "function": lambda query: query,
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        "Researcha det du ser.",
+        available,
+        FailLLM(),
+        settings=settings,
+    )
+
+    assert plan[
+        "source"
+    ] == (
+        "dependent_visual_research_requires_intermediate"
+    )
+    assert plan[
+        "steps"
+    ] == []

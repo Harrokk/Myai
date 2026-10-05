@@ -5,6 +5,9 @@ from core.audit_log import (
     audit_outcome_for_exception,
 )
 from core.error_log import ErrorLogger
+from core.intermediate_results import (
+    IntermediateResultStore,
+)
 from core.memory import MemoryStore
 from core.memory_lifecycle import apply_memory_lifecycle
 from core.memory_policy import assess_memory_candidate
@@ -92,6 +95,24 @@ class MyAICore:
             {},
         ).get("max_turns", 6)
         self.conversation_history = []
+        intermediate = settings.get(
+            "intermediate_results",
+            {},
+        )
+        self.intermediate_results = IntermediateResultStore(
+            max_pending=intermediate.get(
+                "max_pending",
+                5,
+            ),
+            max_query_chars=intermediate.get(
+                "max_query_chars",
+                240,
+            ),
+            max_age_seconds=intermediate.get(
+                "max_age_seconds",
+                1800,
+            ),
+        )
         self.system_profile = self._build_system_profile()
 
     def _build_system_profile(self):
@@ -130,7 +151,12 @@ Använd information från minnessystemet när den är relevant.
     def initialize(self):
         self.memory.init()
 
-    def build_system_message(self, user_message, tool_results=None):
+    def build_system_message(
+        self,
+        user_message,
+        tool_results=None,
+        pending_intermediate_results=None,
+    ):
         relevant_memories = self.memory.search(user_message)
         memory_text = self.memory.format(relevant_memories)
 
@@ -170,6 +196,31 @@ Intern read-only systemhälsa:
             "Använd statusen endast när den är relevant. "
             "Påstå inte att ett hårdvarufel är verifierat om statusen är unknown eller stale."
         )
+
+        if pending_intermediate_results:
+            commands = ", ".join(
+                item.get(
+                    "confirmation_command",
+                    "",
+                )
+                for item in pending_intermediate_results
+                if item.get(
+                    "confirmation_command"
+                )
+            )
+            system_message += (
+                """
+
+Ett eller flera read-only nästa steg har förberetts men HAR INTE körts.
+Webbresearch får inte påstås vara utförd innan användaren skickar exakt
+bekräftelsekommandot som anges nedan.
+
+Tillgängliga bekräftelser:
+"""
+                + commands
+                + """
+"""
+            )
 
         if tool_results is not None:
             system_message += (
@@ -556,57 +607,281 @@ Svara kort och tydligt på svenska.
 
         return decision
 
-    def _prepare_response(self, user_message):
-        tool_plan = select_tool_plan(
-            user_message,
-            self.tools,
-            self.llm,
-            settings=self.settings,
-        )
-        tool_names = [
-            step[
-                "tool"
-            ]
-            for step in tool_plan.get(
-                "steps",
-                []
-            )
-        ]
-        tool_inputs = {
-            step[
-                "tool"
-            ]: step.get(
-                "input",
-                user_message,
-            )
-            for step in tool_plan.get(
-                "steps",
-                []
-            )
-        }
-
-        tool_results = None
-
-        if tool_names:
-            orchestration = self.settings.get(
-                "orchestration",
+    def _intermediate_enabled(
+        self,
+    ):
+        return bool(
+            self.settings.get(
+                "intermediate_results",
                 {},
+            ).get(
+                "enabled",
+                True,
             )
-            tool_results = run_tools(
-                tool_names,
-                self.tools,
-                user_input=user_message,
-                error_logger=self.error_logger,
-                tool_inputs=tool_inputs,
-                result_char_limit=orchestration.get(
-                    "max_result_chars_per_tool",
-                    6000,
+        )
+
+    def _create_pending_intermediate_results(
+        self,
+        tool_plan,
+        tool_results,
+    ):
+        if not self._intermediate_enabled():
+            return []
+
+        results = (
+            tool_results
+            if isinstance(
+                tool_results,
+                dict,
+            )
+            else {}
+        )
+        pending = []
+
+        for step in (
+            tool_plan.get(
+                "deferred_steps",
+                [],
+            )
+            or []
+        ):
+            source_tool = step.get(
+                "source_tool"
+            )
+            target_tool = step.get(
+                "next_tool"
+            )
+
+            if (
+                source_tool not in results
+                or target_tool not in self.tools
+            ):
+                continue
+
+            item = self.intermediate_results.create(
+                source_tool=source_tool,
+                source_result=results.get(
+                    source_tool
                 ),
+                target_tool=target_tool,
+            )
+
+            if item is None:
+                continue
+
+            public = self.intermediate_results.public_item(
+                item
+            )
+
+            if public is not None:
+                pending.append(
+                    public
+                )
+
+        return pending
+
+    def _confirmed_intermediate_response(
+        self,
+        user_message,
+    ):
+        if not self._intermediate_enabled():
+            return None
+
+        identifier = self.intermediate_results.parse_confirmation(
+            user_message
+        )
+
+        if identifier is None:
+            return None
+
+        item = self.intermediate_results.get(
+            identifier
+        )
+
+        if item is None:
+            plan = {
+                "enabled": True,
+                "orchestrated": False,
+                "source": (
+                    "intermediate_confirmation_invalid"
+                ),
+                "steps": [],
+                "deferred_steps": [],
+                "blocked_tools": [],
+                "truncated": False,
+            }
+            return (
+                plan,
+                [],
+                {
+                    "intermediate_protocol": (
+                        "Bekräftelsen kunde inte användas: "
+                        f"{identifier} är okänd eller har gått ut."
+                    )
+                },
+                [],
+            )
+
+        target_tool = item.get(
+            "target_tool"
+        )
+
+        if target_tool not in self.tools:
+            plan = {
+                "enabled": True,
+                "orchestrated": False,
+                "source": (
+                    "intermediate_confirmation_unavailable"
+                ),
+                "steps": [],
+                "deferred_steps": [],
+                "blocked_tools": [],
+                "truncated": False,
+            }
+            return (
+                plan,
+                [],
+                {
+                    "intermediate_protocol": (
+                        "Bekräftelsen kunde inte köras: "
+                        f"{target_tool} är inte tillgängligt."
+                    )
+                },
+                [
+                    self.intermediate_results.public_item(
+                        item
+                    )
+                ],
+            )
+
+        orchestration = self.settings.get(
+            "orchestration",
+            {},
+        )
+        tool_results = run_tools(
+            [
+                target_tool
+            ],
+            self.tools,
+            user_input=item.get(
+                "query",
+                "",
+            ),
+            error_logger=self.error_logger,
+            tool_inputs={
+                target_tool: item.get(
+                    "query",
+                    "",
+                ),
+            },
+            result_char_limit=orchestration.get(
+                "max_result_chars_per_tool",
+                6000,
+            ),
+        )
+        self.intermediate_results.consume(
+            identifier
+        )
+        plan = {
+            "enabled": True,
+            "orchestrated": False,
+            "source": "confirmed_intermediate",
+            "steps": [
+                {
+                    "tool": target_tool,
+                    "input": item.get(
+                        "query",
+                        "",
+                    ),
+                    "effect": "read_only",
+                }
+            ],
+            "deferred_steps": [],
+            "blocked_tools": [],
+            "truncated": False,
+        }
+        return (
+            plan,
+            [
+                target_tool
+            ],
+            tool_results,
+            [],
+        )
+
+    def _prepare_response(self, user_message):
+        confirmed = self._confirmed_intermediate_response(
+            user_message
+        )
+
+        if confirmed is not None:
+            (
+                tool_plan,
+                tool_names,
+                tool_results,
+                pending_intermediate_results,
+            ) = confirmed
+        else:
+            tool_plan = select_tool_plan(
+                user_message,
+                self.tools,
+                self.llm,
+                settings=self.settings,
+            )
+            tool_names = [
+                step[
+                    "tool"
+                ]
+                for step in tool_plan.get(
+                    "steps",
+                    []
+                )
+            ]
+            tool_inputs = {
+                step[
+                    "tool"
+                ]: step.get(
+                    "input",
+                    user_message,
+                )
+                for step in tool_plan.get(
+                    "steps",
+                    []
+                )
+            }
+
+            tool_results = None
+
+            if tool_names:
+                orchestration = self.settings.get(
+                    "orchestration",
+                    {},
+                )
+                tool_results = run_tools(
+                    tool_names,
+                    self.tools,
+                    user_input=user_message,
+                    error_logger=self.error_logger,
+                    tool_inputs=tool_inputs,
+                    result_char_limit=orchestration.get(
+                        "max_result_chars_per_tool",
+                        6000,
+                    ),
+                )
+
+            pending_intermediate_results = (
+                self._create_pending_intermediate_results(
+                    tool_plan,
+                    tool_results,
+                )
             )
 
         system_message = self.build_system_message(
             user_message,
             tool_results=tool_results,
+            pending_intermediate_results=(
+                pending_intermediate_results
+            ),
         )
 
         messages = [
@@ -627,6 +902,7 @@ Svara kort och tydligt på svenska.
             tool_plan,
             tool_names,
             tool_results,
+            pending_intermediate_results,
             messages,
         )
 
@@ -742,6 +1018,7 @@ Svara kort och tydligt på svenska.
         tool_names,
         tool_results,
         tool_plan=None,
+        pending_intermediate_results=None,
         streamed=False,
     ):
         memory_decision = self._consider_long_term_memory(
@@ -772,6 +1049,10 @@ Svara kort och tydligt på svenska.
                     "steps": [],
                 }
             ),
+            "pending_intermediate_results": list(
+                pending_intermediate_results
+                or []
+            ),
             "memory_decision": memory_decision,
             "streamed": bool(streamed),
             "llm_runtime": llm_runtime,
@@ -783,6 +1064,7 @@ Svara kort och tydligt på svenska.
             tool_plan,
             tool_names,
             tool_results,
+            pending_intermediate_results,
             messages,
         ) = self._prepare_response(user_message)
 
@@ -797,6 +1079,9 @@ Svara kort och tydligt på svenska.
             tool_names,
             tool_results,
             tool_plan=tool_plan,
+            pending_intermediate_results=(
+                pending_intermediate_results
+            ),
             streamed=False,
         )
 
@@ -809,6 +1094,7 @@ Svara kort och tydligt på svenska.
             tool_plan,
             tool_names,
             tool_results,
+            pending_intermediate_results,
             messages,
         ) = self._prepare_response(user_message)
 
@@ -833,6 +1119,9 @@ Svara kort och tydligt på svenska.
                 tool_names,
                 tool_results,
                 tool_plan=tool_plan,
+                pending_intermediate_results=(
+                    pending_intermediate_results
+                ),
                 streamed=False,
             )
 
@@ -860,6 +1149,9 @@ Svara kort och tydligt på svenska.
             tool_names,
             tool_results,
             tool_plan=tool_plan,
+            pending_intermediate_results=(
+                pending_intermediate_results
+            ),
             streamed=True,
         )
 
@@ -888,3 +1180,4 @@ Svara kort och tydligt på svenska.
 
     def clear_conversation(self):
         self.conversation_history = []
+        self.intermediate_results.clear()
