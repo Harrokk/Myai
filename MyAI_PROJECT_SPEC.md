@@ -1853,6 +1853,39 @@ Verifiering:
 
 Nästa rekommenderade rena mjukvaruspår är en samlad read-only MyAI-diagnostikrapport som kombinerar configvalidering, health, senaste fel, auditstatus, deployment-lock-status och runtime-/providerstatus utan att utföra restart eller fysisk styrning.
 
+
+### 21.14 Återupptaget arbete 2026-10-05 – samlad read-only diagnostik
+
+Fjärde rekommenderade mjukvarusteget efter avsnitt 21.13 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- nytt `core/diagnostics.py` som sammanställer flera redan befintliga read-only statuskällor
+- konfigurationsvalidering inkluderas utan att ändra settings
+- primär LLM-provider/modell, fallback-konfiguration, visionstatus och VENTUNO-profilläge rapporteras från konfiguration
+- färsk eller stale MyAI-health läses från befintliga snapshots
+- headless runtime-heartbeat läses read-only och klassas som färsk/stale med konfigurerbar gräns
+- senaste strukturerade felloggsposter och audit-händelser inkluderas via befintliga bounded readers
+- deployment-lock kontrolleras endast strukturellt; ingen observerad VENTUNO-stack samlas och inget GenieX-kommando körs av rapporten
+- rapporten sätter explicit `physical_preflight_executed=false` och `physical_hardware_approval=false`
+- rapporten kan därför inte användas som ersättning för fysisk preflight enligt avsnitt 21.2
+- `scripts/myai_diagnostics.py` ger text- eller JSON-utdata
+- read-only verktyget `myai_diagnostic_report` kan anropas genom naturligt språk, exempelvis `Gör en MyAI diagnostik`
+- ingen restart, inference, nätverksstyrning, STM32/GPIO-skrivning eller annan fysisk I/O ingår
+
+Konfiguration:
+- `diagnostics.runtime_stale_seconds=30`
+- värdet valideras fail-closed till intervallet 1–3600 sekunder
+- runtime heartbeat bedöms minst mot tre heartbeat-intervall så korta schedulerfördröjningar inte automatiskt ger stale-status
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `ad7300875f50852748cc23ca5f14f291cd24ab40`
+- GitHub Actions-run `37285117197` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker lokal health/runtime-status, stale heartbeat, senaste fel/audit, saknat deployment-lock, strukturellt giltigt lock, read-only-egenskap, explicit frånvaro av fysisk preflight/godkännande, configvalidering och språkroute
+- ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering har genomförts eller härletts
+
+Nästa rekommenderade rena mjukvaruspår är konfigurationshärdning: schema/version, okända nycklar, profiljämförelse och kontrollerad migrationslogik utan att aktivera fysisk hårdvara.
+
 ---
 
 ## 22. Övergripande vision
