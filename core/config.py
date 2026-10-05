@@ -10,6 +10,11 @@ DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.json"
 DEFAULT_SETTINGS = {
     "llm": {
         "provider": "ollama",
+        "fallback": {
+            "enabled": False,
+            "provider": "geniex",
+            "model": "",
+        },
     },
     "ollama": {
         "url": "http://localhost:11434/api/chat",
