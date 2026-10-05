@@ -22,6 +22,20 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["llm"]["provider"] == "ollama"
     assert settings["llm"]["fallback"]["enabled"] is False
     assert settings["llm"]["fallback"]["model"] == ""
+    assert (
+        settings["llm"]["fallback"]["health_aware"]["enabled"]
+        is False
+    )
+    assert (
+        settings["llm"]["fallback"]["health_aware"]["failure_threshold"]
+        == 3
+    )
+    assert (
+        settings["llm"]["fallback"]["health_aware"][
+            "recovery_success_threshold"
+        ]
+        == 3
+    )
     assert settings["ollama"]["model"] == "test-model"
     assert settings["ollama"]["url"] == DEFAULT_SETTINGS["ollama"]["url"]
     assert settings["geniex"]["base_url"] == "http://127.0.0.1:18181/v1"
