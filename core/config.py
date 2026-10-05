@@ -41,6 +41,9 @@ DEFAULT_SETTINGS = {
         "state_path": "runtime/geniex_health.json",
         "state_stale_seconds": 30.0,
     },
+    "health": {
+        "state_path": "runtime/myai_health.json",
+    },
     "vision": {
         "enabled": False,
         "provider": "ollama",
