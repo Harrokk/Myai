@@ -160,7 +160,7 @@ def bluetooth_nearby():
     except ImportError:
         return (
             "Bluetooth-närhet kräver paketet bleak. "
-            "Installera projektets requirements och försök igen."
+            "Installera requirements-bluetooth.txt och försök igen."
         )
     except Exception as error:
         return f"Bluetooth-närhet kunde inte läsas: {error}"
