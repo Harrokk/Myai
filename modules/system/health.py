@@ -286,6 +286,32 @@ def format_myai_health(
             f"{failures}"
         )
 
+    successes = int(
+        health.get(
+            "geniex_consecutive_successes",
+            0,
+        )
+        or 0
+    )
+
+    if successes:
+        lines.append(
+            "GenieX lyckade kontroller i rad: "
+            f"{successes}"
+        )
+
+    routing_reason = (
+        runtime.get(
+            "routing_reason"
+        )
+    )
+
+    if routing_reason:
+        lines.append(
+            "LLM-routing: "
+            f"{routing_reason}"
+        )
+
     reasons = health.get(
         "reasons",
         [],
