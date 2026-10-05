@@ -16,6 +16,13 @@ _ALLOWED_VISION_PROVIDERS = {
     "ollama",
     "geniex",
 }
+_ALLOWED_FX_PROVIDERS = {
+    "ecb",
+}
+_ALLOWED_ECB_HOSTS = {
+    "www.ecb.europa.eu",
+    "ecb.europa.eu",
+}
 
 
 def _issue(level, code, message):
@@ -122,6 +129,144 @@ def validate_settings(
                 (
                     "Okänd konfigurationsnyckel: "
                     f"{path}"
+                ),
+            )
+        )
+
+    fx = settings.get(
+        "fx",
+        {},
+    )
+    fx_enabled = bool(
+        fx.get(
+            "enabled",
+            False,
+        )
+    )
+    fx_provider = str(
+        fx.get(
+            "provider",
+            "ecb",
+        )
+        or ""
+    ).strip().lower()
+    fx_target = str(
+        fx.get(
+            "target_currency",
+            "SEK",
+        )
+        or ""
+    ).strip().upper()
+    fx_url = str(
+        fx.get(
+            "ecb_url",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if fx_provider not in _ALLOWED_FX_PROVIDERS:
+        issues.append(
+            _issue(
+                "error",
+                "fx_provider_invalid",
+                (
+                    "fx.provider måste vara en stödd provider: "
+                    + ", ".join(
+                        sorted(
+                            _ALLOWED_FX_PROVIDERS
+                        )
+                    )
+                ),
+            )
+        )
+
+    if fx_target != "SEK":
+        issues.append(
+            _issue(
+                "error",
+                "fx_target_currency_invalid",
+                (
+                    "fx.target_currency måste vara SEK "
+                    "för svensk prisjämförelse."
+                ),
+            )
+        )
+
+    try:
+        parsed_fx_url = urlparse(
+            fx_url
+        )
+        fx_host = (
+            parsed_fx_url.hostname
+            or ""
+        ).lower()
+    except ValueError:
+        parsed_fx_url = None
+        fx_host = ""
+
+    if (
+        parsed_fx_url is None
+        or parsed_fx_url.scheme != "https"
+        or fx_host not in _ALLOWED_ECB_HOSTS
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "fx_ecb_url_invalid",
+                (
+                    "fx.ecb_url måste vara en https-adress "
+                    "på ecb.europa.eu."
+                ),
+            )
+        )
+
+    try:
+        fx_max_age_days = int(
+            fx.get(
+                "max_age_days",
+                7,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        fx_max_age_days = 0
+
+    if not (
+        1
+        <= fx_max_age_days
+        <= 14
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "fx_max_age_days_invalid",
+                (
+                    "fx.max_age_days måste vara mellan 1 och 14."
+                ),
+            )
+        )
+
+    if (
+        fx_enabled
+        and not bool(
+            settings.get(
+                "internet",
+                {},
+            ).get(
+                "enabled",
+                False,
+            )
+        )
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "fx_requires_internet",
+                (
+                    "fx.enabled=true kräver internet.enabled=true."
                 ),
             )
         )
