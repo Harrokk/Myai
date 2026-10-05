@@ -1,3 +1,12 @@
+RECOVERABLE_LLM_ERRORS = (
+    RuntimeError,
+    ValueError,
+    TimeoutError,
+    ConnectionError,
+    OSError,
+)
+
+
 class ResilientLLMClient:
     """Primary local LLM with an explicitly configured local fallback."""
 
@@ -6,6 +15,7 @@ class ResilientLLMClient:
         primary,
         fallback=None,
         enabled=False,
+        recoverable_errors=RECOVERABLE_LLM_ERRORS,
     ):
         self.primary = primary
         self.fallback = fallback
@@ -32,6 +42,9 @@ class ResilientLLMClient:
 
         self.last_backend = "primary"
         self.last_error = None
+        self.recoverable_errors = tuple(
+            recoverable_errors
+        )
 
     def _can_fallback(self):
         return bool(
@@ -55,7 +68,7 @@ class ResilientLLMClient:
                 messages,
                 timeout=timeout,
             )
-        except Exception as error:
+        except self.recoverable_errors as error:
             if not self._can_fallback():
                 raise
 
@@ -97,7 +110,7 @@ class ResilientLLMClient:
                 yield value
             return
 
-        except Exception as error:
+        except self.recoverable_errors as error:
             if (
                 emitted
                 or not self._can_fallback()
