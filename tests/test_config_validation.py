@@ -687,3 +687,30 @@ def test_weather_config_accepts_safe_open_meteo_endpoints():
     )
 
     assert result["valid"] is True
+
+
+def test_memory_administration_limits_are_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"][
+        "administration_limit"
+    ] = 201
+    settings["memory"][
+        "stale_review_days"
+    ] = 0
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert (
+        "memory_administration_limit_invalid"
+        in codes
+    )
+    assert (
+        "memory_stale_review_days_invalid"
+        in codes
+    )
