@@ -355,3 +355,159 @@ def test_core_explicit_rule_update_supersedes_old_memory(tmp_path):
     assert previous[
         "status"
     ] == "superseded"
+
+
+def test_core_queues_policy_review_candidate(tmp_path):
+    from core.memory import MemoryStore
+
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = MemoryStore(
+        tmp_path
+        / "memory.db"
+    )
+    memory.init()
+    llm = FakeLLM()
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Jag föredrar modulär kod."
+    )
+
+    decision = result[
+        "memory_decision"
+    ]
+    assert decision[
+        "action"
+    ] == "review"
+    assert decision[
+        "review_queued"
+    ] is True
+    assert decision[
+        "review_created"
+    ] is True
+
+    reviews = memory.list_reviews()
+    assert len(
+        reviews
+    ) == 1
+    assert reviews[
+        0
+    ][
+        "content"
+    ] == "Jag föredrar modulär kod."
+
+
+def test_core_queues_ambiguous_lifecycle_conflict(tmp_path):
+    from core.memory import MemoryStore
+
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = MemoryStore(
+        tmp_path
+        / "memory.db"
+    )
+    memory.init()
+    first = memory.save(
+        "rule",
+        "Prisjämförelser ska använda tre kandidater.",
+    )
+    second = memory.save(
+        "rule",
+        "Prisjämförelser använder fyra kandidater.",
+    )
+    llm = FakeLLM()
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Från och med nu ska prisjämförelser använda fem kandidater."
+    )
+
+    decision = result[
+        "memory_decision"
+    ]
+    assert decision[
+        "action"
+    ] == "review"
+    assert decision[
+        "review_queued"
+    ] is True
+
+    review = memory.get_review(
+        decision[
+            "review_id"
+        ]
+    )
+    assert set(
+        review[
+            "conflict_ids"
+        ]
+    ) == {
+        first,
+        second,
+    }
+    assert len(
+        memory.get_all()
+    ) == 2
+
+
+def test_core_memory_audit_failure_blocks_auto_store_without_crashing(
+    tmp_path,
+    monkeypatch,
+):
+    from core.audit_log import AuditLogger
+    from core.memory import MemoryStore
+
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = MemoryStore(
+        tmp_path
+        / "memory.db"
+    )
+    memory.init()
+    llm = FakeLLM()
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+
+    def fail_attempt(
+        self,
+        **kwargs,
+    ):
+        raise RuntimeError(
+            "synthetic audit failure"
+        )
+
+    monkeypatch.setattr(
+        AuditLogger,
+        "write_attempt",
+        fail_attempt,
+    )
+
+    result = core.respond(
+        "Kom ihåg att jag föredrar modulär kod."
+    )
+
+    decision = result[
+        "memory_decision"
+    ]
+    assert decision[
+        "saved"
+    ] is False
+    assert decision[
+        "lifecycle_action"
+    ] == "audit_blocked"
+    assert memory.get_all() == []
