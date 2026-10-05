@@ -673,3 +673,21 @@ def test_detect_tools_routes_sweden_shopping_comparison():
     ) == [
         "shopping_compare_sweden"
     ]
+
+
+def test_detect_tools_routes_weather_requests():
+    assert tool_manager.detect_tools(
+        "Vad blir det för väder i Stockholm idag?"
+    ) == [
+        "weather_forecast"
+    ]
+    assert tool_manager.detect_tools(
+        "Vad blir det för väder idag?"
+    ) == [
+        "weather_forecast"
+    ]
+    assert tool_manager.detect_tools(
+        "Weather in London tomorrow"
+    ) == [
+        "weather_forecast"
+    ]
