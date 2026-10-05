@@ -282,6 +282,9 @@ def test_structurally_valid_lock_is_not_treated_as_physical_verification(
                     "requirements-ventuno.txt": {
                         "sha256": "example",
                     },
+                    "requirements-bluetooth.txt": {
+                        "sha256": "example",
+                    },
                     "requirements-camera.txt": {
                         "sha256": "example",
                     },
