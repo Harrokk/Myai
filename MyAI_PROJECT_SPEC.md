@@ -1568,6 +1568,28 @@ Exakt återstartspunkt:
 4. välj nästa rent mjukvarumässiga steg utan att försvaga selfdev-, RPC-, restart- eller config-spärrarna
 5. när VENTUNO Q finns: börja med config-validering och `scripts/ventuno_preflight.py`, därefter följs avsnitt 21.2
 
+
+### 21.7 Återupptaget arbete 2026-10-05 – deployment-/versionslåsning
+
+Nästa rent mjukvarumässiga steg efter checkpointen i avsnitt 21.6 är nu implementerat på separat feature-gren och verifierat i CI.
+
+Implementerat:
+- nytt read-only lager i `core/deployment_lock.py` för att samla faktiskt observerbara mjukvaruidentifierare utan AI-inference eller fysisk styrning
+- identifierare omfattar operativsystem/arkitektur, Python-version, `geniex --version`, installerad `arduino-router-bridge`-version, SHA-256 för `requirements-ventuno.txt` och konfigurerad LLM-modell
+- `scripts/ventuno_version_lock.py capture` skapar endast en olåst kandidat under `runtime/`; kandidaten får `locked=false` och kan därför inte användas som ett godkänt lås av misstag
+- `scripts/ventuno_version_lock.py verify` jämför den observerade stacken mot ett manuellt granskat lås och failar vid versionsavvikelse
+- `deployment_lock.required=false` är fortsatt säker standard både globalt och i VENTUNO-profilen
+- när `deployment_lock.required=true` blir ett giltigt `deployment_lock.lock_path` obligatoriskt och VENTUNO-preflight blockerar start vid saknat, olåst, ofullständigt eller avvikande lås
+- inget permanent `config/ventuno_stack_lock.json` har skapats ännu, eftersom faktiska GenieX/Qualcomm/Python-miljöversioner ska läsas från den fysiska VENTUNO Q och inte gissas
+- inga paket installeras, inga systemtjänster ändras och ingen STM32/GPIO/NPU-skrivning sker av versionslåslagret
+
+Automatisk verifiering:
+- kodhead före denna dokumentationsuppdatering: `93174fbd43da3cadb0f07de755081974f9001a90`
+- GitHub Actions-run `37264558181` är **success**
+- både Python-kompilering och full pytest-svit passerade
+
+När fysisk VENTUNO Q finns ska avsnitt 21.2 steg 1 använda detta lager för att fånga den verkliga installerade stacken, manuellt granska den och först därefter aktivera ett permanent versionslås. Fram till dess ska versionslåset förbli avstängt och får inte fyllas med antagna Qualcomm-/GenieX-versioner.
+
 ---
 
 ## 22. Övergripande vision
