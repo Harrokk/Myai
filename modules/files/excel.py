@@ -2,7 +2,14 @@ import os
 import re
 from pathlib import Path
 
-from core.config import load_settings
+from core.audit_log import (
+    AuditLogger,
+    audit_outcome_for_exception,
+)
+from core.config import (
+    PROJECT_ROOT,
+    load_settings,
+)
 from modules.files.workspace import (
     extract_file_path,
     resolve_workspace_path,
@@ -33,6 +40,138 @@ def _excel_config(settings=None):
         raise RuntimeError("Excel-verktygen är avstängda i konfigurationen.")
 
     return settings, excel
+
+
+def _audited_excel_write(
+    action,
+    request,
+    operation,
+    settings,
+):
+    audit = AuditLogger(
+        settings,
+        PROJECT_ROOT,
+    )
+    target = str(
+        request.get(
+            "path",
+            "",
+        )
+        or ""
+    )
+    details = {}
+
+    if request.get(
+        "sheet"
+    ):
+        details[
+            "sheet"
+        ] = request[
+            "sheet"
+        ]
+
+    if request.get(
+        "cell"
+    ):
+        details[
+            "cell"
+        ] = request[
+            "cell"
+        ]
+
+    if isinstance(
+        request.get(
+            "headers"
+        ),
+        list,
+    ):
+        details[
+            "columns"
+        ] = len(
+            request[
+                "headers"
+            ]
+        )
+
+    if isinstance(
+        request.get(
+            "rows"
+        ),
+        list,
+    ):
+        details[
+            "rows"
+        ] = len(
+            request[
+                "rows"
+            ]
+        )
+
+    if isinstance(
+        request.get(
+            "row"
+        ),
+        list,
+    ):
+        details[
+            "columns"
+        ] = len(
+            request[
+                "row"
+            ]
+        )
+
+    audit.write_attempt(
+        action=action,
+        component="files.excel",
+        target=target,
+        details=details,
+    )
+
+    try:
+        result = operation()
+    except Exception as error:
+        audit.write_result(
+            action=action,
+            component="files.excel",
+            outcome=(
+                audit_outcome_for_exception(
+                    error
+                )
+            ),
+            target=target,
+            details={
+                "error_type": type(
+                    error
+                ).__name__,
+            },
+        )
+        raise
+
+    result_details = dict(
+        details
+    )
+
+    for key in (
+        "rows_written",
+        "columns",
+        "row_number",
+    ):
+        if key in result:
+            result_details[
+                key
+            ] = result[
+                key
+            ]
+
+    audit.write_result(
+        action=action,
+        component="files.excel",
+        outcome="success",
+        target=target,
+        details=result_details,
+    )
+    return result
 
 
 def _require_xlsx(path_text, settings=None):
@@ -605,8 +744,17 @@ def excel_list_sheets(user_text):
 
 def excel_create_sheet(user_text):
     try:
+        settings = load_settings()
         request = parse_create_sheet_request(user_text)
-        result = create_excel_sheet(request)
+        result = _audited_excel_write(
+            "excel_create_sheet",
+            request,
+            lambda: create_excel_sheet(
+                request,
+                settings=settings,
+            ),
+            settings,
+        )
         return (
             f"Bladet {result['sheet']} skapades i "
             f"{result['path'].name}."
@@ -617,8 +765,17 @@ def excel_create_sheet(user_text):
 
 def excel_create(user_text):
     try:
+        settings = load_settings()
         request = parse_create_request(user_text)
-        result = create_excel_file(request)
+        result = _audited_excel_write(
+            "excel_create",
+            request,
+            lambda: create_excel_file(
+                request,
+                settings=settings,
+            ),
+            settings,
+        )
         return (
             f"Excel-filen {result['path'].name} skapades i workspace "
             f"med {result['columns']} kolumner och "
@@ -663,8 +820,17 @@ def excel_read(user_text):
 
 def excel_set_cell(user_text):
     try:
+        settings = load_settings()
         request = parse_set_cell_request(user_text)
-        result = set_excel_cell(request)
+        result = _audited_excel_write(
+            "excel_set_cell",
+            request,
+            lambda: set_excel_cell(
+                request,
+                settings=settings,
+            ),
+            settings,
+        )
         return (
             f"Cell {result['cell']} på blad {result['sheet']} i "
             f"{result['path'].name} ändrades från {result['previous']} "
@@ -676,8 +842,17 @@ def excel_set_cell(user_text):
 
 def excel_append(user_text):
     try:
+        settings = load_settings()
         request = parse_append_request(user_text)
-        result = append_excel_row(request)
+        result = _audited_excel_write(
+            "excel_append",
+            request,
+            lambda: append_excel_row(
+                request,
+                settings=settings,
+            ),
+            settings,
+        )
         return (
             f"En rad lades till på blad {result['sheet']} i "
             f"{result['path'].name} på rad {result['row_number']}."
