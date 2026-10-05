@@ -62,7 +62,7 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["selfdev"]["workspace_root"] == "runtime/selfdev"
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
     assert settings["assistant"]["future_target"] == (
-        "Arduino VENTUNO Q / Dragonwing IQ-8275"
+        "Arduino VENTUNO Q / Dragonwing QCS8275"
     )
     assert settings["conversation"]["max_turns"] == 6
     assert settings["runtime"]["require_preflight"] is False
