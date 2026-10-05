@@ -1933,7 +1933,7 @@ Nästa rent mjukvarumässiga steg efter checkpointen i avsnitt 21.6 är nu imple
 
 Implementerat:
 - nytt read-only lager i `core/deployment_lock.py` för att samla faktiskt observerbara mjukvaruidentifierare utan AI-inference eller fysisk styrning
-- identifierare omfattar operativsystem/arkitektur, Python-version, `geniex --version`, installerade baspaket (`requests`, `psutil`, `bleak`), `arduino-router-bridge`, SHA-256 för bas-/VENTUNO-/kamera-/röst-/GPS-requirements och konfigurerad LLM-modell
+- identifierare omfattar operativsystem/arkitektur, Python-version, `geniex --version`, installerade baspaket (`requests`, `psutil`, `bleak`), `arduino-router-bridge`, SHA-256 för bas-/VENTUNO-/Bluetooth-/kamera-/röst-/GPS-requirements och konfigurerad LLM-modell
 - `scripts/ventuno_version_lock.py capture` skapar endast en olåst kandidat under `runtime/`; kandidaten får `locked=false` och kan därför inte användas som ett godkänt lås av misstag
 - `scripts/ventuno_version_lock.py verify` jämför den observerade stacken mot ett manuellt granskat lås och failar vid versionsavvikelse
 - `deployment_lock.required=false` är fortsatt säker standard både globalt och i VENTUNO-profilen
@@ -2464,8 +2464,8 @@ Korrigerat:
 - VENTUNO-profilen gör kamera, voice, GPS/location och trusted-terminal-lägen explicita och håller otestade fysiska funktioner avstängda
 - `camera.enabled=false` spärrar stillbild, stream och videoinspelning innan någon kamera öppnas
 - `requirements-gps.txt` använder korrekta radbrytningar
-- basdependencies `requests` och `psutil` har versionsintervall och ingår tillsammans med `bleak` i deployment-lock-observation
-- deployment-lock schema är uppgraderat till version 2 och inkluderar hashes för bas-, VENTUNO-, kamera-, röst- och GPS-requirements
+- basdependencies `requests` och `psutil` har versionsintervall; `bleak` är flyttat till `requirements-bluetooth.txt` och observeras endast som valfritt installerat paket i deployment-lock
+- deployment-lock schema är uppgraderat till version 2 och inkluderar hashes för bas-, VENTUNO-, Bluetooth-, kamera-, röst- och GPS-requirements; `bleak` och `arduino-router-bridge` får vara frånvarande när motsvarande funktion är avstängd
 - VENTUNO-preflight kontrollerar Linux ARM64, Python 3.12-signal, board identity när den kan läsas, feature-dependencies endast för aktiverade funktioner och kräver Arduino Router Bridge/socket endast när RPC är aktiverat
 - ett plattformsguard-test blockerar återintroduktion av aktiv Pi-runtime och fel SoC-märkning
 
