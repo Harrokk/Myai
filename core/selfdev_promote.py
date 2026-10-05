@@ -12,6 +12,36 @@ from core.selfdev_workspace import (
 )
 
 
+def _safe_identifier(
+    value,
+):
+    identifier = str(
+        value
+    )
+
+    if (
+        not identifier
+        or len(
+            identifier
+        ) > 96
+        or any(
+            character
+            not in (
+                "abcdefghijklmnopqrstuvwxyz"
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                "0123456789_-"
+            )
+            for character
+            in identifier
+        )
+    ):
+        raise ValueError(
+            "Ogiltigt promotion-ID."
+        )
+
+    return identifier
+
+
 def _read_json(path):
     return json.loads(
         Path(path).read_text(
@@ -316,22 +346,9 @@ class SelfDevPromotionManager:
             self._preflight_promotion()
         )
 
-        promotion_id = str(
+        promotion_id = _safe_identifier(
             self.promotion_id_factory()
         )
-
-        if (
-            not promotion_id
-            or "/"
-            in promotion_id
-            or "\\"
-            in promotion_id
-            or ".."
-            in promotion_id
-        ):
-            raise ValueError(
-                "Ogiltigt promotion-ID."
-            )
 
         rollback_root = (
             self.workspace
@@ -360,10 +377,9 @@ class SelfDevPromotionManager:
             )
 
             if target.exists():
-                backup = (
-                    rollback_root
-                    / "files"
-                    / relative
+                backup = self._safe_backup_path(
+                    rollback_root,
+                    relative,
                 )
                 backup.parent.mkdir(
                     parents=True,
@@ -474,6 +490,37 @@ class SelfDevPromotionManager:
 
         return record
 
+    def _safe_backup_path(
+        self,
+        rollback_root,
+        relative,
+    ):
+        base = (
+            Path(
+                rollback_root
+            )
+            / "files"
+        ).resolve(
+            strict=False
+        )
+        candidate = (
+            base
+            / relative
+        ).resolve(
+            strict=False
+        )
+
+        try:
+            candidate.relative_to(
+                base
+            )
+        except ValueError as error:
+            raise PermissionError(
+                "Rollback-backup försökte lämna backup-roten."
+            ) from error
+
+        return candidate
+
     def _restore_from_backup(
         self,
         rollback_root,
@@ -497,10 +544,9 @@ class SelfDevPromotionManager:
             if info[
                 "existed"
             ]:
-                backup = (
-                    rollback_root
-                    / "files"
-                    / relative
+                backup = self._safe_backup_path(
+                    rollback_root,
+                    relative,
                 )
                 _atomic_copy(
                     backup,
@@ -517,7 +563,7 @@ class SelfDevPromotionManager:
         promotion_id,
         approval_phrase,
     ):
-        identifier = str(
+        identifier = _safe_identifier(
             promotion_id
         )
         expected = (
