@@ -691,3 +691,34 @@ def test_detect_tools_routes_weather_requests():
     ) == [
         "weather_forecast"
     ]
+
+
+def test_detect_tools_routes_memory_administration_status():
+    assert tool_manager.detect_tools(
+        "Visa minnen som behöver granskas."
+    ) == [
+        "memory_review_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa minneskonflikter."
+    ) == [
+        "memory_review_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa gamla minnen."
+    ) == [
+        "memory_review_status"
+    ]
+
+
+def test_detect_tools_routes_memory_administration_actions():
+    assert tool_manager.detect_tools(
+        "GODKÄNN MINNESGRANSKNING 3"
+    ) == [
+        "memory_review_action"
+    ]
+    assert tool_manager.detect_tools(
+        "RADERA MINNE 7"
+    ) == [
+        "memory_review_action"
+    ]
