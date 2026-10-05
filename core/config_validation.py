@@ -1001,6 +1001,40 @@ def validate_settings(
             )
         )
 
+    diagnostics = settings.get(
+        "diagnostics",
+        {},
+    )
+
+    try:
+        runtime_stale_seconds = float(
+            diagnostics.get(
+                "runtime_stale_seconds",
+                30.0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        runtime_stale_seconds = 0.0
+
+    if not (
+        1.0
+        <= runtime_stale_seconds
+        <= 3600.0
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "diagnostics_runtime_stale_invalid",
+                (
+                    "diagnostics.runtime_stale_seconds måste "
+                    "vara mellan 1 och 3600."
+                ),
+            )
+        )
+
     deployment_lock = settings.get(
         "deployment_lock",
         {},
