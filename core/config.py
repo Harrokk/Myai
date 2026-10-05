@@ -29,6 +29,16 @@ DEFAULT_SETTINGS = {
         "enable_think": False,
         "stream_enabled": True,
     },
+    "geniex_supervisor": {
+        "enabled": False,
+        "health_timeout_seconds": 3.0,
+        "failure_threshold": 3,
+        "restart_enabled": False,
+        "restart_command": [],
+        "restart_timeout_seconds": 30.0,
+        "restart_cooldown_seconds": 60.0,
+        "max_restart_attempts": 3,
+    },
     "vision": {
         "enabled": False,
         "provider": "ollama",
