@@ -114,6 +114,13 @@ def classify_health(
         )
         or 0
     )
+    successes = int(
+        check.get(
+            "consecutive_successes",
+            0,
+        )
+        or 0
+    )
 
     if (
         supervisor_expected
@@ -192,6 +199,9 @@ def classify_health(
         ),
         "geniex_consecutive_failures": (
             failures
+        ),
+        "geniex_consecutive_successes": (
+            successes
         ),
         "geniex_state_stale": (
             state_stale
