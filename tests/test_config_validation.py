@@ -613,3 +613,77 @@ def test_default_fx_configuration_is_valid_while_disabled():
             "errors"
         ]
     )
+
+
+def test_enabled_weather_requires_internet():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["weather"][
+        "enabled"
+    ] = True
+    settings["internet"][
+        "enabled"
+    ] = False
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "weather_requires_internet"
+        for item in result["errors"]
+    )
+
+
+def test_weather_rejects_unapproved_hosts_and_forecast_range():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["weather"][
+        "geocoding_url"
+    ] = "https://example.com/search"
+    settings["weather"][
+        "forecast_url"
+    ] = "https://example.com/forecast"
+    settings["weather"][
+        "forecast_days"
+    ] = 8
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert (
+        "weather_geocoding_url_invalid"
+        in codes
+    )
+    assert (
+        "weather_forecast_url_invalid"
+        in codes
+    )
+    assert (
+        "weather_forecast_days_invalid"
+        in codes
+    )
+
+
+def test_weather_config_accepts_safe_open_meteo_endpoints():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["weather"][
+        "enabled"
+    ] = True
+    settings["internet"][
+        "enabled"
+    ] = True
+    settings["weather"][
+        "default_location"
+    ] = "Stockholm"
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is True
