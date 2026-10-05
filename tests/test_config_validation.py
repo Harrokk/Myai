@@ -300,3 +300,21 @@ def test_error_logging_message_limit_has_safe_minimum():
         == "error_log_message_limit_invalid"
         for item in result["errors"]
     )
+
+
+def test_error_logging_recent_limit_is_bounded():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["error_logging"][
+        "recent_limit"
+    ] = 51
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "error_log_recent_limit_invalid"
+        for item in result["errors"]
+    )
