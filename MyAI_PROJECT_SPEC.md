@@ -1439,6 +1439,55 @@ Separata moduler ska ansvara för exempelvis:
 
 Det ska gå att lägga till nya moduler utan att behöva bygga om hela systemet.
 
+### 16.2.1 Teknisk status för säker multimodal multi-tool-orkestrering
+
+På utvecklingsgren finns nu ett deterministiskt orkestreringslager i `core/orchestration.py` som kan kombinera flera redan registrerade verktyg i samma användaruppgift.
+
+Planeraren:
+- delar sammansatta frågor i begränsade delklausuler vid bland annat `och`, `samt`, `sedan`, `därefter`, kommatecken och motsvarande engelska bindningar
+- återanvänder befintlig deterministisk `detect_tools()` per delklausul
+- kompletterar endast enkla systemstatushintar för CPU, RAM, GPU, temperatur och disk
+- deduplicerar verktyg
+- ordnar explicit `camera_capture` före visionverktyg när båda finns i planen
+- skickar query-aware verktyg den relevanta delklausulen i stället för hela blandade frågan
+- exponerar en sanerad publik plan med verktygsnamn och effekttyp men utan rå delquery
+
+Automatisk orkestrering använder en explicit säker allowlist. Den innehåller endast read-only informationsverktyg samt `camera_capture` som särskilt klassad `local_capture`.
+
+`camera_capture` får endast läggas till av planeraren när:
+- användaren uttryckligen ber om stillbild/foto
+- `orchestration.allow_local_capture=true`
+
+Planeraren får inte automatiskt lägga till:
+- workspace-/Excel-skrivning
+- minnesadministrativa mutationer
+- permanent radering
+- hårdvarusnapshot-uppdatering som `hardware_changes`
+- GenieX-/runtime-restart
+- Bluetooth-anslutningsändringar
+- STM32/RPC/GPIO-skrivning
+- selfdev promotion/rollback
+- andra verktyg utanför allowlisten
+
+Befintlig explicit direkt routing för skrivande/destruktiva kommandon behåller företräde och expanderas inte till en multi-tool-plan. Detta innebär att ett exakt exempelvis minnesraderingskommando inte blandas ihop med automatiskt valda statusverktyg.
+
+När orkestrering är aktiverad begränsas även LLM-fallback för verktygsval till den säkra allowlisten. En LLM-fallback kan därför inte välja ett skrivverktyg som inte först fångats av befintlig explicit direkt routing.
+
+Första versionen kedjar inte ett verktygs textsvar som dold ny prompt till ett annat verktyg. Verktyg körs med användarens relevanta delklausul. Kamera → vision är tillåtet eftersom visionverktygen redan använder den explicit skapade senaste lokala capture-filen som etablerat gränssnitt.
+
+Resultat från varje verktyg begränsas innan de sätts in i LLM-kontexten för att undvika obunden kontexttillväxt.
+
+Standardkonfiguration:
+- `orchestration.enabled=true`
+- `orchestration.max_tools=5`
+- `orchestration.max_result_chars_per_tool=6000`
+- `orchestration.allow_local_capture=true`
+
+Fail-closed configvalidering kräver:
+- `max_tools` mellan 2 och 8
+- `max_result_chars_per_tool` mellan 256 och 20000
+- booleska värden för `enabled` och `allow_local_capture`
+
 ---
 
 ## 17. Felhantering
@@ -2315,6 +2364,39 @@ Verifiering:
 - ingen fysisk VENTUNO-verifiering krävs eller påstås
 
 Nästa större hårdvaruoberoende spår kan nu vara multimodal orkestrering: en säker planerare som kan kombinera flera redan verifierade read-only/modulära verktyg i samma uppgift utan att ge VENTUNO-specifika hårdvaruantaganden.
+
+
+### 21.23 Fortsatt hårdvaruoberoende arbete 2026-10-05 – säker multimodal orkestrering
+
+Efter minnesadministrationen implementerades ett första generellt planerarlager för att kombinera flera redan verifierade verktyg utan att ge planeraren nya skriv- eller fysiska befogenheter.
+
+Implementerat:
+- nytt `core/orchestration.py`
+- deterministisk split av multi-domain-frågor till delklausuler
+- kombination av flera säkra verktyg i samma MyAI-svar
+- separat delquery per query-aware verktyg
+- explicit ordning `camera_capture` → visionanalys när båda efterfrågas
+- max antal verktyg per plan
+- max tecken per verktygsresultat innan LLM-kontext
+- sanerad `orchestration_plan` i MyAICore-resultatet utan delquerytext
+- automatisk planner-allowlist för read-only verktyg
+- explicit lokal capture tillåts endast vid uttrycklig capture-begäran
+- skriv-/mutationsverktyg och snapshot-mutationen `hardware_changes` är inte planner-säkra
+- direkt destruktiv/skrivande routing behåller företräde och expanderas inte
+- när orkestrering är aktiv får LLM-fallback endast se planner-säkra verktyg
+- befintlig `select_tools()` är bakåtkompatibel; strukturerad exekvering använder `select_tool_plan()`
+- `run_tools()` stödjer nu per-tool-input och begränsad textresultatlängd
+
+Verifiering:
+- första feature-run `37315688587` hade ett enda testfel i en syntetisk fake-detektor som matchade `hårdvara` men testfrasen använde `hårdvaruförändringar`; produktionskoden kompilerade och övriga tester passerade
+- testmatchningen korrigerades utan ändring av produktionsbeteendet
+- korrigerad feature-head före denna dokumentationscommit: `7e33bda4c495055cfac9ebc8e4de1206e128627f`
+- GitHub Actions-run `37315787007` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker väder+RAM, kamera→vision→CPU, delquery-separation, capture-policy, maxverktygsgräns, resultattrunkering, publikt planskydd, direkt destruktiv routing, säker LLM-fallback, blockerad workspace-skrivfallback, blockerad `hardware_changes`, configvalidering och end-to-end MyAICore-exekvering
+- ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering krävs eller påstås
+
+Nästa möjliga hårdvaruoberoende steg är att bygga ett explicit, testbart mellanresultatprotokoll för vissa read-only kedjor, exempelvis visionresultat → användarbekräftad webbresearch, utan att tillåta dold självexpanderande agentloop eller skrivande åtgärder.
 
 ---
 
