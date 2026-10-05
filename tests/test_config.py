@@ -65,6 +65,7 @@ def test_load_settings_merges_partial_override(tmp_path):
         is False
     )
     assert settings["voice"]["model_handoff_delay_seconds"] == 0.0
+    assert settings["voice"]["release_stt_before_model"] is False
     assert settings["location"]["enabled"] is False
     assert settings["location"]["source"] == "gps_serial"
     assert settings["location"]["serial_port"] == ""
