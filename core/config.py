@@ -216,6 +216,16 @@ DEFAULT_SETTINGS = {
         "max_page_chars": 20_000,
         "max_redirects": 5,
     },
+    "fx": {
+        "enabled": False,
+        "provider": "ecb",
+        "ecb_url": (
+            "https://www.ecb.europa.eu/stats/eurofxref/"
+            "eurofxref-daily.xml"
+        ),
+        "target_currency": "SEK",
+        "max_age_days": 7,
+    },
     "files": {
         "enabled": True,
         "workspace_root": "runtime/workspace",
