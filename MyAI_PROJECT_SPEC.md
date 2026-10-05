@@ -928,7 +928,7 @@ Standardvärdena är:
 
 Bedömning, känslighetsfilter, återkomstsignal, automatisk lagring och
 dubblettskydd testas i CI. Konflikthantering, ersättning av gamla minnen och
-livscykelregler återstår som senare steg.
+grundläggande livscykelregler är nu implementerade enligt avsnitt 15.4.
 
 ### 15.3 Minneshantering
 
@@ -941,6 +941,39 @@ På sikt ska det finnas tydliga regler för:
 - hur länge information sparas
 - hur den ändras
 - hur den tas bort
+
+### 15.4 Teknisk status för minneslivscykel och konflikthantering
+
+På utvecklingsgren finns nu ett icke-destruktivt livscykellager för SQLite-minnet.
+
+Databasen migreras bakåtkompatibelt med:
+- `status=active|superseded`
+- `updated_at`
+- `superseded_by`
+- `superseded_at`
+
+Befintliga minnen raderas inte vid migrering. Normal sökning och normal minneslista använder endast aktiva minnen, medan full historik kan läsas separat.
+
+När en ny minneskandidat ska sparas:
+- exakta aktiva dubletter ignoreras
+- ämneslikhet bedöms deterministiskt med normaliserade ord och minst två gemensamma ämnesord
+- möjliga konflikter utan tydlig uppdateringssignal stoppas för `review` i stället för att skapa två aktiva motstridiga minnen
+- tydliga uppdateringsfraser som `från och med nu`, `istället för` eller `new default` kan atomiskt ersätta exakt ett starkt matchande aktivt minne
+- automatisk ersättning kräver som standard konfliktpoäng minst 0.85
+- om flera starka kandidater matchar samtidigt sker ingen automatisk ersättning; ärendet går till granskning
+- ersatt minne bevaras i historiken och pekar på det nya minnet genom `superseded_by`
+
+Åldringsstöd finns read-only genom `MemoryStore.list_stale()`. Standard `memory.stale_after_days=0` innebär att ingen automatisk utgång eller radering sker.
+
+Viktiga standarder:
+- `memory.lifecycle_enabled=true`
+- `memory.auto_supersede_explicit_updates=true`
+- `memory.conflict_similarity_threshold=0.65`
+- `memory.supersede_similarity_threshold=0.85`
+- `memory.max_conflict_scan=200`
+- `memory.stale_after_days=0`
+
+Konfigurationen valideras fail-closed för ogiltiga trösklar och gränser. Ingen automatisk minnesradering är implementerad.
 
 ---
 
@@ -1728,6 +1761,35 @@ Verifiering:
 - ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller härletts från rapporten
 
 Nästa rekommenderade rena mjukvaruspår är minneslivscykel och konflikthantering enligt avsnitt 15.2–15.3, fortsatt utan beroende av fysisk VENTUNO-hårdvara.
+
+
+### 21.12 Återupptaget arbete 2026-10-05 – minneslivscykel och konflikthantering
+
+Andra rekommenderade mjukvarusteget efter avsnitt 21.11 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- befintlig `memories`-tabell migreras bakåtkompatibelt utan dataförlust
+- aktiva och ersatta minnen skiljs åt utan fysisk radering
+- `MemoryStore.supersede()` ersätter ett aktivt minne atomiskt och bevarar gammal post med pekare till den nya
+- normal sökning returnerar endast aktiva minnen
+- `get_history()` behåller insyn i hela livscykeln
+- read-only `list_stale()` kan identifiera gamla aktiva minnen när en åldersgräns senare aktiveras
+- `core/memory_lifecycle.py` gör deterministisk konfliktanalys utan extern modell eller nätverk
+- exakta dubletter sparas inte igen
+- möjliga motstridiga minnen utan tydlig ersättningssignal går till `review`
+- explicit uppdatering kan endast auto-supersede när exakt en stark kandidat passerar den högre supersede-tröskeln
+- tvetydig explicit uppdatering med flera starka kandidater gör ingen databasändring och kräver granskning
+- `MyAICore` använder livscykellagret vid automatisk långtidslagring men faller bakåtkompatibelt tillbaka för äldre/förenklade MemoryStore-implementationer
+- ingen automatisk radering, TTL-delete eller fysisk hårdvaruåtgärd har lagts till
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `6b454a78361389101da6f3fd2ed31d4ceff04595`
+- GitHub Actions-run `37280656675` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker legacy-schema-migrering, datahistorik, atomisk supersession, normal sökning, explicit entydig uppdatering, tvetydig konflikt, möjlig konflikt, dublett, unrelated save, stale-listning, MyAICore-integration och configvalidering
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av detta lager
+
+Nästa rekommenderade rena mjukvaruspår är en separat audit-logg för lyckade, nekade och säkerhetsrelevanta skrivande åtgärder enligt avsnitt 18.
 
 ---
 

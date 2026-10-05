@@ -363,3 +363,45 @@ def test_stability_analysis_requires_log_path():
         == "stability_log_path_missing"
         for item in result["errors"]
     )
+
+
+def test_memory_lifecycle_threshold_order_is_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"][
+        "conflict_similarity_threshold"
+    ] = 0.8
+    settings["memory"][
+        "supersede_similarity_threshold"
+    ] = 0.7
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "memory_supersede_threshold_too_low"
+        for item in result["errors"]
+    )
+
+
+def test_memory_lifecycle_scan_and_stale_limits_are_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"][
+        "max_conflict_scan"
+    ] = 1001
+    settings["memory"][
+        "stale_after_days"
+    ] = -1
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert "memory_conflict_scan_invalid" in codes
+    assert "memory_stale_after_days_invalid" in codes
