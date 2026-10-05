@@ -799,6 +799,20 @@ def detect_tools(user_input):
     if asks_vision_analysis:
         return ["vision_analyze"]
 
+    if any(
+        phrase in text
+        for phrase in (
+            "ventuno rpc",
+            "stm32 rpc",
+            "arduino router",
+            "ventuno brygga",
+            "ventuno bridge",
+        )
+    ):
+        return [
+            "ventuno_rpc_status"
+        ]
+
     mentions_ventuno = any(
         word in text
         for word in (
