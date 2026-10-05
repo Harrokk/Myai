@@ -113,6 +113,13 @@ TOOL_KEYWORDS = {
         "anslutna enheter",
         "inkopplade enheter",
     ],
+    "geniex_status": [
+        "geniex status",
+        "geniex hälsa",
+        "geniex health",
+        "ai backend status",
+        "llm backend status",
+    ],
     "ventuno_mcu_status": [
         "ventuno mcu",
         "stm32 status",
