@@ -1497,6 +1497,11 @@ Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulag
 - stale/saknad watchdogstatus får inte tvinga backendbyte; historiska success-streaks före degradering får inte användas för omedelbar återgång
 - VENTUNO-profilen förbereder health-aware routing men själva fallbacken är fortsatt avstängd och reservmodell tom tills kompatibel fysisk modell är verifierad
 - hälsostatus rapporterar nu både GenieX failure streak, recovery success streak och LLM-routingorsak
+- fail-closed konfigurationsvalidering finns genom `core/config_validation.py` och `scripts/validate_config.py`; VENTUNO-startscript validerar innan start
+- JSONL-loggar för watchdog/stabilitet har begränsad storlek och backup-rotation så långkörningar inte kan växa obegränsat
+- headless deployment är separerad från interaktiva `mail.py`: `scripts/ventuno_runtime.py` hanterar lifecycle, heartbeat och ren SIGTERM/SIGINT-shutdown
+- VENTUNO-profilen kräver fysisk preflight före normal headless start
+- systemd-enheter genereras endast till `runtime/systemd/`; ingen installation eller `systemctl` sker automatiskt; process-crash-recovery är begränsad med `Restart=on-failure` och start-limit
 - naturligt språk kan läsa detta genom `myai_health_status`, men verktyget kan inte trigga restart eller fysisk styrning
 - `scripts/geniex_watchdog.py` kan senare köras separat och loggar watchdog-händelser till JSONL; automatisk restart får inte aktiveras förrän den riktiga VENTUNO-installationens tjänstehantering har verifierats
 - `scripts/ventuno_stability_test.py` är förberett för den senare 72-timmarskörningen och loggar first-token-latens, total svarstid, primär/fallback-backend, CPU, RAM, disk och temperatur i JSONL utan STM32/GPIO-skrivningar
