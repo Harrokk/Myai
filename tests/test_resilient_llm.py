@@ -183,3 +183,30 @@ def test_stream_does_not_mix_fallback_after_partial_primary_output():
         next(stream)
 
     assert fallback.stream_calls == 0
+
+
+
+def test_programming_errors_do_not_trigger_fallback():
+    primary = FakeClient(
+        "geniex",
+        "primary",
+        chat_error=TypeError("kodfel"),
+    )
+    fallback = FakeClient(
+        "geniex",
+        "fallback",
+        chat_value="reserv",
+    )
+    client = ResilientLLMClient(
+        primary,
+        fallback,
+        enabled=True,
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="kodfel",
+    ):
+        client.chat([])
+
+    assert fallback.chat_calls == 0
