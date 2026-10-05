@@ -279,5 +279,11 @@
     "default_location": "",
     "language": "sv",
     "forecast_days": 3
+  },
+  "orchestration": {
+    "enabled": true,
+    "max_tools": 5,
+    "max_result_chars_per_tool": 6000,
+    "allow_local_capture": true
   }
 }
