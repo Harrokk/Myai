@@ -215,3 +215,37 @@ def test_require_valid_settings_raises_on_blocking_error():
         require_valid_settings(
             settings
         )
+
+
+
+def test_selfdev_promotion_requires_selfdev():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["selfdev"]["promotion_enabled"] = True
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "selfdev_promotion_without_selfdev"
+        for item in result["errors"]
+    )
+
+
+def test_selfdev_cannot_disable_bubblewrap_requirement():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["selfdev"]["enabled"] = True
+    settings["selfdev"]["require_bubblewrap"] = False
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "selfdev_requires_bubblewrap"
+        for item in result["errors"]
+    )
