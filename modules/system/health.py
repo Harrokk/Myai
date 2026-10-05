@@ -109,6 +109,26 @@ def read_myai_health(
             )
         ),
     )
+    supervisor = settings.get(
+        "geniex_supervisor",
+        {},
+    )
+    supervisor_expected = bool(
+        supervisor.get(
+            "enabled",
+            False,
+        )
+    )
+    geniex_path = _resolve_path(
+        settings,
+        "geniex_supervisor",
+        "state_path",
+        "runtime/geniex_health.json",
+    )
+    geniex_state = read_health_state(
+        geniex_path
+    )
+
     myai_path = _resolve_path(
         settings,
         "health",
@@ -143,9 +163,33 @@ def read_myai_health(
                 or age <= max_age
             )
         ):
-            result = dict(
-                saved
-            )
+            if supervisor_expected:
+                result = build_health_status(
+                    saved.get(
+                        "llm_runtime",
+                        _fallback_runtime(
+                            settings
+                        ),
+                    ),
+                    geniex_state,
+                    supervisor_expected=True,
+                    stale_after_seconds=supervisor.get(
+                        "state_stale_seconds",
+                        30.0,
+                    ),
+                    now=now,
+                )
+                result[
+                    "snapshot_reconciled"
+                ] = True
+            else:
+                result = dict(
+                    saved
+                )
+                result[
+                    "snapshot_reconciled"
+                ] = False
+
             result[
                 "snapshot_age_seconds"
             ] = round(
@@ -157,29 +201,13 @@ def read_myai_health(
             ] = False
             return result
 
-    supervisor = settings.get(
-        "geniex_supervisor",
-        {},
-    )
-    geniex_path = _resolve_path(
-        settings,
-        "geniex_supervisor",
-        "state_path",
-        "runtime/geniex_health.json",
-    )
-    geniex_state = read_health_state(
-        geniex_path
-    )
     result = build_health_status(
         _fallback_runtime(
             settings
         ),
         geniex_state,
-        supervisor_expected=bool(
-            supervisor.get(
-                "enabled",
-                False,
-            )
+        supervisor_expected=(
+            supervisor_expected
         ),
         stale_after_seconds=supervisor.get(
             "state_stale_seconds",
@@ -193,6 +221,11 @@ def read_myai_health(
     result[
         "snapshot_stale"
     ] = True
+    result[
+        "snapshot_reconciled"
+    ] = bool(
+        supervisor_expected
+    )
     return result
 
 
