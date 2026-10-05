@@ -424,6 +424,28 @@ def apply_memory_lifecycle(
         )
         return outcome
 
+    contains = getattr(
+        memory_store,
+        "contains",
+        None,
+    )
+
+    if callable(
+        contains
+    ) and contains(
+        decision.get(
+            "category",
+            "other",
+        ),
+        decision[
+            "content"
+        ],
+    ):
+        outcome[
+            "lifecycle_action"
+        ] = "duplicate"
+        return outcome
+
     conflict_threshold = float(
         config.get(
             "conflict_similarity_threshold",
