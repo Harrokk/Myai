@@ -1,5 +1,4 @@
 import argparse
-import json
 from pathlib import Path
 import sys
 import time
@@ -22,6 +21,9 @@ from core.geniex_supervisor import (
 )
 from core.health_status import (
     write_health_state,
+)
+from core.jsonl_log import (
+    append_jsonl,
 )
 
 
@@ -85,30 +87,6 @@ def _arguments():
     return parser.parse_args()
 
 
-def _append(path, record):
-    target = Path(path)
-    target.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    with target.open(
-        "a",
-        encoding="utf-8",
-    ) as handle:
-        handle.write(
-            json.dumps(
-                record,
-                ensure_ascii=False,
-                separators=(
-                    ",",
-                    ":",
-                ),
-            )
-            + "\n"
-        )
-
-
 def main():
     args = _arguments()
     settings = load_settings(
@@ -156,9 +134,21 @@ def main():
                 "unix_time": time.time(),
                 **result,
             }
-            _append(
+            logging_config = settings.get(
+                "logging",
+                {},
+            )
+            append_jsonl(
                 args.log,
                 record,
+                max_bytes=logging_config.get(
+                    "jsonl_max_bytes",
+                    5_000_000,
+                ),
+                backups=logging_config.get(
+                    "jsonl_backups",
+                    5,
+                ),
             )
             write_health_state(
                 _state_path(
