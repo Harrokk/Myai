@@ -445,6 +445,7 @@ def test_ventuno_handoff_releases_stt_provider_before_llm():
         FakeAssistant(),
         settings=settings(
             release_microphone_during_inference=True,
+            release_stt_before_model=True,
             model_handoff_delay_seconds=1.5,
         ),
         components=components(
