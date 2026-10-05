@@ -2,6 +2,7 @@ from pathlib import Path
 
 from core.error_log import ErrorLogger
 from core.memory import MemoryStore
+from core.memory_lifecycle import apply_memory_lifecycle
 from core.memory_policy import assess_memory_candidate
 from core.llm_factory import build_llm_client
 from core.health_status import (
@@ -214,12 +215,23 @@ Svara kort och tydligt på svenska.
             and not decision.get("sensitive")
             and decision.get("content")
         ):
-            decision["saved"] = bool(
-                self.memory.save_if_new(
-                    decision["category"],
-                    decision["content"],
-                )
+            lifecycle = apply_memory_lifecycle(
+                self.memory,
+                decision,
+                original_text=user_message,
+                settings=self.settings,
             )
+            decision.update(
+                lifecycle
+            )
+
+            if lifecycle.get(
+                "requires_review",
+                False,
+            ):
+                decision[
+                    "action"
+                ] = "review"
 
         return decision
 
