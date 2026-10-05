@@ -30,6 +30,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["geniex"]["temperature"] == 0.4
     assert settings["geniex"]["enable_think"] is False
     assert settings["geniex"]["stream_enabled"] is True
+    assert settings["geniex_supervisor"]["enabled"] is False
+    assert settings["geniex_supervisor"]["restart_enabled"] is False
+    assert settings["geniex_supervisor"]["restart_command"] == []
+    assert settings["geniex_supervisor"]["failure_threshold"] == 3
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
     assert settings["assistant"]["future_target"] == (
         "Arduino VENTUNO Q / Dragonwing IQ-8275"
