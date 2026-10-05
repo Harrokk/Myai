@@ -24,6 +24,10 @@ def _safe_dict(value):
 def classify_health(
     llm_runtime,
     geniex_state=None,
+    *,
+    supervisor_expected=False,
+    stale_after_seconds=30.0,
+    now=None,
 ):
     llm_runtime = _safe_dict(
         llm_runtime
@@ -31,6 +35,48 @@ def classify_health(
     geniex_state = _safe_dict(
         geniex_state
     )
+    now = (
+        time.time()
+        if now is None
+        else float(now)
+    )
+    stale_after_seconds = max(
+        0.0,
+        float(
+            stale_after_seconds
+        ),
+    )
+    written_time = geniex_state.get(
+        "written_unix_time"
+    )
+    state_age_seconds = None
+    state_stale = False
+
+    if written_time is not None:
+        try:
+            state_age_seconds = max(
+                0.0,
+                now
+                - float(
+                    written_time
+                ),
+            )
+            state_stale = (
+                stale_after_seconds > 0
+                and state_age_seconds
+                > stale_after_seconds
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            state_stale = True
+
+    if (
+        supervisor_expected
+        and not geniex_state
+    ):
+        state_stale = True
 
     active_backend = str(
         llm_runtime.get(
@@ -56,6 +102,7 @@ def classify_health(
         and bool(
             geniex_state
         )
+        and not state_stale
     )
     geniex_healthy = check.get(
         "healthy"
@@ -69,6 +116,12 @@ def classify_health(
     )
 
     if (
+        supervisor_expected
+        and state_stale
+        and not fallback_active
+    ):
+        level = "unknown"
+    elif (
         supervisor_enabled
         and geniex_healthy is False
         and not fallback_active
@@ -87,6 +140,14 @@ def classify_health(
         level = "healthy"
 
     reasons = []
+
+    if (
+        supervisor_expected
+        and state_stale
+    ):
+        reasons.append(
+            "GenieX watchdog-status saknas eller är för gammal."
+        )
 
     if fallback_active:
         reasons.append(
@@ -132,16 +193,39 @@ def classify_health(
         "geniex_consecutive_failures": (
             failures
         ),
+        "geniex_state_stale": (
+            state_stale
+        ),
+        "geniex_state_age_seconds": (
+            round(
+                state_age_seconds,
+                3,
+            )
+            if state_age_seconds
+            is not None
+            else None
+        ),
     }
 
 
 def build_health_status(
     llm_runtime,
     geniex_state=None,
+    *,
+    supervisor_expected=False,
+    stale_after_seconds=30.0,
+    now=None,
 ):
     classification = classify_health(
         llm_runtime,
         geniex_state,
+        supervisor_expected=(
+            supervisor_expected
+        ),
+        stale_after_seconds=(
+            stale_after_seconds
+        ),
+        now=now,
     )
 
     return {
