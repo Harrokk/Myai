@@ -1335,7 +1335,7 @@ Streamlagret:
 
 Detta är ett fundament för senare livevideo och realtidsanalys, inte ännu en permanent kamerabevakning. Den samlade fysiska hårdvaruverifieringen innehåller ett kort explicit stream-test som tillfälligt aktiverar funktionen utan att ändra den sparade konfigurationen.
 
-Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Raspberry Pi.
+Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Arduino VENTUNO Q.
 
 ### 16.1.12 Teknisk status för begränsad live-vision
 
@@ -2454,7 +2454,7 @@ Nästa säkra utvecklingssteg bör väljas från kvarvarande hårdvaruoberoende 
 En ny helhetsaudit genomfördes efter att den hårdvaruoberoende mjukvaran i övrigt bedömts färdig.
 
 Korrigerat:
-- Qualcomm-måltypen är **Dragonwing QCS8275**; äldre felaktig text `IQ-8275` är borttagen ur aktuell konfiguration och VENTUNO-dokumentation
+- Qualcomm-måltypen är **Dragonwing QCS8275**; den tidigare felaktiga SoC-beteckningen är borttagen ur aktuell konfiguration och VENTUNO-dokumentation
 - aktiva `modules/pi/` och `scripts/pi_hardware_validation.py` är borttagna
 - generisk Linux-diagnostik är porterad till `modules/ventuno/platform.py`
 - `pi_*`-routing är borttagen
