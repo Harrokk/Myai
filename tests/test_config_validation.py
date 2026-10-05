@@ -249,3 +249,20 @@ def test_selfdev_cannot_disable_bubblewrap_requirement():
         == "selfdev_requires_bubblewrap"
         for item in result["errors"]
     )
+
+
+def test_required_deployment_lock_requires_path():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["deployment_lock"]["required"] = True
+    settings["deployment_lock"]["lock_path"] = ""
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "deployment_lock_path_missing"
+        for item in result["errors"]
+    )
