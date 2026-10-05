@@ -197,5 +197,15 @@
     "rpc_call_timeout_seconds": 5,
     "rpc_allowed_read_methods": [],
     "rpc_allowed_write_methods": []
+  },
+  "geniex_supervisor": {
+    "enabled": false,
+    "health_timeout_seconds": 3,
+    "failure_threshold": 3,
+    "restart_enabled": false,
+    "restart_command": [],
+    "restart_timeout_seconds": 30,
+    "restart_cooldown_seconds": 60,
+    "max_restart_attempts": 3
   }
 }
