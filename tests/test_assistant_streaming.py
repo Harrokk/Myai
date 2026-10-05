@@ -73,6 +73,9 @@ def test_core_streams_chunks_and_saves_complete_turn(tmp_path):
     assert result["answer"] == "CPU är OK."
     assert result["streamed"] is True
     assert result["tools"] == ["cpu_status"]
+    assert result["llm_runtime"]["active_backend"] == "primary"
+    assert result["llm_runtime"]["provider"] == "test"
+    assert result["llm_runtime"]["model"] == "stream-model"
     assert core.conversation_history[-1] == {
         "role": "assistant",
         "content": "CPU är OK.",
@@ -100,3 +103,45 @@ def test_core_streaming_falls_back_to_chat(tmp_path):
     assert chunks == ["Fallback-svar"]
     assert result["answer"] == "Fallback-svar"
     assert result["streamed"] is False
+
+
+
+class RuntimeStatusLLM:
+    provider_name = "geniex"
+    model = "primary-model"
+    url = "http://geniex"
+
+    def chat(self, messages, timeout=300):
+        return "Reservsvar"
+
+    def status(self):
+        return {
+            "enabled": True,
+            "active_backend": "fallback",
+            "primary_provider": "geniex",
+            "primary_model": "primary-model",
+            "fallback_provider": "geniex",
+            "fallback_model": "fallback-model",
+            "last_error": "npu-fel",
+        }
+
+
+def test_core_exposes_degraded_local_llm_runtime_state(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"]["auto_assess_enabled"] = False
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=FakeMemory(),
+        llm=RuntimeStatusLLM(),
+    )
+
+    result = core.respond("Hej")
+
+    runtime = result["llm_runtime"]
+    assert runtime["active_backend"] == "fallback"
+    assert runtime["fallback_model"] == "fallback-model"
+    assert runtime["last_error"] == "npu-fel"
+    assert runtime["provider"] == "geniex"
+    assert runtime["model"] == "primary-model"
