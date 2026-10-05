@@ -1262,6 +1262,23 @@ Standardläget är aktiverad lokal felloggning till `runtime/errors.jsonl`. File
 
 Både modulimportfel och tool-körfel kopplas till fellagret. Konfiguration, truncering, loggfel och multi-tool-beteende testas i CI.
 
+### 17.2 Read-only diagnostik av senaste fel
+
+På utvecklingsgren finns nu verktyget `myai_recent_errors` för att läsa de senaste strukturerade MyAI-felen genom naturligt språk, exempelvis:
+
+> Vilka fel har MyAI haft?
+
+Verktyget:
+- läser endast felloggen och ändrar eller raderar ingenting
+- läser aktuell JSONL-fil samt roterade backupfiler i korrekt nyast-först-ordning
+- använder ett konfigurerbart standardantal genom `error_logging.recent_limit`
+- har en absolut maxgräns på 50 poster per anrop
+- ignorerar trasiga eller ogiltiga JSON-rader utan att hela diagnostiken faller
+- återanvänder den redan begränsade feltexten och exponerar inte rå användarfråga eller prompt
+- rapporterar tydligt när felloggning är avstängd eller när inga fel finns
+
+Ingen funktion för att rensa, kvittera eller ändra felloggen exponeras genom verktyget.
+
 ---
 
 ## 18. Säkerhet
@@ -1660,6 +1677,27 @@ Verifiering:
 - GitHub Actions-run `37276890394` är **success**
 - Python-kompilering och full pytest-svit passerade
 - ingen fysisk VENTUNO-verifiering har gjorts eller påståtts av detta lager
+
+
+### 21.10 Återupptaget arbete 2026-10-05 – read-only feldiagnostik
+
+Nästa steg efter den strukturerade felloggningen var att göra informationen praktiskt åtkomlig utan manuell filhantering.
+
+Implementerat:
+- `core.error_log.read_recent_errors()` läser de senaste strukturerade felposterna från aktuell och roterad JSONL-logg
+- läsningen är hårt begränsad till högst 50 poster
+- trasiga JSON-rader ignoreras och räknas separat
+- `modules/system/errors.py` exponerar endast det read-only verktyget `myai_recent_errors`
+- naturligt språk routar bland annat frågor som `Vilka fel har MyAI haft?` och `Visa MyAI fellogg.`
+- `error_logging.recent_limit` styr standardantalet och valideras till intervallet 1–50
+- verktyget ändrar, rensar eller kvitterar aldrig felloggen
+- loggarnas integritetsregel kvarstår: rå användarfråga och prompt finns inte i de strukturerade felposterna
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `f5529a435939684d48b4d2b8cefcf448563b27f5`
+- GitHub Actions-run `37277666680` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av detta read-only mjukvarulager
 
 ---
 

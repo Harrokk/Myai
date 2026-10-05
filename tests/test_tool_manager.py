@@ -608,3 +608,16 @@ def test_run_tools_survives_error_logger_failure():
     assert "tool failed" in result[
         "ram_status"
     ]
+
+
+def test_detect_tools_routes_recent_myai_errors():
+    assert tool_manager.detect_tools(
+        "Vilka fel har MyAI haft?"
+    ) == [
+        "myai_recent_errors"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa MyAI fellogg."
+    ) == [
+        "myai_recent_errors"
+    ]

@@ -230,6 +230,26 @@ def detect_tools(user_input):
             "myai_health_status"
         ]
 
+    asks_myai_errors = any(
+        phrase in text
+        for phrase in (
+            "vilka fel har myai haft",
+            "har myai haft några fel",
+            "senaste myai-fel",
+            "senaste myai fel",
+            "senaste fel",
+            "myai fellogg",
+            "myai felhistorik",
+            "myai error log",
+            "recent myai errors",
+        )
+    )
+
+    if asks_myai_errors:
+        return [
+            "myai_recent_errors"
+        ]
+
     mentions_xlsx = ".xlsx" in text
 
     if mentions_xlsx:

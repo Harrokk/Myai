@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -158,3 +159,153 @@ class ErrorLogger:
             return True
         except Exception:
             return False
+
+
+
+def _error_log_paths(
+    path,
+    *,
+    backups,
+):
+    target = Path(
+        path
+    )
+    paths = [
+        target
+    ]
+
+    for index in range(
+        1,
+        max(
+            0,
+            int(
+                backups
+            ),
+        )
+        + 1,
+    ):
+        paths.append(
+            Path(
+                str(
+                    target
+                )
+                + f".{index}"
+            )
+        )
+
+    return paths
+
+
+def read_recent_errors(
+    path,
+    *,
+    limit=10,
+    backups=5,
+    max_message_chars=500,
+):
+    """Read newest structured errors from current and rotated JSONL files."""
+
+    count = min(
+        50,
+        max(
+            1,
+            int(
+                limit
+            ),
+        ),
+    )
+    records = []
+    malformed_count = 0
+
+    for candidate in _error_log_paths(
+        path,
+        backups=backups,
+    ):
+        if len(
+            records
+        ) >= count:
+            break
+
+        try:
+            lines = candidate.read_text(
+                encoding="utf-8",
+            ).splitlines()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+
+        for line in reversed(
+            lines
+        ):
+            if len(
+                records
+            ) >= count:
+                break
+
+            if not line.strip():
+                continue
+
+            try:
+                value = json.loads(
+                    line
+                )
+            except (
+                json.JSONDecodeError,
+                TypeError,
+            ):
+                malformed_count += 1
+                continue
+
+            if not isinstance(
+                value,
+                dict,
+            ):
+                malformed_count += 1
+                continue
+
+            records.append(
+                {
+                    "written_unix_time": value.get(
+                        "written_unix_time"
+                    ),
+                    "event": _compact_message(
+                        value.get(
+                            "event",
+                            "unknown",
+                        ),
+                        max_chars=80,
+                    ),
+                    "component": _compact_message(
+                        value.get(
+                            "component",
+                            "unknown",
+                        ),
+                        max_chars=160,
+                    ),
+                    "error_type": _compact_message(
+                        value.get(
+                            "error_type",
+                            "Error",
+                        ),
+                        max_chars=80,
+                    ),
+                    "message": _compact_message(
+                        value.get(
+                            "message",
+                            "",
+                        ),
+                        max_chars=max_message_chars,
+                    ),
+                }
+            )
+
+    return {
+        "records": records,
+        "count": len(
+            records
+        ),
+        "malformed_count": (
+            malformed_count
+        ),
+    }
