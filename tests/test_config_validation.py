@@ -451,3 +451,21 @@ def test_enabled_audit_requires_path_and_safe_limits():
     assert "audit_log_path_missing" in codes
     assert "audit_detail_limit_invalid" in codes
     assert "audit_recent_limit_invalid" in codes
+
+
+def test_diagnostics_runtime_stale_limit_is_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["diagnostics"][
+        "runtime_stale_seconds"
+    ] = 0
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "diagnostics_runtime_stale_invalid"
+        for item in result["errors"]
+    )
