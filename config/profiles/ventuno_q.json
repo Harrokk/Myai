@@ -1,6 +1,11 @@
 {
   "llm": {
-    "provider": "geniex"
+    "provider": "geniex",
+    "fallback": {
+      "enabled": false,
+      "provider": "geniex",
+      "model": ""
+    }
   },
   "geniex": {
     "base_url": "http://127.0.0.1:18181/v1",
