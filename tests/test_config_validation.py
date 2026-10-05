@@ -546,3 +546,70 @@ def test_versioned_repository_profiles_validate_cleanly():
     assert ventuno_result[
         "errors"
     ] == []
+
+
+def test_fx_enabled_requires_internet():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["fx"][
+        "enabled"
+    ] = True
+    settings["internet"][
+        "enabled"
+    ] = False
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "fx_requires_internet"
+        for item in result[
+            "errors"
+        ]
+    )
+
+
+def test_fx_provider_target_url_and_age_are_fail_closed():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["fx"].update(
+        {
+            "provider": "unknown",
+            "target_currency": "USD",
+            "ecb_url": "https://example.com/rates.xml",
+            "max_age_days": 99,
+        }
+    )
+
+    result = validate_settings(
+        settings
+    )
+    codes = {
+        item["code"]
+        for item in result[
+            "errors"
+        ]
+    }
+
+    assert "fx_provider_invalid" in codes
+    assert "fx_target_currency_invalid" in codes
+    assert "fx_ecb_url_invalid" in codes
+    assert "fx_max_age_days_invalid" in codes
+
+
+def test_default_fx_configuration_is_valid_while_disabled():
+    settings = deepcopy(DEFAULT_SETTINGS)
+
+    result = validate_settings(
+        settings
+    )
+
+    assert not any(
+        item["code"].startswith(
+            "fx_"
+        )
+        for item in result[
+            "errors"
+        ]
+    )
