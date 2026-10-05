@@ -348,3 +348,59 @@ def test_ventuno_platform_tool_names_have_no_pi_prefix():
         )
         for name in names
     )
+
+
+def test_router_reserved_ttyhs1_is_not_exposed_as_general_uart(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        ventuno_platform.platform,
+        "system",
+        lambda: "Linux",
+    )
+    monkeypatch.setattr(
+        ventuno_platform.glob,
+        "glob",
+        lambda pattern: (
+            [
+                "/dev/ttyHS0",
+                "/dev/ttyHS1",
+            ]
+            if pattern
+            == "/dev/ttyHS*"
+            else []
+        ),
+    )
+
+    result = (
+        ventuno_platform
+        .collect_ventuno_interfaces()
+    )
+
+    assert result[
+        "interfaces"
+    ][
+        "uart"
+    ] == [
+        "/dev/ttyHS0"
+    ]
+    assert result[
+        "reserved"
+    ] == [
+        {
+            "path": "/dev/ttyHS1",
+            "reason": (
+                "Arduino Router reserverar denna UART "
+                "för Linux↔STM32 Bridge/RPC."
+            ),
+        }
+    ]
+
+    formatted = (
+        ventuno_platform
+        .format_ventuno_interfaces(
+            result
+        )
+    )
+    assert "/dev/ttyHS1" in formatted
+    assert "RESERVERAD" in formatted
