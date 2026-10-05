@@ -480,6 +480,64 @@ def validate_settings(
                 )
             )
 
+    selfdev = settings.get(
+        "selfdev",
+        {},
+    )
+
+    if selfdev.get(
+        "promotion_enabled",
+        False,
+    ) and not selfdev.get(
+        "enabled",
+        False,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "selfdev_promotion_without_selfdev",
+                (
+                    "Selfdev-promotion kan inte vara aktiv "
+                    "när selfdev är avstängt."
+                ),
+            )
+        )
+
+    if (
+        selfdev.get(
+            "enabled",
+            False,
+        )
+        and not selfdev.get(
+            "require_bubblewrap",
+            True,
+        )
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "selfdev_requires_bubblewrap",
+                (
+                    "Aktiverad selfdev kräver Bubblewrap; "
+                    "osandboxad host-verifiering är inte tillåten."
+                ),
+            )
+        )
+
+    if not str(
+        selfdev.get(
+            "workspace_root",
+            "",
+        )
+    ).strip():
+        issues.append(
+            _issue(
+                "error",
+                "selfdev_workspace_missing",
+                "selfdev.workspace_root saknas.",
+            )
+        )
+
     for section, key in (
         (
             "geniex_supervisor",
