@@ -100,7 +100,7 @@ def _flatten(data, prefix=()):
     ):
         return [
             (
-                ".".join(prefix),
+                prefix,
                 data,
             )
         ]
@@ -402,16 +402,9 @@ def verify_ventuno_stack(
         "expected"
     ]
 
-    for path, expected_value in _flatten(
+    for keys, expected_value in _flatten(
         expected
     ):
-        keys = tuple(
-            part
-            for part in path.split(
-                "."
-            )
-            if part
-        )
         observed_value = _value_at(
             observed,
             keys,
@@ -420,7 +413,9 @@ def verify_ventuno_stack(
         if observed_value != expected_value:
             mismatches.append(
                 {
-                    "path": path,
+                    "path": ".".join(
+                        keys
+                    ),
                     "expected": (
                         expected_value
                     ),
