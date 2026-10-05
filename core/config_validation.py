@@ -753,6 +753,35 @@ def validate_settings(
             )
         )
 
+    try:
+        audit_recent_limit = int(
+            audit_logging.get(
+                "recent_limit",
+                20,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        audit_recent_limit = 0
+
+    if not (
+        1
+        <= audit_recent_limit
+        <= 50
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "audit_recent_limit_invalid",
+                (
+                    "audit_logging.recent_limit måste "
+                    "vara mellan 1 och 50."
+                ),
+            )
+        )
+
     error_logging = settings.get(
         "error_logging",
         {},
