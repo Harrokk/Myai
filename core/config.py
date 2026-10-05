@@ -71,6 +71,7 @@ DEFAULT_SETTINGS = {
         "stream_tts_stop_timeout_seconds": 2.0,
         "release_microphone_during_inference": False,
         "model_handoff_delay_seconds": 0.0,
+        "release_stt_before_model": False,
         "semantic_consensus_enabled": False,
         "semantic_consensus_for_high_risk": False,
         "semantic_consensus_min_confidence": 0.85,
