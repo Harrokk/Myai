@@ -24,6 +24,12 @@ SPI_ROOT = Path("/sys/bus/spi/devices")
 HWMON_ROOT = Path("/sys/class/hwmon")
 DEFAULT_LIMIT = 12
 
+RESERVED_DEVICE_NODES = {
+    "/dev/ttyHS1": (
+        "Arduino Router reserverar denna UART för Linux↔STM32 Bridge/RPC."
+    ),
+}
+
 HWMON_KINDS = {
     "power": {
         "pattern": "power*_input",
@@ -131,15 +137,39 @@ def collect_ventuno_interfaces():
         interfaces[
             name
         ] = sorted(
-            set(
+            value
+            for value in set(
                 matches
             )
+            if value not in RESERVED_DEVICE_NODES
         )
+
+    reserved = [
+        {
+            "path": path,
+            "reason": reason,
+        }
+        for path, reason in RESERVED_DEVICE_NODES.items()
+        if any(
+            path in values
+            for values in (
+                [
+                    match
+                    for pattern in patterns
+                    for match in glob.glob(
+                        pattern
+                    )
+                ]
+                for patterns in INTERFACE_GLOBS.values()
+            )
+        )
+    ]
 
     return {
         "supported": True,
         "platform": platform.system(),
         "interfaces": interfaces,
+        "reserved": reserved,
     }
 
 
@@ -197,6 +227,17 @@ def format_ventuno_interfaces(
             lines.append(
                 f"- {label}: inget enhetsgränssnitt upptäckt"
             )
+
+    reserved = result.get(
+        "reserved",
+        [],
+    )
+
+    for item in reserved:
+        lines.append(
+            f"- RESERVERAD: {item['path']} — {item['reason']} "
+            "MyAI får inte öppna den direkt."
+        )
 
     if not found:
         lines.append(
@@ -1071,8 +1112,9 @@ def ventuno_io_safety():
         "GPIO-, I2C-, SPI- eller UART-pinnummer i Linux-runtime. "
         "Använd aktuell officiell VENTUNO Q-pinout för fysisk inkoppling "
         "och använd Arduino Router/RPC för MCU-styrning. "
-        "Linux-enhetsnoder kan innehålla resurser som ägs av systemtjänster; "
-        "öppna dem inte automatiskt."
+        "Linux-enhetsnoder kan innehålla resurser som ägs av systemtjänster. "
+        "/dev/ttyHS1 är reserverad av Arduino Router och får inte öppnas "
+        "direkt av MyAI."
     )
 
 
