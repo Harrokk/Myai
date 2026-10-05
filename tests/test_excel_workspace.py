@@ -560,3 +560,128 @@ def test_create_excel_sheet_rejects_invalid_name(tmp_path):
 def test_sheet_management_tools_use_user_text_mode():
     assert excel.TOOLS["excel_list_sheets"]["pass_user_input"] is True
     assert excel.TOOLS["excel_create_sheet"]["pass_user_input"] is True
+
+
+def test_excel_create_tool_audits_without_cell_or_row_values(
+    tmp_path,
+    monkeypatch,
+):
+    cfg = settings(
+        tmp_path,
+        excel_write=True,
+    )
+    cfg["audit_logging"] = {
+        "enabled": True,
+        "require_for_writes": True,
+        "path": "runtime/audit.jsonl",
+        "max_detail_chars": 200,
+        "recent_limit": 20,
+    }
+    cfg["logging"] = {
+        "jsonl_max_bytes": 100000,
+        "jsonl_backups": 2,
+    }
+    monkeypatch.setattr(
+        excel,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        excel,
+        "load_settings",
+        lambda: cfg,
+    )
+
+    def fake_create(
+        request,
+        settings=None,
+    ):
+        return {
+            "path": (
+                tmp_path
+                / "workspace"
+                / request["path"]
+            ),
+            "sheet": "Data",
+            "rows_written": len(
+                request.get(
+                    "rows",
+                    [],
+                )
+            ),
+            "columns": len(
+                request[
+                    "headers"
+                ]
+            ),
+        }
+
+    monkeypatch.setattr(
+        excel,
+        "create_excel_file",
+        fake_create,
+    )
+
+    result = excel.excel_create(
+        'Skapa Excel-filen "budget.xlsx" med kolumner '
+        'Namn, Belopp och rader TOP_SECRET_VALUE, 35'
+    )
+
+    assert "skapades" in result
+    audit_text = (
+        tmp_path
+        / "runtime"
+        / "audit.jsonl"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert "excel_create" in audit_text
+    assert '"outcome":"attempt"' in audit_text
+    assert '"outcome":"success"' in audit_text
+    assert "TOP_SECRET_VALUE" not in audit_text
+    assert '"rows":1' in audit_text
+    assert '"columns":2' in audit_text
+
+
+def test_excel_write_disabled_is_audited_as_denied(
+    tmp_path,
+    monkeypatch,
+):
+    cfg = settings(
+        tmp_path,
+        excel_write=False,
+    )
+    cfg["audit_logging"] = {
+        "enabled": True,
+        "require_for_writes": True,
+        "path": "runtime/audit.jsonl",
+        "max_detail_chars": 200,
+        "recent_limit": 20,
+    }
+    monkeypatch.setattr(
+        excel,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        excel,
+        "load_settings",
+        lambda: cfg,
+    )
+
+    result = excel.excel_create(
+        'Skapa Excel-filen "budget.xlsx" med kolumner A, B'
+    )
+
+    assert "avstängd" in result
+    audit_text = (
+        tmp_path
+        / "runtime"
+        / "audit.jsonl"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert '"outcome":"attempt"' in audit_text
+    assert '"outcome":"denied"' in audit_text
