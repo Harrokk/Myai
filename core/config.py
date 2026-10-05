@@ -14,6 +14,11 @@ DEFAULT_SETTINGS = {
             "enabled": False,
             "provider": "geniex",
             "model": "",
+            "health_aware": {
+                "enabled": False,
+                "failure_threshold": 3,
+                "recovery_success_threshold": 3,
+            },
         },
     },
     "ollama": {
