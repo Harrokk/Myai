@@ -2,7 +2,11 @@ import platform
 import time
 
 from core.config import load_settings
-from modules.camera.capture import _load_cv2, configured_camera_index
+from modules.camera.capture import (
+    _load_cv2,
+    camera_enabled,
+    configured_camera_index,
+)
 
 
 MAX_STREAM_DURATION_SECONDS = 60.0
@@ -13,7 +17,15 @@ MAX_STREAM_FRAMES = 300
 def _stream_config(settings):
     camera = settings.get("camera", {})
 
-    enabled = bool(camera.get("stream_enabled", False))
+    enabled = bool(
+        camera_enabled(
+            settings
+        )
+        and camera.get(
+            "stream_enabled",
+            False,
+        )
+    )
 
     try:
         duration = float(camera.get("stream_duration_seconds", 5))
@@ -72,7 +84,10 @@ def run_bounded_stream(
             "height": None,
             "fps": limits["fps"],
             "target_frames": limits["target_frames"],
-            "error": "Kamerastream är avstängd i konfigurationen.",
+            "error": (
+                "Kameran eller kamerastreamen är avstängd "
+                "i konfigurationen."
+            ),
         }
 
     camera_index = configured_camera_index(settings)

@@ -25,10 +25,10 @@
   "assistant": {
     "name": "MyAI v2",
     "engine": "Qualcomm GenieX / QAIRT",
-    "gpu": "Qualcomm Dragonwing IQ-8275 / Hexagon NPU",
+    "gpu": "Qualcomm Dragonwing QCS8275 / Hexagon NPU",
     "memory_label": "SQLite",
     "current_platform": "Arduino VENTUNO Q",
-    "future_target": "Arduino VENTUNO Q / Dragonwing IQ-8275"
+    "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275"
   },
   "voice": {
     "llm_streaming_enabled": true,
@@ -41,7 +41,10 @@
     "stt_provider": "faster_whisper",
     "stt_model": "small",
     "stt_language": "sv",
-    "backup_stt_provider": "faster_whisper"
+    "backup_stt_provider": "faster_whisper",
+    "enabled": false,
+    "tts_enabled": false,
+    "handsfree_enabled": false
   },
   "ventuno": {
     "enabled": true,
@@ -111,5 +114,36 @@
   },
   "diagnostics": {
     "runtime_stale_seconds": 30
+  },
+  "camera": {
+    "enabled": false,
+    "default_index": 0,
+    "stream_enabled": false
+  },
+  "location": {
+    "enabled": false,
+    "source": "gps_serial",
+    "serial_port": "",
+    "baudrate": 9600,
+    "timeout_seconds": 1,
+    "max_lines": 20
+  },
+  "hardware_watch": {
+    "enabled": true,
+    "interval_seconds": 30
+  },
+  "trusted_terminals": {
+    "enabled": false,
+    "connect_rssi": -60,
+    "disconnect_rssi": -75,
+    "scan_interval_seconds": 5,
+    "scan_timeout_seconds": 5,
+    "connect_confirm_scans": 2,
+    "disconnect_confirm_scans": 3,
+    "auto_execute": false,
+    "connector_provider": "none",
+    "connector_timeout_seconds": 10,
+    "require_service_uuid": true,
+    "terminals": []
   }
 }
