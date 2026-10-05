@@ -96,5 +96,9 @@
     "promotion_enabled": false,
     "require_bubblewrap": true,
     "verification_timeout_seconds": 300
+  },
+  "deployment_lock": {
+    "required": false,
+    "lock_path": "config/ventuno_stack_lock.json"
   }
 }
