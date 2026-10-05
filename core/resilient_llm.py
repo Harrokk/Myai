@@ -149,6 +149,10 @@ class ResilientLLMClient:
         self,
         reason=None,
     ):
+        changed = (
+            self.last_backend
+            != "primary"
+        )
         self.last_backend = "primary"
         self.last_error = None
 
@@ -157,11 +161,20 @@ class ResilientLLMClient:
                 str(reason)
             )
 
+        if changed:
+            self._notify_policy_primary(
+                self.last_routing_reason
+            )
+
     def _mark_fallback(
         self,
         error=None,
         reason=None,
     ):
+        changed = (
+            self.last_backend
+            != "fallback"
+        )
         self.last_backend = "fallback"
 
         if error is not None:
@@ -173,6 +186,8 @@ class ResilientLLMClient:
             self.last_routing_reason = (
                 str(reason)
             )
+
+        if changed:
             self._notify_policy_fallback(
                 self.last_routing_reason
             )
