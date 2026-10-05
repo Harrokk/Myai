@@ -1,12 +1,19 @@
+from pathlib import Path
+
 from core.memory import MemoryStore
 from core.memory_policy import assess_memory_candidate
 from core.llm_factory import build_llm_client
+from core.health_status import (
+    build_health_status,
+    read_health_state,
+)
 from core.tool_manager import load_tools, run_tools, select_tools
 
 
 class MyAICore:
     def __init__(self, settings, project_root, tools=None, memory=None, llm=None):
         self.settings = settings
+        self.project_root = project_root
 
         self.llm_provider = (
             settings.get("llm", {})
@@ -237,6 +244,44 @@ Svara kort och tydligt på svenska.
         runtime["model"] = self.model
         return runtime
 
+    def _health_status(self):
+        supervisor = self.settings.get(
+            "geniex_supervisor",
+            {},
+        )
+        raw_path = supervisor.get(
+            "state_path",
+            "runtime/geniex_health.json",
+        )
+        state_path = Path(
+            raw_path
+        )
+
+        if not state_path.is_absolute():
+            state_path = (
+                self.project_root
+                / state_path
+            )
+
+        state = read_health_state(
+            state_path
+        )
+
+        return build_health_status(
+            self._llm_runtime_metadata(),
+            state,
+            supervisor_expected=bool(
+                supervisor.get(
+                    "enabled",
+                    False,
+                )
+            ),
+            stale_after_seconds=supervisor.get(
+                "state_stale_seconds",
+                30.0,
+            ),
+        )
+
     def _finalize_response(
         self,
         user_message,
@@ -261,6 +306,7 @@ Svara kort och tydligt på svenska.
             "memory_decision": memory_decision,
             "streamed": bool(streamed),
             "llm_runtime": self._llm_runtime_metadata(),
+            "health": self._health_status(),
         }
 
     def respond(self, user_message):
