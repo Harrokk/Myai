@@ -380,3 +380,150 @@ def test_rollback_refuses_to_overwrite_post_promotion_changes(
             "promo1",
             "ROLLBACK session1 promo1",
         )
+
+
+def test_selfdev_promotion_is_audited_without_approval_phrase(
+    tmp_path,
+):
+    project, workspace = (
+        make_workspace(
+            tmp_path
+        )
+    )
+    approve_verification(
+        workspace
+    )
+    active = manager(
+        workspace,
+        settings(),
+    )
+
+    active.promote(
+        "PROMOTE session1"
+    )
+
+    audit_text = (
+        project
+        / "runtime"
+        / "audit.jsonl"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert "selfdev_promote" in audit_text
+    assert '"outcome":"attempt"' in audit_text
+    assert '"outcome":"success"' in audit_text
+    assert "PROMOTE session1" not in audit_text
+
+
+def test_denied_selfdev_promotion_is_audited(
+    tmp_path,
+):
+    project, workspace = (
+        make_workspace(
+            tmp_path
+        )
+    )
+    approve_verification(
+        workspace
+    )
+    active = manager(
+        workspace,
+        settings(),
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="promotion-frase",
+    ):
+        active.promote(
+            "wrong phrase"
+        )
+
+    audit_text = (
+        project
+        / "runtime"
+        / "audit.jsonl"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert '"outcome":"attempt"' in audit_text
+    assert '"outcome":"denied"' in audit_text
+    assert "wrong phrase" not in audit_text
+
+
+def test_required_audit_blocks_selfdev_before_source_write(
+    tmp_path,
+):
+    project, workspace = (
+        make_workspace(
+            tmp_path
+        )
+    )
+    approve_verification(
+        workspace
+    )
+    value = settings()
+    value["audit_logging"][
+        "enabled"
+    ] = False
+    value["audit_logging"][
+        "require_for_writes"
+    ] = True
+    active = manager(
+        workspace,
+        value,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Audit-loggning krävs",
+    ):
+        active.promote(
+            "PROMOTE session1"
+        )
+
+    assert (
+        project
+        / "core"
+        / "example.py"
+    ).read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_selfdev_rollback_is_audited(
+    tmp_path,
+):
+    project, workspace = (
+        make_workspace(
+            tmp_path
+        )
+    )
+    approve_verification(
+        workspace
+    )
+    active = manager(
+        workspace,
+        settings(),
+    )
+    active.promote(
+        "PROMOTE session1"
+    )
+    active.rollback(
+        "promo1",
+        "ROLLBACK session1 promo1",
+    )
+
+    audit_text = (
+        project
+        / "runtime"
+        / "audit.jsonl"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert "selfdev_rollback" in audit_text
+    assert '"outcome":"success"' in audit_text
+    assert "ROLLBACK session1 promo1" not in audit_text
