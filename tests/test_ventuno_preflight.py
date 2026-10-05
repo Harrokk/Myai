@@ -1,4 +1,5 @@
 from copy import deepcopy
+from types import SimpleNamespace
 
 from core.config import DEFAULT_SETTINGS
 from core.ventuno_preflight import (
@@ -162,3 +163,122 @@ def test_preflight_requires_geniex_provider_and_cli():
 
     assert result["passed"] is False
     assert result["failure_count"] == 3
+
+
+
+def fake_geniex_runner(
+    command,
+    *,
+    model_present=True,
+):
+    if command[-1] == "--version":
+        return SimpleNamespace(
+            returncode=0,
+            stdout="geniex 0.8.0\n",
+            stderr="",
+        )
+
+    if command[-2:] == [
+        "model",
+        "list",
+    ]:
+        output = (
+            "Qwen3-4B-Instruct-2507\n"
+            "Qwen3-VL-4B-Instruct\n"
+            if model_present
+            else "Qwen3-1.7B\n"
+        )
+        return SimpleNamespace(
+            returncode=0,
+            stdout=output,
+            stderr="",
+        )
+
+    raise AssertionError(
+        f"oväntat kommando: {command}"
+    )
+
+
+def test_preflight_reads_geniex_version_and_confirms_model():
+    result = run_ventuno_preflight(
+        ventuno_settings(),
+        machine="aarch64",
+        system="Linux",
+        which=lambda name: "/usr/bin/geniex",
+        path_exists=lambda path: True,
+        module_available=lambda name: True,
+        command_runner=lambda command: (
+            fake_geniex_runner(
+                command,
+                model_present=True,
+            )
+        ),
+    )
+
+    statuses = _statuses(result)
+
+    assert statuses["GenieX version"] == "PASS"
+    assert (
+        statuses["GenieX chipset-modell"]
+        == "PASS"
+    )
+    assert result["passed"] is True
+
+
+def test_preflight_blocks_model_not_listed_for_chipset():
+    result = run_ventuno_preflight(
+        ventuno_settings(),
+        machine="aarch64",
+        system="Linux",
+        which=lambda name: "/usr/bin/geniex",
+        path_exists=lambda path: True,
+        module_available=lambda name: True,
+        command_runner=lambda command: (
+            fake_geniex_runner(
+                command,
+                model_present=False,
+            )
+        ),
+    )
+
+    statuses = _statuses(result)
+
+    assert (
+        statuses["GenieX chipset-modell"]
+        == "FAIL"
+    )
+    assert result["passed"] is False
+
+
+def test_preflight_warns_when_geniex_model_list_command_fails():
+    def runner(command):
+        if command[-1] == "--version":
+            return SimpleNamespace(
+                returncode=0,
+                stdout="geniex 0.8.0",
+                stderr="",
+            )
+
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="catalog unavailable",
+        )
+
+    result = run_ventuno_preflight(
+        ventuno_settings(),
+        machine="aarch64",
+        system="Linux",
+        which=lambda name: "/usr/bin/geniex",
+        path_exists=lambda path: True,
+        module_available=lambda name: True,
+        command_runner=runner,
+    )
+
+    assert (
+        _statuses(result)[
+            "GenieX chipset-modell"
+        ]
+        == "WARN"
+    )
+    assert result["passed"] is True
