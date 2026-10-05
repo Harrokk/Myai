@@ -44,6 +44,9 @@ def observed_stack():
             "requirements-ventuno.txt": {
                 "sha256": "req-ventuno",
             },
+            "requirements-bluetooth.txt": {
+                "sha256": "req-bluetooth",
+            },
             "requirements-camera.txt": {
                 "sha256": "req-camera",
             },
@@ -67,6 +70,7 @@ def test_collect_stack_uses_observed_versions_and_requirement_hashes(
     requirement_names = (
         "requirements.txt",
         "requirements-ventuno.txt",
+        "requirements-bluetooth.txt",
         "requirements-camera.txt",
         "requirements-voice.txt",
         "requirements-gps.txt",
@@ -293,3 +297,34 @@ def test_old_lock_schema_is_rejected():
         in item
         for item in errors
     )
+
+
+def test_optional_ble_and_router_packages_may_be_absent_in_locked_stack():
+    observed = observed_stack()
+    observed[
+        "packages"
+    ][
+        "bleak"
+    ] = None
+    observed[
+        "packages"
+    ][
+        "arduino-router-bridge"
+    ] = None
+    manifest = {
+        "schema_version": LOCK_SCHEMA_VERSION,
+        "locked": True,
+        "expected": observed,
+    }
+
+    errors = validate_lock_manifest(
+        manifest
+    )
+
+    assert errors == []
+    assert verify_ventuno_stack(
+        manifest,
+        observed,
+    )[
+        "passed"
+    ] is True
