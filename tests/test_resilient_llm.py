@@ -210,3 +210,179 @@ def test_programming_errors_do_not_trigger_fallback():
         client.chat([])
 
     assert fallback.chat_calls == 0
+
+
+
+class SequencePolicy:
+    def __init__(self, choices):
+        self.choices = iter(
+            choices
+        )
+        self.last_reason = "policy"
+        self.fallback_notes = []
+        self.primary_notes = []
+
+    def choose_backend(
+        self,
+        current_backend,
+    ):
+        choice = next(
+            self.choices
+        )
+        self.last_reason = (
+            f"choose {choice}"
+        )
+        return choice
+
+    def note_fallback_activation(
+        self,
+        reason,
+    ):
+        self.fallback_notes.append(
+            reason
+        )
+
+    def note_primary_restored(
+        self,
+        reason,
+    ):
+        self.primary_notes.append(
+            reason
+        )
+
+    def status(self):
+        return {
+            "enabled": True,
+            "last_reason": self.last_reason,
+        }
+
+
+def test_health_policy_can_bypass_primary_and_use_fallback_directly():
+    primary = FakeClient(
+        "geniex",
+        "primary",
+        chat_value="primär",
+    )
+    fallback = FakeClient(
+        "geniex",
+        "fallback",
+        chat_value="reserv",
+    )
+    policy = SequencePolicy(
+        ["fallback"]
+    )
+    client = ResilientLLMClient(
+        primary,
+        fallback,
+        enabled=True,
+        backend_policy=policy,
+    )
+
+    assert client.chat([]) == "reserv"
+    assert primary.chat_calls == 0
+    assert fallback.chat_calls == 1
+    assert client.status()["active_backend"] == "fallback"
+    assert policy.fallback_notes == [
+        "choose fallback"
+    ]
+
+
+def test_health_policy_restores_primary_after_fallback():
+    primary = FakeClient(
+        "geniex",
+        "primary",
+        chat_value="primär",
+    )
+    fallback = FakeClient(
+        "geniex",
+        "fallback",
+        chat_value="reserv",
+    )
+    policy = SequencePolicy(
+        [
+            "fallback",
+            "primary",
+        ]
+    )
+    client = ResilientLLMClient(
+        primary,
+        fallback,
+        enabled=True,
+        backend_policy=policy,
+    )
+
+    assert client.chat([]) == "reserv"
+    assert client.chat([]) == "primär"
+    assert primary.chat_calls == 1
+    assert fallback.chat_calls == 1
+    assert client.status()["active_backend"] == "primary"
+    assert policy.primary_notes == [
+        "choose primary"
+    ]
+
+
+def test_repeated_fallback_calls_do_not_restart_recovery_epoch():
+    primary = FakeClient(
+        "geniex",
+        "primary",
+        chat_value="primär",
+    )
+    fallback = FakeClient(
+        "geniex",
+        "fallback",
+        chat_value="reserv",
+    )
+    policy = SequencePolicy(
+        [
+            "fallback",
+            "fallback",
+        ]
+    )
+    client = ResilientLLMClient(
+        primary,
+        fallback,
+        enabled=True,
+        backend_policy=policy,
+    )
+
+    assert client.chat([]) == "reserv"
+    assert client.chat([]) == "reserv"
+    assert len(
+        policy.fallback_notes
+    ) == 1
+
+
+def test_health_policy_can_bypass_primary_stream():
+    primary = FakeClient(
+        "geniex",
+        "primary",
+        stream_values=[
+            "Primär",
+        ],
+    )
+    fallback = FakeClient(
+        "geniex",
+        "fallback",
+        stream_values=[
+            "Reserv ",
+            "stream",
+        ],
+    )
+    policy = SequencePolicy(
+        ["fallback"]
+    )
+    client = ResilientLLMClient(
+        primary,
+        fallback,
+        enabled=True,
+        backend_policy=policy,
+    )
+
+    assert list(
+        client.chat_stream([])
+    ) == [
+        "Reserv ",
+        "stream",
+    ]
+    assert primary.stream_calls == 0
+    assert fallback.stream_calls == 1
