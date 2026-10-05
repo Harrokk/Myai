@@ -1590,6 +1590,37 @@ Automatisk verifiering:
 
 När fysisk VENTUNO Q finns ska avsnitt 21.2 steg 1 använda detta lager för att fånga den verkliga installerade stacken, manuellt granska den och först därefter aktivera ett permanent versionslås. Fram till dess ska versionslåset förbli avstängt och får inte fyllas med antagna Qualcomm-/GenieX-versioner.
 
+
+### 21.8 Paus/checkpoint 2026-10-05 – efter deployment-/versionslåsning
+
+Arbetet pausas här på användarens begäran.
+
+GitHub-läge vid pausen:
+- aktiv utvecklingsgren: `dev/ventuno-q-provider`
+- draft-PR: **#85 – Begin Arduino VENTUNO Q / GenieX migration**
+- aktuell branch-head före denna checkpoint: `0f6553d8b35f32eaaba77b11d8d9c2c29214e073`
+- GitHub Actions-run `37264670343` för denna head är **success**
+- `main` är fortsatt orörd
+- inga fysiska VENTUNO Q-/NPU-/ASR-/VLM-/STM32-tester har genomförts; CI-resultat gäller mjukvarulagret
+
+Senast färdigställda mjukvaruläge:
+- fail-closed deployment-/versionslåsning är implementerad för VENTUNO
+- `core/deployment_lock.py` samlar endast faktiskt observerbara mjukvaruidentifierare
+- `scripts/ventuno_version_lock.py capture` skapar en olåst kandidat under `runtime/`
+- capture-resultatet får `locked=false` och kan inte av misstag räknas som ett godkänt permanent lås
+- `verify` jämför observerad stack mot ett manuellt granskat lås och failar vid avvikelse
+- `deployment_lock.required=false` är fortsatt säker standard
+- VENTUNO-preflight blockerar när låsning senare är aktiverad men låset saknas, är ofullständigt, olåst eller inte matchar observerad stack
+- inga Qualcomm-/GenieX-versioner har gissats eller hårdkodats som fysiskt verifierade
+- selfdev-, RPC-, restart- och config-spärrarna är oförsvagade
+
+Exakt återstartspunkt:
+1. börja från denna checkpoint på `dev/ventuno-q-provider`
+2. kontrollera att aktuell branch-head och GitHub Actions fortfarande är gröna
+3. fortsätt endast med rent mjukvarumässiga steg som inte kräver påhittad fysisk VENTUNO-verifiering
+4. behåll deployment-låset avstängt tills riktig VENTUNO Q finns och den faktiska stacken kan fångas och granskas
+5. när VENTUNO Q finns: kör config-validering, `scripts/ventuno_version_lock.py capture`, granska den verkliga stacken, aktivera först därefter ett permanent versionslås och fortsätt med `scripts/ventuno_preflight.py` enligt avsnitt 21.2
+
 ---
 
 ## 22. Övergripande vision
