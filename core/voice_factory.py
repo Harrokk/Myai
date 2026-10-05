@@ -72,6 +72,10 @@ def build_voice_components(
         "stt_provider",
         "faster_whisper",
     )
+    backup_stt_name = config.get(
+        "backup_stt_provider",
+        "faster_whisper",
+    )
     tts_name = config.get(
         "tts_provider",
         "pyttsx3",
@@ -90,6 +94,11 @@ def build_voice_components(
     stt_class = _provider_class(
         "stt",
         stt_name,
+        classes,
+    )
+    backup_stt_class = _provider_class(
+        "stt",
+        backup_stt_name,
         classes,
     )
 
@@ -156,7 +165,7 @@ def build_voice_components(
     )
 
     backup_stt = [
-        stt_class(
+        backup_stt_class(
             model_name=model_name,
             **common_stt,
         )
