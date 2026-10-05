@@ -228,7 +228,7 @@ DEFAULT_SETTINGS = {
         "review_threshold": 55,
         "lifecycle_enabled": True,
         "auto_supersede_explicit_updates": True,
-        "conflict_similarity_threshold": 0.72,
+        "conflict_similarity_threshold": 0.65,
         "supersede_similarity_threshold": 0.85,
         "max_conflict_scan": 200,
         "stale_after_days": 0,
