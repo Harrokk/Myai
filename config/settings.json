@@ -211,6 +211,7 @@
     "state_stale_seconds": 30
   },
   "health": {
-    "state_path": "runtime/myai_health.json"
+    "state_path": "runtime/myai_health.json",
+    "state_stale_seconds": 60
   }
 }
