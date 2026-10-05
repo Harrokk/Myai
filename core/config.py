@@ -182,6 +182,7 @@ DEFAULT_SETTINGS = {
         "high_risk_confirmation_transcript_count": 3,
     },
     "camera": {
+        "enabled": True,
         "default_index": 0,
         "capture_dir": "runtime/captures",
         "video_dir": "runtime/video",
@@ -322,7 +323,7 @@ DEFAULT_SETTINGS = {
         "gpu": "NVIDIA RTX 3060 12 GB",
         "memory_label": "SQLite",
         "current_platform": "Windows-dator",
-        "future_target": "Arduino VENTUNO Q / Dragonwing IQ-8275",
+        "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",
     },
 }
 
