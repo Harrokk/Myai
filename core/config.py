@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
     },
     "health": {
         "state_path": "runtime/myai_health.json",
+        "state_stale_seconds": 60.0,
     },
     "vision": {
         "enabled": False,
