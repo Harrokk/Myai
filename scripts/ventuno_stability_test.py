@@ -138,8 +138,20 @@ def main():
     llm = build_llm_client(
         settings
     )
+    logging_config = settings.get(
+        "logging",
+        {},
+    )
     logger = VentunoStabilityLogger(
-        args.log
+        args.log,
+        max_bytes=logging_config.get(
+            "jsonl_max_bytes",
+            5_000_000,
+        ),
+        backups=logging_config.get(
+            "jsonl_backups",
+            5,
+        ),
     )
 
     started = time.monotonic()
