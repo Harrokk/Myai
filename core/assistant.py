@@ -41,7 +41,10 @@ class MyAICore:
             max_search_results=settings["memory"]["max_search_results"],
         )
 
-        self.llm = llm or build_llm_client(settings)
+        self.llm = llm or build_llm_client(
+            settings,
+            project_root=project_root,
+        )
         self.llm_provider = getattr(
             self.llm,
             "provider_name",
