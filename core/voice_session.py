@@ -168,25 +168,29 @@ class VoiceSession:
         return True
 
     def _before_model_inference(self):
-        providers = [
-            self.components.get(
-                "primary_stt"
-            ),
-            *self.components.get(
-                "backup_stt",
-                [],
-            ),
-        ]
+        if self.voice.get(
+            "release_stt_before_model",
+            False,
+        ):
+            providers = [
+                self.components.get(
+                    "primary_stt"
+                ),
+                *self.components.get(
+                    "backup_stt",
+                    [],
+                ),
+            ]
 
-        for provider in providers:
-            release = getattr(
-                provider,
-                "release_for_inference",
-                None,
-            )
+            for provider in providers:
+                release = getattr(
+                    provider,
+                    "release_for_inference",
+                    None,
+                )
 
-            if callable(release):
-                release()
+                if callable(release):
+                    release()
 
         delay = max(
             0.0,
