@@ -362,12 +362,12 @@ def test_detect_tools_routes_ventuno_system_logs():
     ]
 
 
-def test_detect_tools_routes_npu_to_geniex_status():
+def test_detect_tools_routes_npu_to_ventuno_accelerator_status():
     result = tool_manager.detect_tools(
         "Visa NPU accelerator status."
     )
     assert result == [
-        "geniex_status"
+        "ventuno_accelerator_status"
     ]
 
 
