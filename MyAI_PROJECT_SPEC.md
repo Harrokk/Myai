@@ -2474,6 +2474,46 @@ Officiell Arduino-dokumentation bekräftar att VENTUNO Q använder Dragonwing QC
 Fysisk prestanda, effekt, termik, kamera, ljud, NPU-telemetri, GenieX-version, Arduino Router-version och STM32/RPC är fortfarande **inte** verifierade av CI och ska testas enligt avsnitt 21.2 på den riktiga VENTUNO Q.
 
 
+
+### 21.26 Pauscheckpoint 2026-10-05 – efter full VENTUNO Q-plattformsaudit
+
+Arbetet pausas här på användarens begäran.
+
+Verifierat läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- aktiv integrations-head: `615215ecc1d039d9413a4306e359c62c6da38533`
+- draft PR för VENTUNO-spåret: `#85`
+- PR `#104` (full VENTUNO-plattformsaudit) är mergad
+- GitHub Actions-run `37327846143` är **success**
+- `main` är fortsatt orörd
+
+Auditresultat som nu är infört:
+- Raspberry Pi-runtime och `modules/pi/` är borttagna
+- Pi-specifik routing och Pi-pinout är borttagna
+- generisk Linux-diagnostik är porterad till `modules/ventuno/`
+- målplattformen är Arduino VENTUNO Q med Qualcomm Dragonwing QCS8275
+- `/dev/ttyHS1` är markerad som reserverad för Arduino Router/Bridge och filtreras bort från vanlig UART-användning
+- NPU-status skiljs från GenieX-readiness
+- kamera/voice/GPS/trusted-terminal/VLM/RPC är explicit avstängda eller spärrade tills fysisk verifiering
+- kamerans `enabled=false` stoppar stillbild, stream och video innan enheten öppnas
+- deployment-lock är härdat och täcker relevanta requirements-hashar och basdependencies
+- Bluetooth LE och Arduino Router Bridge är valfria dependencies och tvingas inte in när motsvarande funktion är avstängd
+- preflight är anpassad till VENTUNO Q/Linux ARM64/Python 3.12-signaler och feature-baserade dependencykrav
+- CI har regressionsskydd mot återinförd Pi-runtime, fel SoC-namn och reserverad Router-UART
+
+Nästa exakta steg vid återupptag:
+1. utgå från `dev/ventuno-q-provider` och verifiera att head/CI fortfarande är gröna
+2. ändra inte mer mjukvara enbart för att fortsätta utveckla om inget nytt konkret behov hittas
+3. när fysisk Arduino VENTUNO Q finns, följ verifieringsordningen i avsnitt 21.2 utan att hoppa över steg
+4. börja med verklig VENTUNO/Qualcomm/GenieX-installation och versionslåsning
+5. kör read-only preflight på kortet
+6. verifiera Qwen3-4B-bundle, GenieX cold start, TTFT, tokens/s, RAM och temperatur
+7. verifiera därefter streaming + TTS, mic/VAD/STT-handoff, VLM/kamera och sedan Router/RPC i angiven ordning
+8. håll STM32/RPC-skrivning avstängd tills separat fysisk säkerhetsgranskning
+9. kör slutligen minst 72 timmars stabilitetstest och analysera loggen med det befintliga stabilitetsrapportlagret
+
+Ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller påstås vid denna paus.
+
 ---
 
 ## 22. Övergripande vision
