@@ -511,3 +511,146 @@ def test_core_memory_audit_failure_blocks_auto_store_without_crashing(
         "lifecycle_action"
     ] == "audit_blocked"
     assert memory.get_all() == []
+
+
+def test_core_executes_safe_multidomain_orchestration_with_clause_query(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+    seen = {}
+
+    tools = {
+        "weather_forecast": {
+            "function": lambda query: (
+                seen.setdefault(
+                    "weather_query",
+                    query,
+                )
+                or "WEATHER"
+            ),
+            "description": "weather",
+            "pass_user_input": True,
+        },
+        "ram_status": {
+            "function": lambda: "RAM OK",
+            "description": "ram",
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+    result = core.respond(
+        (
+            "Vad blir det för väder i Stockholm idag "
+            "och hur mycket RAM används?"
+        )
+    )
+
+    assert result[
+        "tools"
+    ] == [
+        "weather_forecast",
+        "ram_status",
+    ]
+    assert result[
+        "orchestration_plan"
+    ][
+        "orchestrated"
+    ] is True
+    assert seen[
+        "weather_query"
+    ] == (
+        "Vad blir det för väder i Stockholm idag"
+    )
+    assert (
+        "input"
+        not in result[
+            "orchestration_plan"
+        ][
+            "steps"
+        ][
+            0
+        ]
+    )
+
+
+def test_core_executes_camera_before_vision_in_orchestrated_plan(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+    order = []
+
+    tools = {
+        "camera_capture": {
+            "function": lambda: (
+                order.append(
+                    "capture"
+                )
+                or "CAPTURED"
+            ),
+            "description": "capture",
+        },
+        "vision_analyze": {
+            "function": lambda: (
+                order.append(
+                    "vision"
+                )
+                or "VISION"
+            ),
+            "description": "vision",
+        },
+        "cpu_status": {
+            "function": lambda: (
+                order.append(
+                    "cpu"
+                )
+                or "CPU"
+            ),
+            "description": "cpu",
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+    result = core.respond(
+        (
+            "Ta en bild och analysera bilden "
+            "och visa CPU status"
+        )
+    )
+
+    assert result[
+        "tools"
+    ] == [
+        "camera_capture",
+        "vision_analyze",
+        "cpu_status",
+    ]
+    assert order == [
+        "capture",
+        "vision",
+        "cpu",
+    ]
+    assert result[
+        "orchestration_plan"
+    ][
+        "steps"
+    ][
+        0
+    ][
+        "effect"
+    ] == "local_capture"
