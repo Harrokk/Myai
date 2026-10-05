@@ -255,3 +255,43 @@ When restart is eventually enabled:
 MyAI also exposes a read-only `geniex_status` tool. Natural-language tools do not expose any GenieX restart action.
 
 The exact production restart command is intentionally blank today. Do not assume a systemd service name until the real VENTUNO installation has been inspected.
+
+
+## MyAI internal health state
+
+The GenieX watchdog and the assistant now share health information through durable local snapshots:
+
+- `runtime/geniex_health.json` — latest GenieX watchdog state
+- `runtime/myai_health.json` — latest combined MyAI backend state
+
+The full watchdog history remains in:
+
+```text
+runtime/geniex_watchdog.jsonl
+```
+
+The combined MyAI health classification can be:
+
+- `healthy` — primary backend active and no current GenieX fault signal
+- `degraded` — fallback backend active or another non-fatal degradation is present
+- `unhealthy` — GenieX is currently unhealthy and no fallback backend is active
+- `unknown` — required watchdog state is missing or stale
+
+Freshness rules prevent an old healthy snapshot from being treated as current forever.
+
+Every completed MyAI response now includes internal:
+- `llm_runtime` metadata
+- combined `health` metadata
+
+The assistant system context also receives a concise read-only health summary. This lets MyAI know when it is operating in degraded/fallback mode without granting it restart or hardware-control authority.
+
+Natural language can query:
+
+```text
+Hur mår MyAI?
+Visa MyAI status.
+```
+
+These route only to the read-only `myai_health_status` tool.
+
+There is still no natural-language tool for restarting GenieX or writing to STM32/GPIO.
