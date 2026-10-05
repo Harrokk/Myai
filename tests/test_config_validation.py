@@ -469,3 +469,41 @@ def test_diagnostics_runtime_stale_limit_is_validated():
         == "diagnostics_runtime_stale_invalid"
         for item in result["errors"]
     )
+
+
+def test_unknown_config_key_is_blocking():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["voice"][
+        "stt_langauge"
+    ] = "sv"
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "unknown_config_key"
+        and "voice.stt_langauge"
+        in item["message"]
+        for item in result["errors"]
+    )
+
+
+def test_config_schema_version_mismatch_is_blocking():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "schema_version"
+    ] = 999
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "unsupported_config_schema"
+        for item in result["errors"]
+    )
