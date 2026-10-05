@@ -6,6 +6,7 @@ from core.llm_factory import build_llm_client
 from core.health_status import (
     build_health_status,
     read_health_state,
+    write_health_state,
 )
 from core.tool_manager import load_tools, run_tools, select_tools
 
@@ -244,7 +245,10 @@ Svara kort och tydligt på svenska.
         runtime["model"] = self.model
         return runtime
 
-    def _health_status(self):
+    def _health_status(
+        self,
+        llm_runtime=None,
+    ):
         supervisor = self.settings.get(
             "geniex_supervisor",
             {},
@@ -268,7 +272,11 @@ Svara kort och tydligt på svenska.
         )
 
         return build_health_status(
-            self._llm_runtime_metadata(),
+            (
+                llm_runtime
+                if llm_runtime is not None
+                else self._llm_runtime_metadata()
+            ),
             state,
             supervisor_expected=bool(
                 supervisor.get(
@@ -281,6 +289,40 @@ Svara kort och tydligt på svenska.
                 30.0,
             ),
         )
+
+    def _persist_health_status(
+        self,
+        health,
+    ):
+        raw_path = (
+            self.settings
+            .get(
+                "health",
+                {},
+            )
+            .get(
+                "state_path",
+                "runtime/myai_health.json",
+            )
+        )
+        path = Path(
+            raw_path
+        )
+
+        if not path.is_absolute():
+            path = (
+                self.project_root
+                / path
+            )
+
+        try:
+            write_health_state(
+                path,
+                health,
+            )
+            return True
+        except Exception:
+            return False
 
     def _finalize_response(
         self,
@@ -299,14 +341,22 @@ Svara kort och tydligt på svenska.
             answer,
         )
 
+        llm_runtime = self._llm_runtime_metadata()
+        health = self._health_status(
+            llm_runtime
+        )
+        self._persist_health_status(
+            health
+        )
+
         return {
             "answer": answer,
             "tools": tool_names,
             "tool_results": tool_results or {},
             "memory_decision": memory_decision,
             "streamed": bool(streamed),
-            "llm_runtime": self._llm_runtime_metadata(),
-            "health": self._health_status(),
+            "llm_runtime": llm_runtime,
+            "health": health,
         }
 
     def respond(self, user_message):
