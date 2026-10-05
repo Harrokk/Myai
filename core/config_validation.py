@@ -1,6 +1,12 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
+from core.config import DEFAULT_SETTINGS
+from core.config_schema import (
+    CURRENT_CONFIG_SCHEMA_VERSION,
+    find_unknown_config_keys,
+)
+
 
 _ALLOWED_LLM_PROVIDERS = {
     "ollama",
@@ -83,6 +89,42 @@ def validate_settings(
             ],
             "warnings": [],
         }
+
+    schema_version = settings.get(
+        "schema_version"
+    )
+
+    if (
+        schema_version
+        != CURRENT_CONFIG_SCHEMA_VERSION
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "unsupported_config_schema",
+                (
+                    "schema_version måste vara "
+                    f"{CURRENT_CONFIG_SCHEMA_VERSION}."
+                ),
+            )
+        )
+
+    unknown_keys = find_unknown_config_keys(
+        settings,
+        DEFAULT_SETTINGS,
+    )
+
+    for path in unknown_keys:
+        issues.append(
+            _issue(
+                "error",
+                "unknown_config_key",
+                (
+                    "Okänd konfigurationsnyckel: "
+                    f"{path}"
+                ),
+            )
+        )
 
     llm = settings.get(
         "llm",

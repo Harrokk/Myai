@@ -197,3 +197,36 @@ def test_explicit_settings_path_overrides_environment(
     )
 
     assert settings["llm"]["provider"] == "ollama"
+
+
+def test_default_settings_have_current_schema_version():
+    assert DEFAULT_SETTINGS[
+        "schema_version"
+    ] == 1
+
+
+def test_partial_override_receives_current_schema_version(
+    tmp_path,
+):
+    path = (
+        tmp_path
+        / "settings.json"
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "ollama": {
+                    "model": "test-model",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_settings(
+        path
+    )
+
+    assert settings[
+        "schema_version"
+    ] == 1
