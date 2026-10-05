@@ -266,3 +266,37 @@ def test_required_deployment_lock_requires_path():
         == "deployment_lock_path_missing"
         for item in result["errors"]
     )
+
+
+def test_enabled_error_logging_requires_path():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["error_logging"]["path"] = ""
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "error_log_path_missing"
+        for item in result["errors"]
+    )
+
+
+def test_error_logging_message_limit_has_safe_minimum():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["error_logging"][
+        "max_message_chars"
+    ] = 10
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "error_log_message_limit_invalid"
+        for item in result["errors"]
+    )
