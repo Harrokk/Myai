@@ -676,6 +676,83 @@ def validate_settings(
             )
         )
 
+    audit_logging = settings.get(
+        "audit_logging",
+        {},
+    )
+    audit_enabled = bool(
+        audit_logging.get(
+            "enabled",
+            True,
+        )
+    )
+    audit_required = bool(
+        audit_logging.get(
+            "require_for_writes",
+            True,
+        )
+    )
+    audit_path = str(
+        audit_logging.get(
+            "path",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if audit_required and not audit_enabled:
+        issues.append(
+            _issue(
+                "error",
+                "audit_required_but_disabled",
+                (
+                    "audit_logging.require_for_writes=true "
+                    "kräver audit_logging.enabled=true."
+                ),
+            )
+        )
+
+    if audit_enabled and not audit_path:
+        issues.append(
+            _issue(
+                "error",
+                "audit_log_path_missing",
+                (
+                    "audit_logging.enabled=true kräver "
+                    "audit_logging.path."
+                ),
+            )
+        )
+
+    try:
+        audit_detail_limit = int(
+            audit_logging.get(
+                "max_detail_chars",
+                200,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        audit_detail_limit = 0
+
+    if not (
+        32
+        <= audit_detail_limit
+        <= 2000
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "audit_detail_limit_invalid",
+                (
+                    "audit_logging.max_detail_chars måste "
+                    "vara mellan 32 och 2000."
+                ),
+            )
+        )
+
     error_logging = settings.get(
         "error_logging",
         {},
