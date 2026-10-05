@@ -2,6 +2,9 @@ import json
 from copy import deepcopy
 
 from core.config import DEFAULT_SETTINGS
+from core.deployment_lock import (
+    LOCK_SCHEMA_VERSION,
+)
 from core.diagnostics import (
     build_diagnostic_report,
     format_diagnostic_report,
@@ -253,7 +256,9 @@ def test_structurally_valid_lock_is_not_treated_as_physical_verification(
     write_json(
         path,
         {
-            "schema_version": 1,
+            "schema_version": (
+                LOCK_SCHEMA_VERSION
+            ),
             "locked": True,
             "expected": {
                 "platform": {
@@ -265,15 +270,31 @@ def test_structurally_valid_lock_is_not_treated_as_physical_verification(
                     "version": "example",
                 },
                 "packages": {
+                    "requests": "example",
+                    "psutil": "example",
+                    "bleak": "example",
                     "arduino-router-bridge": "example",
                 },
                 "files": {
+                    "requirements.txt": {
+                        "sha256": "example",
+                    },
                     "requirements-ventuno.txt": {
+                        "sha256": "example",
+                    },
+                    "requirements-camera.txt": {
+                        "sha256": "example",
+                    },
+                    "requirements-voice.txt": {
+                        "sha256": "example",
+                    },
+                    "requirements-gps.txt": {
                         "sha256": "example",
                     },
                 },
                 "models": {
                     "llm": "example",
+                    "vision": None,
                 },
             },
         },
