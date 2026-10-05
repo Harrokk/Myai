@@ -248,5 +248,11 @@
     "target_hours": 72,
     "trend_fraction": 0.25,
     "latency_degradation_ratio": 1.25
+  },
+  "audit_logging": {
+    "enabled": true,
+    "require_for_writes": true,
+    "path": "runtime/audit.jsonl",
+    "max_detail_chars": 200
   }
 }
