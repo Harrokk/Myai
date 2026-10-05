@@ -538,6 +538,30 @@ def validate_settings(
             )
         )
 
+    deployment_lock = settings.get(
+        "deployment_lock",
+        {},
+    )
+    if deployment_lock.get(
+        "required",
+        False,
+    ) and not str(
+        deployment_lock.get(
+            "lock_path",
+            "",
+        )
+    ).strip():
+        issues.append(
+            _issue(
+                "error",
+                "deployment_lock_path_missing",
+                (
+                    "deployment_lock.required=true kräver "
+                    "deployment_lock.lock_path."
+                ),
+            )
+        )
+
     for section, key in (
         (
             "geniex_supervisor",
