@@ -33,6 +33,20 @@ def resolve_capture_dir(value=None):
     return PROJECT_ROOT / path
 
 
+def camera_enabled(
+    settings,
+):
+    return bool(
+        settings.get(
+            "camera",
+            {},
+        ).get(
+            "enabled",
+            True,
+        )
+    )
+
+
 def configured_camera_index(settings):
     camera = settings.get("camera", {})
     value = camera.get("default_index", 0)
@@ -122,6 +136,20 @@ def capture_from_settings(
 ):
     settings = settings or load_settings()
     camera = settings.get("camera", {})
+
+    if not camera_enabled(
+        settings
+    ):
+        return {
+            "success": False,
+            "disabled": True,
+            "camera_index": None,
+            "path": None,
+            "error": (
+                "Kameran är avstängd i konfigurationen."
+            ),
+        }
+
     index = configured_camera_index(settings)
     capture_dir = resolve_capture_dir(
         camera.get("capture_dir", "runtime/captures")

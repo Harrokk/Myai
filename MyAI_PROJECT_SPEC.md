@@ -4,7 +4,7 @@
 
 MyAI ska vara en lokal, personlig AI-assistent som i första hand körs lokalt på användarens egen hårdvara men som kan använda internet när det behövs.
 
-Systemet ska vara modulärt, utbyggbart och kunna växa från nuvarande Windows-baserade utvecklingsmiljö till att i framtiden köras på en Arduino VENTUNO Q med Qualcomm Dragonwing IQ-8275 och 16 GB RAM.
+Systemet ska vara modulärt, utbyggbart och kunna växa från nuvarande Windows-baserade utvecklingsmiljö till att i framtiden köras på en Arduino VENTUNO Q med Qualcomm Dragonwing QCS8275 och 16 GB RAM.
 
 Målet är att skapa en AI-assistent som kan förstå naturliga röstkommandon, arbeta med lokal hårdvara och externa enheter, använda verktyg, läsa och ändra filer, skriva kod, testa uppdateringar och ge tydliga svar utan att hitta på information.
 
@@ -53,7 +53,7 @@ Användaren ska inte behöva känna till interna kommandon, funktionsnamn eller 
 
 ### Framtida målplattform
 - Arduino VENTUNO Q
-- Qualcomm Dragonwing IQ-8275
+- Qualcomm Dragonwing QCS8275
 - 16 GB LPDDR5 och 64 GB eMMC
 - Qualcomm GenieX/QAIRT som primär lokal AI-backend
 - Qwen3-4B som planerad normal lokal språkmodell
@@ -62,7 +62,7 @@ Användaren ska inte behöva känna till interna kommandon, funktionsnamn eller 
 
 Arkitekturen ska byggas så att så mycket kod som möjligt kan återanvändas vid flytten från Windows till VENTUNO Q. Ollama ska fortsatt kunna användas i Windows-utvecklingsmiljön medan AI-kärnan använder ett provider-neutralt gränssnitt mot vald lokal modellmotor.
 
-Raspberry Pi-stödet som redan finns i projektet behålls som alternativ hårdvaruprofil och som återanvändbara Linux-/GPIO-moduler, men Raspberry Pi 5B är inte längre primär målplattform.
+Raspberry Pi-runtimeprofilen är pensionerad och de aktiva `modules/pi/`-verktygen är borttagna. Generisk Linux-logik som är relevant för VENTUNO har porterats till `modules/ventuno/`; VENTUNO Q är den enda planerade embedded-målplattformen i aktuell arkitektur.
 
 ---
 
@@ -304,136 +304,91 @@ testen har körts.
 
 ---
 
-## 7. Raspberry Pi – systemåtkomst
+## 7. Arduino VENTUNO Q – systemåtkomst
 
-AI:n ska kunna läsa och förstå så mycket som möjligt av Raspberry Pi-systemets status.
+MyAI ska kunna läsa och förstå den Linux-baserade VENTUNO Q-miljön utan att blanda ihop vanlig systemstatus med NPU- eller MCU-telemetri.
 
-Exempel:
+Generisk systemstatus täcker:
 - CPU-belastning
 - RAM-användning
 - lagringsutrymme
-- temperatur
-- strömförbrukning
-- spänning
-- eventuell throttling
-- anslutna USB-enheter
-- nätverk
-- Bluetooth
-- tillgängliga portar och gränssnitt
-- systemloggar
-- processer och tjänster
+- temperaturer som faktiskt exponeras via Linux/psutil/sysfs
+- USB- och Bluetooth-status
+- generell hårdvaruinventering
 
-AI:n ska kunna svara på frågor som:
-- Hur varm är datorn?
-- Hur mycket RAM används?
-- Hur mycket ström drar systemet?
-- Finns risk för överhettning?
-- Vilka USB-enheter är inkopplade?
-- Vilka portar finns tillgängliga?
+VENTUNO-specifik read-only diagnostik täcker:
+- nätverksgränssnitt och IP-adresser via `ventuno_network_status`
+- processöversikt via `ventuno_process_status`
+- körande systemd-tjänster via `ventuno_services_status`
+- systemd-journalposter via `ventuno_system_logs`
+- Linux hwmon-telemetri via `ventuno_power_status`
+- GenieX readiness via `geniex_status`
+- acceleratorstatus via `ventuno_accelerator_status`
 
-### 7.1 Teknisk status för Raspberry Pi-systemdata
+### 7.1 VENTUNO-systemdiagnostik
 
-På utvecklingsgren finns nu ett separat verktyg `pi_system_status` som är byggt för att kunna köras på Raspberry Pi utan att Windows-koden behöver skrivas om.
+De porterade Linux-diagnosverktygen ligger under `modules/ventuno/` och gör inga systemändringar. De gamla `pi_*`-verktygen och `modules/pi/` ingår inte längre i aktiv runtime.
 
-Verktyget kan samla:
-- Raspberry Pi-modell
-- CPU-belastning och kärnor
-- RAM-användning
-- lagringsutrymme
-- CPU-temperatur
-- kärnspänning när `vcgencmd` finns
-- aktuell och historisk throttling/underspänning via `get_throttled`
+MyAI ska tydligt skilja mellan:
+- vanlig CPU/RAM/disk/temperatur
+- GenieX-backendens readiness
+- faktisk Hexagon NPU-belastning/frekvens/temperatur
 
-På en dator som inte är en Raspberry Pi ska verktyget avsluta säkert och tydligt säga att Raspberry Pi inte upptäcktes.
+`ventuno_accelerator_status` får därför inte presentera GenieX-readiness som NPU-utnyttjande. Direkt NPU-telemetri ska förbli markerad som ej verifierad tills en dokumenterad QCS8275/VENTUNO-väg har provats på fysisk hårdvara.
 
-Tolkningen av Raspberry Pi:s throttling-bitar och övrig logik testas i CI. Faktisk avläsning av temperatur, spänning och throttling ska verifieras fysiskt på Raspberry Pi i en senare samlad Pi-hårdvarurunda.
+### 7.2 Read-only ström- och effekttelemetri
 
-### 7.2 Read-only systemdiagnostik
+`ventuno_power_status` läser endast Linux `hwmon`-värden för effekt, spänning och ström när sådana mätkanaler verkligen exponeras.
 
-På utvecklingsgren finns nu separata read-only-verktyg för:
-- nätverksgränssnitt, länkstatus och IP-adresser via `pi_network_status`
-- processöversikt med CPU/RAM via `pi_process_status`
-- körande systemd-tjänster via `pi_services_status`
-- senaste systemloggar på warning-nivå eller högre via `pi_system_logs`
+MyAI ska inte räkna fram eller gissa strömförbrukning när mätvärden saknas. Faktiska mätkanaler, NPU-belastning, termiska gränser och eventuell throttling ska verifieras på den fysiska VENTUNO Q.
 
-Verktygen gör inga ändringar i nätverk, processer, tjänster eller loggar. De ska kunna användas separat eller kombineras genom multi-tool-stödet när en fråga kräver flera diagnostikkällor samtidigt.
+### 7.3 Plattformsspärr
 
-På icke-Linux-plattform ska verktygen avsluta säkert och förklara att Raspberry Pi/Linux krävs. Parsning, formattering och felhantering testas i CI. Verklig nätverks-, process-, systemd- och journald-data ska verifieras senare i den samlade Raspberry Pi-hårdvarurundan.
+VENTUNO-runtime får inte vara beroende av Raspberry Pi-specifika kommandon eller antaganden såsom:
+- `vcgencmd`
+- BCM-GPIO-numrering
+- Raspberry Pi 40-pin-pinmappning
+- `pi_*`-verktyg
+- Raspberry Pi-specifika hårdvaruvalideringsskript
 
-### 7.3 Read-only ström- och effekttelemetri
-
-På utvecklingsgren finns nu verktyget `pi_power_status`. Det läser standardiserade Linux `hwmon`-mätvärden för effekt, spänning och ström när Raspberry Pi, PMIC och installerade drivrutiner faktiskt exponerar dem.
-
-MyAI ska inte räkna fram eller gissa en strömförbrukning när ett verkligt mätvärde saknas. Om `hwmon` inte exponerar effekt/ström/spänning ska svaret därför uttryckligen säga att telemetri saknas.
-
-Enhetsomvandling och felhantering testas i CI med simulerade `hwmon`-sensorer. Vilka mätkanaler som faktiskt finns på den framtida Raspberry Pi 5B-installationen ska verifieras i den samlade Pi-hårdvarurundan.
+Generisk Linux-funktionalitet ska ligga i neutrala moduler eller i `modules/ventuno/` när semantiken är VENTUNO-specifik.
 
 ---
 
-## 8. Raspberry Pi – GPIO och hårdvara
+## 8. Arduino VENTUNO Q – I/O och hårdvarugräns
 
-AI:n ska känna till Raspberry Pi:ns ingångar och utgångar och kunna hjälpa användaren med fysisk inkoppling.
+VENTUNO Q består av Linux-sidan på Qualcomm Dragonwing QCS8275 och realtids-MCU:n STM32H5F5. MyAI ska behandla den gränsen explicit och använda Arduino Router/Bridge/RPC för MCU-funktioner i stället för att gissa direkta Linux-GPIO-vägar.
 
-Den ska kunna förklara:
-- vilken pinne som ska användas
-- vilka GPIO-pinnar som finns
-- 3,3 V
-- 5 V
-- jord
-- I2C
-- SPI
-- UART
-- USB
-- andra relevanta gränssnitt
+### 8.1 I/O-säkerhet och fysisk pinout
 
-AI:n ska kunna svara på frågor i stil med:
-- Var ska jag koppla in den här sensorn?
-- Vilken GPIO kan jag använda?
-- Behöver den här komponenten 3,3 eller 5 volt?
-- Hur kopplar jag detta utan att skada Raspberry Pi?
+`ventuno_io_safety` ger säkerhetsinformation men hårdkodar inte fysiska GPIO-, I2C-, SPI- eller UART-pinnummer.
 
-Vid hårdvaruinkoppling ska AI:n prioritera säkerhet och inte gissa om elektriska värden.
+Vid fysisk inkoppling ska MyAI:
+- använda aktuell officiell VENTUNO Q-pinout/datasheet
+- inte anta att Raspberry Pi-HAT-kompatibilitet innebär identisk elektrisk pinout eller Linux-ägarskap
+- kräva komponentens datablad när spänning, ström eller logiknivå är okänd
+- inte aktivera fysisk skrivning före separat säkerhetsgranskning och hårdvaruverifiering
 
-### 8.1 Teknisk status för GPIO-referens och säkerhetskontroll
+STM32 RPC-skrivning är fortsatt avstängd och write-allowlisten är tom tills den fysiska verifieringsordningen uttryckligen når detta steg.
 
-På utvecklingsgren finns nu ett separat Raspberry Pi GPIO-lager med en normaliserad referens för standard-headern med 40 pinnar.
+### 8.2 Read-only inventering av Linux-gränssnitt
 
-Lagret innehåller:
-- fysisk pin till BCM-GPIO-mappning
-- fasta 3,3 V-, 5 V- och GND-pinnar
-- I2C-, SPI0- och UART-standardpinnar
-- markering av GPIO0/GPIO1 som reserverade för HAT-ID/avancerad användning
-- konservativ förkontroll av föreslagna inkopplingar
+`ventuno_interfaces_status` inventerar read-only Linux-enhetsnoder för GPIO-chip, I2C, SPI och UART utan att öppna eller konfigurera dem.
 
-Säkerhetskontrollen kan returnera `allow`, `warn` eller `block`. Den ska bland annat blockera 5 V-signal direkt till en 3,3 V GPIO, direktdrift av motor/solenoid och LED utan verifierad strömbegränsning.
+Arduino Router reserverar `/dev/ttyHS1` för Linux↔STM32 Bridge/RPC. MyAI ska därför filtrera denna port från vanlig UART-inventering, markera den som reserverad och aldrig öppna den direkt.
 
-Reglerna baseras på Raspberry Pi:s officiella GPIO-dokumentation. MyAI ska fortfarande kräva komponentens datablad när märkspänning, strömbehov eller elektrisk kompatibilitet inte är känd.
+### 8.3 Read-only bussenheter
 
-GPIO-logiken och pinmappningen testas i CI. Faktiska fysiska inkopplingar och GPIO-åtkomst ska verifieras senare på Raspberry Pi-hårdvaran innan styrande funktioner tillåts.
+`ventuno_bus_devices_status` läser endast I2C- och SPI-enheter som Linux-kärnan redan känner till via sysfs.
 
-### 8.2 Read-only inventering av Pi-gränssnitt
+Verktyget:
+- gör ingen aktiv buss-skanning
+- använder inte `i2cdetect`
+- skickar inga sonderingskommandon
+- skriver inte till någon enhet
+- tolkar inte en tom kernel-lista som bevis för att en fysisk buss är tom
 
-På utvecklingsgren finns nu ett separat read-only-verktyg `pi_interfaces_status` som inventerar vanliga Linux-enhetsnoder för:
-- GPIO-chip
-- I2C
-- SPI
-- UART/seriella portar
-
-Verktyget gör inga ändringar i systemet och försöker inte aktivera gränssnitt. Om det körs på Windows eller annan icke-Linux-plattform avslutar det säkert och förklarar att fysisk Pi-inventering kräver Linux/Raspberry Pi.
-
-När MyAI senare körs på Raspberry Pi kan denna inventering användas för att skilja mellan vad Pi-modellen teoretiskt stödjer och vilka gränssnitt som faktiskt är exponerade i det körande operativsystemet.
-
-Den verkliga enhetsinventeringen ska verifieras i den samlade Raspberry Pi-hårdvarurundan.
-
-### 8.3 Read-only inventering av kernel-registrerade bussenheter
-
-På utvecklingsgren finns nu verktyget `pi_bus_devices_status`. Det läser Linux sysfs och listar I²C- och SPI-enheter som kärnan redan känner till.
-
-Verktyget gör ingen aktiv buss-skanning. Det använder inte `i2cdetect`, skickar inga sonderingskommandon och skriver inte till någon enhet. Därmed minskas risken att en känslig sensor påverkas bara för att MyAI inventerar systemet.
-
-För I²C kan verktyget visa buss, adress, namn och drivrutin när informationen finns. För SPI kan det visa controller, chip-select, modalias/namn och drivrutin.
-
-Om inga kernel-registrerade enheter finns ska MyAI säga det tydligt och inte tolka det som bevis för att bussen är elektriskt tom. Fysisk verifiering av verkliga sensorer och bussar sparas till den samlade Raspberry Pi-hårdvarurundan.
+Fysisk VENTUNO-pinout, sensoråtkomst, Router/RPC, MCU-metoder och elektrisk kompatibilitet ska verifieras på riktig hårdvara innan styrande funktioner aktiveras.
 
 ---
 
@@ -1201,7 +1156,7 @@ Verktyget kan:
 
 Detta lager tar inga bilder och startar ingen videoström. Bildtagning, kameraval, visionmodell och objekt-/textanalys ska byggas som separata senare steg.
 
-Parserlogiken testas i CI. Faktisk kameradetektering på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan innan bildtagning byggs ovanpå den.
+Parserlogiken testas i CI. Faktisk kameradetektering på Windows och senare VENTUNO Q ska verifieras i den samlade fysiska hårdvarurundan innan bildtagning byggs ovanpå den.
 
 ### 16.1.2 Teknisk status för stillbildstagning
 
@@ -1217,7 +1172,7 @@ Bildtagningen använder OpenCV som ett separat valbart beroende i `requirements-
 
 Om OpenCV saknas, kameran inte kan öppnas, ingen bildruta kan läsas eller bilden inte kan sparas ska verktyget returnera ett tydligt fel och inte påstå att en bild togs.
 
-Bildtagning och resursstängning testas i CI med simulerad kamera. Faktisk stillbildstagning på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan. Bildanalys/vision ligger fortsatt i ett separat senare lager.
+Bildtagning och resursstängning testas i CI med simulerad kamera. Faktisk stillbildstagning på Windows och senare VENTUNO Q ska verifieras i den samlade fysiska hårdvarurundan. Bildanalys/vision ligger fortsatt i ett separat senare lager.
 
 ### 16.1.3 Teknisk status för visionanalys
 
@@ -1316,7 +1271,7 @@ Videomodulen:
 - rapporterar tydligt om kameran inte kan öppnas, första bildrutan saknas, writer inte kan öppnas eller inspelningen avbryts
 - ligger separat från visionanalys och kontinuerlig livevideo
 
-Detta är en grund för framtida videoström, inte ännu ett kontinuerligt realtidsflöde. Bildrutefrekvens, codec-stöd och faktisk inspelningslängd ska verifieras senare på fysisk Windows- och Raspberry Pi-hårdvara.
+Detta är en grund för framtida videoström, inte ännu ett kontinuerligt realtidsflöde. Bildrutefrekvens, codec-stöd och faktisk inspelningslängd ska verifieras senare på fysisk Windows- och VENTUNO Q-hårdvara.
 
 Kodvägar och resursstängning testas i CI med simulerad kamera och videowriter.
 
@@ -1380,7 +1335,7 @@ Streamlagret:
 
 Detta är ett fundament för senare livevideo och realtidsanalys, inte ännu en permanent kamerabevakning. Den samlade fysiska hårdvaruverifieringen innehåller ett kort explicit stream-test som tillfälligt aktiverar funktionen utan att ändra den sparade konfigurationen.
 
-Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Raspberry Pi.
+Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Arduino VENTUNO Q.
 
 ### 16.1.12 Teknisk status för begränsad live-vision
 
@@ -1602,7 +1557,7 @@ Ingen funktion för att rensa, kvittera eller ändra felloggen exponeras genom v
 
 ## 18. Säkerhet
 
-AI:n ska kunna ha stor tillgång till den lokala datorn eller Raspberry Pi, men detta kräver tydliga säkerhetsnivåer.
+AI:n ska kunna ha stor tillgång till den lokala datorn eller VENTUNO Q, men detta kräver tydliga säkerhetsnivåer.
 
 Exempel på åtgärder som bör kräva extra kontroll:
 - radera filer
@@ -1749,11 +1704,11 @@ Den pågående utvecklingsgrenen innehåller nu:
 - Bluetooth RSSI-steg i den samlade fysiska hårdvaruverifieringen
 - konfigurerbar policy för betrodda terminaler med RSSI-hysteres
 - explicit godkännandeflöde för nya enheter med persistent pending/approved/rejected-status
-- Raspberry Pi-systemstatus för CPU, RAM, lagring, temperatur, spänning och throttling
-- Raspberry Pi GPIO-referens med I2C/SPI/UART-mappning och konservativ elsäkerhetskontroll
-- read-only Raspberry Pi-inventering av GPIO-, I2C-, SPI- och UART-gränssnitt
-- read-only Raspberry Pi-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
-- read-only Raspberry Pi-strömtelemetri via Linux hwmon utan uppskattade mätvärden
+- VENTUNO/Linux-systemstatus för CPU, RAM, lagring och tillgänglig temperaturtelemetri
+- VENTUNO I/O-säkerhet utan antagen fysisk pinmappning
+- read-only VENTUNO-inventering av Linux GPIO-, I2C-, SPI- och UART-enhetsnoder
+- read-only VENTUNO-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
+- read-only VENTUNO-strömtelemetri via Linux hwmon utan uppskattade mätvärden
 - read-only inventering av kernel-registrerade I2C- och SPI-enheter via Linux sysfs
 - read-only kamerainventering för Windows PnP och Linux Video4Linux
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
@@ -1795,7 +1750,7 @@ Därutöver finns:
 
 ### 21.1 Pågående VENTUNO Q-migrering
 
-Efter pre-hardware-checkpointen har MyAI:s primära målhårdvara ändrats till Arduino VENTUNO Q med Qualcomm Dragonwing IQ-8275 och 16 GB RAM. Raspberry Pi-lagren behålls som alternativa Linux-/GPIO-moduler men är inte längre huvudmålet.
+Efter pre-hardware-checkpointen har MyAI:s primära målhårdvara ändrats till Arduino VENTUNO Q med Qualcomm Dragonwing QCS8275 och 16 GB RAM. Raspberry Pi-runtime är borttagen; återanvändbar Linux-logik är porterad till VENTUNO-moduler och VENTUNO Q är enda embedded-målet.
 
 Följande VENTUNO-anpassning är nu implementerad på separat utvecklingsgren:
 
@@ -1831,7 +1786,7 @@ När VENTUNO Q finns tillgänglig ska nästa verifieringsrunda ske på målhård
 
 1. installera och versionslåsa den VENTUNO/Qualcomm-mjukvarustack som faktiskt används
 2. verifiera `geniex` och köra read-only `scripts/ventuno_preflight.py`
-3. hämta och verifiera den valda Qwen3-4B-bundlen för IQ-8275
+3. hämta och verifiera den valda Qwen3-4B-bundlen för QCS8275
 4. starta GenieX lokalt och mäta kallstart, TTFT, tokens/s, RAM och temperatur
 5. verifiera tokenstreaming och meningsbuffrad TTS
 6. verifiera mikrofon/VAD/STT och den 1,5 sekunders resurs-handoff som används innan LLM/VLM väcks
@@ -1978,7 +1933,7 @@ Nästa rent mjukvarumässiga steg efter checkpointen i avsnitt 21.6 är nu imple
 
 Implementerat:
 - nytt read-only lager i `core/deployment_lock.py` för att samla faktiskt observerbara mjukvaruidentifierare utan AI-inference eller fysisk styrning
-- identifierare omfattar operativsystem/arkitektur, Python-version, `geniex --version`, installerad `arduino-router-bridge`-version, SHA-256 för `requirements-ventuno.txt` och konfigurerad LLM-modell
+- identifierare omfattar operativsystem/arkitektur, Python-version, `geniex --version`, installerade baspaket (`requests`, `psutil`, `bleak`), `arduino-router-bridge`, SHA-256 för bas-/VENTUNO-/Bluetooth-/kamera-/röst-/GPS-requirements och konfigurerad LLM-modell
 - `scripts/ventuno_version_lock.py capture` skapar endast en olåst kandidat under `runtime/`; kandidaten får `locked=false` och kan därför inte användas som ett godkänt lås av misstag
 - `scripts/ventuno_version_lock.py verify` jämför den observerade stacken mot ett manuellt granskat lås och failar vid versionsavvikelse
 - `deployment_lock.required=false` är fortsatt säker standard både globalt och i VENTUNO-profilen
@@ -2492,6 +2447,32 @@ Verifiering:
 - ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering krävs eller påstås
 
 Nästa säkra utvecklingssteg bör väljas från kvarvarande hårdvaruoberoende luckor i projektmålen. Protokollet ska inte breddas till skrivande target-verktyg eller autonom loop utan separat design- och säkerhetsgranskning.
+
+
+### 21.25 Plattformsaudit 2026-10-05 – full VENTUNO Q-rensning
+
+En ny helhetsaudit genomfördes efter att den hårdvaruoberoende mjukvaran i övrigt bedömts färdig.
+
+Korrigerat:
+- Qualcomm-måltypen är **Dragonwing QCS8275**; den tidigare felaktiga SoC-beteckningen är borttagen ur aktuell konfiguration och VENTUNO-dokumentation
+- aktiva `modules/pi/` och `scripts/pi_hardware_validation.py` är borttagna
+- generisk Linux-diagnostik är porterad till `modules/ventuno/platform.py`
+- `pi_*`-routing är borttagen
+- GPIO/I2C/SPI/UART-frågor går till VENTUNO-säkerhets-/inventeringsverktyg och inte till Raspberry Pi-pinout
+- `/dev/ttyHS1` är explicit reserverad för Arduino Router och filtreras ur vanlig UART-lista
+- NPU-frågor använder `ventuno_accelerator_status`, som skiljer backend-readiness från faktisk NPU-telemetri
+- VENTUNO-profilen gör kamera, voice, GPS/location och trusted-terminal-lägen explicita och håller otestade fysiska funktioner avstängda
+- `camera.enabled=false` spärrar stillbild, stream och videoinspelning innan någon kamera öppnas
+- `requirements-gps.txt` använder korrekta radbrytningar
+- basdependencies `requests` och `psutil` har versionsintervall; `bleak` är flyttat till `requirements-bluetooth.txt` och observeras endast som valfritt installerat paket i deployment-lock
+- deployment-lock schema är uppgraderat till version 2 och inkluderar hashes för bas-, VENTUNO-, Bluetooth-, kamera-, röst- och GPS-requirements; `bleak` och `arduino-router-bridge` får vara frånvarande när motsvarande funktion är avstängd
+- VENTUNO-preflight kontrollerar Linux ARM64, Python 3.12-signal, board identity när den kan läsas, feature-dependencies endast för aktiverade funktioner och kräver Arduino Router Bridge/socket endast när RPC är aktiverat
+- ett plattformsguard-test blockerar återintroduktion av aktiv Pi-runtime och fel SoC-märkning
+
+Officiell Arduino-dokumentation bekräftar att VENTUNO Q använder Dragonwing QCS8275, kör Ubuntu Linux, använder Python 3.12 i aktuella exempel, kan köra GenieX på Hexagon NPU och reserverar `/dev/ttyHS1` för Arduino Router/Bridge.
+
+Fysisk prestanda, effekt, termik, kamera, ljud, NPU-telemetri, GenieX-version, Arduino Router-version och STM32/RPC är fortfarande **inte** verifierade av CI och ska testas enligt avsnitt 21.2 på den riktiga VENTUNO Q.
+
 
 ---
 

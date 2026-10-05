@@ -49,7 +49,7 @@
     "engine": "Local LLM provider",
     "gpu": "NVIDIA RTX 3060 12 GB",
     "memory_label": "SQLite",
-    "future_target": "Arduino VENTUNO Q / Dragonwing IQ-8275",
+    "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",
     "current_platform": "Windows-dator"
   },
   "conversation": {
@@ -93,7 +93,8 @@
     "stream_enabled": false,
     "stream_duration_seconds": 5,
     "stream_fps": 2,
-    "stream_max_frames": 10
+    "stream_max_frames": 10,
+    "enabled": true
   },
   "location": {
     "enabled": false,

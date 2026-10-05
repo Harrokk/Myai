@@ -156,3 +156,22 @@ def test_stream_formatter_reports_success():
     assert "8 bildrutor" in text
     assert "1280x720" in text
     assert "kameraindex 2" in text
+
+
+def test_stream_requires_camera_enabled_even_if_stream_enabled():
+    result = stream.run_bounded_stream(
+        settings={
+            "camera": {
+                "enabled": False,
+                "stream_enabled": True,
+                "stream_duration_seconds": 2,
+                "stream_fps": 2,
+                "stream_max_frames": 10,
+            }
+        },
+        cv2_module=object(),
+    )
+
+    assert result["success"] is False
+    assert result["disabled"] is True
+    assert "avstängd" in result["error"]

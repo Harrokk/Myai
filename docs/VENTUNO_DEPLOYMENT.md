@@ -2,6 +2,29 @@
 
 This deployment layer is prepared for the physical Arduino VENTUNO Q but does not install or enable services automatically.
 
+## 0. Install the reviewed software set
+
+Base runtime dependencies:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Install the VENTUNO Router Bridge package only when preparing the STM32/RPC path:
+
+```bash
+python3 -m pip install -r requirements-ventuno.txt
+```
+
+Optional physical features keep separate dependency files:
+- Bluetooth LE / trusted-terminal handoff: `requirements-bluetooth.txt`
+- camera: `requirements-camera.txt`
+- voice fallback stack: `requirements-voice.txt`
+- serial GPS: `requirements-gps.txt`
+- Excel support: `requirements-excel.txt`
+
+Do not enable a feature in the VENTUNO profile until its matching dependency and physical device have been verified on the board. The deployment lock records the reviewed base/VENTUNO package versions and requirement-file hashes.
+
 ## 1. Validate configuration
 
 Interactive/development validation:
@@ -26,7 +49,7 @@ Warnings are reported separately from blocking errors.
 python3 scripts/ventuno_preflight.py
 ```
 
-The headless runtime requires this preflight by default on the VENTUNO profile.
+The headless runtime requires this preflight by default on the VENTUNO profile. Preflight validates Linux ARM64, the GenieX configuration/catalogue and only the dependencies needed by features that are actually enabled. Router Bridge/socket are required only after RPC is enabled. `/dev/ttyHS1` is reserved by Arduino Router and must not be opened directly by MyAI.
 
 ## 3. Headless runtime
 
@@ -48,7 +71,7 @@ The headless runtime:
 - writes a heartbeat to `runtime/myai_runtime.json`
 - shuts down components on SIGTERM/SIGINT
 
-The current VENTUNO profile still leaves physical voice/RPC paths disabled until hardware validation.
+The current VENTUNO profile explicitly leaves camera, VLM, voice, GPS/location, trusted-terminal handoff and RPC disabled until their hardware validation steps. Hardware inventory monitoring remains read-only.
 
 ## 4. Generate systemd units
 

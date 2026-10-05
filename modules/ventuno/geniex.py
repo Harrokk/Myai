@@ -37,12 +37,68 @@ def geniex_status():
     )
 
 
+def ventuno_accelerator_status():
+    settings = load_settings()
+    assistant = settings.get(
+        "assistant",
+        {},
+    )
+    geniex = settings.get(
+        "geniex",
+        {},
+    )
+    supervisor = GenieXSupervisor(
+        settings
+    )
+    result = supervisor.check()
+
+    if result[
+        "status"
+    ] == "disabled":
+        readiness = "supervisor avstängd"
+    elif result.get(
+        "healthy"
+    ):
+        readiness = "GenieX ready"
+    else:
+        readiness = (
+            "GenieX unhealthy: "
+            + str(
+                result.get(
+                    "error"
+                )
+                or "okänt fel"
+            )
+        )
+
+    return (
+        "VENTUNO AI-acceleratorstatus (read-only):\n"
+        f"- Konfigurerad accelerator: "
+        f"{assistant.get('gpu') or 'Qualcomm QCS8275 / Hexagon NPU'}\n"
+        f"- GenieX-modell: "
+        f"{geniex.get('model') or 'saknas'}\n"
+        f"- Backend readiness: {readiness}\n"
+        "- Direkt NPU-belastning, frekvens och NPU-temperatur "
+        "rapporteras inte ännu. MyAI väntar på en verifierad "
+        "QCS8275/VENTUNO-telemetriväg på fysisk hårdvara i stället "
+        "för att tolka GenieX-readiness som NPU-utnyttjande."
+    )
+
+
 TOOLS = {
     "geniex_status": {
         "function": geniex_status,
         "description": (
             "Gör en read-only readiness-kontroll av den lokala "
             "GenieX-servern via /v1/models. Kan inte starta om tjänsten."
+        ),
+    },
+    "ventuno_accelerator_status": {
+        "function": ventuno_accelerator_status,
+        "description": (
+            "Visar read-only VENTUNO/QCS8275 accelerator- och GenieX-status "
+            "utan att påstå direkt NPU-utnyttjande när sådan telemetri "
+            "inte är fysiskt verifierad."
         ),
     },
 }

@@ -176,3 +176,25 @@ def test_format_video_result_reports_clip():
 
     assert "test.mp4" in text
     assert "50 bildrutor" in text
+
+
+def test_record_video_from_settings_stops_before_opening_disabled_camera():
+    class FailCV2:
+        def VideoCapture(self, *args):
+            raise AssertionError(
+                "Avstängd kamera får inte öppnas."
+            )
+
+    result = video.record_video_from_settings(
+        settings={
+            "camera": {
+                "enabled": False,
+                "default_index": 0,
+            }
+        },
+        cv2_module=FailCV2(),
+    )
+
+    assert result["success"] is False
+    assert result["disabled"] is True
+    assert "avstängd" in result["error"]
