@@ -654,3 +654,320 @@ def test_core_executes_camera_before_vision_in_orchestrated_plan(
     ][
         "effect"
     ] == "local_capture"
+
+
+def test_core_defers_visual_research_and_returns_confirmation_command(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+    calls = []
+
+    tools = {
+        "camera_capture": {
+            "function": lambda: (
+                calls.append(
+                    "capture"
+                )
+                or "Kamerabild sparad lokalt."
+            ),
+            "description": "capture",
+        },
+        "vision_analyze": {
+            "function": lambda: (
+                calls.append(
+                    "vision"
+                )
+                or (
+                    "Bildanalys av capture.jpg:\n"
+                    "En röd industrikontakt med fyra stift."
+                )
+            ),
+            "description": "vision",
+        },
+        "research_top_three": {
+            "function": lambda query: (
+                calls.append(
+                    (
+                        "research",
+                        query,
+                    )
+                )
+                or "RESEARCH"
+            ),
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+    result = core.respond(
+        (
+            "Ta en bild och analysera bilden "
+            "och researcha det du ser"
+        )
+    )
+
+    assert calls == [
+        "capture",
+        "vision",
+    ]
+    pending = result[
+        "pending_intermediate_results"
+    ]
+    assert len(
+        pending
+    ) == 1
+    assert pending[
+        0
+    ][
+        "confirmation_command"
+    ] == "FORTSÄTT MED RESEARCH IR1"
+    assert pending[
+        0
+    ][
+        "next_tool"
+    ] == "research_top_three"
+    assert "industrikontakt" in pending[
+        0
+    ][
+        "query_preview"
+    ]
+    system_message = llm.calls[
+        0
+    ][
+        0
+    ][
+        0
+    ][
+        "content"
+    ]
+    assert "HAR INTE körts" in system_message
+    assert "FORTSÄTT MED RESEARCH IR1" in system_message
+
+
+def test_core_runs_confirmed_research_once_with_bounded_vision_query(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+    seen = []
+
+    tools = {
+        "vision_analyze": {
+            "function": lambda: (
+                "Bildanalys av capture.jpg:\n"
+                "En röd industrikontakt med fyra stift."
+            ),
+            "description": "vision",
+        },
+        "research_top_three": {
+            "function": lambda query: (
+                seen.append(
+                    query
+                )
+                or "RESEARCH OK"
+            ),
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    first = core.respond(
+        "Analysera bilden och researcha det du ser"
+    )
+    command = first[
+        "pending_intermediate_results"
+    ][
+        0
+    ][
+        "confirmation_command"
+    ]
+
+    second = core.respond(
+        command
+    )
+
+    assert second[
+        "tools"
+    ] == [
+        "research_top_three"
+    ]
+    assert second[
+        "orchestration_plan"
+    ][
+        "source"
+    ] == "confirmed_intermediate"
+    assert seen == [
+        "En röd industrikontakt med fyra stift."
+    ]
+    assert second[
+        "pending_intermediate_results"
+    ] == []
+
+    third = core.respond(
+        command
+    )
+    assert third[
+        "tools"
+    ] == []
+    assert "okänd eller har gått ut" in third[
+        "tool_results"
+    ][
+        "intermediate_protocol"
+    ]
+    assert len(
+        seen
+    ) == 1
+
+
+def test_failed_vision_result_does_not_create_followup(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    tools = {
+        "vision_analyze": {
+            "function": lambda: (
+                "Visionanalysen misslyckades: modell saknas"
+            ),
+            "description": "vision",
+        },
+        "research_top_three": {
+            "function": lambda query: "RESEARCH",
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    result = core.respond(
+        "Analysera bilden och researcha det du ser"
+    )
+
+    assert result[
+        "pending_intermediate_results"
+    ] == []
+    assert "research_top_three" not in result[
+        "tools"
+    ]
+
+
+def test_lowercase_confirmation_does_not_consume_pending_result(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    tools = {
+        "vision_analyze": {
+            "function": lambda: (
+                "Bildanalys av capture.jpg:\nkontakt"
+            ),
+            "description": "vision",
+        },
+        "research_top_three": {
+            "function": lambda query: "RESEARCH",
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+
+    first = core.respond(
+        "Analysera bilden och researcha det du ser"
+    )
+    identifier = first[
+        "pending_intermediate_results"
+    ][
+        0
+    ][
+        "id"
+    ]
+
+    core.respond(
+        f"fortsätt med research {identifier}"
+    )
+
+    assert core.intermediate_results.get(
+        identifier
+    ) is not None
+
+
+def test_clear_conversation_clears_pending_intermediate_results(
+    tmp_path,
+):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    memory = FakeMemory()
+    llm = FakeLLM()
+
+    tools = {
+        "vision_analyze": {
+            "function": lambda: (
+                "Bildanalys av capture.jpg:\nkontakt"
+            ),
+            "description": "vision",
+        },
+        "research_top_three": {
+            "function": lambda query: "RESEARCH",
+            "description": "research",
+            "pass_user_input": True,
+        },
+    }
+
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools=tools,
+        memory=memory,
+        llm=llm,
+    )
+    first = core.respond(
+        "Analysera bilden och researcha det du ser"
+    )
+    identifier = first[
+        "pending_intermediate_results"
+    ][
+        0
+    ][
+        "id"
+    ]
+
+    core.clear_conversation()
+
+    assert core.intermediate_results.get(
+        identifier
+    ) is None

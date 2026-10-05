@@ -772,3 +772,88 @@ def test_default_orchestration_config_is_valid():
             "errors"
         ]
     )
+
+
+def test_intermediate_result_bounds_are_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["intermediate_results"][
+        "max_pending"
+    ] = 0
+    settings["intermediate_results"][
+        "max_query_chars"
+    ] = 79
+    settings["intermediate_results"][
+        "max_age_seconds"
+    ] = 59
+    settings["intermediate_results"][
+        "enabled"
+    ] = "yes"
+    settings["intermediate_results"][
+        "require_confirmation"
+    ] = "yes"
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert (
+        "intermediate_max_pending_invalid"
+        in codes
+    )
+    assert (
+        "intermediate_query_limit_invalid"
+        in codes
+    )
+    assert (
+        "intermediate_age_invalid"
+        in codes
+    )
+    assert (
+        "intermediate_enabled_invalid"
+        in codes
+    )
+    assert (
+        "intermediate_confirmation_invalid"
+        in codes
+    )
+
+
+def test_intermediate_results_requires_confirmation_in_first_version():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["intermediate_results"][
+        "enabled"
+    ] = True
+    settings["intermediate_results"][
+        "require_confirmation"
+    ] = False
+
+    result = validate_settings(
+        settings
+    )
+
+    assert any(
+        item["code"]
+        == "intermediate_confirmation_required"
+        for item in result["errors"]
+    )
+
+
+def test_default_intermediate_result_config_is_valid():
+    settings = deepcopy(DEFAULT_SETTINGS)
+
+    result = validate_settings(
+        settings
+    )
+
+    assert not any(
+        item["code"].startswith(
+            "intermediate_"
+        )
+        for item in result[
+            "errors"
+        ]
+    )

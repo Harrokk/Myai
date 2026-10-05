@@ -1546,6 +1546,112 @@ def validate_settings(
             )
         )
 
+    intermediate = settings.get(
+        "intermediate_results",
+        {},
+    )
+
+    for key, default, minimum, maximum, code in (
+        (
+            "max_pending",
+            5,
+            1,
+            20,
+            "intermediate_max_pending_invalid",
+        ),
+        (
+            "max_query_chars",
+            240,
+            80,
+            1000,
+            "intermediate_query_limit_invalid",
+        ),
+        (
+            "max_age_seconds",
+            1800,
+            60,
+            86400,
+            "intermediate_age_invalid",
+        ),
+    ):
+        try:
+            value = int(
+                intermediate.get(
+                    key,
+                    default,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = 0
+
+        if not (
+            minimum
+            <= value
+            <= maximum
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"intermediate_results.{key} måste "
+                        f"vara mellan {minimum} och {maximum}."
+                    ),
+                )
+            )
+
+    for key, code in (
+        (
+            "enabled",
+            "intermediate_enabled_invalid",
+        ),
+        (
+            "require_confirmation",
+            "intermediate_confirmation_invalid",
+        ),
+    ):
+        if not isinstance(
+            intermediate.get(
+                key,
+                True,
+            ),
+            bool,
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"intermediate_results.{key} måste "
+                        "vara true eller false."
+                    ),
+                )
+            )
+
+    if (
+        intermediate.get(
+            "enabled",
+            True,
+        )
+        and not intermediate.get(
+            "require_confirmation",
+            True,
+        )
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "intermediate_confirmation_required",
+                (
+                    "Första versionen av intermediate-results "
+                    "kräver require_confirmation=true."
+                ),
+            )
+        )
+
     deployment_lock = settings.get(
         "deployment_lock",
         {},

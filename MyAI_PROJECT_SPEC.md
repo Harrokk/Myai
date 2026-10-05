@@ -1488,6 +1488,68 @@ Fail-closed configvalidering kräver:
 - `max_result_chars_per_tool` mellan 256 och 20000
 - booleska värden för `enabled` och `allow_local_capture`
 
+### 16.2.2 Teknisk status för explicit mellanresultatprotokoll
+
+På utvecklingsgren finns nu `core/intermediate_results.py` som första explicit kontrollerade protokoll för read-only kedjor där nästa verktyg behöver data från ett tidigare verktyg.
+
+Första tillåtna kedjan är:
+1. kamera/vision/OCR/objektanalys körs
+2. visionresultatet kapslas som ett sessionsbundet mellanresultat
+3. en bounded sökfråga skapas som data, inte som körbar instruktion
+4. webbresearch körs **inte** automatiskt
+5. användaren måste skicka exakt `FORTSÄTT MED RESEARCH <id>`
+6. först därefter får `research_top_three` köras med den verifierade mellanresultatqueryn
+7. ID:t konsumeras efter körningen och kan inte återanvändas
+
+Tillåtna source-verktyg i första versionen:
+- `vision_analyze`
+- `vision_detect_objects`
+- `vision_read_text`
+- `vision_detect_change`
+
+Tillåtet target-verktyg:
+- endast `research_top_three`
+
+Skyddsregler:
+- mellanresultat lagras endast i MyAI-processens sessionsminne
+- inget skrivs till disk, SQLite-långtidsminnet eller auditloggen
+- standard max fem väntande mellanresultat
+- standard livslängd 1800 sekunder
+- standard max 240 tecken i researchquery
+- gamla poster rensas automatiskt ur sessionskön
+- konversationsreset rensar hela mellanresultatkön
+- misslyckad/avstängd vision, saknad modell, saknad bild, `INGA SÄKRA OBJEKT` och `INGEN LÄSBAR TEXT` skapar ingen kandidat
+- ett source-resultats text behandlas som data och whitespace-normaliseras/boundsbegränsas
+- rå delquery från planeringen exponeras inte i publik `orchestration_plan`
+- fraser som `researcha det du ser` kör aldrig vanlig research om ingen giltig visuell source finns i den aktuella kedjan
+- LLM:n får tydlig systeminstruktion att research ännu **inte** har körts när ett bekräftelsesteg väntar
+- okänt eller utgånget ID ger ett tydligt protokollfel i stället för verktygskörning
+- researchverktyget måste fortfarande finnas i det aktuella tool-registret när bekräftelsen används
+
+Publikt svar kan innehålla `pending_intermediate_results` med:
+- ID
+- source-tool
+- nästa tool
+- bounded query-preview
+- `requires_confirmation=true`
+- exakt bekräftelsekommando
+
+Standardkonfiguration:
+- `intermediate_results.enabled=true`
+- `intermediate_results.max_pending=5`
+- `intermediate_results.max_query_chars=240`
+- `intermediate_results.max_age_seconds=1800`
+- `intermediate_results.require_confirmation=true`
+
+Fail-closed validering kräver:
+- `max_pending` 1–20
+- `max_query_chars` 80–1000
+- `max_age_seconds` 60–86400
+- booleska `enabled` och `require_confirmation`
+- första versionen tillåter inte `require_confirmation=false`
+
+Detta är inte en generell agentloop. Ett verktygs output får fortfarande inte automatiskt skapa nya verktygssteg utanför de explicit definierade source→target-kontrakten.
+
 ---
 
 ## 17. Felhantering
@@ -2397,6 +2459,39 @@ Verifiering:
 - ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering krävs eller påstås
 
 Nästa möjliga hårdvaruoberoende steg är att bygga ett explicit, testbart mellanresultatprotokoll för vissa read-only kedjor, exempelvis visionresultat → användarbekräftad webbresearch, utan att tillåta dold självexpanderande agentloop eller skrivande åtgärder.
+
+
+### 21.24 Fortsatt hårdvaruoberoende arbete 2026-10-05 – explicit mellanresultatprotokoll
+
+Efter den säkra multi-tool-orkestreringen implementerades den första kontrollerade output→nästa-steg-kedjan utan självexpanderande agentbeteende.
+
+Implementerat:
+- nytt `core/intermediate_results.py`
+- sessionsbunden `IntermediateResultStore`
+- one-shot-ID:n `IR<n>`
+- TTL och max pending
+- bounded source→query-normalisering
+- explicit visual-source allowlist
+- explicit target allowlist med endast `research_top_three`
+- beroende researchfraser flyttas från direkt tool-plan till `deferred_steps`
+- `MyAICore` skapar `pending_intermediate_results` först efter lyckat source-resultat
+- exakt `FORTSÄTT MED RESEARCH <id>` fångas före vanlig routing
+- bekräftad research körs en gång och ID:t konsumeras
+- ogiltigt/utgånget ID kör inget verktyg
+- konversationsreset rensar pending-kön
+- beroende visual research utan aktuell source blockeras från vanlig direct research
+- systemprompten markerar uttryckligen att uppskjuten research ännu inte är körd
+- publika planer visar deferred source/target men ingen rå delquery
+- config och configvalidering för pending-, query- och TTL-gränser
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `78ce0db2cee5f2921840e9aeffebc9f3390bc1b9`
+- GitHub Actions-run `37317696484` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker dependency-detektion, bounded query, source-prefixborttagning, felvision, OCR/objekt-no-result, TTL, one-shot consume, exakt bekräftelsesyntax, pending-limit, deferred planner-steg, publik plansanering, blockering utan source, end-to-end bekräftad research, återanvändning av ID, lowercase-bekräftelse och clear-conversation
+- ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering krävs eller påstås
+
+Nästa säkra utvecklingssteg bör väljas från kvarvarande hårdvaruoberoende luckor i projektmålen. Protokollet ska inte breddas till skrivande target-verktyg eller autonom loop utan separat design- och säkerhetsgranskning.
 
 ---
 

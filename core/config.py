@@ -65,6 +65,13 @@ DEFAULT_SETTINGS = {
         "max_result_chars_per_tool": 6000,
         "allow_local_capture": True,
     },
+    "intermediate_results": {
+        "enabled": True,
+        "max_pending": 5,
+        "max_query_chars": 240,
+        "max_age_seconds": 1800,
+        "require_confirmation": True,
+    },
     "logging": {
         "jsonl_max_bytes": 5_000_000,
         "jsonl_backups": 5,
