@@ -6,6 +6,10 @@ import shutil
 import tempfile
 import time
 
+from core.audit_log import (
+    AuditLogger,
+    audit_outcome_for_exception,
+)
 from core.selfdev_workspace import (
     SelfDevWorkspace,
     _sha256,
@@ -108,6 +112,7 @@ class SelfDevPromotionManager:
         settings,
         *,
         promotion_id_factory=None,
+        audit_logger=None,
     ):
         if not isinstance(
             workspace,
@@ -136,6 +141,13 @@ class SelfDevPromotionManager:
                         4
                     )
                 )
+            )
+        )
+        self.audit_logger = (
+            audit_logger
+            or AuditLogger(
+                settings,
+                workspace.project_root,
             )
         )
 
@@ -322,6 +334,78 @@ class SelfDevPromotionManager:
         )
 
     def promote(
+        self,
+        approval_phrase,
+    ):
+        target = (
+            "selfdev/"
+            + self.workspace.session_id
+        )
+        self.audit_logger.write_attempt(
+            action="selfdev_promote",
+            component="selfdev",
+            target=target,
+            details={
+                "session_id": (
+                    self.workspace.session_id
+                ),
+            },
+        )
+
+        try:
+            record = self._promote_impl(
+                approval_phrase
+            )
+        except Exception as error:
+            self.audit_logger.write_result(
+                action="selfdev_promote",
+                component="selfdev",
+                outcome=(
+                    audit_outcome_for_exception(
+                        error
+                    )
+                ),
+                target=target,
+                details={
+                    "session_id": (
+                        self.workspace.session_id
+                    ),
+                    "error_type": type(
+                        error
+                    ).__name__,
+                },
+            )
+            raise
+
+        self.audit_logger.write_result(
+            action="selfdev_promote",
+            component="selfdev",
+            outcome="success",
+            target=target,
+            details={
+                "session_id": (
+                    self.workspace.session_id
+                ),
+                "promotion_id": record.get(
+                    "promotion_id"
+                ),
+                "changed_count": len(
+                    record.get(
+                        "changed",
+                        [],
+                    )
+                ),
+                "added_count": len(
+                    record.get(
+                        "added",
+                        [],
+                    )
+                ),
+            },
+        )
+        return record
+
+    def _promote_impl(
         self,
         approval_phrase,
     ):
@@ -559,6 +643,74 @@ class SelfDevPromotionManager:
                     pass
 
     def rollback(
+        self,
+        promotion_id,
+        approval_phrase,
+    ):
+        target = (
+            "selfdev/"
+            + self.workspace.session_id
+        )
+        self.audit_logger.write_attempt(
+            action="selfdev_rollback",
+            component="selfdev",
+            target=target,
+            details={
+                "session_id": (
+                    self.workspace.session_id
+                ),
+                "promotion_id": str(
+                    promotion_id
+                ),
+            },
+        )
+
+        try:
+            record = self._rollback_impl(
+                promotion_id,
+                approval_phrase,
+            )
+        except Exception as error:
+            self.audit_logger.write_result(
+                action="selfdev_rollback",
+                component="selfdev",
+                outcome=(
+                    audit_outcome_for_exception(
+                        error
+                    )
+                ),
+                target=target,
+                details={
+                    "session_id": (
+                        self.workspace.session_id
+                    ),
+                    "promotion_id": str(
+                        promotion_id
+                    ),
+                    "error_type": type(
+                        error
+                    ).__name__,
+                },
+            )
+            raise
+
+        self.audit_logger.write_result(
+            action="selfdev_rollback",
+            component="selfdev",
+            outcome="success",
+            target=target,
+            details={
+                "session_id": (
+                    self.workspace.session_id
+                ),
+                "promotion_id": record.get(
+                    "promotion_id"
+                ),
+            },
+        )
+        return record
+
+    def _rollback_impl(
         self,
         promotion_id,
         approval_phrase,
