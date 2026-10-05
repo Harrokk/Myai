@@ -1,0 +1,4 @@
+# Optional Bluetooth LE / trusted-terminal dependency.
+# Install only when BLE scanning or bleak_gatt handoff is enabled:
+#   python -m pip install -r requirements-bluetooth.txt
+bleak==3.0.2
