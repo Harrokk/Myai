@@ -45,6 +45,9 @@ def _is_string_list(value):
             value,
             list,
         )
+        and bool(
+            value
+        )
         and all(
             isinstance(
                 item,
