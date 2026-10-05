@@ -1931,6 +1931,33 @@ Verifiering:
 
 Nästa rekommenderade rena mjukvaruspår är systematisk felinjektion: timeout, korrupta state/loggfiler, auditlagringsfel, stale health/runtime, full-/oskrivbar lagring och providerfel ska kunna provas med mocks utan fysisk VENTUNO-hårdvara.
 
+
+### 21.16 Pauscheckpoint 2026-10-05 – före syntetisk felinjektion
+
+Arbetet pausas här på användarens begäran.
+
+Aktivt läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- draft PR: `#85`
+- integrations-head före denna dokumentationscheckpoint: `1dd4c1ed053fba0fa20e62a395d3f9e19f74a09d`
+- GitHub Actions-run `37286150043` är **success**
+- senast färdigställda mjukvarusteg är konfigurationshärdning enligt avsnitt 21.15
+- tidigare rekommenderade mjukvarusteg 21.11–21.15 är implementerade och mergade
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts
+
+Nästa exakta steg vid återupptag:
+1. skapa en ny feature-gren från aktuell `dev/ventuno-q-provider`
+2. implementera **syntetisk felinjektion/återhämtningsprov** endast med mocks/fakes och temporära filer
+3. täck minst provider-timeout, providerfel före första streaming-token, korrupta state/loggfiler, stale health/runtime, auditlagringsfel samt oskrivbar/full lagring i simulerad form
+4. verifiera att befintliga fail-closed-regler, fallback-regler, restart-gates och fysiska säkerhetsgränser inte försvagas
+5. inga riktiga nätverksavbrott, diskfel, restartkommandon eller fysisk VENTUNO-I/O får utlösas av testlagret
+6. kör full CI, dokumentera resultatet och mergea endast om hela sviten är grön
+
+Viktigt:
+- ingen felinjektionskod hade ännu lagts till när pausen gjordes
+- fysisk VENTUNO-verifiering enligt avsnitt 21.2 är fortfarande uppskjuten tills hårdvaran finns
+- `main` ska fortsatt lämnas orörd tills VENTUNO-spåret är färdigverifierat
+
 ---
 
 ## 22. Övergripande vision
