@@ -269,6 +269,26 @@ def detect_tools(user_input):
             "myai_audit_status"
         ]
 
+    asks_myai_diagnostics = any(
+        phrase in text
+        for phrase in (
+            "kör myai diagnostik",
+            "gör en myai diagnostik",
+            "gör myai diagnostik",
+            "samlad diagnostik",
+            "myai diagnostikrapport",
+            "myai diagnostik",
+            "systemdiagnostik",
+            "diagnostic report",
+            "myai diagnostics",
+        )
+    )
+
+    if asks_myai_diagnostics:
+        return [
+            "myai_diagnostic_report"
+        ]
+
     asks_ventuno_stability = any(
         phrase in text
         for phrase in (
