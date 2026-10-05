@@ -1,3 +1,4 @@
+import gc
 from pathlib import Path
 import tempfile
 import wave
@@ -242,6 +243,16 @@ class FasterWhisperSTT:
                     temporary.unlink()
                 except OSError:
                     pass
+
+
+    def release_for_inference(self):
+        """Release the loaded STT model before another heavy model is activated."""
+        if self._model is None:
+            return False
+
+        self._model = None
+        gc.collect()
+        return True
 
 
 class Pyttsx3TTS:
