@@ -54,6 +54,11 @@ DEFAULT_SETTINGS = {
         "jsonl_max_bytes": 5_000_000,
         "jsonl_backups": 5,
     },
+    "error_logging": {
+        "enabled": True,
+        "path": "runtime/errors.jsonl",
+        "max_message_chars": 500,
+    },
     "deployment_lock": {
         "required": False,
         "lock_path": "config/ventuno_stack_lock.json",
