@@ -79,5 +79,9 @@
   "health": {
     "state_path": "runtime/myai_health.json",
     "state_stale_seconds": 60
+  },
+  "logging": {
+    "jsonl_max_bytes": 5000000,
+    "jsonl_backups": 5
   }
 }
