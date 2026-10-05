@@ -18,6 +18,7 @@ _REQUIRED_FIELDS = (
     ("packages", "psutil"),
     ("files", "requirements.txt", "sha256"),
     ("files", "requirements-ventuno.txt", "sha256"),
+    ("files", "requirements-bluetooth.txt", "sha256"),
     ("files", "requirements-camera.txt", "sha256"),
     ("files", "requirements-voice.txt", "sha256"),
     ("files", "requirements-gps.txt", "sha256"),
