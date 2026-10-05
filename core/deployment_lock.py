@@ -7,15 +7,22 @@ import shutil
 import subprocess
 
 
-LOCK_SCHEMA_VERSION = 1
+LOCK_SCHEMA_VERSION = 2
 
 _REQUIRED_FIELDS = (
     ("platform", "system"),
     ("platform", "machine"),
     ("platform", "python"),
     ("geniex", "version"),
+    ("packages", "requests"),
+    ("packages", "psutil"),
+    ("packages", "bleak"),
     ("packages", "arduino-router-bridge"),
+    ("files", "requirements.txt", "sha256"),
     ("files", "requirements-ventuno.txt", "sha256"),
+    ("files", "requirements-camera.txt", "sha256"),
+    ("files", "requirements-voice.txt", "sha256"),
+    ("files", "requirements-gps.txt", "sha256"),
     ("models", "llm"),
 )
 
@@ -197,24 +204,41 @@ def collect_ventuno_stack(
         except Exception:
             geniex_version = None
 
-    try:
-        bridge_version = (
-            distribution_version(
-                "arduino-router-bridge"
+    package_versions = {}
+
+    for package_name in (
+        "requests",
+        "psutil",
+        "bleak",
+        "arduino-router-bridge",
+    ):
+        try:
+            package_versions[
+                package_name
+            ] = distribution_version(
+                package_name
             )
-        )
-    except Exception:
-        bridge_version = None
+        except Exception:
+            package_versions[
+                package_name
+            ] = None
 
     root = Path(
         project_root
     )
-    requirements_hash = (
-        _file_sha256(
-            root
-            / "requirements-ventuno.txt"
-        )
+    requirement_files = (
+        "requirements.txt",
+        "requirements-ventuno.txt",
+        "requirements-camera.txt",
+        "requirements-voice.txt",
+        "requirements-gps.txt",
     )
+    requirement_hashes = {
+        name: _file_sha256(
+            root / name
+        )
+        for name in requirement_files
+    }
 
     geniex = settings.get(
         "geniex",
@@ -249,16 +273,23 @@ def collect_ventuno_stack(
             ),
         },
         "packages": {
-            "arduino-router-bridge": (
-                bridge_version
-            ),
+            name: package_versions[
+                name
+            ]
+            for name in (
+                "requests",
+                "psutil",
+                "bleak",
+                "arduino-router-bridge",
+            )
         },
         "files": {
-            "requirements-ventuno.txt": {
-                "sha256": (
-                    requirements_hash
-                ),
-            },
+            name: {
+                "sha256": requirement_hashes[
+                    name
+                ],
+            }
+            for name in requirement_files
         },
         "models": {
             "llm": str(
