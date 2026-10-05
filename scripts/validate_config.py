@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 
-from core.config import load_settings
+from core.config import load_settings_with_metadata
 from core.config_validation import (
     validate_settings,
 )
@@ -57,9 +57,26 @@ def main():
         if args.ventuno
         else args.settings
     )
-    settings = load_settings(
+    loaded = load_settings_with_metadata(
         path
     )
+    settings = loaded[
+        "settings"
+    ]
+    metadata = loaded[
+        "metadata"
+    ]
+
+    if metadata.get(
+        "migration_changed",
+        False,
+    ):
+        print(
+            "[WARN] config_migrated_in_memory: "
+            "Äldre konfiguration migrerades endast i minnet; "
+            "källfilen ändrades inte."
+        )
+
     result = validate_settings(
         settings,
         require_ventuno_profile=(
