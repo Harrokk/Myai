@@ -99,9 +99,6 @@ class ResilientLLMClient:
             self.last_routing_reason = (
                 str(reason)
             )
-            self._notify_policy_primary(
-                self.last_routing_reason
-            )
 
         return desired
 
