@@ -253,6 +253,7 @@
     "enabled": true,
     "require_for_writes": true,
     "path": "runtime/audit.jsonl",
-    "max_detail_chars": 200
+    "max_detail_chars": 200,
+    "recent_limit": 20
   }
 }
