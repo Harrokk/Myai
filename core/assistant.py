@@ -211,6 +211,32 @@ Svara kort och tydligt på svenska.
 
         return tool_names, tool_results, messages
 
+    def _llm_runtime_metadata(self):
+        status = getattr(
+            self.llm,
+            "status",
+            None,
+        )
+
+        if callable(status):
+            runtime = dict(
+                status()
+            )
+        else:
+            runtime = {
+                "enabled": False,
+                "active_backend": "primary",
+                "primary_provider": self.llm_provider,
+                "primary_model": self.model,
+                "fallback_provider": None,
+                "fallback_model": None,
+                "last_error": None,
+            }
+
+        runtime["provider"] = self.llm_provider
+        runtime["model"] = self.model
+        return runtime
+
     def _finalize_response(
         self,
         user_message,
@@ -234,6 +260,7 @@ Svara kort och tydligt på svenska.
             "tool_results": tool_results or {},
             "memory_decision": memory_decision,
             "streamed": bool(streamed),
+            "llm_runtime": self._llm_runtime_metadata(),
         }
 
     def respond(self, user_message):
