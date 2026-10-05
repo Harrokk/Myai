@@ -1245,6 +1245,23 @@ Den ska kunna säga:
 
 Fel ska loggas så att de går att felsöka.
 
+### 17.1 Teknisk status för strukturerad felloggning
+
+På utvecklingsgren finns nu ett gemensamt best-effort-lager för fel som uppstår när MyAI laddar moduler eller kör verktyg.
+
+Lagret:
+- skriver strukturerade JSONL-poster med tid, händelsetyp, komponent, felklass och begränsat felmeddelande
+- återanvänder projektets befintliga roterande JSONL-logik så loggfiler inte kan växa obegränsat
+- sparar inte rå användarfråga eller prompt i felloggen
+- normaliserar radbrytningar och begränsar felmeddelandets längd
+- är konfigurerbart genom `error_logging.enabled`, `error_logging.path` och `error_logging.max_message_chars`
+- är fail-safe: om själva felloggningen misslyckas får detta inte maskera det ursprungliga verktygsfelet eller stoppa övriga verktyg
+- ändrar inte befintligt tool-resultatformat; användaren får fortfarande ett tydligt felresultat för det misslyckade verktyget medan andra verktyg kan fortsätta
+
+Standardläget är aktiverad lokal felloggning till `runtime/errors.jsonl`. Filen ligger under runtime och ska inte versionshanteras.
+
+Både modulimportfel och tool-körfel kopplas till fellagret. Konfiguration, truncering, loggfel och multi-tool-beteende testas i CI.
+
 ---
 
 ## 18. Säkerhet
@@ -1620,6 +1637,29 @@ Exakt återstartspunkt:
 3. fortsätt endast med rent mjukvarumässiga steg som inte kräver påhittad fysisk VENTUNO-verifiering
 4. behåll deployment-låset avstängt tills riktig VENTUNO Q finns och den faktiska stacken kan fångas och granskas
 5. när VENTUNO Q finns: kör config-validering, `scripts/ventuno_version_lock.py capture`, granska den verkliga stacken, aktivera först därefter ett permanent versionslås och fortsätt med `scripts/ventuno_preflight.py` enligt avsnitt 21.2
+
+
+### 21.9 Återupptaget arbete 2026-10-05 – strukturerad felspårning
+
+Nästa rena mjukvarulucka efter checkpoint 21.8 var kravet i avsnitt 17 att verktygsfel ska loggas och kunna felsökas utan att assistenten låtsas att ett misslyckat verktyg fungerade.
+
+Implementerat på separat feature-gren:
+- `core/error_log.py` med roterande strukturerad JSONL-logg
+- tool-körfel loggas med `tool_error`
+- modulimportfel loggas med `module_load_error`
+- felloggen sparar inte rå användartext eller prompt
+- felmeddelanden normaliseras och längdbegränsas
+- loggning är best-effort och får aldrig maskera originalfelet
+- befintligt multi-tool-beteende bevaras: ett misslyckat verktyg stoppar inte andra verktygsresultat
+- nya konfigurationsvärden `error_logging.enabled`, `error_logging.path` och `error_logging.max_message_chars`
+- fail-closed konfigurationsvalidering för aktiv felloggning
+- separat testtäckning för skrivning, truncering, avstängt läge, loggfel och tool-integration
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `5d360429cab75f80dcfff307592abb0143e59d5a`
+- GitHub Actions-run `37276890394` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering har gjorts eller påståtts av detta lager
 
 ---
 
