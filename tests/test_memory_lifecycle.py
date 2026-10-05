@@ -26,7 +26,7 @@ def lifecycle_settings():
         "memory": {
             "lifecycle_enabled": True,
             "auto_supersede_explicit_updates": True,
-            "conflict_similarity_threshold": 0.72,
+            "conflict_similarity_threshold": 0.65,
             "supersede_similarity_threshold": 0.85,
             "max_conflict_scan": 200,
             "stale_after_days": 0,
@@ -462,7 +462,7 @@ def test_conflict_detection_requires_shared_topic_not_just_category():
         "preference",
         "Jag föredrar citron i fiskrätter.",
         active,
-        threshold=0.72,
+        threshold=0.65,
     )
 
     assert conflicts == []
