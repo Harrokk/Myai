@@ -591,6 +591,35 @@ def validate_settings(
                 )
             )
 
+        try:
+            recent_limit = int(
+                error_logging.get(
+                    "recent_limit",
+                    10,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            recent_limit = 0
+
+        if not (
+            1
+            <= recent_limit
+            <= 50
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    "error_log_recent_limit_invalid",
+                    (
+                        "error_logging.recent_limit "
+                        "måste vara mellan 1 och 50."
+                    ),
+                )
+            )
+
     deployment_lock = settings.get(
         "deployment_lock",
         {},

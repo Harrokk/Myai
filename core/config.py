@@ -58,6 +58,7 @@ DEFAULT_SETTINGS = {
         "enabled": True,
         "path": "runtime/errors.jsonl",
         "max_message_chars": 500,
+        "recent_limit": 10,
     },
     "deployment_lock": {
         "required": False,

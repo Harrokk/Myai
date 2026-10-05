@@ -147,3 +147,92 @@ def test_error_log_failure_never_raises(
             "original failure"
         ),
     ) is False
+
+
+def test_read_recent_errors_reads_current_before_rotated(tmp_path):
+    from core.error_log import read_recent_errors
+
+    path = tmp_path / "errors.jsonl"
+    path.write_text(
+        '{"written_unix_time":3,"event":"tool_error","component":"new","error_type":"RuntimeError","message":"newest"}\n',
+        encoding="utf-8",
+    )
+    (
+        tmp_path
+        / "errors.jsonl.1"
+    ).write_text(
+        '{"written_unix_time":2,"event":"tool_error","component":"old","error_type":"ValueError","message":"older"}\n',
+        encoding="utf-8",
+    )
+
+    result = read_recent_errors(
+        path,
+        limit=2,
+        backups=2,
+    )
+
+    assert [
+        item["component"]
+        for item in result["records"]
+    ] == [
+        "new",
+        "old",
+    ]
+
+
+def test_read_recent_errors_ignores_malformed_lines(tmp_path):
+    from core.error_log import read_recent_errors
+
+    path = tmp_path / "errors.jsonl"
+    path.write_text(
+        'not-json\n'
+        '{"written_unix_time":4,"event":"tool_error","component":"cpu_status","error_type":"RuntimeError","message":"failed"}\n',
+        encoding="utf-8",
+    )
+
+    result = read_recent_errors(
+        path,
+        limit=10,
+        backups=0,
+    )
+
+    assert result["count"] == 1
+    assert result["malformed_count"] == 1
+    assert result["records"][0][
+        "component"
+    ] == "cpu_status"
+
+
+def test_read_recent_errors_caps_limit_at_50(tmp_path):
+    from core.error_log import read_recent_errors
+
+    path = tmp_path / "errors.jsonl"
+    rows = [
+        (
+            '{"written_unix_time":'
+            + str(index)
+            + ',"event":"tool_error","component":"tool_'
+            + str(index)
+            + '","error_type":"RuntimeError","message":"x"}'
+        )
+        for index in range(60)
+    ]
+    path.write_text(
+        "\n".join(rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = read_recent_errors(
+        path,
+        limit=1000,
+        backups=0,
+    )
+
+    assert result["count"] == 50
+    assert result["records"][0][
+        "component"
+    ] == "tool_59"
+    assert result["records"][-1][
+        "component"
+    ] == "tool_10"
