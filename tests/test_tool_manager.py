@@ -634,3 +634,16 @@ def test_detect_tools_routes_ventuno_stability_report():
     ) == [
         "ventuno_stability_report"
     ]
+
+
+def test_detect_tools_routes_myai_audit_status():
+    assert tool_manager.detect_tools(
+        "Visa auditloggen."
+    ) == [
+        "myai_audit_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Vilka ändringar har MyAI gjort?"
+    ) == [
+        "myai_audit_status"
+    ]
