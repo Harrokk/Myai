@@ -151,3 +151,122 @@ def test_router_reserved_uart_is_hard_coded_as_reserved_not_general_io():
     assert '"/dev/ttyHS1"' in text
     assert "RESERVED_DEVICE_NODES" in text
     assert "Arduino Router" in text
+
+
+def test_active_runtime_contains_no_legacy_pi_assumptions():
+    forbidden = (
+        "from modules.pi",
+        "import modules.pi",
+        "pi_gpio_reference",
+        "pi_system_status",
+        "pi_interfaces_status",
+        "pi_power_status",
+        "vcgencmd",
+        "IQ-8275",
+    )
+    roots = (
+        "core",
+        "modules",
+        "scripts",
+        "config",
+    )
+    suffixes = {
+        ".py",
+        ".json",
+        ".sh",
+    }
+    violations = []
+
+    for root_name in roots:
+        root = (
+            PROJECT_ROOT
+            / root_name
+        )
+
+        for path in root.rglob(
+            "*"
+        ):
+            if (
+                not path.is_file()
+                or path.suffix
+                not in suffixes
+            ):
+                continue
+
+            text = path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            for token in forbidden:
+                if token in text:
+                    violations.append(
+                        (
+                            str(
+                                path.relative_to(
+                                    PROJECT_ROOT
+                                )
+                            ),
+                            token,
+                        )
+                    )
+
+    assert violations == []
+
+
+def test_reserved_router_uart_is_referenced_only_by_ventuno_guard_code():
+    allowed = {
+        (
+            PROJECT_ROOT
+            / "modules"
+            / "ventuno"
+            / "platform.py"
+        ).resolve(),
+    }
+    unexpected = []
+
+    for root_name in (
+        "core",
+        "modules",
+        "scripts",
+        "config",
+    ):
+        root = (
+            PROJECT_ROOT
+            / root_name
+        )
+
+        for path in root.rglob(
+            "*"
+        ):
+            if (
+                not path.is_file()
+                or path.suffix
+                not in {
+                    ".py",
+                    ".json",
+                    ".sh",
+                }
+            ):
+                continue
+
+            text = path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            if (
+                "/dev/ttyHS1"
+                in text
+                and path.resolve()
+                not in allowed
+            ):
+                unexpected.append(
+                    str(
+                        path.relative_to(
+                            PROJECT_ROOT
+                        )
+                    )
+                )
+
+    assert unexpected == []
