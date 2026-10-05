@@ -6,6 +6,10 @@ class Recorder:
         self.kwargs = kwargs
 
 
+class AcceleratedRecorder(Recorder):
+    pass
+
+
 def classes():
     return {
         "microphone": {
@@ -16,6 +20,7 @@ def classes():
         },
         "stt": {
             "faster_whisper": Recorder,
+            "accelerated": AcceleratedRecorder,
         },
         "tts": {
             "pyttsx3": Recorder,
@@ -31,6 +36,7 @@ def settings(enabled=True, tts=False):
             "microphone_provider": "sounddevice",
             "vad_provider": "webrtcvad",
             "stt_provider": "faster_whisper",
+            "backup_stt_provider": "faster_whisper",
             "tts_provider": "pyttsx3",
             "sample_rate": 16000,
             "channels": 1,
@@ -123,3 +129,31 @@ def test_factory_wraps_tts_when_async_is_enabled():
     assert type(result["tts"]).__name__ == "InterruptibleTTS"
     assert result["tts"].stop_timeout_seconds == 1.25
     assert result["tts"].provider.kwargs["rate"] == 175
+
+
+
+def test_factory_can_use_different_primary_and_backup_stt_providers():
+    value = settings()
+    value["voice"]["stt_provider"] = "accelerated"
+    value["voice"]["backup_stt_provider"] = "faster_whisper"
+
+    result = voice_factory.build_voice_components(
+        settings=value,
+        provider_classes=classes(),
+    )
+
+    assert isinstance(
+        result["primary_stt"],
+        AcceleratedRecorder,
+    )
+    assert all(
+        isinstance(
+            item,
+            Recorder,
+        )
+        and not isinstance(
+            item,
+            AcceleratedRecorder,
+        )
+        for item in result["backup_stt"]
+    )
