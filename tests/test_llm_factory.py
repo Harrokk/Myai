@@ -86,3 +86,32 @@ def test_llm_factory_requires_fallback_model_when_enabled():
         match="reservmodell",
     ):
         build_llm_client(settings)
+
+
+
+def test_llm_factory_attaches_health_aware_policy(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["llm"]["provider"] = "geniex"
+    settings["llm"]["fallback"] = {
+        "enabled": True,
+        "provider": "geniex",
+        "model": "fallback-model",
+        "health_aware": {
+            "enabled": True,
+            "failure_threshold": 3,
+            "recovery_success_threshold": 3,
+        },
+    }
+
+    client = build_llm_client(
+        settings,
+        project_root=tmp_path,
+    )
+
+    assert isinstance(
+        client,
+        ResilientLLMClient,
+    )
+    assert client.backend_policy is not None
+    assert client.backend_policy.enabled is True
+    assert client.backend_policy.project_root == tmp_path
