@@ -186,3 +186,109 @@ def test_health_format_marks_stale_geniex_as_unknown():
 
     assert "GenieX readiness: stale/unknown" in text
     assert "GenieX readiness: unhealthy" not in text
+
+
+
+def test_fresh_myai_snapshot_is_reconciled_with_newer_watchdog_failure(
+    tmp_path,
+    monkeypatch,
+):
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings["llm"]["provider"] = "geniex"
+    settings["geniex_supervisor"]["enabled"] = True
+    settings["health"] = {
+        "state_path": "runtime/myai_health.json",
+        "state_stale_seconds": 60,
+    }
+    settings["geniex_supervisor"]["state_path"] = (
+        "runtime/geniex_health.json"
+    )
+    settings["geniex_supervisor"]["state_stale_seconds"] = 30
+
+    monkeypatch.setattr(
+        health,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+
+    runtime_dir = (
+        tmp_path
+        / "runtime"
+    )
+    runtime_dir.mkdir()
+
+    (
+        runtime_dir
+        / "myai_health.json"
+    ).write_text(
+        json.dumps(
+            {
+                "level": "healthy",
+                "llm_runtime": {
+                    "active_backend": "primary",
+                    "provider": "geniex",
+                    "model": "primary-model",
+                    "primary_provider": "geniex",
+                    "primary_model": "primary-model",
+                    "last_error": None,
+                },
+                "written_unix_time": 90.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (
+        runtime_dir
+        / "geniex_health.json"
+    ).write_text(
+        json.dumps(
+            {
+                "written_unix_time": 99.0,
+                "check": {
+                    "enabled": True,
+                    "healthy": False,
+                    "consecutive_failures": 3,
+                    "consecutive_successes": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = health.read_myai_health(
+        settings,
+        now=100,
+    )
+
+    assert result["level"] == "unhealthy"
+    assert result["geniex_consecutive_failures"] == 3
+    assert result["snapshot_stale"] is False
+    assert result["snapshot_reconciled"] is True
+    assert result["llm_runtime"]["active_backend"] == "primary"
+
+
+
+def test_health_format_hides_stale_streak_counts():
+    text = health.format_myai_health(
+        {
+            "level": "unknown",
+            "llm_runtime": {
+                "active_backend": "primary",
+                "provider": "geniex",
+                "model": "primary-model",
+            },
+            "geniex_healthy": False,
+            "geniex_state_stale": True,
+            "geniex_consecutive_failures": 4,
+            "geniex_consecutive_successes": 2,
+            "reasons": [
+                "GenieX watchdog-status saknas eller är för gammal.",
+            ],
+            "snapshot_stale": True,
+        }
+    )
+
+    assert "GenieX-fel i rad: 4" not in text
+    assert "GenieX lyckade kontroller i rad: 2" not in text
