@@ -498,3 +498,17 @@ def test_detect_tools_routes_geniex_status():
     assert result == [
         "geniex_status"
     ]
+
+
+
+def test_detect_tools_routes_myai_health():
+    assert tool_manager.detect_tools(
+        "Hur mår MyAI?"
+    ) == [
+        "myai_health_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa MyAI status."
+    ) == [
+        "myai_health_status"
+    ]
