@@ -409,3 +409,262 @@ def test_shopping_tool_is_query_aware():
     ][
         "pass_user_input"
     ] is True
+
+
+def fx_settings():
+    value = settings()
+    value["fx"] = {
+        "enabled": True,
+        "provider": "ecb",
+        "ecb_url": (
+            "https://www.ecb.europa.eu/stats/eurofxref/"
+            "eurofxref-daily.xml"
+        ),
+        "target_currency": "SEK",
+        "max_age_days": 7,
+    }
+    return value
+
+
+def eur_search(
+    query,
+    settings=None,
+):
+    return {
+        "success": True,
+        "disabled": False,
+        "provider": "fake",
+        "query": query,
+        "results": [
+            {
+                "title": "Widget Euro Shop",
+                "url": "https://euro.example/widget",
+                "snippet": "Widget Pro price Sweden",
+                "engine": "fake",
+                "published_date": None,
+            }
+        ],
+        "error": None,
+    }
+
+
+def eur_fetch(
+    url,
+    settings=None,
+):
+    text = (
+        "Widget Pro in stock. "
+        "Ships to Sweden. "
+        "Shipping 10 EUR. "
+        "Price including VAT. "
+        "No additional fees. "
+        "Delivery 2-4 days. "
+    ) * 20
+
+    return {
+        "available": True,
+        "requested_url": url,
+        "final_url": url,
+        "status_code": 200,
+        "content_type": "text/html",
+        "title": "Widget Euro Shop",
+        "text": text,
+        "metadata": {
+            "og:site_name": "Euro Shop",
+            "description": "Widget Pro price Sweden",
+            "product:price:amount": "100",
+            "product:price:currency": "EUR",
+            "product:availability": "in stock",
+        },
+        "canonical_url": url,
+        "external_links": [],
+        "redirects": 0,
+        "truncated": False,
+        "max_chars": 20_000,
+    }
+
+
+def verified_eur_quote(
+    source,
+    target,
+    settings=None,
+):
+    assert source == "EUR"
+    assert target == "SEK"
+    return {
+        "available": True,
+        "verified": True,
+        "provider": "ecb",
+        "pair": "EUR/SEK",
+        "source_currency": "EUR",
+        "target_currency": "SEK",
+        "rate": 11.0,
+        "reference_date": "2026-10-05",
+        "age_days": 0,
+        "source_url": (
+            "https://www.ecb.europa.eu/stats/eurofxref/"
+            "eurofxref-daily.xml"
+        ),
+    }
+
+
+def test_verified_fx_makes_complete_eur_offer_rankable():
+    result = shopping.shopping_compare_data(
+        "Widget Pro",
+        settings=fx_settings(),
+        search_function=eur_search,
+        fetch_function=eur_fetch,
+        fx_function=verified_eur_quote,
+    )
+
+    assert len(
+        result[
+            "top_candidates"
+        ]
+    ) == 1
+    item = result[
+        "top_candidates"
+    ][
+        0
+    ]
+    assert item[
+        "original_currency"
+    ] == "EUR"
+    assert item[
+        "currency"
+    ] == "SEK"
+    assert item[
+        "fx_converted"
+    ] is True
+    assert item[
+        "product_price_sek"
+    ] == 1100.0
+    assert item[
+        "shipping_sek"
+    ] == 110.0
+    assert item[
+        "total_price_sek"
+    ] == 1210.0
+    assert item[
+        "fx_conversion"
+    ][
+        "provider"
+    ] == "ecb"
+
+
+def test_missing_verified_fx_keeps_foreign_offer_excluded():
+    def missing_quote(
+        source,
+        target,
+        settings=None,
+    ):
+        return {
+            "available": False,
+            "verified": False,
+            "source_currency": source,
+            "target_currency": target,
+            "reason": "synthetic no quote",
+        }
+
+    result = shopping.shopping_compare_data(
+        "Widget Pro",
+        settings=fx_settings(),
+        search_function=eur_search,
+        fetch_function=eur_fetch,
+        fx_function=missing_quote,
+    )
+
+    assert result[
+        "top_candidates"
+    ] == []
+    item = result[
+        "evaluated_candidates"
+    ][
+        0
+    ]
+    assert item[
+        "currency"
+    ] == "EUR"
+    assert item[
+        "product_price_sek"
+    ] is None
+    assert any(
+        "Verifierad växelkurs"
+        in warning
+        for warning in item[
+            "warning_flags"
+        ]
+    )
+
+
+def test_same_foreign_currency_reuses_one_verified_quote():
+    calls = []
+
+    def two_search(
+        query,
+        settings=None,
+    ):
+        data = eur_search(
+            query,
+            settings=settings,
+        )
+        data[
+            "results"
+        ] = [
+            {
+                **data[
+                    "results"
+                ][
+                    0
+                ],
+                "title": "Euro Shop 1",
+                "url": "https://euro1.example/widget",
+            },
+            {
+                **data[
+                    "results"
+                ][
+                    0
+                ],
+                "title": "Euro Shop 2",
+                "url": "https://euro2.example/widget",
+            },
+        ]
+        return data
+
+    def quote(
+        source,
+        target,
+        settings=None,
+    ):
+        calls.append(
+            (
+                source,
+                target,
+            )
+        )
+        return verified_eur_quote(
+            source,
+            target,
+            settings=settings,
+        )
+
+    result = shopping.shopping_compare_data(
+        "Widget Pro",
+        settings=fx_settings(),
+        search_function=two_search,
+        fetch_function=eur_fetch,
+        fx_function=quote,
+    )
+
+    assert len(
+        result[
+            "top_candidates"
+        ]
+    ) == 2
+    assert calls == [
+        (
+            "EUR",
+            "SEK",
+        )
+    ]
