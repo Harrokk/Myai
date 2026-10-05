@@ -58,5 +58,15 @@
     "timeout_seconds": 120,
     "max_tokens": 256,
     "temperature": 0.2
+  },
+  "geniex_supervisor": {
+    "enabled": true,
+    "health_timeout_seconds": 3,
+    "failure_threshold": 3,
+    "restart_enabled": false,
+    "restart_command": [],
+    "restart_timeout_seconds": 30,
+    "restart_cooldown_seconds": 60,
+    "max_restart_attempts": 3
   }
 }
