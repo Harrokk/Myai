@@ -226,6 +226,12 @@ DEFAULT_SETTINGS = {
         "auto_save_enabled": True,
         "auto_save_threshold": 80,
         "review_threshold": 55,
+        "lifecycle_enabled": True,
+        "auto_supersede_explicit_updates": True,
+        "conflict_similarity_threshold": 0.72,
+        "supersede_similarity_threshold": 0.85,
+        "max_conflict_scan": 200,
+        "stale_after_days": 0,
     },
     "conversation": {
         "max_turns": 6,
