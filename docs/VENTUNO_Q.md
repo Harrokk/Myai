@@ -203,3 +203,55 @@ The record includes:
 The default interval is 60 seconds. The prompt is intentionally harmless and deterministic.
 
 The stability harness does not enable STM32 RPC writes, GPIO, relays or motors. Hardware actuation must be tested separately after the MCU safety boundary and write allowlists have been approved.
+
+
+## GenieX supervisor / watchdog
+
+MyAI has a separate GenieX supervisor that checks the OpenAI-compatible readiness endpoint:
+
+```text
+GET http://127.0.0.1:18181/v1/models
+```
+
+This check does not generate tokens.
+
+Run one check:
+
+```bash
+python3 scripts/geniex_watchdog.py --once
+```
+
+Run continuously:
+
+```bash
+python3 scripts/geniex_watchdog.py
+```
+
+The VENTUNO profile currently enables health monitoring but keeps automatic restart disabled.
+
+Safe default policy:
+
+```json
+{
+  "enabled": true,
+  "failure_threshold": 3,
+  "restart_enabled": false,
+  "restart_command": [],
+  "restart_cooldown_seconds": 60,
+  "max_restart_attempts": 3
+}
+```
+
+Automatic restart must not be enabled until the physical board's actual GenieX service manager has been verified.
+
+When restart is eventually enabled:
+- the command is stored as an argument list, never shell text
+- no `shell=True` execution is used
+- restart waits for the configured consecutive-failure threshold
+- a cooldown prevents restart loops
+- a maximum attempt count prevents endless recovery cycling
+- watchdog events are written to `runtime/geniex_watchdog.jsonl`
+
+MyAI also exposes a read-only `geniex_status` tool. Natural-language tools do not expose any GenieX restart action.
+
+The exact production restart command is intentionally blank today. Do not assume a systemd service name until the real VENTUNO installation has been inspected.
