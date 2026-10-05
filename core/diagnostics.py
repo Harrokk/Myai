@@ -10,8 +10,10 @@ from core.deployment_lock import (
     validate_lock_manifest,
 )
 from core.error_log import read_recent_errors
-from core.health_status import read_health_state
-from modules.system.health import read_myai_health
+from core.health_status import (
+    build_health_status,
+    read_health_state,
+)
 
 
 def _resolve_path(
@@ -34,6 +36,196 @@ def _resolve_path(
         )
 
     return path
+
+
+def _fallback_runtime(
+    settings,
+):
+    llm = settings.get(
+        "llm",
+        {},
+    )
+    provider = str(
+        llm.get(
+            "provider",
+            "ollama",
+        )
+        or "ollama"
+    ).strip().lower()
+    provider_config = (
+        settings.get(
+            "geniex",
+            {},
+        )
+        if provider == "geniex"
+        else settings.get(
+            "ollama",
+            {},
+        )
+    )
+
+    return {
+        "enabled": False,
+        "active_backend": "primary",
+        "primary_provider": provider,
+        "primary_model": provider_config.get(
+            "model",
+            "",
+        ),
+        "fallback_provider": None,
+        "fallback_model": None,
+        "last_error": None,
+        "provider": provider,
+        "model": provider_config.get(
+            "model",
+            "",
+        ),
+    }
+
+
+def _read_myai_health(
+    settings,
+    project_root,
+    *,
+    now,
+):
+    health_config = settings.get(
+        "health",
+        {},
+    )
+    max_age = max(
+        0.0,
+        float(
+            health_config.get(
+                "state_stale_seconds",
+                60.0,
+            )
+        ),
+    )
+    supervisor = settings.get(
+        "geniex_supervisor",
+        {},
+    )
+    supervisor_expected = bool(
+        supervisor.get(
+            "enabled",
+            False,
+        )
+    )
+    geniex_path = _resolve_path(
+        project_root,
+        supervisor.get(
+            "state_path",
+            "runtime/geniex_health.json",
+        ),
+    )
+    geniex_state = read_health_state(
+        geniex_path
+    )
+    myai_path = _resolve_path(
+        project_root,
+        health_config.get(
+            "state_path",
+            "runtime/myai_health.json",
+        ),
+    )
+    saved = read_health_state(
+        myai_path
+    )
+
+    if saved is not None:
+        written = saved.get(
+            "written_unix_time"
+        )
+        age = None
+
+        try:
+            age = (
+                float(
+                    now
+                )
+                - float(
+                    written
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+
+        if (
+            age is not None
+            and age >= 0
+            and (
+                max_age <= 0
+                or age <= max_age
+            )
+        ):
+            if supervisor_expected:
+                result = build_health_status(
+                    saved.get(
+                        "llm_runtime",
+                        _fallback_runtime(
+                            settings
+                        ),
+                    ),
+                    geniex_state,
+                    supervisor_expected=True,
+                    stale_after_seconds=supervisor.get(
+                        "state_stale_seconds",
+                        30.0,
+                    ),
+                    now=now,
+                )
+                result[
+                    "snapshot_reconciled"
+                ] = True
+            else:
+                result = dict(
+                    saved
+                )
+                result[
+                    "snapshot_reconciled"
+                ] = False
+
+            result[
+                "snapshot_age_seconds"
+            ] = round(
+                age,
+                3,
+            )
+            result[
+                "snapshot_stale"
+            ] = False
+            return result
+
+    result = build_health_status(
+        _fallback_runtime(
+            settings
+        ),
+        geniex_state,
+        supervisor_expected=(
+            supervisor_expected
+        ),
+        stale_after_seconds=supervisor.get(
+            "state_stale_seconds",
+            30.0,
+        ),
+        now=now,
+    )
+    result[
+        "snapshot_age_seconds"
+    ] = None
+    result[
+        "snapshot_stale"
+    ] = True
+    result[
+        "snapshot_reconciled"
+    ] = bool(
+        supervisor_expected
+    )
+    return result
 
 
 def _snapshot_status(
@@ -419,8 +611,9 @@ def build_diagnostic_report(
             ventuno_enabled
         ),
     )
-    health = read_myai_health(
+    health = _read_myai_health(
         settings,
+        project_root,
         now=now,
     )
 
