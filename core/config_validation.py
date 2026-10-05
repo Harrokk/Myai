@@ -538,6 +538,59 @@ def validate_settings(
             )
         )
 
+    error_logging = settings.get(
+        "error_logging",
+        {},
+    )
+    if error_logging.get(
+        "enabled",
+        True,
+    ):
+        error_path = str(
+            error_logging.get(
+                "path",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not error_path:
+            issues.append(
+                _issue(
+                    "error",
+                    "error_log_path_missing",
+                    (
+                        "error_logging.enabled=true kräver "
+                        "error_logging.path."
+                    ),
+                )
+            )
+
+        try:
+            max_message_chars = int(
+                error_logging.get(
+                    "max_message_chars",
+                    500,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            max_message_chars = 0
+
+        if max_message_chars < 64:
+            issues.append(
+                _issue(
+                    "error",
+                    "error_log_message_limit_invalid",
+                    (
+                        "error_logging.max_message_chars "
+                        "måste vara minst 64."
+                    ),
+                )
+            )
+
     deployment_lock = settings.get(
         "deployment_lock",
         {},
