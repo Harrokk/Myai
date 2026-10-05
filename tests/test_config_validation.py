@@ -318,3 +318,48 @@ def test_error_logging_recent_limit_is_bounded():
         == "error_log_recent_limit_invalid"
         for item in result["errors"]
     )
+
+
+def test_stability_analysis_limits_are_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["stability_analysis"][
+        "max_records"
+    ] = 100001
+    settings["stability_analysis"][
+        "trend_fraction"
+    ] = 0.05
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert (
+        "stability_max_records_invalid"
+        in codes
+    )
+    assert (
+        "stability_trend_fraction_invalid"
+        in codes
+    )
+
+
+def test_stability_analysis_requires_log_path():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["stability_analysis"][
+        "log_path"
+    ] = ""
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"]
+        == "stability_log_path_missing"
+        for item in result["errors"]
+    )
