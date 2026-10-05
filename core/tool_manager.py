@@ -823,7 +823,7 @@ def detect_tools(user_input):
 
     if asks_accelerator:
         return [
-            "geniex_status"
+            "ventuno_accelerator_status"
         ]
 
     ventuno_diagnostic_tools = []
