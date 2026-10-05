@@ -153,6 +153,28 @@ TOOL_KEYWORDS = {
 }
 
 
+
+
+def _log_error(
+    error_logger,
+    event,
+    component,
+    error,
+):
+    if error_logger is None:
+        return False
+
+    try:
+        return bool(
+            error_logger.log_exception(
+                event,
+                component,
+                error,
+            )
+        )
+    except Exception:
+        return False
+
 def load_tools(error_logger=None):
     """Ladda alla TOOLS-register från moduler under paketet modules."""
     tools = {}
@@ -171,12 +193,12 @@ def load_tools(error_logger=None):
                 tools.update(module_tools)
 
         except Exception as error:
-            if error_logger is not None:
-                error_logger.log_exception(
-                    "module_load_error",
-                    module_name,
-                    error,
-                )
+            _log_error(
+                error_logger,
+                "module_load_error",
+                module_name,
+                error,
+            )
 
             print(
                 f"Varning: kunde inte ladda modulen "
@@ -878,12 +900,12 @@ def run_tools(
             else:
                 results[tool_name] = tool_function()
         except Exception as error:
-            if error_logger is not None:
-                error_logger.log_exception(
-                    "tool_error",
-                    tool_name,
-                    error,
-                )
+            _log_error(
+                error_logger,
+                "tool_error",
+                tool_name,
+                error,
+            )
 
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
