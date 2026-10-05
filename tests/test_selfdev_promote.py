@@ -216,7 +216,7 @@ def test_verified_promotion_backs_up_and_applies_changes(
     ) == "VALUE = 1\n"
 
 
-def test_promotion_rejects_workspace_change_after_verification(
+def test_workspace_api_change_invalidates_verification(
     tmp_path,
 ):
     _, workspace = make_workspace(
@@ -228,6 +228,36 @@ def test_promotion_rejects_workspace_change_after_verification(
     workspace.write_text(
         "core/example.py",
         "VALUE = 3\n",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="saknar verifieringsresultat",
+    ):
+        manager(
+            workspace,
+            settings(),
+        ).promote(
+            "PROMOTE session1"
+        )
+
+
+def test_promotion_rejects_out_of_band_workspace_change_after_verification(
+    tmp_path,
+):
+    _, workspace = make_workspace(
+        tmp_path
+    )
+    approve_verification(
+        workspace
+    )
+    (
+        workspace.workspace_root
+        / "core"
+        / "example.py"
+    ).write_text(
+        "VALUE = 7\n",
+        encoding="utf-8",
     )
 
     with pytest.raises(
