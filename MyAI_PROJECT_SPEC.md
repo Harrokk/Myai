@@ -1537,6 +1537,37 @@ Implementerat:
 
 Detta är ett staging-/promotion-säkerhetslager, inte ett generellt bevis på att AI-genererad kod är säker. Fysisk VENTUNO-I/O och säkerhetskritisk MCU-funktionalitet ska även fortsättningsvis hållas utanför autonom promotion.
 
+
+### 21.6 Paus/checkpoint 2026-10-05
+
+Arbetet pausas här på användarens begäran.
+
+GitHub-läge vid pausen:
+- aktiv utvecklingsgren: `dev/ventuno-q-provider`
+- draft-PR: **#85 – Begin Arduino VENTUNO Q / GenieX migration**
+- senast fullt verifierade kod-/dokumentationscommit före denna checkpoint: `4a2af09d72501acd1cd89c4ff8bd9f63bb9e6cb4`
+- GitHub Actions-runs `37263678721` och `37263682476` för `4a2af09d` är **success**
+- inga fysiska VENTUNO Q-tester har genomförts; CI-resultat gäller endast mjukvarulagret
+
+Senast färdigställda mjukvaruläge:
+- fail-closed config-validering finns och VENTUNO-start vägrar starta på blockerande profilfel
+- watchdog- och stabilitets-JSONL har begränsad storlek och roterande backups
+- headless VENTUNO-runtime, heartbeat och ren shutdown finns
+- systemd-enheter genereras endast till staging under `runtime/systemd/`; inget installeras eller aktiveras automatiskt
+- process-crash-recovery är begränsad och separerad från GenieX supervisor/restart-policy
+- intern MyAI-hälsa, GenieX watchdog, health-aware primary/fallback-routing och recovery-hysteresis är implementerade
+- fallbackmodell är fortfarande inte aktiverad eller vald för fysisk VENTUNO
+- säker selfdev-staging finns med default-off, Bubblewrap-only verifiering, diff-review, hashbunden verifiering, manuell promotion och manuell rollback
+- selfdev kan inte automatiskt köra fri shell, göra Git commit/push, skriva fysisk VENTUNO-I/O eller exponeras som naturligt MyAI-verktyg
+- promotion och rollback kräver exakta manuella fraser och skydd mot source drift/out-of-band-förändringar
+
+Exakt återstartspunkt:
+1. kontrollera att branch-head och GitHub Actions fortfarande är gröna
+2. fortsätt från commit `4a2af09d72501acd1cd89c4ff8bd9f63bb9e6cb4` plus denna checkpointcommit
+3. behåll all fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering uppskjuten tills kortet finns
+4. välj nästa rent mjukvarumässiga steg utan att försvaga selfdev-, RPC-, restart- eller config-spärrarna
+5. när VENTUNO Q finns: börja med config-validering och `scripts/ventuno_preflight.py`, därefter följs avsnitt 21.2
+
 ---
 
 ## 22. Övergripande vision
