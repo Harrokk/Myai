@@ -23,6 +23,7 @@ EXPECTED_TOOLS = [
     "bluetooth_status",
     "ventuno_rpc_status",
     "geniex_status",
+    "myai_health_status",
     "ventuno_mcu_status",
 ]
 
