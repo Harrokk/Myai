@@ -129,3 +129,19 @@ CI validates architecture, parsing, fail-closed policies, streaming, routing and
 - actual peripheral behavior
 
 Those checks begin only when VENTUNO Q hardware is available.
+
+
+## Local LLM fallback
+
+MyAI now has an optional local fallback wrapper around the selected LLM provider.
+
+The fallback is deliberately disabled in both the default and VENTUNO profiles until a reserve model has been validated on physical hardware.
+
+When enabled:
+- normal requests use the configured primary model
+- if the primary request fails before producing output, MyAI can retry with the configured local reserve model
+- streaming only falls back if the primary backend fails before the first emitted token
+- if a primary stream fails after output has started, MyAI stops instead of mixing two model responses
+- every completed response carries internal runtime metadata identifying whether the primary or fallback backend was used
+
+The intended VENTUNO use is a high-performance QAIRT/NPU primary model with a smaller, separately validated local GenieX model as emergency fallback. The exact reserve model must be chosen from the models that are actually compatible with the board and validated in the physical test phase.
