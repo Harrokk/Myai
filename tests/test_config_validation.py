@@ -714,3 +714,61 @@ def test_memory_administration_limits_are_validated():
         "memory_stale_review_days_invalid"
         in codes
     )
+
+
+def test_orchestration_bounds_are_validated():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["orchestration"][
+        "max_tools"
+    ] = 1
+    settings["orchestration"][
+        "max_result_chars_per_tool"
+    ] = 100
+    settings["orchestration"][
+        "enabled"
+    ] = "yes"
+    settings["orchestration"][
+        "allow_local_capture"
+    ] = "yes"
+
+    result = validate_settings(
+        settings
+    )
+
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+    assert (
+        "orchestration_max_tools_invalid"
+        in codes
+    )
+    assert (
+        "orchestration_result_limit_invalid"
+        in codes
+    )
+    assert (
+        "orchestration_enabled_invalid"
+        in codes
+    )
+    assert (
+        "orchestration_capture_flag_invalid"
+        in codes
+    )
+
+
+def test_default_orchestration_config_is_valid():
+    settings = deepcopy(DEFAULT_SETTINGS)
+
+    result = validate_settings(
+        settings
+    )
+
+    assert not any(
+        item["code"].startswith(
+            "orchestration_"
+        )
+        for item in result[
+            "errors"
+        ]
+    )
