@@ -289,6 +289,44 @@ def detect_tools(user_input):
             "myai_diagnostic_report"
         ]
 
+    asks_memory_admin_action = any(
+        phrase in text
+        for phrase in (
+            "godkänn minnesgranskning",
+            "avvisa minnesgranskning",
+            "ersätt minne ",
+            "radera minne ",
+        )
+    )
+
+    if asks_memory_admin_action:
+        return [
+            "memory_review_action"
+        ]
+
+    asks_memory_admin_status = any(
+        phrase in text
+        for phrase in (
+            "visa minnen som behöver granskas",
+            "visa minnesgranskningar",
+            "väntande minnesgranskningar",
+            "minneskonflikter",
+            "konflikter i minnet",
+            "visa gamla minnen",
+            "gamla minnen",
+            "minneshistorik",
+            "memory reviews",
+            "memory conflicts",
+            "old memories",
+            "memory history",
+        )
+    )
+
+    if asks_memory_admin_status:
+        return [
+            "memory_review_status"
+        ]
+
     asks_ventuno_stability = any(
         phrase in text
         for phrase in (
