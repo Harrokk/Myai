@@ -20,6 +20,9 @@ from core.config import load_settings
 from core.geniex_supervisor import (
     GenieXSupervisor,
 )
+from core.health_status import (
+    write_health_state,
+)
 
 
 PROFILE_PATH = (
@@ -33,6 +36,28 @@ DEFAULT_LOG_PATH = (
     / "runtime"
     / "geniex_watchdog.jsonl"
 )
+
+
+def _state_path(settings):
+    raw = (
+        settings.get(
+            "geniex_supervisor",
+            {},
+        )
+        .get(
+            "state_path",
+            "runtime/geniex_health.json",
+        )
+    )
+    path = Path(raw)
+
+    if not path.is_absolute():
+        path = (
+            PROJECT_ROOT
+            / path
+        )
+
+    return path
 
 
 def _arguments():
@@ -134,6 +159,12 @@ def main():
             _append(
                 args.log,
                 record,
+            )
+            write_health_state(
+                _state_path(
+                    settings
+                ),
+                result,
             )
 
             check = result[
