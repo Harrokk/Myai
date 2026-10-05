@@ -38,7 +38,11 @@
     "conflict_similarity_threshold": 0.65,
     "supersede_similarity_threshold": 0.85,
     "max_conflict_scan": 200,
-    "stale_after_days": 0
+    "stale_after_days": 0,
+    "review_queue_enabled": true,
+    "administration_limit": 50,
+    "stale_review_days": 365,
+    "permanent_delete_enabled": true
   },
   "assistant": {
     "name": "MyAI v2",
