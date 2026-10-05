@@ -1,6 +1,6 @@
 # MyAI on Arduino VENTUNO Q
 
-This note describes the current migration path for Arduino VENTUNO Q / Qualcomm Dragonwing IQ-8275.
+This note describes the current migration path for Arduino VENTUNO Q / Qualcomm Dragonwing QCS8275.
 
 ## Current safety model
 
@@ -27,7 +27,9 @@ The VENTUNO profile currently:
 - keeps VLM disabled until camera/NPU validation
 - enables the VENTUNO platform profile but keeps STM32 RPC disabled
 - keeps all STM32 RPC writes disabled
-- contains empty RPC method allowlists
+- predeclares only the read-only RPC methods `myai_ping`, `myai_uptime_ms` and `myai_mcu_status`; they remain inactive while RPC is disabled
+- keeps the RPC write allowlist empty
+- keeps camera, VLM, voice, GPS/location and trusted-terminal handoff disabled until their physical verification steps
 
 ## Planned local AI services
 
@@ -65,7 +67,7 @@ The preflight does not:
 - actuate hardware
 - run LLM/VLM inference
 
-It checks the runtime profile, Linux ARM64, GenieX CLI, local endpoint configuration, Arduino Router Bridge availability, the Router Unix socket and RPC write policy.
+It checks the runtime profile, Linux ARM64, Python-version signal, readable board identity when available, GenieX CLI/model configuration, enabled feature dependencies and RPC write policy. Arduino Router Bridge and `/var/run/arduino-router.sock` become blocking requirements only when RPC is explicitly enabled.
 
 ## GenieX preparation
 
@@ -91,6 +93,8 @@ The default Router transport is the protected local Unix socket:
 ```text
 /var/run/arduino-router.sock
 ```
+
+The Linux serial device `/dev/ttyHS1` is reserved by Arduino Router for the Linux↔STM32 link. MyAI filters it from general UART inventory and must never open it directly. Use Bridge/RPC instead.
 
 MyAI's wrapper is fail-closed:
 - RPC must be explicitly enabled
@@ -129,6 +133,9 @@ CI validates architecture, parsing, fail-closed policies, streaming, routing and
 - actual peripheral behavior
 
 Those checks begin only when VENTUNO Q hardware is available.
+
+Arduino's current VENTUNO Q documentation identifies the MPU as Dragonwing QCS8275, Ubuntu Linux as the SBC environment and Python 3.12 in current examples. USB-camera examples use `/dev/video0`. A robust power supply is also part of the physical test boundary; Arduino recommends a 65 W supply for the board and documents brownout risk under heavy AI load.
+
 
 
 ## Local LLM fallback
