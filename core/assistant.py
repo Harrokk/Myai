@@ -116,6 +116,29 @@ Relevant information från långtidsminnet:
             + memory_text
         )
 
+        health = self._health_status()
+        health_reasons = "; ".join(
+            health.get(
+                "reasons",
+                [],
+            )
+        )
+        system_message += (
+            """
+
+Intern read-only systemhälsa:
+
+"""
+            f"Nivå: {health.get('level', 'unknown')}\n"
+            f"Aktiv LLM-backend: "
+            f"{health.get('llm_runtime', {}).get('active_backend', 'primary')}\n"
+            f"GenieX-fel i rad: "
+            f"{health.get('geniex_consecutive_failures', 0)}\n"
+            f"Detaljer: {health_reasons}\n"
+            "Använd statusen endast när den är relevant. "
+            "Påstå inte att ett hårdvarufel är verifierat om statusen är unknown eller stale."
+        )
+
         if tool_results is not None:
             system_message += (
                 """
