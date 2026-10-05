@@ -188,3 +188,25 @@ def test_core_persists_combined_health_state(tmp_path):
     assert saved["level"] == "degraded"
     assert saved["llm_runtime"]["active_backend"] == "fallback"
     assert "written_unix_time" in saved
+
+
+
+def test_system_message_contains_read_only_health_context(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["memory"]["auto_assess_enabled"] = False
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=FakeMemory(),
+        llm=RuntimeStatusLLM(),
+    )
+
+    message = core.build_system_message(
+        "Hur mår du?"
+    )
+
+    assert "Intern read-only systemhälsa" in message
+    assert "Nivå: degraded" in message
+    assert "Aktiv LLM-backend: fallback" in message
+    assert "Påstå inte att ett hårdvarufel är verifierat" in message
