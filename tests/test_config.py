@@ -61,6 +61,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["selfdev"]["require_bubblewrap"] is True
     assert settings["selfdev"]["workspace_root"] == "runtime/selfdev"
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
+    assert settings["assistant"]["compute_accelerator"] == (
+        "NVIDIA RTX 3060 12 GB"
+    )
+    assert "gpu" not in settings["assistant"]
     assert settings["assistant"]["future_target"] == (
         "Arduino VENTUNO Q / Dragonwing QCS8275"
     )
