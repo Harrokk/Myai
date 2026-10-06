@@ -2592,19 +2592,36 @@ Verifiering:
 Ingen fysisk VENTUNO Q-verifiering påstås av denna audit. Historikomskrivning med `git filter-repo` ska endast göras som en separat kontrollerad operation om en senare fullständig inspektion visar personlig/känslig data eller om användaren uttryckligen vill eliminera de historiska binärblobbarna trots att inga tydliga hemligheter hittades.
 
 
-### 21.29 Korrigerad historikgranskning 2026-10-06 – personlig data kräver sanering
+### 21.29 Historiksanering 2026-10-06 – branch/tag-rewrite genomförd
 
-En fördjupad read-only inspektion av den historiska SQLite-blobben `memory.db` från commit `60f87698784e42788d0b0640927c73a6104612d9` visar att databasen innehåller användarens egna projektminnen och formuleringar. Den tidigare formuleringen i §21.28 om att inga tydliga personliga strängar hittades är därför inte tillräcklig och ska inte användas som grund för att avstå historiksanering.
+Den historiska SQLite-filen `memory.db` innehöll faktisk användarspecifik MyAI-projektkontext och behandlas därför som användardata.
 
-Korrigerad status:
-- `memory.db`, `__init__.cpython-314.pyc` och `system.cpython-314.pyc` lades till i commit `60f87698784e42788d0b0640927c73a6104612d9` och togs bort i `31b0392684865c05c2626249caa777face8dffe1`
-- nuvarande träd innehåller inte dessa filer och `.gitignore` blockerar `*.db`, `*.db-wal`, `*.db-shm` och `*.py[cod]`
-- historisk `memory.db` innehåller personlig projektkontext och ska därför behandlas som data som ska tas bort ur publik Git-historik
-- en full historikomskrivning med `git filter-repo` eller motsvarande, följd av force-push av berörda refs och verifiering att inga refs längre når blobbarna, är fortfarande obligatorisk
-- ingen merge till `main` ska göras innan denna historiksanering är genomförd och verifierad
-- gamla Raspberry Pi-PR:er är stängda; endast VENTUNO-umbrella-PR #85 är fortsatt öppen som draft
+Genomfört:
+- `.gitignore` blockerar databas-, WAL/SHM/journal- och Python-bytecode-artifakter
+- CI blockerar tracked databas- och bytecode-filer
+- en icke-destruktiv full mirror-torrkörning verifierade att endast de tre kända runtime/user-data-artifakterna skulle tas bort
+- 113 branch/tag-refgar verifierades före omskrivningen; de motsvarade repositoryts 113 branches
+- historiken skrevs om med `git-filter-repo` i en skyddad GitHub Actions-run
+- race-kontroll mot remote refs passerade före push
+- alla 113 refs force-pushades atomiskt; om en ref hade nekats skulle hela pushen ha fallit
+- en helt ny mirror-klon efter push verifierade att branch/tag-refgarna matchade den rensade spegeln och att de förbjudna objekten inte längre var nåbara där
+- repositoryt har fortsatt 113 branches
+- direkt commit-historik för `memory.db` på både `main` och den aktiva audit-grenen är tom
+- VENTUNO-PR #85 och historik-PR #110 är fortsatt öppna som draft och pekar på omskrivna SHA:n
+- repositoryt har 0 forks
+- en separat audit med `git-filter-repo --sensitive-data-removal` rapporterade 0 ändrade refs och 0 berörda `refs/pull/*`
 
-Denna punkt ändrar inte VENTUNO-runtimekoden; den korrigerar sekretessbedömningen och markerar historiksaneringen som blockerande återstående repo-åtgärd.
+Kvarvarande extern åtgärd:
+- GitHub serverar fortfarande gamla dangling/cached commit-objekt via direkt historisk SHA, inklusive den gamla `memory.db`-blobben
+- GitHubs dokumenterade slutsteg är därför att begära sensitive-data/history purge från GitHub Support så att cached views och serverlagrade dangling-objekt kan garbage-collectas
+- detta Support-steg kan inte utföras via den installerade GitHub-repository-anslutningen
+- ingen merge till `main` bör göras innan purge-frågan är avslutad eller uttryckligen riskaccepterad
+
+Verifieringskörningar:
+- guarded rewrite: GitHub Actions run `37456407127` = success
+- residual ref audit: GitHub Actions run `37456932993` = success
+
+Engångs-workflows för själva saneringen tas bort efter verifieringen. Det permanenta regressionsskyddet och verifieringsskriptet behålls.
 
 ---
 

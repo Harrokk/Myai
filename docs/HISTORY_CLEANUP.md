@@ -145,11 +145,17 @@ A force-pushed history rewrite removes the files from normal branch/tag history,
 
 If complete public elimination is required, request GitHub's sensitive-data/history purge after the rewrite and provide the old commit/blob identifiers if requested.
 
-Known old identifiers from the audit:
+For a GitHub Support purge request, use the exact "First Changed Commit(s)" values from the protected Actions audit logs rather than copying historical object identifiers into normal repository documentation.
 
-- initial upload commit: 60f87698784e42788d0b0640927c73a6104612d9
-- later commit touching/removing the historical artifacts: 31b0392684865c05c2626249caa777face8dffe1
-- old memory.db blob: a9c6c6b8146feb07fc61978ab1692ab28878b907
+Current verified state on 2026-10-06:
+- the guarded atomic branch/tag rewrite completed successfully in Actions run `37456407127`
+- post-push fresh-mirror verification passed for 113 refs
+- repository metadata still reports 113 branches and 0 forks
+- normal branch history no longer returns `memory.db`
+- a follow-up `--sensitive-data-removal` audit in Actions run `37456932993` reported 0 changed refs and 0 affected `refs/pull/*`
+- old dangling/cached commit objects remain directly addressable by historical SHA on GitHub and therefore still require GitHub Support purge for full server-side removal
+- GitHub Support acceptance is subject to GitHub's sensitive-data-removal policy
+
 
 ## 10. Prevention already in place
 
