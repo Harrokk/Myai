@@ -821,3 +821,17 @@ def test_detect_tools_status_keywords_still_match_complete_tokens():
     ) == [
         "disk_status"
     ]
+
+
+def test_npu_routing_does_not_match_input_substring():
+    assert tool_manager.detect_tools(
+        "Visa input-formatet."
+    ) == []
+
+
+def test_npu_routing_still_matches_complete_token():
+    assert tool_manager.detect_tools(
+        "Visa NPU status."
+    ) == [
+        "ventuno_accelerator_status"
+    ]
