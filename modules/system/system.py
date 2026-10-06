@@ -5,6 +5,9 @@ from pathlib import Path
 import psutil
 
 
+CPU_SAMPLE_SECONDS = 0.2
+
+
 def gpu_status():
     try:
         executable = shutil.which(
@@ -68,7 +71,7 @@ def gpu_status():
 def cpu_status():
     try:
         cpu_usage = psutil.cpu_percent(
-            interval=1
+            interval=CPU_SAMPLE_SECONDS
         )
         cpu_count = psutil.cpu_count(
             logical=True
