@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -83,6 +84,68 @@ def _is_string_list(value):
     )
 
 
+def _normalize_object_sections(
+    settings,
+    schema,
+    issues,
+    *,
+    prefix="",
+):
+    result = dict(
+        settings
+    )
+
+    for key, expected in schema.items():
+        if (
+            not isinstance(
+                expected,
+                dict,
+            )
+            or key not in settings
+        ):
+            continue
+
+        path = (
+            f"{prefix}.{key}"
+            if prefix
+            else str(
+                key
+            )
+        )
+        value = settings.get(
+            key
+        )
+
+        if not isinstance(
+            value,
+            dict,
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    "config_section_not_object",
+                    f"{path} måste vara ett objekt.",
+                )
+            )
+            result[
+                key
+            ] = deepcopy(
+                expected
+            )
+            continue
+
+        result[
+            key
+        ] = _normalize_object_sections(
+            value,
+            expected,
+            issues,
+            prefix=path,
+        )
+
+    return result
+
+
 def validate_settings(
     settings,
     *,
@@ -141,6 +204,12 @@ def validate_settings(
                 ),
             )
         )
+
+    settings = _normalize_object_sections(
+        settings,
+        DEFAULT_SETTINGS,
+        issues,
+    )
 
     weather = settings.get(
         "weather",
@@ -760,7 +829,6 @@ def validate_settings(
             )
 
     boolean_paths = (
-        ("camera", "enabled", True),
         ("voice", "enabled", False),
         ("voice", "tts_enabled", False),
         ("voice", "handsfree_enabled", False),
