@@ -421,3 +421,191 @@ def test_stop_terminal_handoff_delegates_to_monitor(monkeypatch):
 
     assert mail.stop_terminal_handoff() is True
     assert monitor.stop_calls == 1
+
+
+def test_required_preflight_skips_when_ventuno_is_disabled(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        mail,
+        "SETTINGS",
+        {
+            "ventuno": {
+                "enabled": False,
+            },
+            "runtime": {
+                "require_preflight": True,
+            },
+        },
+    )
+
+    def fail_runner(
+        settings,
+    ):
+        raise AssertionError(
+            "Preflight ska inte köras för icke-VENTUNO."
+        )
+
+    result = mail.required_preflight(
+        runner=fail_runner
+    )
+
+    assert result == {
+        "required": False,
+        "passed": True,
+    }
+
+
+def test_required_preflight_blocks_failed_ventuno_check(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        mail,
+        "SETTINGS",
+        {
+            "ventuno": {
+                "enabled": True,
+            },
+            "runtime": {
+                "require_preflight": True,
+            },
+        },
+    )
+
+    result = mail.required_preflight(
+        runner=lambda settings: {
+            "passed": False,
+            "checks": [],
+        }
+    )
+
+    assert result[
+        "required"
+    ] is True
+    assert result[
+        "passed"
+    ] is False
+
+
+def test_manual_memory_write_requires_audit_attempt(
+    monkeypatch,
+):
+    class Memory:
+        def __init__(
+            self,
+        ):
+            self.calls = 0
+
+        def save(
+            self,
+            category,
+            content,
+        ):
+            self.calls += 1
+            return 7
+
+    class Audit:
+        def write_attempt(
+            self,
+            **kwargs,
+        ):
+            raise RuntimeError(
+                "audit unavailable"
+            )
+
+        def write_result(
+            self,
+            **kwargs,
+        ):
+            raise AssertionError(
+                "result får inte skrivas när attempt misslyckas"
+            )
+
+    memory = Memory()
+    monkeypatch.setattr(
+        mail,
+        "MEMORY",
+        memory,
+    )
+    monkeypatch.setattr(
+        mail.CORE,
+        "audit_logger",
+        Audit(),
+    )
+
+    try:
+        mail.save_manual_memory(
+            "testminne"
+        )
+    except RuntimeError as error:
+        assert "audit unavailable" in str(
+            error
+        )
+    else:
+        raise AssertionError(
+            "Auditfel måste blockera minnesskrivning."
+        )
+
+    assert memory.calls == 0
+
+
+def test_manual_memory_result_audit_is_best_effort(
+    monkeypatch,
+):
+    seen = {
+        "attempt": None,
+    }
+
+    class Memory:
+        def save(
+            self,
+            category,
+            content,
+        ):
+            assert category == "manual"
+            assert content == "privat testinnehåll"
+            return 9
+
+    class Audit:
+        def write_attempt(
+            self,
+            **kwargs,
+        ):
+            seen[
+                "attempt"
+            ] = kwargs
+
+        def write_result(
+            self,
+            **kwargs,
+        ):
+            raise RuntimeError(
+                "syntetiskt resultatloggfel"
+            )
+
+    monkeypatch.setattr(
+        mail,
+        "MEMORY",
+        Memory(),
+    )
+    monkeypatch.setattr(
+        mail.CORE,
+        "audit_logger",
+        Audit(),
+    )
+
+    memory_id = mail.save_manual_memory(
+        "privat testinnehåll"
+    )
+
+    assert memory_id == 9
+    assert seen[
+        "attempt"
+    ][
+        "action"
+    ] == "memory_manual_store"
+    assert "privat testinnehåll" not in str(
+        seen[
+            "attempt"
+        ]
+    )
