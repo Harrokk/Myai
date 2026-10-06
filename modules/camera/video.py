@@ -216,6 +216,8 @@ def record_clip(
 def record_video_from_settings(
     settings=None,
     cv2_module=None,
+    clock=time.monotonic,
+    sleep_fn=time.sleep,
 ):
     settings = settings or load_settings()
     camera = settings.get("camera", {})
@@ -248,6 +250,8 @@ def record_video_from_settings(
         duration_seconds=duration,
         fps=fps,
         cv2_module=cv2_module,
+        clock=clock,
+        sleep_fn=sleep_fn,
     )
 
 
