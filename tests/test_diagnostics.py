@@ -294,6 +294,9 @@ def test_structurally_valid_lock_is_not_treated_as_physical_verification(
                     "requirements-gps.txt": {
                         "sha256": "example",
                     },
+                    "requirements-excel.txt": {
+                        "sha256": "example",
+                    },
                 },
                 "models": {
                     "llm": "example",
