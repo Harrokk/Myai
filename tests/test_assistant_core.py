@@ -1,4 +1,6 @@
 from copy import deepcopy
+import threading
+import time
 
 from core.assistant import MyAICore
 from core.config import DEFAULT_SETTINGS
@@ -971,3 +973,88 @@ def test_clear_conversation_clears_pending_intermediate_results(
     assert core.intermediate_results.get(
         identifier
     ) is None
+
+
+class BlockingLLM:
+    def __init__(self):
+        self.first_started = threading.Event()
+        self.release_first = threading.Event()
+        self._lock = threading.Lock()
+        self.calls = 0
+        self.active = 0
+        self.max_active = 0
+
+    def chat(self, messages, timeout=300):
+        with self._lock:
+            self.calls += 1
+            call_number = self.calls
+            self.active += 1
+            self.max_active = max(
+                self.max_active,
+                self.active,
+            )
+
+        try:
+            if call_number == 1:
+                self.first_started.set()
+                self.release_first.wait(
+                    timeout=2,
+                )
+            return f"Svar {call_number}"
+        finally:
+            with self._lock:
+                self.active -= 1
+
+
+def test_core_serializes_concurrent_responses(tmp_path):
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings["memory"]["auto_assess_enabled"] = False
+    llm = BlockingLLM()
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=FakeMemory(),
+        llm=llm,
+    )
+    results = []
+
+    first = threading.Thread(
+        target=lambda: results.append(
+            core.respond("Första frågan")
+        )
+    )
+    second = threading.Thread(
+        target=lambda: results.append(
+            core.respond("Andra frågan")
+        )
+    )
+
+    first.start()
+    assert llm.first_started.wait(
+        timeout=1,
+    )
+
+    second.start()
+    time.sleep(
+        0.05
+    )
+
+    assert llm.calls == 1
+    assert llm.max_active == 1
+
+    llm.release_first.set()
+    first.join(
+        timeout=2
+    )
+    second.join(
+        timeout=2
+    )
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert llm.calls == 2
+    assert llm.max_active == 1
+    assert len(results) == 2

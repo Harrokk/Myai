@@ -1,4 +1,5 @@
 from pathlib import Path
+import threading
 
 from core.audit_log import (
     AuditLogger,
@@ -29,6 +30,7 @@ class MyAICore:
     def __init__(self, settings, project_root, tools=None, memory=None, llm=None):
         self.settings = settings
         self.project_root = project_root
+        self._response_lock = threading.RLock()
         self.error_logger = ErrorLogger(
             settings,
             project_root,
@@ -1060,6 +1062,12 @@ Svara kort och tydligt på svenska.
         }
 
     def respond(self, user_message):
+        with self._response_lock:
+            return self._respond_locked(
+                user_message
+            )
+
+    def _respond_locked(self, user_message):
         (
             tool_plan,
             tool_names,
@@ -1086,6 +1094,17 @@ Svara kort och tydligt på svenska.
         )
 
     def respond_stream(
+        self,
+        user_message,
+        on_chunk=None,
+    ):
+        with self._response_lock:
+            return self._respond_stream_locked(
+                user_message,
+                on_chunk=on_chunk,
+            )
+
+    def _respond_stream_locked(
         self,
         user_message,
         on_chunk=None,
@@ -1179,5 +1198,6 @@ Svara kort och tydligt på svenska.
             self.conversation_history = self.conversation_history[-max_messages:]
 
     def clear_conversation(self):
-        self.conversation_history = []
-        self.intermediate_results.clear()
+        with self._response_lock:
+            self.conversation_history = []
+            self.intermediate_results.clear()
