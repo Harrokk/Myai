@@ -1603,6 +1603,29 @@ def validate_settings(
             )
         )
 
+    tool_routing = settings.get(
+        "tool_routing",
+        {},
+    )
+
+    if not isinstance(
+        tool_routing.get(
+            "llm_fallback_enabled",
+            True,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "tool_routing_llm_fallback_invalid",
+                (
+                    "tool_routing.llm_fallback_enabled måste "
+                    "vara true eller false."
+                ),
+            )
+        )
+
     intermediate = settings.get(
         "intermediate_results",
         {},
