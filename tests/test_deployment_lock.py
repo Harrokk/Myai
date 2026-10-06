@@ -36,6 +36,7 @@ def observed_stack():
             "psutil": "7.1.0",
             "bleak": "3.0.2",
             "arduino-router-bridge": "0.5.0",
+            "openpyxl": None,
         },
         "files": {
             "requirements.txt": {
@@ -56,6 +57,9 @@ def observed_stack():
             "requirements-gps.txt": {
                 "sha256": "req-gps",
             },
+            "requirements-excel.txt": {
+                "sha256": "req-excel",
+            },
         },
         "models": {
             "llm": "ai-hub-models/Qwen3-4B-Instruct-2507",
@@ -74,6 +78,7 @@ def test_collect_stack_uses_observed_versions_and_requirement_hashes(
         "requirements-camera.txt",
         "requirements-voice.txt",
         "requirements-gps.txt",
+        "requirements-excel.txt",
     )
 
     for name in requirement_names:
@@ -90,6 +95,7 @@ def test_collect_stack_uses_observed_versions_and_requirement_hashes(
         "psutil": "7.1.0",
         "bleak": "3.0.2",
         "arduino-router-bridge": "0.5.0",
+        "openpyxl": None,
     }
 
     result = collect_ventuno_stack(
