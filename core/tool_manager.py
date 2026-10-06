@@ -1,5 +1,6 @@
 import importlib
 import pkgutil
+import re
 
 import modules
 
@@ -46,6 +47,44 @@ BLUETOOTH_PROXIMITY_WORDS = [
     "närhet",
     "närmast",
 ]
+
+
+def _contains_token(
+    text,
+    token,
+):
+    return bool(
+        re.search(
+            (
+                r"(?<!\w)"
+                + re.escape(
+                    str(
+                        token
+                        or ""
+                    )
+                )
+                + r"(?!\w)"
+            ),
+            str(
+                text
+                or ""
+            ),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _contains_any_token(
+    text,
+    tokens,
+):
+    return any(
+        _contains_token(
+            text,
+            token,
+        )
+        for token in tokens
+    )
 
 
 TOOL_KEYWORDS = {
@@ -813,15 +852,15 @@ def detect_tools(user_input):
             "ventuno_rpc_status"
         ]
 
-    mentions_ventuno = any(
-        word in text
-        for word in (
+    mentions_ventuno = _contains_any_token(
+        text,
+        (
             "ventuno",
             "arduino ventuno",
             "dragonwing",
             "qcs8275",
             "qualcomm",
-        )
+        ),
     )
 
     asks_accelerator = any(
@@ -902,16 +941,16 @@ def detect_tools(user_input):
     if ventuno_diagnostic_tools:
         return ventuno_diagnostic_tools
 
-    asks_ventuno_power = any(
-        word in text
-        for word in (
+    asks_ventuno_power = _contains_any_token(
+        text,
+        (
             "strömförbrukning",
             "ström",
             "effekt",
             "watt",
             "ampere",
             "power draw",
-        )
+        ),
     )
 
     if mentions_ventuno and asks_ventuno_power:
@@ -919,9 +958,9 @@ def detect_tools(user_input):
             "ventuno_power_status"
         ]
 
-    asks_ventuno_status = any(
-        word in text
-        for word in (
+    asks_ventuno_status = _contains_any_token(
+        text,
+        (
             "status",
             "temperatur",
             "varm",
@@ -930,7 +969,7 @@ def detect_tools(user_input):
             "lagring",
             "disk",
             "hur mår",
-        )
+        ),
     )
 
     if mentions_ventuno and asks_ventuno_status:
@@ -982,9 +1021,9 @@ def detect_tools(user_input):
             "ventuno_interfaces_status"
         ]
 
-    asks_io_reference = any(
-        word in text
-        for word in (
+    asks_io_reference = _contains_any_token(
+        text,
+        (
             "gpio",
             "i2c",
             "spi",
@@ -994,7 +1033,7 @@ def detect_tools(user_input):
             "vilken pinne",
             "koppla in",
             "inkoppling",
-        )
+        ),
     )
 
     if asks_io_reference:
@@ -1002,26 +1041,37 @@ def detect_tools(user_input):
             "ventuno_io_safety"
         ]
 
-    mentions_bluetooth = any(
-        word in text
-        for word in ("bluetooth", "blåtand")
+    mentions_bluetooth = _contains_any_token(
+        text,
+        (
+            "bluetooth",
+            "blåtand",
+        ),
     )
-    asks_proximity = any(
-        word in text
-        for word in BLUETOOTH_PROXIMITY_WORDS
+    asks_proximity = _contains_any_token(
+        text,
+        BLUETOOTH_PROXIMITY_WORDS,
     )
 
     if mentions_bluetooth and asks_proximity:
         return ["bluetooth_nearby"]
 
-    if not any(word in text for word in STATUS_WORDS):
+    if not _contains_any_token(
+        text,
+        STATUS_WORDS,
+    ):
         return []
 
     detected_tools = []
 
     for tool_name, keywords in TOOL_KEYWORDS.items():
-        if any(word in text for word in keywords):
-            detected_tools.append(tool_name)
+        if _contains_any_token(
+            text,
+            keywords,
+        ):
+            detected_tools.append(
+                tool_name
+            )
 
     return detected_tools
 
