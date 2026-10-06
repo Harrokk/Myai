@@ -1,3 +1,5 @@
+import threading
+
 from copy import deepcopy
 
 from core.assistant import MyAICore
@@ -971,3 +973,69 @@ def test_clear_conversation_clears_pending_intermediate_results(
     assert core.intermediate_results.get(
         identifier
     ) is None
+
+
+def test_core_serializes_concurrent_responses(tmp_path):
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["tool_routing"]["llm_fallback_enabled"] = False
+    memory = FakeMemory()
+
+    class SerialProbeLLM:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.calls = 0
+            self.active = 0
+            self.max_active = 0
+            self.first_entered = threading.Event()
+            self.second_entered = threading.Event()
+            self.release_first = threading.Event()
+
+        def chat(self, messages, timeout=300):
+            with self.lock:
+                self.calls += 1
+                call_number = self.calls
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+
+            if call_number == 1:
+                self.first_entered.set()
+                assert self.release_first.wait(timeout=2.0)
+            else:
+                self.second_entered.set()
+
+            with self.lock:
+                self.active -= 1
+
+            return f"Svar {call_number}"
+
+    llm = SerialProbeLLM()
+    core = MyAICore(
+        settings,
+        tmp_path,
+        tools={},
+        memory=memory,
+        llm=llm,
+    )
+    results = []
+
+    first = threading.Thread(
+        target=lambda: results.append(core.respond("Första frågan"))
+    )
+    second = threading.Thread(
+        target=lambda: results.append(core.respond("Andra frågan"))
+    )
+
+    first.start()
+    assert llm.first_entered.wait(timeout=1.0)
+    second.start()
+    assert not llm.second_entered.wait(timeout=0.15)
+
+    llm.release_first.set()
+    first.join(timeout=2.0)
+    second.join(timeout=2.0)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert llm.second_entered.is_set()
+    assert llm.max_active == 1
+    assert len(results) == 2

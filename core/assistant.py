@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from core.audit_log import (
@@ -28,6 +29,7 @@ from core.tool_manager import (
 class MyAICore:
     def __init__(self, settings, project_root, tools=None, memory=None, llm=None):
         self.settings = settings
+        self._response_lock = threading.RLock()
         self.project_root = project_root
         self.error_logger = ErrorLogger(
             settings,
@@ -1085,58 +1087,19 @@ Svara kort och tydligt på svenska.
         }
 
     def respond(self, user_message):
-        (
-            tool_plan,
-            tool_names,
-            tool_results,
-            pending_intermediate_results,
-            messages,
-        ) = self._prepare_response(user_message)
+        with self._response_lock:
+            (
+                tool_plan,
+                tool_names,
+                tool_results,
+                pending_intermediate_results,
+                messages,
+            ) = self._prepare_response(user_message)
 
-        answer = self.llm.chat(
-            messages,
-            timeout=300,
-        )
-
-        return self._finalize_response(
-            user_message,
-            answer,
-            tool_names,
-            tool_results,
-            tool_plan=tool_plan,
-            pending_intermediate_results=(
-                pending_intermediate_results
-            ),
-            streamed=False,
-        )
-
-    def respond_stream(
-        self,
-        user_message,
-        on_chunk=None,
-    ):
-        (
-            tool_plan,
-            tool_names,
-            tool_results,
-            pending_intermediate_results,
-            messages,
-        ) = self._prepare_response(user_message)
-
-        stream = getattr(
-            self.llm,
-            "chat_stream",
-            None,
-        )
-
-        if not callable(stream):
             answer = self.llm.chat(
                 messages,
                 timeout=300,
             )
-
-            if on_chunk is not None and answer:
-                on_chunk(answer)
 
             return self._finalize_response(
                 user_message,
@@ -1150,35 +1113,76 @@ Svara kort och tydligt på svenska.
                 streamed=False,
             )
 
-        chunks = []
-
-        for chunk in stream(
-            messages,
-            timeout=300,
-        ):
-            value = str(chunk or "")
-
-            if not value:
-                continue
-
-            chunks.append(value)
-
-            if on_chunk is not None:
-                on_chunk(value)
-
-        answer = "".join(chunks)
-
-        return self._finalize_response(
+    def respond_stream(
+        with self._response_lock:
+            self,
             user_message,
-            answer,
-            tool_names,
-            tool_results,
-            tool_plan=tool_plan,
-            pending_intermediate_results=(
-                pending_intermediate_results
-            ),
-            streamed=True,
-        )
+            on_chunk=None,
+        ):
+            (
+                tool_plan,
+                tool_names,
+                tool_results,
+                pending_intermediate_results,
+                messages,
+            ) = self._prepare_response(user_message)
+
+            stream = getattr(
+                self.llm,
+                "chat_stream",
+                None,
+            )
+
+            if not callable(stream):
+                answer = self.llm.chat(
+                    messages,
+                    timeout=300,
+                )
+
+                if on_chunk is not None and answer:
+                    on_chunk(answer)
+
+                return self._finalize_response(
+                    user_message,
+                    answer,
+                    tool_names,
+                    tool_results,
+                    tool_plan=tool_plan,
+                    pending_intermediate_results=(
+                        pending_intermediate_results
+                    ),
+                    streamed=False,
+                )
+
+            chunks = []
+
+            for chunk in stream(
+                messages,
+                timeout=300,
+            ):
+                value = str(chunk or "")
+
+                if not value:
+                    continue
+
+                chunks.append(value)
+
+                if on_chunk is not None:
+                    on_chunk(value)
+
+            answer = "".join(chunks)
+
+            return self._finalize_response(
+                user_message,
+                answer,
+                tool_names,
+                tool_results,
+                tool_plan=tool_plan,
+                pending_intermediate_results=(
+                    pending_intermediate_results
+                ),
+                streamed=True,
+            )
 
     def _remember_conversation_turn(self, user_message, answer):
         if self.max_conversation_turns <= 0:
@@ -1204,5 +1208,6 @@ Svara kort och tydligt på svenska.
             self.conversation_history = self.conversation_history[-max_messages:]
 
     def clear_conversation(self):
-        self.conversation_history = []
-        self.intermediate_results.clear()
+        with self._response_lock:
+            self.conversation_history = []
+            self.intermediate_results.clear()
