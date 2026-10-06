@@ -1,6 +1,8 @@
 import hashlib
 import importlib.metadata
 import json
+import os
+import tempfile
 import platform
 from pathlib import Path
 import shutil
@@ -478,20 +480,28 @@ def write_json_atomic(
         parents=True,
         exist_ok=True,
     )
-    temporary = path.with_suffix(
-        path.suffix
-        + ".tmp"
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
     )
-    temporary.write_text(
-        json.dumps(
-            data,
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(
-        path
-    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            file.write(
+                json.dumps(
+                    data,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n"
+            )
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
     return path
