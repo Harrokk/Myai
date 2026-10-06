@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 import threading
@@ -99,18 +101,29 @@ class DeviceRegistry:
 
     def _save_unlocked(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-
-        with temporary.open("w", encoding="utf-8") as file:
-            json.dump(
-                data,
-                file,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-
-        temporary.replace(self.path)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=self.path.name + ".",
+            suffix=".tmp",
+            dir=str(self.path.parent),
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+                json.dump(
+                    data,
+                    file,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary, self.path)
+        except Exception:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
 
     def observe_devices(self, devices):
         new_records = []
