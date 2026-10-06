@@ -65,6 +65,9 @@ DEFAULT_SETTINGS = {
         "max_result_chars_per_tool": 6000,
         "allow_local_capture": True,
     },
+    "tool_routing": {
+        "llm_fallback_enabled": True,
+    },
     "intermediate_results": {
         "enabled": True,
         "max_pending": 5,
