@@ -1114,11 +1114,11 @@ Svara kort och tydligt på svenska.
             )
 
     def respond_stream(
+        self,
+        user_message,
+        on_chunk=None,
+    ):
         with self._response_lock:
-            self,
-            user_message,
-            on_chunk=None,
-        ):
             (
                 tool_plan,
                 tool_names,
