@@ -89,7 +89,10 @@ class SelfDevVerifier:
             ).exists()
         ]
 
-    def build_command(self):
+    def _sandbox_command(
+        self,
+        payload,
+    ):
         if not self.bwrap_path:
             raise RuntimeError(
                 "Selfdev-verifiering kräver Bubblewrap (bwrap). "
@@ -135,6 +138,16 @@ class SelfDevVerifier:
                 "--setenv",
                 "PYTHONDONTWRITEBYTECODE",
                 "1",
+            ]
+        )
+        command.extend(
+            payload
+        )
+        return command
+
+    def build_command(self):
+        return self._sandbox_command(
+            [
                 self.python_executable,
                 "-m",
                 "pytest",
@@ -142,7 +155,103 @@ class SelfDevVerifier:
             ]
         )
 
-        return command
+    def build_validation_commands(
+        self,
+        changes=None,
+    ):
+        changes = (
+            changes
+            if changes is not None
+            else self.workspace.changed_files()
+        )
+        paths = sorted(
+            set(
+                changes["changed"]
+                + changes["added"]
+            )
+        )
+        commands = []
+
+        for relative in paths:
+            suffix = Path(
+                relative
+            ).suffix.lower()
+            workspace_path = (
+                "/workspace/"
+                + relative
+            )
+
+            if suffix == ".py":
+                commands.append(
+                    (
+                        "python-compile",
+                        relative,
+                        self._sandbox_command(
+                            [
+                                self.python_executable,
+                                "-m",
+                                "py_compile",
+                                workspace_path,
+                            ]
+                        ),
+                    )
+                )
+            elif suffix == ".json":
+                commands.append(
+                    (
+                        "json",
+                        relative,
+                        self._sandbox_command(
+                            [
+                                self.python_executable,
+                                "-m",
+                                "json.tool",
+                                workspace_path,
+                            ]
+                        ),
+                    )
+                )
+            elif suffix == ".toml":
+                commands.append(
+                    (
+                        "toml",
+                        relative,
+                        self._sandbox_command(
+                            [
+                                self.python_executable,
+                                "-c",
+                                (
+                                    "import pathlib,tomllib,sys;"
+                                    "tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))"
+                                ),
+                                workspace_path,
+                            ]
+                        ),
+                    )
+                )
+            elif suffix == ".sh":
+                bash = shutil.which(
+                    "bash"
+                )
+                if not bash:
+                    raise RuntimeError(
+                        "Selfdev-verifiering av shell-filer kräver bash."
+                    )
+                commands.append(
+                    (
+                        "shell",
+                        relative,
+                        self._sandbox_command(
+                            [
+                                bash,
+                                "-n",
+                                workspace_path,
+                            ]
+                        ),
+                    )
+                )
+
+        return commands
 
     def verify(self):
         changes = (
@@ -157,47 +266,107 @@ class SelfDevVerifier:
                 "Selfdev-promotion stöder inte filradering i denna fas."
             )
 
-        command = self.build_command()
+        validation_commands = (
+            self.build_validation_commands(
+                changes
+            )
+        )
+        commands = (
+            validation_commands
+            + [
+                (
+                    "pytest",
+                    None,
+                    self.build_command(),
+                )
+            ]
+        )
         started = time.monotonic()
+        checks = []
+        stdout_parts = []
+        stderr_parts = []
+        error = None
+        returncode = 0
 
-        try:
-            result = self.command_runner(
-                command,
-                timeout=self.timeout_seconds,
-            )
-            returncode = int(
-                getattr(
-                    result,
-                    "returncode",
-                    1,
+        for check_type, path, command in commands:
+            try:
+                result = self.command_runner(
+                    command,
+                    timeout=self.timeout_seconds,
                 )
-            )
-            stdout = str(
-                getattr(
-                    result,
-                    "stdout",
-                    "",
+                check_returncode = int(
+                    getattr(
+                        result,
+                        "returncode",
+                        1,
+                    )
                 )
-                or ""
-            )
-            stderr = str(
-                getattr(
-                    result,
-                    "stderr",
-                    "",
+                check_stdout = str(
+                    getattr(
+                        result,
+                        "stdout",
+                        "",
+                    )
+                    or ""
                 )
-                or ""
-            )
-            error = None
-        except Exception as exc:
-            returncode = -1
-            stdout = ""
-            stderr = ""
-            error = (
-                f"{type(exc).__name__}: "
-                f"{exc}"
+                check_stderr = str(
+                    getattr(
+                        result,
+                        "stderr",
+                        "",
+                    )
+                    or ""
+                )
+                check_error = None
+            except Exception as exc:
+                check_returncode = -1
+                check_stdout = ""
+                check_stderr = ""
+                check_error = (
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
+
+            checks.append(
+                {
+                    "type": check_type,
+                    "path": path,
+                    "returncode": (
+                        check_returncode
+                    ),
+                    "passed": (
+                        check_returncode == 0
+                        and check_error is None
+                    ),
+                    "error": check_error,
+                }
             )
 
+            if check_stdout:
+                stdout_parts.append(
+                    check_stdout
+                )
+            if check_stderr:
+                stderr_parts.append(
+                    check_stderr
+                )
+
+            if (
+                check_returncode != 0
+                or check_error is not None
+            ):
+                returncode = (
+                    check_returncode
+                )
+                error = check_error
+                break
+
+        stdout = "\n".join(
+            stdout_parts
+        )
+        stderr = "\n".join(
+            stderr_parts
+        )
         elapsed = (
             time.monotonic()
             - started
@@ -205,6 +374,10 @@ class SelfDevVerifier:
         passed = (
             returncode == 0
             and error is None
+            and all(
+                check["passed"]
+                for check in checks
+            )
         )
         record = {
             "session_id": (
@@ -246,6 +419,7 @@ class SelfDevVerifier:
             "sandbox": "bubblewrap",
             "network_isolated": True,
             "host_devices_exposed": False,
+            "checks": checks,
             "stdout": stdout[
                 -self.max_output_chars:
             ],
