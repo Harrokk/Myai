@@ -392,21 +392,26 @@ def save_manual_memory(
                     ).__name__,
                 },
             )
-        finally:
-            raise
+        except Exception:
+            pass
+        raise
 
-    CORE.audit_logger.write_result(
-        action="memory_manual_store",
-        component="memory",
-        outcome="success",
-        target=(
-            f"memory/{memory_id}"
-        ),
-        details={
-            "memory_id": memory_id,
-            "category": "manual",
-        },
-    )
+    try:
+        CORE.audit_logger.write_result(
+            action="memory_manual_store",
+            component="memory",
+            outcome="success",
+            target=(
+                f"memory/{memory_id}"
+            ),
+            details={
+                "memory_id": memory_id,
+                "category": "manual",
+            },
+        )
+    except Exception:
+        pass
+
     return memory_id
 
 
