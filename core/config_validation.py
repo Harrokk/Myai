@@ -816,6 +816,165 @@ def validate_settings(
             )
         )
 
+    if not isinstance(
+        camera.get(
+            "stream_enabled",
+            False,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "camera_stream_enabled_invalid",
+                (
+                    "camera.stream_enabled måste vara "
+                    "true eller false."
+                ),
+            )
+        )
+
+    try:
+        camera_index = int(
+            camera.get(
+                "default_index",
+                0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        camera_index = -1
+
+    if camera_index < 0:
+        issues.append(
+            _issue(
+                "error",
+                "camera_default_index_invalid",
+                (
+                    "camera.default_index måste vara "
+                    "ett heltal >= 0."
+                ),
+            )
+        )
+
+    for (
+        key,
+        default,
+        minimum,
+        maximum,
+        code,
+    ) in (
+        (
+            "video_duration_seconds",
+            5.0,
+            0.1,
+            60.0,
+            "camera_video_duration_invalid",
+        ),
+        (
+            "video_fps",
+            10.0,
+            0.1,
+            30.0,
+            "camera_video_fps_invalid",
+        ),
+        (
+            "stream_duration_seconds",
+            5.0,
+            0.1,
+            60.0,
+            "camera_stream_duration_invalid",
+        ),
+        (
+            "stream_fps",
+            2.0,
+            0.1,
+            30.0,
+            "camera_stream_fps_invalid",
+        ),
+    ):
+        try:
+            value = float(
+                camera.get(
+                    key,
+                    default,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = minimum - 1.0
+
+        if not (
+            minimum
+            <= value
+            <= maximum
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"camera.{key} måste vara "
+                        f"mellan {minimum:g} och {maximum:g}."
+                    ),
+                )
+            )
+
+    for (
+        key,
+        default,
+        minimum,
+        maximum,
+        code,
+    ) in (
+        (
+            "video_sample_count",
+            5,
+            1,
+            12,
+            "camera_video_sample_count_invalid",
+        ),
+        (
+            "stream_max_frames",
+            10,
+            1,
+            300,
+            "camera_stream_max_frames_invalid",
+        ),
+    ):
+        try:
+            value = int(
+                camera.get(
+                    key,
+                    default,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = minimum - 1
+
+        if not (
+            minimum
+            <= value
+            <= maximum
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"camera.{key} måste vara "
+                        f"mellan {minimum} och {maximum}."
+                    ),
+                )
+            )
+
     voice = settings.get(
         "voice",
         {},
