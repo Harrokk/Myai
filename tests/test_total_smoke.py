@@ -15,6 +15,7 @@ from core.config_validation import validate_settings
 from core.memory import MemoryStore
 from core import public_web_client
 from core import tool_manager
+from core.ventuno_preflight import run_ventuno_preflight, DEFAULT_ROUTER_SOCKET
 
 
 def _public_resolver(host, port, type=None):
@@ -152,3 +153,53 @@ def test_total_smoke_routing_does_not_match_status_substrings():
     assert tool_manager.detect_tools(
         "Kan du diskutera program och bildramar?"
     ) == []
+
+
+def test_total_smoke_ventuno_safe_profile_preflight():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["llm"]["provider"] = "geniex"
+    settings["geniex"]["model"] = "ai-hub-models/Qwen3-4B-Instruct-2507"
+    settings["ventuno"]["enabled"] = True
+    settings["ventuno"]["rpc_enabled"] = False
+    settings["ventuno"]["rpc_write_enabled"] = False
+    settings["camera"]["enabled"] = False
+    settings["voice"]["enabled"] = False
+    settings["location"]["enabled"] = False
+    settings["trusted_terminals"]["enabled"] = False
+    settings["hardware_watch"]["enabled"] = False
+    settings["vision"]["enabled"] = False
+    settings["excel"]["enabled"] = False
+    settings["excel"]["write_enabled"] = False
+
+    class _Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def runner(command):
+        if command[-1] == "--version":
+            return _Result("geniex 0.8.0")
+        if command[-2:] == ["model", "list"]:
+            return _Result("Qwen3-4B-Instruct-2507")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    result = run_ventuno_preflight(
+        settings,
+        machine="aarch64",
+        system="Linux",
+        python_version="3.12.7",
+        board_model="Arduino VENTUNO Q Qualcomm QCS8275",
+        which=lambda name: "/usr/bin/geniex" if name == "geniex" else None,
+        path_exists=lambda path: path == DEFAULT_ROUTER_SOCKET,
+        module_available=lambda name: False,
+        command_runner=runner,
+    )
+
+    assert result["passed"] is True
+    failures = [
+        item for item in result["checks"]
+        if item["status"] == "FAIL"
+    ]
+    assert failures == []
