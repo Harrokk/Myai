@@ -37,6 +37,14 @@ Store this bundle privately. Never commit or upload it back to the public reposi
 
 ## 3. Verify the unwanted paths are present before rewriting
 
+Run the repository verifier first:
+
+~~~bash
+python scripts/verify_git_history_cleanup.py
+~~~
+
+Before cleanup this command is expected to exit with status 1 and list the reachable forbidden objects. Save that output privately as the before-state.
+
 ~~~bash
 git log --all --full-history -- memory.db __init__.cpython-314.pyc system.cpython-314.pyc
 ~~~
@@ -107,6 +115,14 @@ git push --force --tags origin
 If GitHub rejects protected branches, stop and adjust branch protection deliberately rather than bypassing unrelated safety controls.
 
 ## 8. Post-rewrite verification
+
+Run the same repository verifier again:
+
+~~~bash
+python scripts/verify_git_history_cleanup.py
+~~~
+
+After cleanup this command must exit with status 0 and report that no forbidden objects are reachable via branches/tags.
 
 From a brand-new clone:
 
