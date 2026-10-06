@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 from core.jsonl_log import (
     append_jsonl,
@@ -123,3 +124,48 @@ def test_zero_backups_discards_old_log(tmp_path):
     )
 
     assert path.exists() is False
+
+
+def test_concurrent_appends_do_not_lose_records(tmp_path):
+    path = tmp_path / "events.jsonl"
+    count = 100
+
+    def write(index):
+        append_jsonl(
+            path,
+            {"index": index},
+            max_bytes=1_000_000,
+            backups=2,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(write, range(count)))
+
+    records = read_lines(path)
+    assert len(records) == count
+    assert {record["index"] for record in records} == set(range(count))
+
+
+def test_concurrent_rotation_keeps_jsonl_files_parseable(tmp_path):
+    path = tmp_path / "events.jsonl"
+
+    def write(index):
+        append_jsonl(
+            path,
+            {"index": index, "payload": "x" * 20},
+            max_bytes=120,
+            backups=4,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(write, range(80)))
+
+    files = [path] + [
+        tmp_path / f"events.jsonl.{index}"
+        for index in range(1, 5)
+    ]
+    existing = [item for item in files if item.exists()]
+
+    assert existing
+    for item in existing:
+        assert read_lines(item)
