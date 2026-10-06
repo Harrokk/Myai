@@ -318,7 +318,10 @@ def test_verifier_stops_before_pytest_when_type_check_fails(
     assert len(calls) == 1
     assert result["checks"][0][
         "type"
-    ] == "python-compile"
+    ] == "json"
+    assert result["checks"][0][
+        "path"
+    ] == "config/broken.json"
     assert result["checks"][0][
         "passed"
     ] is False
