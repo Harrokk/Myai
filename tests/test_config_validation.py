@@ -857,3 +857,59 @@ def test_default_intermediate_result_config_is_valid():
             "errors"
         ]
     )
+
+
+def test_tool_routing_fallback_flag_must_be_boolean():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "tool_routing"
+    ][
+        "llm_fallback_enabled"
+    ] = "false"
+
+    result = validate_settings(
+        settings
+    )
+
+    assert any(
+        item["code"]
+        == "tool_routing_llm_fallback_invalid"
+        for item in result["errors"]
+    )
+
+
+def test_camera_workload_limits_fail_closed():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["camera"].update(
+        {
+            "default_index": -1,
+            "stream_enabled": "yes",
+            "video_duration_seconds": 61,
+            "video_fps": 31,
+            "video_sample_count": 13,
+            "stream_duration_seconds": 61,
+            "stream_fps": 31,
+            "stream_max_frames": 301,
+        }
+    )
+
+    result = validate_settings(
+        settings
+    )
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+
+    assert {
+        "camera_default_index_invalid",
+        "camera_stream_enabled_invalid",
+        "camera_video_duration_invalid",
+        "camera_video_fps_invalid",
+        "camera_video_sample_count_invalid",
+        "camera_stream_duration_invalid",
+        "camera_stream_fps_invalid",
+        "camera_stream_max_frames_invalid",
+    }.issubset(
+        codes
+    )
