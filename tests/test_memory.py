@@ -51,3 +51,56 @@ def test_memory_store_save_if_new_avoids_exact_duplicates(tmp_path):
     ) is False
 
     assert len(memory.get_all()) == 1
+
+
+def test_memory_search_ranks_multiple_keyword_matches_first(
+    tmp_path,
+):
+    memory = MemoryStore(
+        tmp_path
+        / "memory.db"
+    )
+    memory.init()
+
+    strong_id = memory.save(
+        "project",
+        "alpha beta gemensam träff",
+    )
+    memory.save(
+        "project",
+        "alpha nyare enkel träff",
+    )
+
+    results = memory.search(
+        "alpha beta"
+    )
+
+    assert results
+    assert results[
+        0
+    ][
+        0
+    ] == strong_id
+
+
+def test_memory_search_deduplicates_query_keywords(
+    tmp_path,
+):
+    memory = MemoryStore(
+        tmp_path
+        / "memory.db"
+    )
+    memory.init()
+    memory.save(
+        "project",
+        "alpha beta",
+    )
+
+    once = memory.search(
+        "alpha beta"
+    )
+    repeated = memory.search(
+        "alpha alpha beta beta"
+    )
+
+    assert repeated == once
