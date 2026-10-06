@@ -129,7 +129,7 @@
     "max_lines": 20
   },
   "hardware_watch": {
-    "enabled": true,
+    "enabled": false,
     "interval_seconds": 30
   },
   "trusted_terminals": {
@@ -145,5 +145,8 @@
     "connector_timeout_seconds": 10,
     "require_service_uuid": true,
     "terminals": []
+  },
+  "tool_routing": {
+    "llm_fallback_enabled": false
   }
 }
