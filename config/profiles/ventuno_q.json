@@ -148,5 +148,11 @@
   },
   "tool_routing": {
     "llm_fallback_enabled": false
+  },
+  "excel": {
+    "enabled": false,
+    "write_enabled": false,
+    "max_rows_read": 100,
+    "default_sheet": "Data"
   }
 }
