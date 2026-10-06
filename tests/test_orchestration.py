@@ -668,3 +668,28 @@ def test_dependent_visual_research_without_current_source_is_blocked():
     assert plan[
         "steps"
     ] == []
+
+
+def test_orchestration_status_hints_require_complete_words():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    available = tools(
+        "ram_status",
+        "temperature_status",
+        "disk_status",
+    )
+
+    for text in (
+        "Visa program status.",
+        "Det blir varmt senare.",
+        "Vi ska diskutera status.",
+    ):
+        plan = build_safe_orchestration_plan(
+            text,
+            available_tools=available,
+            detect_function=lambda _text: [],
+            settings=settings,
+        )
+
+        assert plan["steps"] == []

@@ -157,6 +157,28 @@ def _split_clauses(
     ]
 
 
+def _contains_phrase(
+    text,
+    phrase,
+):
+    return bool(
+        re.search(
+            r"(?<!\\w)"
+            + re.escape(
+                str(
+                    phrase
+                    or ""
+                ).lower()
+            )
+            + r"(?!\\w)",
+            str(
+                text
+                or ""
+            ).lower(),
+        )
+    )
+
+
 def _status_hint_tools(
     clause,
 ):
@@ -168,7 +190,10 @@ def _status_hint_tools(
 
     for keywords, tool_name in _STATUS_HINTS:
         if any(
-            keyword in text
+            _contains_phrase(
+                text,
+                keyword,
+            )
             for keyword in keywords
         ):
             results.append(

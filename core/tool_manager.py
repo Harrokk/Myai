@@ -1,5 +1,6 @@
 import importlib
 import pkgutil
+import re
 
 import modules
 
@@ -161,6 +162,28 @@ TOOL_KEYWORDS = {
 }
 
 
+
+
+def _contains_phrase(
+    text,
+    phrase,
+):
+    return bool(
+        re.search(
+            r"(?<!\\w)"
+            + re.escape(
+                str(
+                    phrase
+                    or ""
+                ).lower()
+            )
+            + r"(?!\\w)",
+            str(
+                text
+                or ""
+            ).lower(),
+        )
+    )
 
 
 def _log_error(
@@ -1014,13 +1037,25 @@ def detect_tools(user_input):
     if mentions_bluetooth and asks_proximity:
         return ["bluetooth_nearby"]
 
-    if not any(word in text for word in STATUS_WORDS):
+    if not any(
+        _contains_phrase(
+            text,
+            word,
+        )
+        for word in STATUS_WORDS
+    ):
         return []
 
     detected_tools = []
 
     for tool_name, keywords in TOOL_KEYWORDS.items():
-        if any(word in text for word in keywords):
+        if any(
+            _contains_phrase(
+                text,
+                word,
+            )
+            for word in keywords
+        ):
             detected_tools.append(tool_name)
 
     return detected_tools

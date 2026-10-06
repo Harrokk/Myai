@@ -22,6 +22,15 @@ def test_detect_tools_finds_cpu_and_ram_together():
     assert result == ["cpu_status", "ram_status"]
 
 
+def test_detect_tools_does_not_match_status_keywords_inside_other_words():
+    assert tool_manager.detect_tools(
+        "Hur mycket program använder datorn?"
+    ) == []
+    assert tool_manager.detect_tools(
+        "Vi ska diskutera status."
+    ) == []
+
+
 def test_detect_tools_finds_temperature():
     result = tool_manager.detect_tools("Hur varm är datorn?")
     assert result == ["temperature_status"]
