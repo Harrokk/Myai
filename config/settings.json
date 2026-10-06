@@ -293,5 +293,8 @@
     "max_query_chars": 240,
     "max_age_seconds": 1800,
     "require_confirmation": true
+  },
+  "tool_routing": {
+    "llm_fallback_enabled": true
   }
 }
