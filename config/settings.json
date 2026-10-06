@@ -1,7 +1,30 @@
 {
+  "schema_version": 2,
+  "llm": {
+    "provider": "ollama",
+    "fallback": {
+      "enabled": false,
+      "provider": "geniex",
+      "model": "",
+      "health_aware": {
+        "enabled": false,
+        "failure_threshold": 3,
+        "recovery_success_threshold": 3
+      }
+    }
+  },
   "ollama": {
     "url": "http://localhost:11434/api/chat",
     "model": "qwen3:8b"
+  },
+  "geniex": {
+    "base_url": "http://127.0.0.1:18181/v1",
+    "model": "ai-hub-models/Qwen3-4B-Instruct-2507",
+    "api_key": "geniex",
+    "max_tokens": 256,
+    "temperature": 0.4,
+    "enable_think": false,
+    "stream_enabled": true
   },
   "memory": {
     "database": "memory.db",
@@ -9,14 +32,25 @@
     "auto_assess_enabled": true,
     "auto_save_enabled": true,
     "auto_save_threshold": 80,
-    "review_threshold": 55
+    "review_threshold": 55,
+    "lifecycle_enabled": true,
+    "auto_supersede_explicit_updates": true,
+    "conflict_similarity_threshold": 0.65,
+    "supersede_similarity_threshold": 0.85,
+    "max_conflict_scan": 200,
+    "stale_after_days": 0,
+    "review_queue_enabled": true,
+    "administration_limit": 50,
+    "stale_review_days": 365,
+    "permanent_delete_enabled": true
   },
   "assistant": {
     "name": "MyAI v2",
-    "engine": "Ollama",
-    "gpu": "NVIDIA RTX 3060 12 GB",
+    "engine": "Local LLM provider",
     "memory_label": "SQLite",
-    "future_target": "Raspberry Pi 5 B"
+    "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",
+    "current_platform": "Windows-dator",
+    "compute_accelerator": "NVIDIA RTX 3060 12 GB"
   },
   "conversation": {
     "max_turns": 6
@@ -43,7 +77,10 @@
     "enabled": false,
     "url": "http://localhost:11434/api/chat",
     "model": "",
-    "timeout_seconds": 120
+    "timeout_seconds": 120,
+    "provider": "ollama",
+    "max_tokens": 256,
+    "temperature": 0.2
   },
   "camera": {
     "default_index": 0,
@@ -56,7 +93,8 @@
     "stream_enabled": false,
     "stream_duration_seconds": 5,
     "stream_fps": 2,
-    "stream_max_frames": 10
+    "stream_max_frames": 10,
+    "enabled": true
   },
   "location": {
     "enabled": false,
@@ -92,6 +130,13 @@
     "max_page_bytes": 1000000,
     "max_page_chars": 20000,
     "max_redirects": 5
+  },
+  "fx": {
+    "enabled": false,
+    "provider": "ecb",
+    "ecb_url": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+    "target_currency": "SEK",
+    "max_age_days": 7
   },
   "files": {
     "enabled": true,
@@ -158,6 +203,98 @@
     "high_risk_confirmation_enabled": true,
     "high_risk_confirmation_window_seconds": 15,
     "high_risk_confirmation_min_confidence": 0.8,
-    "high_risk_confirmation_transcript_count": 3
+    "high_risk_confirmation_transcript_count": 3,
+    "llm_streaming_enabled": false,
+    "stream_tts_min_chars": 24,
+    "stream_tts_max_chars": 220,
+    "stream_tts_stop_timeout_seconds": 2,
+    "release_microphone_during_inference": false,
+    "model_handoff_delay_seconds": 0,
+    "release_stt_before_model": false,
+    "backup_stt_provider": "faster_whisper"
+  },
+  "ventuno": {
+    "enabled": false,
+    "rpc_enabled": false,
+    "rpc_write_enabled": false,
+    "rpc_connect_timeout_seconds": 5,
+    "rpc_call_timeout_seconds": 5,
+    "rpc_allowed_read_methods": [],
+    "rpc_allowed_write_methods": []
+  },
+  "geniex_supervisor": {
+    "enabled": false,
+    "health_timeout_seconds": 3,
+    "failure_threshold": 3,
+    "restart_enabled": false,
+    "restart_command": [],
+    "restart_timeout_seconds": 30,
+    "restart_cooldown_seconds": 60,
+    "max_restart_attempts": 3,
+    "state_path": "runtime/geniex_health.json",
+    "state_stale_seconds": 30
+  },
+  "health": {
+    "state_path": "runtime/myai_health.json",
+    "state_stale_seconds": 60
+  },
+  "logging": {
+    "jsonl_max_bytes": 5000000,
+    "jsonl_backups": 5
+  },
+  "runtime": {
+    "require_preflight": false,
+    "heartbeat_path": "runtime/myai_runtime.json",
+    "heartbeat_interval_seconds": 10,
+    "shutdown_timeout_seconds": 10
+  },
+  "selfdev": {
+    "enabled": false,
+    "workspace_root": "runtime/selfdev",
+    "promotion_enabled": false,
+    "require_bubblewrap": true,
+    "verification_timeout_seconds": 300
+  },
+  "stability_analysis": {
+    "log_path": "runtime/ventuno_stability.jsonl",
+    "max_records": 10000,
+    "target_hours": 72,
+    "trend_fraction": 0.25,
+    "latency_degradation_ratio": 1.25
+  },
+  "audit_logging": {
+    "enabled": true,
+    "require_for_writes": true,
+    "path": "runtime/audit.jsonl",
+    "max_detail_chars": 200,
+    "recent_limit": 20
+  },
+  "diagnostics": {
+    "runtime_stale_seconds": 30
+  },
+  "weather": {
+    "enabled": false,
+    "provider": "open_meteo",
+    "geocoding_url": "https://geocoding-api.open-meteo.com/v1/search",
+    "forecast_url": "https://api.open-meteo.com/v1/forecast",
+    "default_location": "",
+    "language": "sv",
+    "forecast_days": 3
+  },
+  "orchestration": {
+    "enabled": true,
+    "max_tools": 5,
+    "max_result_chars_per_tool": 6000,
+    "allow_local_capture": true
+  },
+  "intermediate_results": {
+    "enabled": true,
+    "max_pending": 5,
+    "max_query_chars": 240,
+    "max_age_seconds": 1800,
+    "require_confirmation": true
+  },
+  "tool_routing": {
+    "llm_fallback_enabled": true
   }
 }

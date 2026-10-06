@@ -799,3 +799,143 @@ def test_missing_confirmation_confidence_without_majority_does_not_execute():
     assert result["status"] == "confirmation_required"
     assert assistant.messages == []
     assert pipeline.pending_confirmation is not None
+
+
+class FakeStreamingAssistant:
+    def __init__(self):
+        self.messages = []
+
+    def respond(self, message):
+        raise AssertionError(
+            "respond() ska inte användas när streaming är aktiverad."
+        )
+
+    def respond_stream(
+        self,
+        message,
+        on_chunk=None,
+    ):
+        self.messages.append(message)
+        chunks = [
+            "Första meningen. ",
+            "Andra meningen.",
+        ]
+
+        for chunk in chunks:
+            if on_chunk is not None:
+                on_chunk(chunk)
+
+        return {
+            "answer": "".join(chunks),
+            "tools": [],
+            "tool_results": {},
+            "streamed": True,
+        }
+
+
+def test_voice_pipeline_can_stream_llm_into_tts_queue():
+    assistant = FakeStreamingAssistant()
+    tts = FakeTTS()
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT(
+            {
+                "text": "Berätta något",
+                "confidence": 0.99,
+            }
+        ),
+        tts=tts,
+        settings=settings(
+            tts_enabled=True,
+            llm_streaming_enabled=True,
+            stream_tts_min_chars=5,
+            stream_tts_max_chars=100,
+        ),
+    )
+
+    result = pipeline.process_utterance(
+        b"audio"
+    )
+
+    assert result["status"] == "completed"
+    assert result["assistant"]["streamed"] is True
+    assert pipeline.streaming_tts is not None
+    assert pipeline.streaming_tts.wait(
+        timeout=1
+    ) is True
+    assert tts.spoken == [
+        "Första meningen.",
+        "Andra meningen.",
+    ]
+    assert assistant.messages == [
+        "Berätta något"
+    ]
+
+
+def test_voice_interrupt_stops_streaming_tts_queue():
+    assistant = FakeStreamingAssistant()
+    tts = FakeTTS()
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT(
+            {
+                "text": "Berätta något",
+                "confidence": 0.99,
+            }
+        ),
+        tts=tts,
+        settings=settings(
+            tts_enabled=True,
+            llm_streaming_enabled=True,
+            stream_tts_min_chars=5,
+        ),
+    )
+
+    pipeline.process_utterance(
+        b"audio"
+    )
+    pipeline.interrupt()
+
+    assert tts.stopped is True
+
+
+
+def test_resource_handoff_hook_runs_after_stt_before_assistant():
+    events = []
+
+    class OrderedSTT:
+        def transcribe(self, audio):
+            events.append("stt")
+            return {
+                "text": "Hej",
+                "confidence": 0.99,
+            }
+
+    class OrderedAssistant:
+        def respond(self, message):
+            events.append("assistant")
+            return {
+                "answer": "Svar",
+                "tools": [],
+                "tool_results": {},
+            }
+
+    pipeline = VoicePipeline(
+        OrderedAssistant(),
+        OrderedSTT(),
+        settings=settings(),
+        before_assistant=lambda: events.append(
+            "handoff"
+        ),
+    )
+
+    result = pipeline.process_utterance(
+        b"audio"
+    )
+
+    assert result["status"] == "completed"
+    assert events == [
+        "stt",
+        "handoff",
+        "assistant",
+    ]

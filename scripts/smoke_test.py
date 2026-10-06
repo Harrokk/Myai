@@ -21,6 +21,10 @@ EXPECTED_TOOLS = [
     "disk_status",
     "usb_status",
     "bluetooth_status",
+    "ventuno_rpc_status",
+    "geniex_status",
+    "myai_health_status",
+    "ventuno_mcu_status",
 ]
 
 
@@ -42,7 +46,8 @@ def main():
     core.initialize()
 
     print(f"Modell: {core.model}")
-    print(f"Ollama: {core.ollama_url}")
+    print(f"LLM-provider: {core.llm_provider}")
+    print(f"LLM-endpoint: {core.llm_url}")
     print(f"Verktyg laddade: {len(core.tools)}")
 
     missing = [
@@ -99,10 +104,10 @@ def main():
             print(f"FEL: {error}")
             return 1
 
-    print_section("Ollama")
+    print_section("LLM-provider")
 
     try:
-        ollama_answer = core.llm.chat(
+        llm_answer = core.llm.chat(
             [
                 {
                     "role": "user",
@@ -112,13 +117,18 @@ def main():
             timeout=60,
         )
     except Exception as error:
-        print(f"FEL: kunde inte få svar från Ollama: {error}")
+        print(
+            f"FEL: kunde inte få svar från "
+            f"{core.llm_provider}: {error}"
+        )
         return 1
 
-    print("Ollama svarade:", ollama_answer)
+    print(f"{core.llm_provider} svarade:", llm_answer)
 
-    if not ollama_answer.strip():
-        print("FEL: Ollama returnerade ett tomt svar.")
+    if not llm_answer.strip():
+        print(
+            f"FEL: {core.llm_provider} returnerade ett tomt svar."
+        )
         return 1
 
     print_section("Full multi-tool-fråga")

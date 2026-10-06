@@ -159,3 +159,100 @@ def test_tool_registry_uses_user_text_input():
     assert workspace.TOOLS["workspace_list"]["pass_user_input"] is True
     assert workspace.TOOLS["workspace_read"]["pass_user_input"] is True
     assert workspace.TOOLS["workspace_write"]["pass_user_input"] is True
+
+
+def test_workspace_write_tool_audits_without_logging_content(
+    tmp_path,
+    monkeypatch,
+):
+    cfg = settings(
+        tmp_path,
+        write_enabled=True,
+    )
+    cfg["audit_logging"] = {
+        "enabled": True,
+        "require_for_writes": True,
+        "path": "runtime/audit.jsonl",
+        "max_detail_chars": 200,
+        "recent_limit": 20,
+    }
+    cfg["logging"] = {
+        "jsonl_max_bytes": 100000,
+        "jsonl_backups": 2,
+    }
+    monkeypatch.setattr(
+        workspace,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        workspace,
+        "load_settings",
+        lambda: cfg,
+    )
+
+    result = workspace.workspace_write(
+        'Skapa filen "note.txt" med innehållet TOP_SECRET_PAYLOAD.'
+    )
+
+    assert "sparades" in result
+    audit_path = (
+        tmp_path
+        / "runtime"
+        / "audit.jsonl"
+    )
+    audit_text = audit_path.read_text(
+        encoding="utf-8"
+    )
+
+    assert "workspace_write" in audit_text
+    assert '"outcome":"attempt"' in audit_text
+    assert '"outcome":"success"' in audit_text
+    assert "TOP_SECRET_PAYLOAD" not in audit_text
+
+
+def test_workspace_write_disabled_is_audited_as_denied(
+    tmp_path,
+    monkeypatch,
+):
+    cfg = settings(
+        tmp_path,
+        write_enabled=False,
+    )
+    cfg["audit_logging"] = {
+        "enabled": True,
+        "require_for_writes": True,
+        "path": "runtime/audit.jsonl",
+        "max_detail_chars": 200,
+        "recent_limit": 20,
+    }
+    monkeypatch.setattr(
+        workspace,
+        "PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        workspace,
+        "load_settings",
+        lambda: cfg,
+    )
+
+    result = workspace.workspace_write(
+        'Skapa filen "note.txt" med innehållet Hej.'
+    )
+
+    assert "avstängd" in result
+    audit_text = (
+        tmp_path
+        / "runtime"
+        / "audit.jsonl"
+    ).read_text(
+        encoding="utf-8"
+    )
+    assert '"outcome":"attempt"' in audit_text
+    assert '"outcome":"denied"' in audit_text
+    assert not (
+        tmp_path
+        / "workspace"
+        / "note.txt"
+    ).exists()

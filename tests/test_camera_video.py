@@ -176,3 +176,174 @@ def test_format_video_result_reports_clip():
 
     assert "test.mp4" in text
     assert "50 bildrutor" in text
+
+
+def test_record_video_from_settings_stops_before_opening_disabled_camera():
+    class FailCV2:
+        def VideoCapture(self, *args):
+            raise AssertionError(
+                "Avstängd kamera får inte öppnas."
+            )
+
+    result = video.record_video_from_settings(
+        settings={
+            "camera": {
+                "enabled": False,
+                "default_index": 0,
+            }
+        },
+        cv2_module=FailCV2(),
+    )
+
+    assert result["success"] is False
+    assert result["disabled"] is True
+    assert "avstängd" in result["error"]
+
+
+class FakeTimeline:
+    def __init__(
+        self,
+    ):
+        self.now = 0.0
+        self.sleeps = []
+
+    def clock(
+        self,
+    ):
+        return self.now
+
+    def sleep(
+        self,
+        seconds,
+    ):
+        value = max(
+            0.0,
+            float(
+                seconds
+            ),
+        )
+        self.sleeps.append(
+            value
+        )
+        self.now += value
+
+
+def test_record_clip_paces_fast_camera_to_requested_fps(
+    tmp_path,
+):
+    camera = FakeCamera(
+        [
+            frame(),
+            frame(),
+            frame(),
+        ]
+    )
+    writer = FakeWriter()
+    cv2 = FakeCV2(
+        camera,
+        writer,
+    )
+    timeline = FakeTimeline()
+
+    result = video.record_clip(
+        output_path=tmp_path
+        / "paced.mp4",
+        duration_seconds=1,
+        fps=3,
+        cv2_module=cv2,
+        clock=timeline.clock,
+        sleep_fn=timeline.sleep,
+    )
+
+    assert result[
+        "success"
+    ] is True
+    assert len(
+        timeline.sleeps
+    ) == 2
+    assert abs(
+        sum(
+            timeline.sleeps
+        )
+        - (
+            2.0
+            / 3.0
+        )
+    ) < 0.001
+
+
+def test_record_clip_rejects_excessive_duration_and_fps():
+    for kwargs, expected in (
+        (
+            {
+                "duration_seconds": (
+                    video.MAX_VIDEO_DURATION_SECONDS
+                    + 1
+                ),
+                "fps": 10,
+            },
+            "högst",
+        ),
+        (
+            {
+                "duration_seconds": 1,
+                "fps": (
+                    video.MAX_VIDEO_FPS
+                    + 1
+                ),
+            },
+            "högst",
+        ),
+    ):
+        try:
+            video.record_clip(
+                cv2_module=object(),
+                **kwargs,
+            )
+        except ValueError as error:
+            assert expected in str(
+                error
+            )
+        else:
+            raise AssertionError(
+                "Överstor videokonfiguration ska blockeras."
+            )
+
+
+def test_record_video_from_settings_passes_pacing_dependencies(
+    tmp_path,
+):
+    camera = FakeCamera(
+        [
+            frame(),
+            frame(),
+        ]
+    )
+    cv2 = FakeCV2(
+        camera
+    )
+    timeline = FakeTimeline()
+
+    result = video.record_video_from_settings(
+        settings={
+            "camera": {
+                "enabled": True,
+                "default_index": 0,
+                "video_dir": str(
+                    tmp_path
+                ),
+                "video_duration_seconds": 1,
+                "video_fps": 2,
+            }
+        },
+        cv2_module=cv2,
+        clock=timeline.clock,
+        sleep_fn=timeline.sleep,
+    )
+
+    assert result[
+        "success"
+    ] is True
+    assert timeline.sleeps == [
+        0.5
+    ]

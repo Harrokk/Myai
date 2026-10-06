@@ -1,6 +1,7 @@
 import json
 
 from core.config import DEFAULT_SETTINGS, load_settings
+from core.config_schema import CURRENT_CONFIG_SCHEMA_VERSION
 
 
 def test_load_settings_uses_defaults_when_file_is_missing(tmp_path):
@@ -19,15 +20,72 @@ def test_load_settings_merges_partial_override(tmp_path):
 
     settings = load_settings(path)
 
+    assert settings["llm"]["provider"] == "ollama"
+    assert settings["llm"]["fallback"]["enabled"] is False
+    assert settings["llm"]["fallback"]["model"] == ""
+    assert (
+        settings["llm"]["fallback"]["health_aware"]["enabled"]
+        is False
+    )
+    assert (
+        settings["llm"]["fallback"]["health_aware"]["failure_threshold"]
+        == 3
+    )
+    assert (
+        settings["llm"]["fallback"]["health_aware"][
+            "recovery_success_threshold"
+        ]
+        == 3
+    )
     assert settings["ollama"]["model"] == "test-model"
     assert settings["ollama"]["url"] == DEFAULT_SETTINGS["ollama"]["url"]
+    assert settings["geniex"]["base_url"] == "http://127.0.0.1:18181/v1"
+    assert settings["geniex"]["model"] == "ai-hub-models/Qwen3-4B-Instruct-2507"
+    assert settings["geniex"]["max_tokens"] == 256
+    assert settings["geniex"]["temperature"] == 0.4
+    assert settings["geniex"]["enable_think"] is False
+    assert settings["geniex"]["stream_enabled"] is True
+    assert settings["geniex_supervisor"]["enabled"] is False
+    assert settings["geniex_supervisor"]["restart_enabled"] is False
+    assert settings["geniex_supervisor"]["restart_command"] == []
+    assert settings["geniex_supervisor"]["failure_threshold"] == 3
+    assert settings["geniex_supervisor"]["state_path"] == (
+        "runtime/geniex_health.json"
+    )
+    assert settings["geniex_supervisor"]["state_stale_seconds"] == 30.0
+    assert settings["health"]["state_path"] == "runtime/myai_health.json"
+    assert settings["health"]["state_stale_seconds"] == 60.0
+    assert settings["logging"]["jsonl_max_bytes"] == 5_000_000
+    assert settings["logging"]["jsonl_backups"] == 5
+    assert settings["selfdev"]["enabled"] is False
+    assert settings["selfdev"]["promotion_enabled"] is False
+    assert settings["selfdev"]["require_bubblewrap"] is True
+    assert settings["selfdev"]["workspace_root"] == "runtime/selfdev"
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
+    assert settings["assistant"]["compute_accelerator"] == (
+        "NVIDIA RTX 3060 12 GB"
+    )
+    assert "gpu" not in settings["assistant"]
+    assert settings["assistant"]["future_target"] == (
+        "Arduino VENTUNO Q / Dragonwing QCS8275"
+    )
     assert settings["conversation"]["max_turns"] == 6
+    assert settings["runtime"]["require_preflight"] is False
+    assert settings["runtime"]["heartbeat_path"] == (
+        "runtime/myai_runtime.json"
+    )
+    assert settings["runtime"]["heartbeat_interval_seconds"] == 10.0
+    assert settings["runtime"]["shutdown_timeout_seconds"] == 10.0
     assert settings["hardware_watch"]["enabled"] is True
     assert settings["hardware_watch"]["interval_seconds"] == 10
     assert settings["trusted_terminals"]["enabled"] is False
     assert settings["trusted_terminals"]["connect_rssi"] == -60
     assert settings["trusted_terminals"]["disconnect_rssi"] == -75
+    assert settings["ventuno"]["enabled"] is False
+    assert settings["ventuno"]["rpc_enabled"] is False
+    assert settings["ventuno"]["rpc_write_enabled"] is False
+    assert settings["ventuno"]["rpc_allowed_read_methods"] == []
+    assert settings["ventuno"]["rpc_allowed_write_methods"] == []
     assert settings["camera"]["default_index"] == 0
     assert settings["camera"]["capture_dir"] == "runtime/captures"
     assert settings["camera"]["video_dir"] == "runtime/video"
@@ -40,8 +98,17 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["camera"]["stream_fps"] == 2
     assert settings["camera"]["stream_max_frames"] == 10
     assert settings["vision"]["enabled"] is False
+    assert settings["vision"]["provider"] == "ollama"
     assert settings["vision"]["model"] == ""
     assert settings["vision"]["timeout_seconds"] == 120
+    assert settings["vision"]["max_tokens"] == 256
+    assert settings["vision"]["temperature"] == 0.2
+    assert (
+        settings["voice"]["release_microphone_during_inference"]
+        is False
+    )
+    assert settings["voice"]["model_handoff_delay_seconds"] == 0.0
+    assert settings["voice"]["release_stt_before_model"] is False
     assert settings["location"]["enabled"] is False
     assert settings["location"]["source"] == "gps_serial"
     assert settings["location"]["serial_port"] == ""
@@ -66,3 +133,105 @@ def test_default_internet_page_fetch_limits_exist():
     assert internet["max_page_bytes"] == 1_000_000
     assert internet["max_page_chars"] == 20_000
     assert internet["max_redirects"] == 5
+
+
+
+def test_environment_can_select_settings_profile(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "ventuno.json"
+    path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "geniex",
+                },
+                "assistant": {
+                    "current_platform": "VENTUNO test",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "MYAI_SETTINGS",
+        str(path),
+    )
+
+    settings = load_settings()
+
+    assert settings["llm"]["provider"] == "geniex"
+    assert settings["assistant"]["current_platform"] == "VENTUNO test"
+    assert settings["ollama"]["model"] == "qwen3:8b"
+
+
+def test_explicit_settings_path_overrides_environment(
+    tmp_path,
+    monkeypatch,
+):
+    env_path = tmp_path / "env.json"
+    explicit_path = tmp_path / "explicit.json"
+    env_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "geniex",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    explicit_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "ollama",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "MYAI_SETTINGS",
+        str(env_path),
+    )
+
+    settings = load_settings(
+        explicit_path
+    )
+
+    assert settings["llm"]["provider"] == "ollama"
+
+
+def test_default_settings_have_current_schema_version():
+    assert DEFAULT_SETTINGS[
+        "schema_version"
+    ] == CURRENT_CONFIG_SCHEMA_VERSION
+
+
+def test_partial_override_receives_current_schema_version(
+    tmp_path,
+):
+    path = (
+        tmp_path
+        / "settings.json"
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "ollama": {
+                    "model": "test-model",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_settings(
+        path
+    )
+
+    assert settings[
+        "schema_version"
+    ] == CURRENT_CONFIG_SCHEMA_VERSION

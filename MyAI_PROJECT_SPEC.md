@@ -4,7 +4,7 @@
 
 MyAI ska vara en lokal, personlig AI-assistent som i första hand körs lokalt på användarens egen hårdvara men som kan använda internet när det behövs.
 
-Systemet ska vara modulärt, utbyggbart och kunna växa från nuvarande Windows-baserade utvecklingsmiljö till att i framtiden köras på en Raspberry Pi 5B med utökat RAM-minne.
+Systemet ska vara modulärt, utbyggbart och kunna växa från nuvarande Windows-baserade utvecklingsmiljö till att i framtiden köras på en Arduino VENTUNO Q med Qualcomm Dragonwing QCS8275 och 16 GB RAM.
 
 Målet är att skapa en AI-assistent som kan förstå naturliga röstkommandon, arbeta med lokal hårdvara och externa enheter, använda verktyg, läsa och ändra filer, skriva kod, testa uppdateringar och ge tydliga svar utan att hitta på information.
 
@@ -52,12 +52,17 @@ Användaren ska inte behöva känna till interna kommandon, funktionsnamn eller 
 - modulärt verktygssystem
 
 ### Framtida målplattform
-- Raspberry Pi 5B
-- utökat RAM-minne
-- lokal AI-modell anpassad efter tillgänglig prestanda
+- Arduino VENTUNO Q
+- Qualcomm Dragonwing QCS8275
+- 16 GB LPDDR5 och 64 GB eMMC
+- Qualcomm GenieX/QAIRT som primär lokal AI-backend
+- Qwen3-4B som planerad normal lokal språkmodell
+- separat STM32-baserad realtidsdel för tidskritisk I/O
 - möjlighet att ansluta externa sensorer, terminaler och annan hårdvara
 
-Arkitekturen ska byggas så att så mycket kod som möjligt kan återanvändas vid flytten från Windows till Raspberry Pi.
+Arkitekturen ska byggas så att så mycket kod som möjligt kan återanvändas vid flytten från Windows till VENTUNO Q. Ollama ska fortsatt kunna användas i Windows-utvecklingsmiljön medan AI-kärnan använder ett provider-neutralt gränssnitt mot vald lokal modellmotor.
+
+Raspberry Pi-runtimeprofilen är pensionerad och de aktiva `modules/pi/`-verktygen är borttagna. Generisk Linux-logik som är relevant för VENTUNO har porterats till `modules/ventuno/`; VENTUNO Q är den enda planerade embedded-målplattformen i aktuell arkitektur.
 
 ---
 
@@ -71,7 +76,7 @@ Röstfunktionen ska byggas som en separat modul runt AI-kärnan.
 
 Grundflödet ska vara:
 
-**Mikrofon → röstaktivitetsdetektering → tal-till-text → MyAI-kärna → Ollama/LLM → text-till-tal → hörlurar/högtalare**
+**Mikrofon → röstaktivitetsdetektering → tal-till-text → MyAI-kärna → vald lokal LLM-provider → text-till-tal → hörlurar/högtalare**
 
 Röstmodulen ska kunna bytas eller uppgraderas utan att dialogsystemet, minnet eller verktygssystemet behöver skrivas om.
 
@@ -152,7 +157,7 @@ Ytterligare tolkningar ska kunna aktiveras när:
 
 På kraftfull hårdvara kan tre tolkningar köras parallellt.
 
-På Raspberry Pi 5B ska systemet kunna använda en resurssnål strategi där extra tolkningar endast körs vid behov.
+På den framtida målplattformen ska systemet kunna använda en resurssnål strategi där extra tolkningar endast körs vid behov.
 
 ### 4.7 Säkerhet före gissning
 
@@ -168,7 +173,7 @@ För röstkommandon med potentiellt stora konsekvenser ska MyAI hellre:
 
 På den nuvarande Windows-datorn ska systemet kunna använda en kraftfull lokal lösning för taligenkänning och text-till-tal.
 
-Vid framtida flytt till Raspberry Pi 5B ska röstmodulerna kunna bytas mot lättare alternativ utan att resten av MyAI behöver ändras.
+Vid framtida flytt till VENTUNO Q ska röstmodulerna kunna använda Qualcomm-accelererade alternativ utan att resten av MyAI behöver ändras.
 
 Röstbehandling ska i första hand kunna fungera lokalt, men externa tjänster ska kunna användas som valbara verktyg om användaren tillåter det och det ger en tydlig fördel.
 
@@ -299,136 +304,91 @@ testen har körts.
 
 ---
 
-## 7. Raspberry Pi – systemåtkomst
+## 7. Arduino VENTUNO Q – systemåtkomst
 
-AI:n ska kunna läsa och förstå så mycket som möjligt av Raspberry Pi-systemets status.
+MyAI ska kunna läsa och förstå den Linux-baserade VENTUNO Q-miljön utan att blanda ihop vanlig systemstatus med NPU- eller MCU-telemetri.
 
-Exempel:
+Generisk systemstatus täcker:
 - CPU-belastning
 - RAM-användning
 - lagringsutrymme
-- temperatur
-- strömförbrukning
-- spänning
-- eventuell throttling
-- anslutna USB-enheter
-- nätverk
-- Bluetooth
-- tillgängliga portar och gränssnitt
-- systemloggar
-- processer och tjänster
+- temperaturer som faktiskt exponeras via Linux/psutil/sysfs
+- USB- och Bluetooth-status
+- generell hårdvaruinventering
 
-AI:n ska kunna svara på frågor som:
-- Hur varm är datorn?
-- Hur mycket RAM används?
-- Hur mycket ström drar systemet?
-- Finns risk för överhettning?
-- Vilka USB-enheter är inkopplade?
-- Vilka portar finns tillgängliga?
+VENTUNO-specifik read-only diagnostik täcker:
+- nätverksgränssnitt och IP-adresser via `ventuno_network_status`
+- processöversikt via `ventuno_process_status`
+- körande systemd-tjänster via `ventuno_services_status`
+- systemd-journalposter via `ventuno_system_logs`
+- Linux hwmon-telemetri via `ventuno_power_status`
+- GenieX readiness via `geniex_status`
+- acceleratorstatus via `ventuno_accelerator_status`
 
-### 7.1 Teknisk status för Raspberry Pi-systemdata
+### 7.1 VENTUNO-systemdiagnostik
 
-På utvecklingsgren finns nu ett separat verktyg `pi_system_status` som är byggt för att kunna köras på Raspberry Pi utan att Windows-koden behöver skrivas om.
+De porterade Linux-diagnosverktygen ligger under `modules/ventuno/` och gör inga systemändringar. De gamla `pi_*`-verktygen och `modules/pi/` ingår inte längre i aktiv runtime.
 
-Verktyget kan samla:
-- Raspberry Pi-modell
-- CPU-belastning och kärnor
-- RAM-användning
-- lagringsutrymme
-- CPU-temperatur
-- kärnspänning när `vcgencmd` finns
-- aktuell och historisk throttling/underspänning via `get_throttled`
+MyAI ska tydligt skilja mellan:
+- vanlig CPU/RAM/disk/temperatur
+- GenieX-backendens readiness
+- faktisk Hexagon NPU-belastning/frekvens/temperatur
 
-På en dator som inte är en Raspberry Pi ska verktyget avsluta säkert och tydligt säga att Raspberry Pi inte upptäcktes.
+`ventuno_accelerator_status` får därför inte presentera GenieX-readiness som NPU-utnyttjande. Direkt NPU-telemetri ska förbli markerad som ej verifierad tills en dokumenterad QCS8275/VENTUNO-väg har provats på fysisk hårdvara.
 
-Tolkningen av Raspberry Pi:s throttling-bitar och övrig logik testas i CI. Faktisk avläsning av temperatur, spänning och throttling ska verifieras fysiskt på Raspberry Pi i en senare samlad Pi-hårdvarurunda.
+### 7.2 Read-only ström- och effekttelemetri
 
-### 7.2 Read-only systemdiagnostik
+`ventuno_power_status` läser endast Linux `hwmon`-värden för effekt, spänning och ström när sådana mätkanaler verkligen exponeras.
 
-På utvecklingsgren finns nu separata read-only-verktyg för:
-- nätverksgränssnitt, länkstatus och IP-adresser via `pi_network_status`
-- processöversikt med CPU/RAM via `pi_process_status`
-- körande systemd-tjänster via `pi_services_status`
-- senaste systemloggar på warning-nivå eller högre via `pi_system_logs`
+MyAI ska inte räkna fram eller gissa strömförbrukning när mätvärden saknas. Faktiska mätkanaler, NPU-belastning, termiska gränser och eventuell throttling ska verifieras på den fysiska VENTUNO Q.
 
-Verktygen gör inga ändringar i nätverk, processer, tjänster eller loggar. De ska kunna användas separat eller kombineras genom multi-tool-stödet när en fråga kräver flera diagnostikkällor samtidigt.
+### 7.3 Plattformsspärr
 
-På icke-Linux-plattform ska verktygen avsluta säkert och förklara att Raspberry Pi/Linux krävs. Parsning, formattering och felhantering testas i CI. Verklig nätverks-, process-, systemd- och journald-data ska verifieras senare i den samlade Raspberry Pi-hårdvarurundan.
+VENTUNO-runtime får inte vara beroende av Raspberry Pi-specifika kommandon eller antaganden såsom:
+- `vcgencmd`
+- BCM-GPIO-numrering
+- Raspberry Pi 40-pin-pinmappning
+- `pi_*`-verktyg
+- Raspberry Pi-specifika hårdvaruvalideringsskript
 
-### 7.3 Read-only ström- och effekttelemetri
-
-På utvecklingsgren finns nu verktyget `pi_power_status`. Det läser standardiserade Linux `hwmon`-mätvärden för effekt, spänning och ström när Raspberry Pi, PMIC och installerade drivrutiner faktiskt exponerar dem.
-
-MyAI ska inte räkna fram eller gissa en strömförbrukning när ett verkligt mätvärde saknas. Om `hwmon` inte exponerar effekt/ström/spänning ska svaret därför uttryckligen säga att telemetri saknas.
-
-Enhetsomvandling och felhantering testas i CI med simulerade `hwmon`-sensorer. Vilka mätkanaler som faktiskt finns på den framtida Raspberry Pi 5B-installationen ska verifieras i den samlade Pi-hårdvarurundan.
+Generisk Linux-funktionalitet ska ligga i neutrala moduler eller i `modules/ventuno/` när semantiken är VENTUNO-specifik.
 
 ---
 
-## 8. Raspberry Pi – GPIO och hårdvara
+## 8. Arduino VENTUNO Q – I/O och hårdvarugräns
 
-AI:n ska känna till Raspberry Pi:ns ingångar och utgångar och kunna hjälpa användaren med fysisk inkoppling.
+VENTUNO Q består av Linux-sidan på Qualcomm Dragonwing QCS8275 och realtids-MCU:n STM32H5F5. MyAI ska behandla den gränsen explicit och använda Arduino Router/Bridge/RPC för MCU-funktioner i stället för att gissa direkta Linux-GPIO-vägar.
 
-Den ska kunna förklara:
-- vilken pinne som ska användas
-- vilka GPIO-pinnar som finns
-- 3,3 V
-- 5 V
-- jord
-- I2C
-- SPI
-- UART
-- USB
-- andra relevanta gränssnitt
+### 8.1 I/O-säkerhet och fysisk pinout
 
-AI:n ska kunna svara på frågor i stil med:
-- Var ska jag koppla in den här sensorn?
-- Vilken GPIO kan jag använda?
-- Behöver den här komponenten 3,3 eller 5 volt?
-- Hur kopplar jag detta utan att skada Raspberry Pi?
+`ventuno_io_safety` ger säkerhetsinformation men hårdkodar inte fysiska GPIO-, I2C-, SPI- eller UART-pinnummer.
 
-Vid hårdvaruinkoppling ska AI:n prioritera säkerhet och inte gissa om elektriska värden.
+Vid fysisk inkoppling ska MyAI:
+- använda aktuell officiell VENTUNO Q-pinout/datasheet
+- inte anta att Raspberry Pi-HAT-kompatibilitet innebär identisk elektrisk pinout eller Linux-ägarskap
+- kräva komponentens datablad när spänning, ström eller logiknivå är okänd
+- inte aktivera fysisk skrivning före separat säkerhetsgranskning och hårdvaruverifiering
 
-### 8.1 Teknisk status för GPIO-referens och säkerhetskontroll
+STM32 RPC-skrivning är fortsatt avstängd och write-allowlisten är tom tills den fysiska verifieringsordningen uttryckligen når detta steg.
 
-På utvecklingsgren finns nu ett separat Raspberry Pi GPIO-lager med en normaliserad referens för standard-headern med 40 pinnar.
+### 8.2 Read-only inventering av Linux-gränssnitt
 
-Lagret innehåller:
-- fysisk pin till BCM-GPIO-mappning
-- fasta 3,3 V-, 5 V- och GND-pinnar
-- I2C-, SPI0- och UART-standardpinnar
-- markering av GPIO0/GPIO1 som reserverade för HAT-ID/avancerad användning
-- konservativ förkontroll av föreslagna inkopplingar
+`ventuno_interfaces_status` inventerar read-only Linux-enhetsnoder för GPIO-chip, I2C, SPI och UART utan att öppna eller konfigurera dem.
 
-Säkerhetskontrollen kan returnera `allow`, `warn` eller `block`. Den ska bland annat blockera 5 V-signal direkt till en 3,3 V GPIO, direktdrift av motor/solenoid och LED utan verifierad strömbegränsning.
+Arduino Router reserverar `/dev/ttyHS1` för Linux↔STM32 Bridge/RPC. MyAI ska därför filtrera denna port från vanlig UART-inventering, markera den som reserverad och aldrig öppna den direkt.
 
-Reglerna baseras på Raspberry Pi:s officiella GPIO-dokumentation. MyAI ska fortfarande kräva komponentens datablad när märkspänning, strömbehov eller elektrisk kompatibilitet inte är känd.
+### 8.3 Read-only bussenheter
 
-GPIO-logiken och pinmappningen testas i CI. Faktiska fysiska inkopplingar och GPIO-åtkomst ska verifieras senare på Raspberry Pi-hårdvaran innan styrande funktioner tillåts.
+`ventuno_bus_devices_status` läser endast I2C- och SPI-enheter som Linux-kärnan redan känner till via sysfs.
 
-### 8.2 Read-only inventering av Pi-gränssnitt
+Verktyget:
+- gör ingen aktiv buss-skanning
+- använder inte `i2cdetect`
+- skickar inga sonderingskommandon
+- skriver inte till någon enhet
+- tolkar inte en tom kernel-lista som bevis för att en fysisk buss är tom
 
-På utvecklingsgren finns nu ett separat read-only-verktyg `pi_interfaces_status` som inventerar vanliga Linux-enhetsnoder för:
-- GPIO-chip
-- I2C
-- SPI
-- UART/seriella portar
-
-Verktyget gör inga ändringar i systemet och försöker inte aktivera gränssnitt. Om det körs på Windows eller annan icke-Linux-plattform avslutar det säkert och förklarar att fysisk Pi-inventering kräver Linux/Raspberry Pi.
-
-När MyAI senare körs på Raspberry Pi kan denna inventering användas för att skilja mellan vad Pi-modellen teoretiskt stödjer och vilka gränssnitt som faktiskt är exponerade i det körande operativsystemet.
-
-Den verkliga enhetsinventeringen ska verifieras i den samlade Raspberry Pi-hårdvarurundan.
-
-### 8.3 Read-only inventering av kernel-registrerade bussenheter
-
-På utvecklingsgren finns nu verktyget `pi_bus_devices_status`. Det läser Linux sysfs och listar I²C- och SPI-enheter som kärnan redan känner till.
-
-Verktyget gör ingen aktiv buss-skanning. Det använder inte `i2cdetect`, skickar inga sonderingskommandon och skriver inte till någon enhet. Därmed minskas risken att en känslig sensor påverkas bara för att MyAI inventerar systemet.
-
-För I²C kan verktyget visa buss, adress, namn och drivrutin när informationen finns. För SPI kan det visa controller, chip-select, modalias/namn och drivrutin.
-
-Om inga kernel-registrerade enheter finns ska MyAI säga det tydligt och inte tolka det som bevis för att bussen är elektriskt tom. Fysisk verifiering av verkliga sensorer och bussar sparas till den samlade Raspberry Pi-hårdvarurundan.
+Fysisk VENTUNO-pinout, sensoråtkomst, Router/RPC, MCU-metoder och elektrisk kompatibilitet ska verifieras på riktig hårdvara innan styrande funktioner aktiveras.
 
 ---
 
@@ -771,7 +731,7 @@ För att en kandidat ska kunna rankas som ett praktiskt köpalternativ krävs so
 - tillräckligt verifierad lagerstatus
 - källtillförlitlighet, informationskonfidens och relevans över researchmotorns trösklar
 
-Kärnan gör **ingen tyst valutakonvertering**. Om ett pris endast finns i annan valuta diskvalificeras det tills en framtida växelkursprovider har omvandlat och verifierat beloppet.
+Kärnan gör **ingen tyst valutakonvertering**. Om ett pris endast finns i annan valuta diskvalificeras det om inte shoppingorkestreringen först har omvandlat relevanta belopp med en verifierad växelkurs enligt avsnitt 13.8.
 
 Ett totalpris skapas endast när produktpris, frakt, moms och kända extra avgifter är tillräckligt verifierbara. Kandidater med okänd moms, okänd frakt eller oklara extra avgifter får därför inte ett låtsat komplett totalpris.
 
@@ -781,7 +741,129 @@ Lagerstatus `in_stock` och `limited` kan vara valbara; slut i lager eller okänd
 
 Logiken testas i CI för moms inkluderad/separat, okänd moms, okända avgifter, Sverigeleverans, lagerstatus, annan valuta, tillförlitlighetsfilter, färre än fem kandidater och topp tre efter lägsta kompletta totalpris.
 
-Detta lager söker ännu inte själv på webben. Det tar emot normaliserade erbjudanden från en framtida sök-/shoppingprovider och återanvänder den centrala fem-kandidaters valideringsmotorn.
+Prisjämförelsekärnan kan nu användas av den webborchestrering som beskrivs i avsnitt 13.7. Kärnan är fortfarande separat från sökningen och kan även ta emot redan normaliserade erbjudanden från andra framtida providers.
+
+### 13.7 Teknisk status för konservativ svensk shopping-/prisorkestrering
+
+På utvecklingsgren finns nu verktyget `shopping_compare_sweden` som kopplar ihop den befintliga SearXNG-sökningen, skyddad sidfetch, sidverifiering och prisjämförelsekärnan.
+
+Standardflödet är:
+1. extrahera produktfrågan ur naturligt språk
+2. sök efter upp till fem relevanta säljsidor med tillägget `pris Sverige`
+3. hämta varje sida genom `PublicWebClient` med befintligt SSRF-/redirect-/storleksskydd
+4. extrahera endast uttryckligt angivna kommersiella fakta från produktmetadata och synlig sidtext
+5. bedöm källtransparens och informationskompletthet separat
+6. skicka erbjudandena genom prisvalideringen i avsnitt 13.5
+7. presentera högst tre kompletta, godkända erbjudanden sorterade på verifierbart totalpris
+
+Följande får extraheras när sidan anger det uttryckligt:
+- produktpris och valuta från produkt-/OpenGraph-/itemprop-metadata
+- lagerstatus
+- leverans till Sverige
+- fraktkostnad eller uttrycklig fri frakt
+- moms inkluderad/exkluderad och explicit momsbelopp när det finns
+- uttrycklig uppgift om inga extra avgifter
+- leveranstid i dagar
+
+Säkerhets-/kvalitetsregler:
+- ingen uppskattad eller tyst valutakonvertering görs
+- pris i annan valuta blir endast SEK efter verifierad FX-quote enligt avsnitt 13.8
+- om verifierad FX saknas förblir erbjudandet i originalvaluta och diskvalificeras från SEK-rankningen
+- saknad frakt, momsstatus, extra avgifter, Sverigeleverans eller lagerstatus gissas inte
+- en ohämtbar säljsida får inga påhittade värden och diskvalificeras
+- källtillförlitlighet bygger på sidans transparenssignaler, medan informationskonfidens bygger på hur många relevanta erbjudandefakta som faktiskt kunde verifieras
+- dessa poäng är heuristiker och inte sannolikheter eller garantier
+- sök-/shoppinglagret gör inga köp eller andra skrivande åtgärder
+
+Naturliga fraser som `Jämför pris på ...`, `Prisjämför ...` och `Hitta billigaste ...` routas till detta verktyg.
+
+Tester täcker komplett svensk säljsida, fem kandidater → topp tre, saknad frakt, annan valuta, ohämtbar sida, konservativ formattering och språkroute.
+
+### 13.8 Teknisk status för verifierad växelkurs till SEK
+
+På utvecklingsgren finns nu ett separat FX-lager i `modules/internet/fx.py`.
+
+Första providern är Europeiska centralbankens euroreferenskurser. Providerkonfigurationen är fail-closed:
+- `fx.enabled=false` som standard
+- `fx.provider="ecb"`
+- ECB-feed måste använda HTTPS
+- slutlig URL efter fetch/redirect måste ligga på `ecb.europa.eu`
+- målvalutan för shopping är `SEK`
+- `fx.max_age_days=7`
+- aktiverad FX kräver även `internet.enabled=true`
+
+ECB-feedens valutakurser tolkas som antal valutaenheter per EUR. Cross-rate till SEK beräknas därför genom de två publicerade EUR-referenskurserna; ingen kurs är hårdkodad.
+
+En quote blir `verified=true` endast när:
+- källa/provider är tillåten
+- XML kan parsas
+- referensdatum finns och inte ligger i framtiden
+- referensdatum inte är äldre än konfigurerad maxålder
+- både källvalutan och målvalutan finns med positiva kurser
+- valutakoder och kursvärden är giltiga
+
+Quoten innehåller bland annat:
+- provider
+- valutapar
+- beräknad cross-rate
+- referensdatum
+- ålder i dagar
+- slutlig käll-URL
+- underliggande source/target rate per EUR
+
+`convert_verified_amount()` vägrar konvertering om quote saknas, inte är tillgänglig eller inte är verifierad.
+
+ECB-referenskurserna behandlas som informations-/referensdata och inte som den faktiska transaktionskurs en bank, kortutgivare eller betalningsleverantör kommer att använda.
+
+Shoppingintegrationen:
+- bevarar originalvaluta och originalbelopp
+- kan extrahera explicit frakt-/momsbelopp även i EUR, USD och GBP utöver SEK
+- hämtar högst en quote per källvaluta inom samma prisjämförelse och återanvänder den
+- fyller SEK-fälten först efter verifierad konvertering
+- behåller erbjudandet i originalvaluta och bortsorterar det om FX saknas eller är ogiltig
+- gör inga köp och skickar inga betalningsinstruktioner
+
+Tester täcker ECB XML-parsning, EUR/SEK och USD/SEK-cross-rate, framtida/stale referensdatum, fel host efter redirect, saknad valuta, avstängd FX, identity-pair, blockerad overifierad konvertering samt shoppingintegration och quote-cache.
+
+### 13.9 Teknisk status för hårdvaruoberoende väder via Open-Meteo
+
+På utvecklingsgren finns nu verktyget `weather_forecast` för aktuell väderstatus och kort prognos utan krav på GPS-hårdvara.
+
+Provider och flöde:
+- `weather.provider="open_meteo"`
+- `weather.enabled=false` som säker standard
+- aktiverat väder kräver `internet.enabled=true`
+- platsnamn geokodas via Open-Meteo:s geocoding-endpoint
+- prognos hämtas via Open-Meteo:s forecast-endpoint med latitud/longitud
+- geokodning och forecast använder separata HTTPS-hosts som är allowlistade och kontrolleras igen efter eventuell redirect
+- användaren kan ange plats naturligt, exempelvis `Väder i Stockholm`
+- om plats saknas används endast uttryckligt konfigurerad `weather.default_location`; MyAI gissar inte plats
+- GPS-modulen anropas inte av detta verktyg
+
+Rapporten innehåller när data finns:
+- löst platsnamn, region, land och timezone
+- aktuell temperatur
+- upplevd temperatur
+- aktuell nederbörd
+- väderkod översatt till svensk beskrivning
+- vindhastighet
+- daglig min/max-temperatur
+- daglig nederbördssumma
+- maximal nederbördssannolikhet
+- kort prognos, standard tre dagar och maximalt sju dagar
+
+Geokodningsresultatet redovisar när flera alternativa träffar fanns, så användaren kan upptäcka att ett platsnamn var tvetydigt.
+
+Konfiguration:
+- `weather.geocoding_url=https://geocoding-api.open-meteo.com/v1/search`
+- `weather.forecast_url=https://api.open-meteo.com/v1/forecast`
+- `weather.default_location=""`
+- `weather.language="sv"`
+- `weather.forecast_days=3`
+
+Fail-closed validering blockerar otillåten provider/host, icke-HTTPS-endpoint, ogiltig språkkod, prognoslängd utanför 1–7 dagar och aktiverat väder utan internet.
+
+CI använder endast fake JSON-svar och gör inga riktiga väderanrop. Tester täcker svensk/engelsk platsparser, geokodning, current/daily forecast, default location, tom plats, avstängt läge, redirect till fel host, ogiltig JSON, formattering, configvalidering och språkroute.
 
 ### 13.6 Teknisk status för webbsökning via SearXNG
 
@@ -923,7 +1005,7 @@ Standardvärdena är:
 
 Bedömning, känslighetsfilter, återkomstsignal, automatisk lagring och
 dubblettskydd testas i CI. Konflikthantering, ersättning av gamla minnen och
-livscykelregler återstår som senare steg.
+grundläggande livscykelregler är nu implementerade enligt avsnitt 15.4.
 
 ### 15.3 Minneshantering
 
@@ -936,6 +1018,92 @@ På sikt ska det finnas tydliga regler för:
 - hur länge information sparas
 - hur den ändras
 - hur den tas bort
+
+### 15.4 Teknisk status för minneslivscykel och konflikthantering
+
+På utvecklingsgren finns nu ett icke-destruktivt livscykellager för SQLite-minnet.
+
+Databasen migreras bakåtkompatibelt med:
+- `status=active|superseded`
+- `updated_at`
+- `superseded_by`
+- `superseded_at`
+
+Befintliga minnen raderas inte vid migrering. Normal sökning och normal minneslista använder endast aktiva minnen, medan full historik kan läsas separat.
+
+När en ny minneskandidat ska sparas:
+- exakta aktiva dubletter ignoreras
+- ämneslikhet bedöms deterministiskt med normaliserade ord och minst två gemensamma ämnesord
+- möjliga konflikter utan tydlig uppdateringssignal stoppas för `review` i stället för att skapa två aktiva motstridiga minnen
+- tydliga uppdateringsfraser som `från och med nu`, `istället för` eller `new default` kan atomiskt ersätta exakt ett starkt matchande aktivt minne
+- automatisk ersättning kräver som standard konfliktpoäng minst 0.85
+- om flera starka kandidater matchar samtidigt sker ingen automatisk ersättning; ärendet går till granskning
+- ersatt minne bevaras i historiken och pekar på det nya minnet genom `superseded_by`
+
+Åldringsstöd finns read-only genom `MemoryStore.list_stale()`. Standard `memory.stale_after_days=0` innebär att ingen automatisk utgång eller radering sker.
+
+Viktiga standarder:
+- `memory.lifecycle_enabled=true`
+- `memory.auto_supersede_explicit_updates=true`
+- `memory.conflict_similarity_threshold=0.65`
+- `memory.supersede_similarity_threshold=0.85`
+- `memory.max_conflict_scan=200`
+- `memory.stale_after_days=0`
+
+Konfigurationen valideras fail-closed för ogiltiga trösklar och gränser. Ingen automatisk minnesradering är implementerad.
+
+### 15.5 Teknisk status för användarstyrd minnesadministration
+
+På utvecklingsgren finns nu en persistent review-kö och separata read-only-/write-verktyg för kontrollerad minnesadministration.
+
+Review-kön lagras i samma SQLite-databas i tabellen `memory_reviews` och innehåller:
+- kategori
+- normaliserat minnesinnehåll
+- begränsad orsakstext
+- ID:n för registrerade konflikter
+- skapad tid
+- status `pending|approved|rejected|replaced`
+- upplösningsdata och relaterade minnes-ID:n
+
+Rå användarprompt lagras inte i review-kön.
+
+MyAICore:
+- köar policyutfall `review` när `memory.review_queue_enabled=true`
+- köar konfliktutfall från livscykellagret
+- deduplicerar identiska väntande review-kandidater
+- audit-loggar nya automatiska minnesskrivningar och review-köskrivningar
+- blockerar minnesmutation om obligatorisk audit inte kan skriva sin attempt-post, utan att dialogen behöver krascha
+
+Read-only verktyget `memory_review_status` kan visa:
+- väntande minnesgranskningar
+- väntande granskningar med konflikter
+- gamla aktiva minnen
+- minneshistorik
+
+Standardgränsen för administrativ listning är `memory.administration_limit=50`. Read-only `Visa gamla minnen` använder `memory.stale_review_days=365` om frågan inte uttryckligen anger ett annat antal dagar. Detta ändrar eller raderar aldrig minnen.
+
+Skrivverktyget `memory_review_action` accepterar endast exakta kommandon:
+- `GODKÄNN MINNESGRANSKNING <id>`
+- `AVVISA MINNESGRANSKNING <id>`
+- `ERSÄTT MINNE <minnes-id> MED GRANSKNING <gransknings-id>`
+- `RADERA MINNE <id>`
+
+Säkerhetsregler:
+- en review med registrerade konflikter får inte godkännas som ett vanligt nytt aktivt minne
+- konflikt-review måste ersätta ett uttryckligt aktivt målminne som finns bland de registrerade konflikterna, eller avvisas
+- ersättning sker atomiskt och bevarar det ersatta minnet som `superseded`
+- permanent radering är aldrig automatisk och kräver exakt `RADERA MINNE <id>`
+- permanent radering kan stängas av med `memory.permanent_delete_enabled=false`
+- alla administrationsmutationer går genom fail-closed audit före databasändring
+- auditloggen innehåller ID:n och åtgärdsmetadata men inte minnesinnehållet
+
+Nya standardvärden:
+- `memory.review_queue_enabled=true`
+- `memory.administration_limit=50`
+- `memory.stale_review_days=365`
+- `memory.permanent_delete_enabled=true`
+
+Konfigurationen valideras för administrativa listgränser och stale-review-gräns.
 
 ---
 
@@ -988,7 +1156,7 @@ Verktyget kan:
 
 Detta lager tar inga bilder och startar ingen videoström. Bildtagning, kameraval, visionmodell och objekt-/textanalys ska byggas som separata senare steg.
 
-Parserlogiken testas i CI. Faktisk kameradetektering på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan innan bildtagning byggs ovanpå den.
+Parserlogiken testas i CI. Faktisk kameradetektering på Windows och senare VENTUNO Q ska verifieras i den samlade fysiska hårdvarurundan innan bildtagning byggs ovanpå den.
 
 ### 16.1.2 Teknisk status för stillbildstagning
 
@@ -1004,7 +1172,7 @@ Bildtagningen använder OpenCV som ett separat valbart beroende i `requirements-
 
 Om OpenCV saknas, kameran inte kan öppnas, ingen bildruta kan läsas eller bilden inte kan sparas ska verktyget returnera ett tydligt fel och inte påstå att en bild togs.
 
-Bildtagning och resursstängning testas i CI med simulerad kamera. Faktisk stillbildstagning på Windows och senare Raspberry Pi ska verifieras i den samlade fysiska hårdvarurundan. Bildanalys/vision ligger fortsatt i ett separat senare lager.
+Bildtagning och resursstängning testas i CI med simulerad kamera. Faktisk stillbildstagning på Windows och senare VENTUNO Q ska verifieras i den samlade fysiska hårdvarurundan. Bildanalys/vision ligger fortsatt i ett separat senare lager.
 
 ### 16.1.3 Teknisk status för visionanalys
 
@@ -1103,7 +1271,7 @@ Videomodulen:
 - rapporterar tydligt om kameran inte kan öppnas, första bildrutan saknas, writer inte kan öppnas eller inspelningen avbryts
 - ligger separat från visionanalys och kontinuerlig livevideo
 
-Detta är en grund för framtida videoström, inte ännu ett kontinuerligt realtidsflöde. Bildrutefrekvens, codec-stöd och faktisk inspelningslängd ska verifieras senare på fysisk Windows- och Raspberry Pi-hårdvara.
+Detta är en grund för framtida videoström, inte ännu ett kontinuerligt realtidsflöde. Bildrutefrekvens, codec-stöd och faktisk inspelningslängd ska verifieras senare på fysisk Windows- och VENTUNO Q-hårdvara.
 
 Kodvägar och resursstängning testas i CI med simulerad kamera och videowriter.
 
@@ -1167,7 +1335,7 @@ Streamlagret:
 
 Detta är ett fundament för senare livevideo och realtidsanalys, inte ännu en permanent kamerabevakning. Den samlade fysiska hårdvaruverifieringen innehåller ett kort explicit stream-test som tillfälligt aktiverar funktionen utan att ändra den sparade konfigurationen.
 
-Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Raspberry Pi.
+Gränsvalidering, frameflöde, callback, felvägar och resursstängning testas i CI. Faktisk stabilitet, timing, kameraindex och belastning ska verifieras senare på Windows och Arduino VENTUNO Q.
 
 ### 16.1.12 Teknisk status för begränsad live-vision
 
@@ -1226,6 +1394,117 @@ Separata moduler ska ansvara för exempelvis:
 
 Det ska gå att lägga till nya moduler utan att behöva bygga om hela systemet.
 
+### 16.2.1 Teknisk status för säker multimodal multi-tool-orkestrering
+
+På utvecklingsgren finns nu ett deterministiskt orkestreringslager i `core/orchestration.py` som kan kombinera flera redan registrerade verktyg i samma användaruppgift.
+
+Planeraren:
+- delar sammansatta frågor i begränsade delklausuler vid bland annat `och`, `samt`, `sedan`, `därefter`, kommatecken och motsvarande engelska bindningar
+- återanvänder befintlig deterministisk `detect_tools()` per delklausul
+- kompletterar endast enkla systemstatushintar för CPU, RAM, GPU, temperatur och disk
+- deduplicerar verktyg
+- ordnar explicit `camera_capture` före visionverktyg när båda finns i planen
+- skickar query-aware verktyg den relevanta delklausulen i stället för hela blandade frågan
+- exponerar en sanerad publik plan med verktygsnamn och effekttyp men utan rå delquery
+
+Automatisk orkestrering använder en explicit säker allowlist. Den innehåller endast read-only informationsverktyg samt `camera_capture` som särskilt klassad `local_capture`.
+
+`camera_capture` får endast läggas till av planeraren när:
+- användaren uttryckligen ber om stillbild/foto
+- `orchestration.allow_local_capture=true`
+
+Planeraren får inte automatiskt lägga till:
+- workspace-/Excel-skrivning
+- minnesadministrativa mutationer
+- permanent radering
+- hårdvarusnapshot-uppdatering som `hardware_changes`
+- GenieX-/runtime-restart
+- Bluetooth-anslutningsändringar
+- STM32/RPC/GPIO-skrivning
+- selfdev promotion/rollback
+- andra verktyg utanför allowlisten
+
+Befintlig explicit direkt routing för skrivande/destruktiva kommandon behåller företräde och expanderas inte till en multi-tool-plan. Detta innebär att ett exakt exempelvis minnesraderingskommando inte blandas ihop med automatiskt valda statusverktyg.
+
+När orkestrering är aktiverad begränsas även LLM-fallback för verktygsval till den säkra allowlisten. En LLM-fallback kan därför inte välja ett skrivverktyg som inte först fångats av befintlig explicit direkt routing.
+
+Första versionen kedjar inte ett verktygs textsvar som dold ny prompt till ett annat verktyg. Verktyg körs med användarens relevanta delklausul. Kamera → vision är tillåtet eftersom visionverktygen redan använder den explicit skapade senaste lokala capture-filen som etablerat gränssnitt.
+
+Resultat från varje verktyg begränsas innan de sätts in i LLM-kontexten för att undvika obunden kontexttillväxt.
+
+Standardkonfiguration:
+- `orchestration.enabled=true`
+- `orchestration.max_tools=5`
+- `orchestration.max_result_chars_per_tool=6000`
+- `orchestration.allow_local_capture=true`
+
+Fail-closed configvalidering kräver:
+- `max_tools` mellan 2 och 8
+- `max_result_chars_per_tool` mellan 256 och 20000
+- booleska värden för `enabled` och `allow_local_capture`
+
+### 16.2.2 Teknisk status för explicit mellanresultatprotokoll
+
+På utvecklingsgren finns nu `core/intermediate_results.py` som första explicit kontrollerade protokoll för read-only kedjor där nästa verktyg behöver data från ett tidigare verktyg.
+
+Första tillåtna kedjan är:
+1. kamera/vision/OCR/objektanalys körs
+2. visionresultatet kapslas som ett sessionsbundet mellanresultat
+3. en bounded sökfråga skapas som data, inte som körbar instruktion
+4. webbresearch körs **inte** automatiskt
+5. användaren måste skicka exakt `FORTSÄTT MED RESEARCH <id>`
+6. först därefter får `research_top_three` köras med den verifierade mellanresultatqueryn
+7. ID:t konsumeras efter körningen och kan inte återanvändas
+
+Tillåtna source-verktyg i första versionen:
+- `vision_analyze`
+- `vision_detect_objects`
+- `vision_read_text`
+- `vision_detect_change`
+
+Tillåtet target-verktyg:
+- endast `research_top_three`
+
+Skyddsregler:
+- mellanresultat lagras endast i MyAI-processens sessionsminne
+- inget skrivs till disk, SQLite-långtidsminnet eller auditloggen
+- standard max fem väntande mellanresultat
+- standard livslängd 1800 sekunder
+- standard max 240 tecken i researchquery
+- gamla poster rensas automatiskt ur sessionskön
+- konversationsreset rensar hela mellanresultatkön
+- misslyckad/avstängd vision, saknad modell, saknad bild, `INGA SÄKRA OBJEKT` och `INGEN LÄSBAR TEXT` skapar ingen kandidat
+- ett source-resultats text behandlas som data och whitespace-normaliseras/boundsbegränsas
+- rå delquery från planeringen exponeras inte i publik `orchestration_plan`
+- fraser som `researcha det du ser` kör aldrig vanlig research om ingen giltig visuell source finns i den aktuella kedjan
+- LLM:n får tydlig systeminstruktion att research ännu **inte** har körts när ett bekräftelsesteg väntar
+- okänt eller utgånget ID ger ett tydligt protokollfel i stället för verktygskörning
+- researchverktyget måste fortfarande finnas i det aktuella tool-registret när bekräftelsen används
+
+Publikt svar kan innehålla `pending_intermediate_results` med:
+- ID
+- source-tool
+- nästa tool
+- bounded query-preview
+- `requires_confirmation=true`
+- exakt bekräftelsekommando
+
+Standardkonfiguration:
+- `intermediate_results.enabled=true`
+- `intermediate_results.max_pending=5`
+- `intermediate_results.max_query_chars=240`
+- `intermediate_results.max_age_seconds=1800`
+- `intermediate_results.require_confirmation=true`
+
+Fail-closed validering kräver:
+- `max_pending` 1–20
+- `max_query_chars` 80–1000
+- `max_age_seconds` 60–86400
+- booleska `enabled` och `require_confirmation`
+- första versionen tillåter inte `require_confirmation=false`
+
+Detta är inte en generell agentloop. Ett verktygs output får fortfarande inte automatiskt skapa nya verktygssteg utanför de explicit definierade source→target-kontrakten.
+
 ---
 
 ## 17. Felhantering
@@ -1240,11 +1519,45 @@ Den ska kunna säga:
 
 Fel ska loggas så att de går att felsöka.
 
+### 17.1 Teknisk status för strukturerad felloggning
+
+På utvecklingsgren finns nu ett gemensamt best-effort-lager för fel som uppstår när MyAI laddar moduler eller kör verktyg.
+
+Lagret:
+- skriver strukturerade JSONL-poster med tid, händelsetyp, komponent, felklass och begränsat felmeddelande
+- återanvänder projektets befintliga roterande JSONL-logik så loggfiler inte kan växa obegränsat
+- sparar inte rå användarfråga eller prompt i felloggen
+- normaliserar radbrytningar och begränsar felmeddelandets längd
+- är konfigurerbart genom `error_logging.enabled`, `error_logging.path` och `error_logging.max_message_chars`
+- är fail-safe: om själva felloggningen misslyckas får detta inte maskera det ursprungliga verktygsfelet eller stoppa övriga verktyg
+- ändrar inte befintligt tool-resultatformat; användaren får fortfarande ett tydligt felresultat för det misslyckade verktyget medan andra verktyg kan fortsätta
+
+Standardläget är aktiverad lokal felloggning till `runtime/errors.jsonl`. Filen ligger under runtime och ska inte versionshanteras.
+
+Både modulimportfel och tool-körfel kopplas till fellagret. Konfiguration, truncering, loggfel och multi-tool-beteende testas i CI.
+
+### 17.2 Read-only diagnostik av senaste fel
+
+På utvecklingsgren finns nu verktyget `myai_recent_errors` för att läsa de senaste strukturerade MyAI-felen genom naturligt språk, exempelvis:
+
+> Vilka fel har MyAI haft?
+
+Verktyget:
+- läser endast felloggen och ändrar eller raderar ingenting
+- läser aktuell JSONL-fil samt roterade backupfiler i korrekt nyast-först-ordning
+- använder ett konfigurerbart standardantal genom `error_logging.recent_limit`
+- har en absolut maxgräns på 50 poster per anrop
+- ignorerar trasiga eller ogiltiga JSON-rader utan att hela diagnostiken faller
+- återanvänder den redan begränsade feltexten och exponerar inte rå användarfråga eller prompt
+- rapporterar tydligt när felloggning är avstängd eller när inga fel finns
+
+Ingen funktion för att rensa, kvittera eller ändra felloggen exponeras genom verktyget.
+
 ---
 
 ## 18. Säkerhet
 
-AI:n ska kunna ha stor tillgång till den lokala datorn eller Raspberry Pi, men detta kräver tydliga säkerhetsnivåer.
+AI:n ska kunna ha stor tillgång till den lokala datorn eller VENTUNO Q, men detta kräver tydliga säkerhetsnivåer.
 
 Exempel på åtgärder som bör kräva extra kontroll:
 - radera filer
@@ -1257,6 +1570,38 @@ Exempel på åtgärder som bör kräva extra kontroll:
 - styra fysisk hårdvara som kan orsaka skada
 
 AI:n ska kunna göra mycket själv, men autonomin ska vara kontrollerad och spårbar.
+
+### 18.1 Teknisk status för audit-logg och spårbara skrivåtgärder
+
+På utvecklingsgren finns nu ett separat strukturerat audit-lager för skrivande och säkerhetsrelevanta åtgärder.
+
+Auditlagret:
+- skriver JSONL med tid, åtgärd, komponent, utfall, mål och begränsad metadata
+- skiljer på `attempt`, `success`, `denied` och `failed`
+- återanvänder projektets roterande JSONL-lager
+- sparar inte rå användarprompt, filinnehåll, Excel-cellvärden eller selfdev-godkännandefraser
+- har `audit_logging.require_for_writes=true` som säker standard
+- blockerar skrivåtgärden innan mutation om obligatorisk audit inte kan skriva sin `attempt`-post
+- behandlar efterföljande resultatloggning som best-effort så ett redan genomfört skrivresultat inte döljs av sekundärt loggfel
+
+Audit är inkopplat i:
+- allmän workspace-textskrivning
+- Excel-create, sheet-create, append och celländring
+- selfdev promotion
+- selfdev rollback
+
+För selfdev loggas endast session-/promotion-ID och antal ändrade/tillagda filer; själva approval-fråsen loggas aldrig.
+
+Read-only verktyget `myai_audit_status` visar högst ett konfigurerat antal senaste audit-händelser, med absolut max 50 poster. Det kan inte rensa eller ändra auditloggen.
+
+Standardvärden:
+- `audit_logging.enabled=true`
+- `audit_logging.require_for_writes=true`
+- `audit_logging.path=runtime/audit.jsonl`
+- `audit_logging.max_detail_chars=200`
+- `audit_logging.recent_limit=20`
+
+Fail-closed configvalidering blockerar bland annat obligatorisk men avstängd audit, saknad loggsökväg och ogiltiga storleksgränser.
 
 ---
 
@@ -1316,6 +1661,26 @@ Om användaren märker att assistenten beter sig olämpligt eller inkonsekvent s
 
 Inställningar och regler bör så långt som möjligt vara dokumenterade, versionshanterade och möjliga att återställa.
 
+### 20.2 Teknisk status för versionshanterad konfiguration
+
+Konfigurationsformatet har nu ett explicit schema:
+- aktuell `schema_version=2`
+- versionshanterade `config/settings.json` och `config/profiles/ventuno_q.json` anger schema 2
+- äldre filer utan versionsfält migreras endast i minnet via schema 1 till schema 2; källfilen skrivs inte om automatiskt
+- schema 1 migrerar `assistant.gpu` till det plattformsneutrala `assistant.compute_accelerator`
+- konfiguration med framtida schema_version blockeras i stället för att tolkas på chans
+- schema_version måste vara ett heltal
+- sektioner som ska vara JSON-objekt men är `null`/skalära ger `config_section_not_object` i stället för att valideringen kraschar
+
+Fail-closed validering jämför effektiv konfiguration mot kända standardnycklar och blockerar okända/feilstavade nycklar, inklusive nested paths.
+
+Nya read-only verktyg:
+- `scripts/config_profile_compare.py` jämför två effektiva profiler och redigerar känsliga värden som API-nycklar i rapporten
+- `scripts/config_migration_preview.py` visar exakt in-memory migrationskandidat, migrationssteg och okända nycklar utan att skriva källfilen
+- `scripts/validate_config.py` varnar när en äldre fil migrerades i minnet
+
+Ingen automatisk omskrivning av aktiv konfiguration har lagts till.
+
 ---
 
 ## 21. Nuvarande prioritet och teknisk status
@@ -1341,11 +1706,11 @@ Den pågående utvecklingsgrenen innehåller nu:
 - Bluetooth RSSI-steg i den samlade fysiska hårdvaruverifieringen
 - konfigurerbar policy för betrodda terminaler med RSSI-hysteres
 - explicit godkännandeflöde för nya enheter med persistent pending/approved/rejected-status
-- Raspberry Pi-systemstatus för CPU, RAM, lagring, temperatur, spänning och throttling
-- Raspberry Pi GPIO-referens med I2C/SPI/UART-mappning och konservativ elsäkerhetskontroll
-- read-only Raspberry Pi-inventering av GPIO-, I2C-, SPI- och UART-gränssnitt
-- read-only Raspberry Pi-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
-- read-only Raspberry Pi-strömtelemetri via Linux hwmon utan uppskattade mätvärden
+- VENTUNO/Linux-systemstatus för CPU, RAM, lagring och tillgänglig temperaturtelemetri
+- VENTUNO I/O-säkerhet utan antagen fysisk pinmappning
+- read-only VENTUNO-inventering av Linux GPIO-, I2C-, SPI- och UART-enhetsnoder
+- read-only VENTUNO-diagnostik för nätverk, processer, systemd-tjänster och systemloggar
+- read-only VENTUNO-strömtelemetri via Linux hwmon utan uppskattade mätvärden
 - read-only inventering av kernel-registrerade I2C- och SPI-enheter via Linux sysfs
 - read-only kamerainventering för Windows PnP och Linux Video4Linux
 - separat stillbildstagning till lokala runtime/captures med omedelbar kamerastängning
@@ -1385,22 +1750,870 @@ De fem ursprungliga systemverktygen ska fortsatt fungera:
 Därutöver finns:
 - `usb_status`
 
-Aktuell teknisk status är nu **pre-hardware checkpoint** för denna integrationsrunda. De mjukvarulager som planerades före nästa fysiska verifiering är sammanförda och automatiskt testade.
+### 21.1 Pågående VENTUNO Q-migrering
 
-Nästa steg är därför inte mer blind funktionsutbyggnad utan samlad lokal verifiering på Windows-datorn:
-- smoke-test med riktig Ollama och NVIDIA-GPU
-- fysisk USB/hårdvaruförändring
-- BLE-skanning och verklig RSSI
-- terminalhandoff nära/långt med auto_execute avstängt
-- explicit GATT connect/disconnect till en konfigurerad testterminal
-- mikrofon/VAD/STT/TTS och verkligt barge-in
-- kamera/stillbild/video/live-vision där lokal visionmodell finns
-- GPS om fysisk mottagare finns
-- Raspberry Pi-delarna när Pi 5B-hårdvaran finns tillgänglig
+Efter pre-hardware-checkpointen har MyAI:s primära målhårdvara ändrats till Arduino VENTUNO Q med Qualcomm Dragonwing QCS8275 och 16 GB RAM. Raspberry Pi-runtime är borttagen; återanvändbar Linux-logik är porterad till VENTUNO-moduler och VENTUNO Q är enda embedded-målet.
 
-Funktioner som kräver saknad fysisk utrustning ska markeras som uppskjutna i stället för att simulerade CI-resultat behandlas som hårdvaruverifiering.
+Följande VENTUNO-anpassning är nu implementerad på separat utvecklingsgren:
 
-Innan utvecklingskedjan mergas till `main` ska den också köras som ett lokalt smoke-test på Windows-datorn med riktig Ollama, NVIDIA-GPU och faktisk tillgänglig hårdvara, eftersom GitHub Actions inte kan verifiera dessa miljöberoenden.
+- Ollama är fortsatt standardprovider i Windows-utvecklingsmiljön
+- provider-neutralt LLM-lager med `llm.provider=ollama|geniex`
+- separat GenieX-klient mot det lokala OpenAI-kompatibla API:t
+- planerad normalmodell `ai-hub-models/Qwen3-4B-Instruct-2507`
+- tokenstreaming för både Ollama och GenieX
+- provider-neutral `MyAICore.respond_stream()` som fortfarande sparar komplett svar och samtalskontext
+- meningsbuffrad streaming-TTS så generering och uppläsning kan överlappa utan token-för-token-tal
+- avbrott av pågående streaming-TTS med tömning av väntande talkö
+- separat runtime-profil `config/profiles/ventuno_q.json`
+- profilval genom `MYAI_SETTINGS` utan manuell redigering av standardkonfigurationen
+- launcher `scripts/start_ventuno.sh`
+- provider-neutral visionfabrik med befintlig Ollama-vision och ny GenieX-VLM-klient
+- OpenAI-kompatibla multimodala GenieX-anrop med base64-bilder för stillbild, OCR, objekt, förändring, video och live-vision
+- planerad VENTUNO-VLM `qualcomm/Qwen3-VL-4B-Instruct`, fortfarande avstängd tills fysisk verifiering
+- resurs-handoff för röst där VENTUNO-profilen kan frigöra mikrofonströmmen före tung AI-inference och återstarta den efteråt
+- VENTUNO-profilens handoff-delay är 1,5 sekunder; Windows-standard är fortsatt avstängd handoff
+- separat, lazy och fail-closed STM32/RPC-klient ovanpå officiella `arduino-router-bridge`
+- RPC-skrivning är avstängd som standard och varje läs-/skrivmetod måste finnas i separat allowlist
+- `ventuno_rpc_status` kan visa policy/status utan att ansluta till STM32
+- `requirements-ventuno.txt` håller VENTUNO-specifika beroenden separerade från grundinstallationen
+- read-only `scripts/ventuno_preflight.py` kontrollerar Linux ARM64, GenieX-provider/CLI, lokal endpoint, modellkonfiguration, Router Bridge, Unix-socket och RPC-skrivskydd utan inference eller fysisk styrning
+- systemverktygen har gjorts mer plattformsneutrala: diskstatus använder filsystemet där MyAI ligger och temperatur kan falla tillbaka till Linux thermal sysfs
+- befintliga Windows/Ollama-, minnes-, verktygs-, Bluetooth-, fil-, Excel- och säkerhetslager är fortsatt återanvända
+
+All ovanstående mjukvarulogik verifieras med automatiska tester och mockade providers. CI-resultat får inte beskrivas som verifiering av Dragonwing-NPU, QAIRT, VENTUNO-kamera, STM32, verklig ljudpipeline eller fysisk I/O.
+
+### 21.2 Kvarvarande fysisk VENTUNO-verifiering
+
+När VENTUNO Q finns tillgänglig ska nästa verifieringsrunda ske på målhårdvaran i denna ordning:
+
+1. installera och versionslåsa den VENTUNO/Qualcomm-mjukvarustack som faktiskt används
+2. verifiera `geniex` och köra read-only `scripts/ventuno_preflight.py`
+3. hämta och verifiera den valda Qwen3-4B-bundlen för QCS8275
+4. starta GenieX lokalt och mäta kallstart, TTFT, tokens/s, RAM och temperatur
+5. verifiera tokenstreaming och meningsbuffrad TTS
+6. verifiera mikrofon/VAD/STT och den 1,5 sekunders resurs-handoff som används innan LLM/VLM väcks
+7. välja och verifiera dokumenterad Qualcomm-/Arduino-accelererad Whisper-backend; tills dess är `faster-whisper` endast en fallback
+8. verifiera VLM med riktig kamera och därefter stillbild, OCR, objekt, förändring, video och begränsad live-vision
+9. verifiera Arduino Router-socket och endast en uttryckligt allowlistad read-only STM32-RPC-metod
+10. aktivera fysisk RPC-skrivning först efter separat säkerhetsgranskning, MCU-watchdog och explicita allowlists
+11. verifiera Bluetooth, Wi-Fi, USB, GPS och övrig faktisk kringutrustning
+12. genomföra ett minst 72 timmar långt stabilitetstest med modellbyten, röst, VLM, SQLite, nätverk, STM32-RPC, omstarter, temperatur och återhämtning efter fel
+
+Utvecklingen får fortsätta mjukvarumässigt fram till den punkt där nästa steg kräver verklig VENTUNO-hårdvara, men sådana steg ska då markeras som uppskjutna i stället för simulerade som godkända.
+
+VENTUNO-providerbytet ska inte mergas till `main` som permanent standard förrän grundläggande fysisk GenieX/QAIRT-verifiering är genomförd. Ollama förblir därför säker standard i huvudkonfigurationen under migrationsfasen.
+
+
+### 21.3 Paus/checkpoint 2026-10-04
+
+Arbetet pausas här på användarens begäran.
+
+GitHub-läge vid pausen:
+- aktiv utvecklingsgren: `dev/ventuno-q-provider`
+- draft-PR: **#85 – Begin Arduino VENTUNO Q / GenieX migration**
+- senast verifierade kodcommit före denna dokumentationscheckpoint: `cbcf661c147bdeb76701605fd18b6f94d545f638`
+- GitHub Actions-run `37213237747` för commit `cbcf661c` är **success**
+- Ollama är fortfarande säker standardprovider i Windows-konfigurationen
+- VENTUNO Q / GenieX är förberett genom separat profil och är inte permanent aktiverat i huvudkonfigurationen
+- inga fysiska VENTUNO Q-tester har genomförts ännu
+
+Senast färdigställda kodpunkt:
+- röst-state-machine har korrigerats så ordningen är **fånga tal → stoppa live-mikrofon → STT → frigör eventuell accelererad STT-provider → 1,5 s handoff → LLM/VLM → återstarta mikrofon**
+- 1,5-sekunders väntan ligger alltså mellan STT och LLM/VLM, inte före transkriberingen
+- read-only STM32-bridge-skelett finns med endast `myai_ping`, `myai_uptime_ms` och `myai_mcu_status`
+- skrivande STM32-RPC är fortfarande avstängt och write-allowlisten är tom
+- VENTUNO preflight, GenieX LLM/VLM-provider, streaming, meningsbuffrad TTS och Linux-portabla systemverktyg är implementerade
+
+Exakt återstartspunkt:
+1. kontrollera att senaste GitHub Actions för denna checkpoint fortfarande är grön
+2. fortsätt från VENTUNO-röst/STT-lagret
+3. hardkoda inte ett Qualcomm-/Arduino-accelererat Whisper-API förrän det finns en dokumenterad och verifierbar backend för den faktiska VENTUNO-mjukvarustacken
+4. behåll `faster-whisper` som fallback tills fysisk hårdvara finns
+5. därefter fortsätt endast med mjukvaruarbete som inte kräver påhittad NPU/STM32-hårdvaruverifiering
+6. när VENTUNO Q finns, börja med `scripts/ventuno_preflight.py` och följ den fysiska verifieringsordningen i avsnitt 21.2
+
+
+
+### 21.4 Återupptaget arbete 2026-10-05
+
+Arbetet återupptogs från checkpointen i avsnitt 21.3 och följande mjukvarulager har lagts till:
+
+- `faster-whisper` kan nu frivilligt frigöra sin laddade modell efter STT och före LLM/VLM
+- STT-resursfrigöring styrs av `voice.release_stt_before_model` och är avstängd i Windows-standardprofilen
+- VENTUNO-profilen aktiverar resursfrigöring och behåller `faster-whisper` som fungerande fallback tills en accelererad ASR-provider är verifierad
+- primär och backup-STT kan nu använda olika providers genom `stt_provider` respektive `backup_stt_provider`
+- detta förbereder VENTUNO för en framtida Qualcomm/App Lab Whisper-provider som primär och `faster-whisper` som reserv utan ändringar i resten av röstpipen
+- ett nytt `ResilientLLMClient` kan ge lokal modellfallback om primär LLM-backend får ett återhämtningsbart runtime-/anslutnings-/modellsvarsfel
+- LLM-fallback är avstängd i både standard- och VENTUNO-profil tills en fysisk reservmodell är verifierad
+- streaming-fallback får endast ske innan första primärtoken har skickats; en påbörjad primärström får aldrig blandas med reservmodellens svar
+- programmeringsfel som `TypeError` ska inte döljas av fallback
+- varje MyAI-svar kan bära intern `llm_runtime`-metadata som visar om primär eller fallback-backend användes
+- GenieX supervisor/watchdog använder read-only `GET /v1/models` för readiness utan token-generering; VENTUNO-profilen har health-monitorering på men automatisk restart av, tomt restart-kommando, feltröskel, cooldown och maxförsök
+- naturligt språk kan endast anropa `geniex_status`; ingen restart-action exponeras som MyAI-verktyg
+- watchdoggen skriver senaste GenieX-läge atomiskt till `runtime/geniex_health.json`; MyAI skriver efter varje svar en kombinerad backendstatus till `runtime/myai_health.json`
+- hälsoklassificeringen är `healthy`, `degraded`, `unhealthy` eller `unknown`; gamla snapshots behandlas som stale/unknown i stället för aktuell status
+- varje svar innehåller intern `llm_runtime`- och `health`-metadata, och en kort read-only hälsosammanfattning läggs i systemkontexten så modellen känner till degraderat/fallbackläge
+- health-aware backend recovery är implementerad med hysteresis: tre felkontroller kan välja reservbackend och tre nya lyckade kontroller efter fallbackaktivering krävs innan primärbackend återställs
+- stale/saknad watchdogstatus får inte tvinga backendbyte; historiska success-streaks före degradering får inte användas för omedelbar återgång
+- VENTUNO-profilen förbereder health-aware routing men själva fallbacken är fortsatt avstängd och reservmodell tom tills kompatibel fysisk modell är verifierad
+- hälsostatus rapporterar nu både GenieX failure streak, recovery success streak och LLM-routingorsak
+- fail-closed konfigurationsvalidering finns genom `core/config_validation.py` och `scripts/validate_config.py`; VENTUNO-startscript validerar innan start
+- JSONL-loggar för watchdog/stabilitet har begränsad storlek och backup-rotation så långkörningar inte kan växa obegränsat
+- headless deployment är separerad från interaktiva `mail.py`: `scripts/ventuno_runtime.py` hanterar lifecycle, heartbeat och ren SIGTERM/SIGINT-shutdown
+- VENTUNO-profilen kräver fysisk preflight före normal headless start
+- systemd-enheter genereras endast till `runtime/systemd/`; ingen installation eller `systemctl` sker automatiskt; process-crash-recovery är begränsad med `Restart=on-failure` och start-limit
+- naturligt språk kan läsa detta genom `myai_health_status`, men verktyget kan inte trigga restart eller fysisk styrning
+- `scripts/geniex_watchdog.py` kan senare köras separat och loggar watchdog-händelser till JSONL; automatisk restart får inte aktiveras förrän den riktiga VENTUNO-installationens tjänstehantering har verifierats
+- `scripts/ventuno_stability_test.py` är förberett för den senare 72-timmarskörningen och loggar first-token-latens, total svarstid, primär/fallback-backend, CPU, RAM, disk och temperatur i JSONL utan STM32/GPIO-skrivningar
+- VENTUNO preflight kontrollerar nu även `geniex --version` och `geniex model list`
+- om den konfigurerade Qwen-modellen inte finns i chipsetets kompatibla GenieX-lista blir preflight blockerande FAIL
+- om modellistan inte kan läsas blir kontrollen WARN i stället för att felaktigt påstå kompatibilitet
+- den officiella Arduino VENTUNO Q-guiden använder Whisper Small (quantized) genom App Lab ASR-bricken, men MyAI hårdkodar inte ett odokumenterat fristående Brick-API innan den faktiska VENTUNO-mjukvarustacken kan verifieras
+
+Nästa mjukvarumässiga fokus är robust runtime-/stabilitetsövervakning inför den senare 72-timmarskörningen, samtidigt som fysisk NPU/ASR/VLM/RPC-verifiering fortsatt skjuts upp tills VENTUNO Q finns tillgänglig.
+
+
+### 21.5 Säker selfdev-staging, verifiering och rollback
+
+Det tidigare stora mjukvarugapet kring säker självkodning har nu fått ett första fail-closed implementationslager.
+
+Implementerat:
+- selfdev är avstängt som standard genom separat `selfdev.enabled=false`
+- promotion har en andra separat spärr `selfdev.promotion_enabled=false`
+- kandidatkod kopieras till isolerad staging under `runtime/selfdev/<session>/workspace`; aktiv kod skrivs inte under förslagsfasen
+- endast explicit tillåtna text-/källkodsytor och filtyper kopieras; `.git`, `runtime`, virtuella miljöer, symlänkar, traversal och binära/otillåtna suffix blockeras
+- sessionen sparar SHA-256-baseline och upptäcker source drift
+- varje staging-skrivning genom API:t ogiltigförklarar tidigare verifiering
+- `scripts/selfdev_review.py` visar exakt unified diff, verifieringsstatus och source drift före promotion
+- verifiering körs endast genom Bubblewrap; saknas `bwrap` vägrar systemet köra i stället för att exekvera kandidatkod osandboxat på host
+- verifieringsmiljön unshare:ar namespaces, saknar nätverk, får minimal syntetisk `/dev`, read-only systembinds och endast staging-workspacen som skrivbar projektarea
+- verifieringen kör ett fast `python -m pytest -q` och binder verifieringsresultatet till staging-manifestets hash
+- filradering är inte tillåten för promotion i denna fas
+- promotion kräver passing Bubblewrap-verifiering, oförändrad staging, ingen source drift, båda config-spärrarna och exakt manuell fras `PROMOTE <session-id>`
+- rollback-backup skapas innan aktiv filskrivning; filersättning sker atomiskt och delvis misslyckad promotion återställs
+- rollback kräver exakt manuell fras `ROLLBACK <session-id> <promotion-id>`
+- rollback vägrar skriva över filer som ändrats efter promotion och tar bort filer som promotionen själv lade till
+- selfdev/promotion/rollback exponeras inte som naturliga MyAI-verktyg, har ingen fri shell-exekvering och gör inga automatiska Git-commits/pushar
+
+Detta är ett staging-/promotion-säkerhetslager, inte ett generellt bevis på att AI-genererad kod är säker. Fysisk VENTUNO-I/O och säkerhetskritisk MCU-funktionalitet ska även fortsättningsvis hållas utanför autonom promotion.
+
+
+### 21.6 Paus/checkpoint 2026-10-05
+
+Arbetet pausas här på användarens begäran.
+
+GitHub-läge vid pausen:
+- aktiv utvecklingsgren: `dev/ventuno-q-provider`
+- draft-PR: **#85 – Begin Arduino VENTUNO Q / GenieX migration**
+- senast fullt verifierade kod-/dokumentationscommit före denna checkpoint: `4a2af09d72501acd1cd89c4ff8bd9f63bb9e6cb4`
+- GitHub Actions-runs `37263678721` och `37263682476` för `4a2af09d` är **success**
+- inga fysiska VENTUNO Q-tester har genomförts; CI-resultat gäller endast mjukvarulagret
+
+Senast färdigställda mjukvaruläge:
+- fail-closed config-validering finns och VENTUNO-start vägrar starta på blockerande profilfel
+- watchdog- och stabilitets-JSONL har begränsad storlek och roterande backups
+- headless VENTUNO-runtime, heartbeat och ren shutdown finns
+- systemd-enheter genereras endast till staging under `runtime/systemd/`; inget installeras eller aktiveras automatiskt
+- process-crash-recovery är begränsad och separerad från GenieX supervisor/restart-policy
+- intern MyAI-hälsa, GenieX watchdog, health-aware primary/fallback-routing och recovery-hysteresis är implementerade
+- fallbackmodell är fortfarande inte aktiverad eller vald för fysisk VENTUNO
+- säker selfdev-staging finns med default-off, Bubblewrap-only verifiering, diff-review, hashbunden verifiering, manuell promotion och manuell rollback
+- selfdev kan inte automatiskt köra fri shell, göra Git commit/push, skriva fysisk VENTUNO-I/O eller exponeras som naturligt MyAI-verktyg
+- promotion och rollback kräver exakta manuella fraser och skydd mot source drift/out-of-band-förändringar
+
+Exakt återstartspunkt:
+1. kontrollera att branch-head och GitHub Actions fortfarande är gröna
+2. fortsätt från commit `4a2af09d72501acd1cd89c4ff8bd9f63bb9e6cb4` plus denna checkpointcommit
+3. behåll all fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering uppskjuten tills kortet finns
+4. välj nästa rent mjukvarumässiga steg utan att försvaga selfdev-, RPC-, restart- eller config-spärrarna
+5. när VENTUNO Q finns: börja med config-validering och `scripts/ventuno_preflight.py`, därefter följs avsnitt 21.2
+
+
+### 21.7 Återupptaget arbete 2026-10-05 – deployment-/versionslåsning
+
+Nästa rent mjukvarumässiga steg efter checkpointen i avsnitt 21.6 är nu implementerat på separat feature-gren och verifierat i CI.
+
+Implementerat:
+- nytt read-only lager i `core/deployment_lock.py` för att samla faktiskt observerbara mjukvaruidentifierare utan AI-inference eller fysisk styrning
+- identifierare omfattar operativsystem/arkitektur, Python-version, `geniex --version`, installerade baspaket (`requests`, `psutil`, `bleak`), `arduino-router-bridge`, SHA-256 för bas-/VENTUNO-/Bluetooth-/kamera-/röst-/GPS-requirements och konfigurerad LLM-modell
+- `scripts/ventuno_version_lock.py capture` skapar endast en olåst kandidat under `runtime/`; kandidaten får `locked=false` och kan därför inte användas som ett godkänt lås av misstag
+- `scripts/ventuno_version_lock.py verify` jämför den observerade stacken mot ett manuellt granskat lås och failar vid versionsavvikelse
+- `deployment_lock.required=false` är fortsatt säker standard både globalt och i VENTUNO-profilen
+- när `deployment_lock.required=true` blir ett giltigt `deployment_lock.lock_path` obligatoriskt och VENTUNO-preflight blockerar start vid saknat, olåst, ofullständigt eller avvikande lås
+- inget permanent `config/ventuno_stack_lock.json` har skapats ännu, eftersom faktiska GenieX/Qualcomm/Python-miljöversioner ska läsas från den fysiska VENTUNO Q och inte gissas
+- inga paket installeras, inga systemtjänster ändras och ingen STM32/GPIO/NPU-skrivning sker av versionslåslagret
+
+Automatisk verifiering:
+- kodhead före denna dokumentationsuppdatering: `93174fbd43da3cadb0f07de755081974f9001a90`
+- GitHub Actions-run `37264558181` är **success**
+- både Python-kompilering och full pytest-svit passerade
+
+När fysisk VENTUNO Q finns ska avsnitt 21.2 steg 1 använda detta lager för att fånga den verkliga installerade stacken, manuellt granska den och först därefter aktivera ett permanent versionslås. Fram till dess ska versionslåset förbli avstängt och får inte fyllas med antagna Qualcomm-/GenieX-versioner.
+
+
+### 21.8 Paus/checkpoint 2026-10-05 – efter deployment-/versionslåsning
+
+Arbetet pausas här på användarens begäran.
+
+GitHub-läge vid pausen:
+- aktiv utvecklingsgren: `dev/ventuno-q-provider`
+- draft-PR: **#85 – Begin Arduino VENTUNO Q / GenieX migration**
+- aktuell branch-head före denna checkpoint: `0f6553d8b35f32eaaba77b11d8d9c2c29214e073`
+- GitHub Actions-run `37264670343` för denna head är **success**
+- `main` är fortsatt orörd
+- inga fysiska VENTUNO Q-/NPU-/ASR-/VLM-/STM32-tester har genomförts; CI-resultat gäller mjukvarulagret
+
+Senast färdigställda mjukvaruläge:
+- fail-closed deployment-/versionslåsning är implementerad för VENTUNO
+- `core/deployment_lock.py` samlar endast faktiskt observerbara mjukvaruidentifierare
+- `scripts/ventuno_version_lock.py capture` skapar en olåst kandidat under `runtime/`
+- capture-resultatet får `locked=false` och kan inte av misstag räknas som ett godkänt permanent lås
+- `verify` jämför observerad stack mot ett manuellt granskat lås och failar vid avvikelse
+- `deployment_lock.required=false` är fortsatt säker standard
+- VENTUNO-preflight blockerar när låsning senare är aktiverad men låset saknas, är ofullständigt, olåst eller inte matchar observerad stack
+- inga Qualcomm-/GenieX-versioner har gissats eller hårdkodats som fysiskt verifierade
+- selfdev-, RPC-, restart- och config-spärrarna är oförsvagade
+
+Exakt återstartspunkt:
+1. börja från denna checkpoint på `dev/ventuno-q-provider`
+2. kontrollera att aktuell branch-head och GitHub Actions fortfarande är gröna
+3. fortsätt endast med rent mjukvarumässiga steg som inte kräver påhittad fysisk VENTUNO-verifiering
+4. behåll deployment-låset avstängt tills riktig VENTUNO Q finns och den faktiska stacken kan fångas och granskas
+5. när VENTUNO Q finns: kör config-validering, `scripts/ventuno_version_lock.py capture`, granska den verkliga stacken, aktivera först därefter ett permanent versionslås och fortsätt med `scripts/ventuno_preflight.py` enligt avsnitt 21.2
+
+
+### 21.9 Återupptaget arbete 2026-10-05 – strukturerad felspårning
+
+Nästa rena mjukvarulucka efter checkpoint 21.8 var kravet i avsnitt 17 att verktygsfel ska loggas och kunna felsökas utan att assistenten låtsas att ett misslyckat verktyg fungerade.
+
+Implementerat på separat feature-gren:
+- `core/error_log.py` med roterande strukturerad JSONL-logg
+- tool-körfel loggas med `tool_error`
+- modulimportfel loggas med `module_load_error`
+- felloggen sparar inte rå användartext eller prompt
+- felmeddelanden normaliseras och längdbegränsas
+- loggning är best-effort och får aldrig maskera originalfelet
+- befintligt multi-tool-beteende bevaras: ett misslyckat verktyg stoppar inte andra verktygsresultat
+- nya konfigurationsvärden `error_logging.enabled`, `error_logging.path` och `error_logging.max_message_chars`
+- fail-closed konfigurationsvalidering för aktiv felloggning
+- separat testtäckning för skrivning, truncering, avstängt läge, loggfel och tool-integration
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `5d360429cab75f80dcfff307592abb0143e59d5a`
+- GitHub Actions-run `37276890394` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering har gjorts eller påståtts av detta lager
+
+
+### 21.10 Återupptaget arbete 2026-10-05 – read-only feldiagnostik
+
+Nästa steg efter den strukturerade felloggningen var att göra informationen praktiskt åtkomlig utan manuell filhantering.
+
+Implementerat:
+- `core.error_log.read_recent_errors()` läser de senaste strukturerade felposterna från aktuell och roterad JSONL-logg
+- läsningen är hårt begränsad till högst 50 poster
+- trasiga JSON-rader ignoreras och räknas separat
+- `modules/system/errors.py` exponerar endast det read-only verktyget `myai_recent_errors`
+- naturligt språk routar bland annat frågor som `Vilka fel har MyAI haft?` och `Visa MyAI fellogg.`
+- `error_logging.recent_limit` styr standardantalet och valideras till intervallet 1–50
+- verktyget ändrar, rensar eller kvitterar aldrig felloggen
+- loggarnas integritetsregel kvarstår: rå användarfråga och prompt finns inte i de strukturerade felposterna
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `f5529a435939684d48b4d2b8cefcf448563b27f5`
+- GitHub Actions-run `37277666680` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av detta read-only mjukvarulager
+
+
+### 21.11 Återupptaget arbete 2026-10-05 – analys av VENTUNO-stabilitetstest
+
+Första rekommenderade mjukvarusteget efter avsnitt 21.10 är nu implementerat: ett helt read-only analyslager för den senare 72-timmarskörningen.
+
+Implementerat:
+- `core.ventuno_stability.read_stability_records()` läser aktuell och roterad stabilitets-JSONL i kronologisk ordning utan att ändra filer
+- läsningen är minnesbegränsad genom `stability_analysis.max_records` och har ett absolut tak på 100000 poster
+- ogiltiga JSONL-rader räknas och ignoreras i stället för att krascha hela rapporten
+- `analyze_stability_records()` sammanställer lyckade/misslyckade iterationer, lyckandegrad, längsta felserie och observerat tidsomfång
+- latens rapporteras som p50, p95 och max för både first-token/first-chunk och total svarstid
+- backendfördelning och antal backendbyten sammanställs
+- CPU, RAM, disk och temperatur sammanställs från faktiskt loggade mätvärden utan att hitta på saknade värden
+- relativa trendmått jämför median i början och slutet av loggen; standardflagga för latensförsämring är 1.25× och kan justeras i konfiguration
+- `stability_analysis.target_hours=72` markerar endast om loggens observerade tidsomfång når målperioden; detta är inte ett hårdvarugodkännande
+- `scripts/ventuno_stability_report.py` kan skriva svensk text eller maskinläsbar JSON från befintlig logg
+- read-only verktyget `ventuno_stability_report` kan anropas med naturligt språk, exempelvis `Visa VENTUNO stabilitetsrapport`
+- rapporten saknar alla restart-, skriv-, STM32-, GPIO- och NPU-styråtgärder
+- rapportens `physical_hardware_approval` är uttryckligen `false`; fysisk acceptans ligger fortsatt separat i avsnitt 21.2
+- configvalidering blockerar ogiltig loggsökväg, record-gräns, målperiod, trendfönster och degraderingskvot
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `a28987d87789ff380fb35fbd207184c74cdd2c63`
+- GitHub Actions-run `37279410066` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker roterade loggar, truncering, trasiga loggrader, statistik, felserier, backendbyten, relativa trender, read-only-beteende, configgränser och språkroute
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller härletts från rapporten
+
+Nästa rekommenderade rena mjukvaruspår är minneslivscykel och konflikthantering enligt avsnitt 15.2–15.3, fortsatt utan beroende av fysisk VENTUNO-hårdvara.
+
+
+### 21.12 Återupptaget arbete 2026-10-05 – minneslivscykel och konflikthantering
+
+Andra rekommenderade mjukvarusteget efter avsnitt 21.11 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- befintlig `memories`-tabell migreras bakåtkompatibelt utan dataförlust
+- aktiva och ersatta minnen skiljs åt utan fysisk radering
+- `MemoryStore.supersede()` ersätter ett aktivt minne atomiskt och bevarar gammal post med pekare till den nya
+- normal sökning returnerar endast aktiva minnen
+- `get_history()` behåller insyn i hela livscykeln
+- read-only `list_stale()` kan identifiera gamla aktiva minnen när en åldersgräns senare aktiveras
+- `core/memory_lifecycle.py` gör deterministisk konfliktanalys utan extern modell eller nätverk
+- exakta dubletter sparas inte igen
+- möjliga motstridiga minnen utan tydlig ersättningssignal går till `review`
+- explicit uppdatering kan endast auto-supersede när exakt en stark kandidat passerar den högre supersede-tröskeln
+- tvetydig explicit uppdatering med flera starka kandidater gör ingen databasändring och kräver granskning
+- `MyAICore` använder livscykellagret vid automatisk långtidslagring men faller bakåtkompatibelt tillbaka för äldre/förenklade MemoryStore-implementationer
+- ingen automatisk radering, TTL-delete eller fysisk hårdvaruåtgärd har lagts till
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `6b454a78361389101da6f3fd2ed31d4ceff04595`
+- GitHub Actions-run `37280656675` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker legacy-schema-migrering, datahistorik, atomisk supersession, normal sökning, explicit entydig uppdatering, tvetydig konflikt, möjlig konflikt, dublett, unrelated save, stale-listning, MyAICore-integration och configvalidering
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av detta lager
+
+Nästa rekommenderade rena mjukvaruspår är en separat audit-logg för lyckade, nekade och säkerhetsrelevanta skrivande åtgärder enligt avsnitt 18.
+
+
+### 21.13 Återupptaget arbete 2026-10-05 – fail-closed audit-logg
+
+Tredje rekommenderade mjukvarusteget efter avsnitt 21.12 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- nytt `core/audit_log.py` med strukturerade, roterande JSONL-poster
+- `attempt` måste kunna loggas innan en skrivning när `audit_logging.require_for_writes=true`
+- om obligatorisk audit är avstängd eller loggfilen inte kan skrivas blockeras själva skrivningen innan mutation
+- lyckade, nekade och misslyckade utfall loggas separat
+- auditmetadata begränsas och normaliseras
+- rå användarprompt, textfilinnehåll, Excel-värden och selfdev approval-fråser loggas inte
+- workspace-skrivning och Excel-skrivverktyg är inkopplade
+- selfdev promotion och rollback är inkopplade utan att försvaga befintliga exakta godkännandefraser, Bubblewrap-spärrar eller source-drift-skydd
+- `read_recent_audit()` läser auditloggen read-only över roterade filer
+- `myai_audit_status` exponerar endast read-only visning av senaste händelser
+- naturligt språk stödjer exempelvis `Visa auditloggen` och `Vilka ändringar har MyAI gjort?`
+- configvalidering kräver konsistent auditkonfiguration och begränsar read-only-visningen till högst 50 poster
+
+Verifiering:
+- första feature-head `e6f1221ab3cfccfe2f95e3d8faae2cf1cfe84135` gav en testfailure eftersom ett nytt test använde en ogiltig Excel-instruktion och nådde parserfelet innan write-disable-spärren
+- testet korrigerades utan ändring av auditbeteendet
+- korrigerad feature-head före denna dokumentationscommit: `314710f75a967c4351907cd7f0c987afea3982c7`
+- GitHub Actions-run `37284275511` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker obligatorisk audit, lagringsfel, best-effort result logging, nekade försök, loggrotation, workspace, Excel, selfdev promotion/rollback, sekretessregler, read-only auditstatus, språkroute och configvalidering
+- ingen fysisk VENTUNO/NPU/STM32-verifiering krävs eller påstås av auditlagret
+
+Nästa rekommenderade rena mjukvaruspår är en samlad read-only MyAI-diagnostikrapport som kombinerar configvalidering, health, senaste fel, auditstatus, deployment-lock-status och runtime-/providerstatus utan att utföra restart eller fysisk styrning.
+
+
+### 21.14 Återupptaget arbete 2026-10-05 – samlad read-only diagnostik
+
+Fjärde rekommenderade mjukvarusteget efter avsnitt 21.13 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- nytt `core/diagnostics.py` som sammanställer flera redan befintliga read-only statuskällor
+- konfigurationsvalidering inkluderas utan att ändra settings
+- primär LLM-provider/modell, fallback-konfiguration, visionstatus och VENTUNO-profilläge rapporteras från konfiguration
+- färsk eller stale MyAI-health läses från befintliga snapshots
+- headless runtime-heartbeat läses read-only och klassas som färsk/stale med konfigurerbar gräns
+- senaste strukturerade felloggsposter och audit-händelser inkluderas via befintliga bounded readers
+- deployment-lock kontrolleras endast strukturellt; ingen observerad VENTUNO-stack samlas och inget GenieX-kommando körs av rapporten
+- rapporten sätter explicit `physical_preflight_executed=false` och `physical_hardware_approval=false`
+- rapporten kan därför inte användas som ersättning för fysisk preflight enligt avsnitt 21.2
+- `scripts/myai_diagnostics.py` ger text- eller JSON-utdata
+- read-only verktyget `myai_diagnostic_report` kan anropas genom naturligt språk, exempelvis `Gör en MyAI diagnostik`
+- ingen restart, inference, nätverksstyrning, STM32/GPIO-skrivning eller annan fysisk I/O ingår
+
+Konfiguration:
+- `diagnostics.runtime_stale_seconds=30`
+- värdet valideras fail-closed till intervallet 1–3600 sekunder
+- runtime heartbeat bedöms minst mot tre heartbeat-intervall så korta schedulerfördröjningar inte automatiskt ger stale-status
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `ad7300875f50852748cc23ca5f14f291cd24ab40`
+- GitHub Actions-run `37285117197` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker lokal health/runtime-status, stale heartbeat, senaste fel/audit, saknat deployment-lock, strukturellt giltigt lock, read-only-egenskap, explicit frånvaro av fysisk preflight/godkännande, configvalidering och språkroute
+- ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering har genomförts eller härletts
+
+Nästa rekommenderade rena mjukvaruspår är konfigurationshärdning: schema/version, okända nycklar, profiljämförelse och kontrollerad migrationslogik utan att aktivera fysisk hårdvara.
+
+
+### 21.15 Återupptaget arbete 2026-10-05 – konfigurationshärdning
+
+Femte rekommenderade mjukvarusteget efter avsnitt 21.14 är nu implementerat och verifierat i CI.
+
+Implementerat:
+- nytt `core/config_schema.py`
+- `CURRENT_CONFIG_SCHEMA_VERSION=1`
+- legacy-konfiguration utan versionsfält migreras bakåtkompatibelt till schema 1 endast i minnet
+- framtida schema och icke-heltalsversioner blockeras
+- `load_settings_with_metadata()` redovisar source/effective version och migrationssteg utan att skriva tillbaka filen
+- `validate_settings()` blockerar okända top-level och nested confignycklar
+- checked-in Windows/default- och VENTUNO-profiler har explicit `schema_version=1`
+- profilerna valideras direkt i CI
+- read-only profiljämförelse visar effektiva skillnader med redaction av känsliga fält
+- read-only migrationspreview visar kandidat och okända nycklar utan source mutation
+- befintligt partial-profile merge-beteende bevaras
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `bccf5535a05d2bb11e28d47f2ead7df4dd5c4a68`
+- GitHub Actions-run `37285986641` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker legacy migration utan filändring, framtida schema, felaktig schematyp, okända nested keys, profilskillnader, sekretessredaction, checked-in profiler och befintlig partial override
+- ingen fysisk VENTUNO-verifiering krävs eller påstås
+
+Nästa rekommenderade rena mjukvaruspår är systematisk felinjektion: timeout, korrupta state/loggfiler, auditlagringsfel, stale health/runtime, full-/oskrivbar lagring och providerfel ska kunna provas med mocks utan fysisk VENTUNO-hårdvara.
+
+
+### 21.16 Pauscheckpoint 2026-10-05 – före syntetisk felinjektion
+
+Arbetet pausas här på användarens begäran.
+
+Aktivt läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- draft PR: `#85`
+- integrations-head före denna dokumentationscheckpoint: `1dd4c1ed053fba0fa20e62a395d3f9e19f74a09d`
+- GitHub Actions-run `37286150043` är **success**
+- senast färdigställda mjukvarusteg är konfigurationshärdning enligt avsnitt 21.15
+- tidigare rekommenderade mjukvarusteg 21.11–21.15 är implementerade och mergade
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts
+
+Nästa exakta steg vid återupptag:
+1. skapa en ny feature-gren från aktuell `dev/ventuno-q-provider`
+2. implementera **syntetisk felinjektion/återhämtningsprov** endast med mocks/fakes och temporära filer
+3. täck minst provider-timeout, providerfel före första streaming-token, korrupta state/loggfiler, stale health/runtime, auditlagringsfel samt oskrivbar/full lagring i simulerad form
+4. verifiera att befintliga fail-closed-regler, fallback-regler, restart-gates och fysiska säkerhetsgränser inte försvagas
+5. inga riktiga nätverksavbrott, diskfel, restartkommandon eller fysisk VENTUNO-I/O får utlösas av testlagret
+6. kör full CI, dokumentera resultatet och mergea endast om hela sviten är grön
+
+Viktigt:
+- ingen felinjektionskod hade ännu lagts till när pausen gjordes
+- fysisk VENTUNO-verifiering enligt avsnitt 21.2 är fortfarande uppskjuten tills hårdvaran finns
+- `main` ska fortsatt lämnas orörd tills VENTUNO-spåret är färdigverifierat
+
+
+### 21.17 Återupptaget arbete 2026-10-05 – syntetisk felinjektion och återhämtningsprov
+
+Sjätte rekommenderade mjukvarusteget efter avsnitt 21.15 är nu implementerat som ett rent CI-/testlager.
+
+Implementerat:
+- nytt `tests/test_fault_injection.py`
+- ny isolerad runner `scripts/run_fault_injection_tests.py`
+- ingen fault-injection-funktion exponeras i produktionsruntime eller verktygsregistret
+- inga riktiga nätverksavbrott, diskfel, restartkommandon eller fysisk VENTUNO-I/O används
+
+Syntetiskt verifierade felbilder:
+- primär LLM-provider timeout i icke-streamat anrop ger tillåten fallback när fallback är aktiverad
+- streamingfel före första token får växla till fallback
+- streamingfel efter första primära token får inte blanda in fallback i samma svar
+- korrupt MyAI-health och runtime-heartbeat behandlas som saknad/stale data utan filmutation
+- korrupta JSONL-rader i error- och auditloggar ignoreras och räknas utan exekvering
+- stale runtime och stale GenieX-watchdog får inte presenteras som frisk status
+- obligatorisk auditlagring som fallerar blockerar workspace-skrivning före filmutation
+- simulerad oskrivbar/full workspace-lagring lämnar ingen färdig målfil
+- simulerat atomiskt replace-fel vid health-snapshot bevarar tidigare snapshot och städar temporär fil
+- upprepade GenieX-timeouts får inte utlösa restart när `restart_enabled=false`
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `c2722126a9065c52bf33fef0297650c3ac161115`
+- GitHub Actions-run `37305600870` är **success**
+- Python-kompilering och full pytest-svit passerade
+- fault-testlagret använder endast fakes, monkeypatching och temporära testfiler
+- befintliga fallback-, audit-, restart-, config- och fysiska säkerhetsgränser har inte försvagats
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller härletts
+
+Med avsnitt 21.11–21.17 är den rekommenderade mjukvaruhärdningen före fysisk VENTUNO-verifiering genomförd:
+1. stabilitetsanalys
+2. minneslivscykel och konflikthantering
+3. fail-closed audit-logg
+4. samlad read-only diagnostik
+5. versionshanterad konfigurationshärdning
+6. syntetisk felinjektion och återhämtningsprov
+
+Nästa VENTUNO-specifika steg ska därför normalt återgå till den fysiska verifieringsordningen i avsnitt 21.2 när hårdvaran finns. Ytterligare mjukvaruarbete före dess ska endast göras om det är tydligt hårdvaruoberoende och inte kräver antaganden om Qualcomm/GenieX/App Lab/STM32-beteende.
+
+
+### 21.18 Fortsatt hårdvaruoberoende arbete 2026-10-05 – svensk shoppingorkestrering
+
+Efter den förberedande VENTUNO-härdningen i avsnitt 21.11–21.17 fortsatte arbetet endast i ett tydligt hårdvaruoberoende område.
+
+Implementerat:
+- nytt `modules/internet/shopping.py`
+- `shopping_compare_data()` orkestrerar SearXNG-sökning, säker sidfetch, kommersiell faktaextraktion, källbedömning och den befintliga svenska prisjämförelsekärnan
+- upp till fem säljsidor används som underlag
+- endast explicit produktmetadata/sidtext används för pris-, valuta-, lager-, frakt-, moms-, avgifts-, Sverigeleverans- och leveranstidsfält
+- icke-SEK-priser konverteras inte
+- okända avgifter eller leveransuppgifter kompletteras inte med antaganden
+- ofullständiga/ohämtbara kandidater sorteras bort med orsaker bevarade
+- informationskonfidens mäter faktakompletthet separat från källtransparens
+- naturligt språk routar shoppingfrågor till `shopping_compare_sweden`
+- inga köp, beställningar eller skrivande externa åtgärder har lagts till
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `d86d52de14e99959365bc2c56dd7fd8dbd413424`
+- GitHub Actions-run `37306504458` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av shoppinglagret
+
+
+### 21.19 Pauscheckpoint 2026-10-05 – efter svensk shoppingorkestrering
+
+Arbetet pausas här på användarens begäran.
+
+Aktivt läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- draft PR: `#85`
+- integrations-head före denna dokumentationscheckpoint: `e94cbe8a12a12dddb521723e90b65945c0de9ddc`
+- GitHub Actions-run `37306695959` är **success**
+- senaste färdigställda hårdvaruoberoende steg är svensk shopping-/prisorkestrering enligt avsnitt 13.7 och 21.18
+- `main` är fortsatt orörd
+- ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts
+
+Nästa exakta steg vid återupptag:
+1. utgå från aktuell `dev/ventuno-q-provider`
+2. verifiera att branch-head och GitHub Actions fortfarande är gröna
+3. bygg ett separat, hårdvaruoberoende växelkurslager för verifierad konvertering till SEK
+4. växelkurs får endast användas när källa, kurs, valutapar och tidsstämpel kan verifieras
+5. ingen tyst eller uppskattad valutakonvertering får ske
+6. koppla därefter växelkurslagret till shoppingflödet så utländska erbjudanden endast blir rankningsbara efter verifierad konvertering
+7. behåll VENTUNO-specifika fysiska spärrar och ordningen i avsnitt 21.2 oförändrade
+8. kör full CI, dokumentera resultatet och mergea endast om hela sviten är grön
+
+Viktigt:
+- shoppinglagret gör fortfarande inga köp eller beställningar
+- befintlig prisjämförelsekärna ska fortsatt diskvalificera icke-SEK när verifierad konvertering saknas
+- inga antaganden om Qualcomm/GenieX/App Lab/STM32 ska införas i detta arbete
+
+
+### 21.20 Fortsatt hårdvaruoberoende arbete 2026-10-05 – verifierad ECB FX till SEK
+
+Arbetet efter checkpoint 21.19 fortsatte endast i det hårdvaruoberoende shopping-/internetlagret.
+
+Implementerat:
+- nytt `modules/internet/fx.py`
+- ECB som första verifierbara, nyckelfria referensrate-provider
+- strikt HTTPS-/host-pinning till ECB
+- parser för ECB:s dagliga XML-feed
+- verifiering av referensdatum och konfigurerbar maxålder
+- cross-rate via EUR för valutor som finns i samma feed
+- `convert_verified_amount()` kräver uttryckligen verifierad quote
+- `fx.enabled=false` som default; aktivering kräver internet
+- fail-closed configvalidering för provider, målvaluta, URL/host och maxålder
+- shopping bevarar originalvaluta/originalbelopp och konverterar endast när verifierad quote finns
+- samma FX-quote återanvänds för samma valuta inom ett shoppinganrop
+- om FX saknas eller är stale förblir icke-SEK-erbjudandet ej rankningsbart
+- inga transaktionskurser, bankpåslag, kortavgifter eller betalningsresultat antas
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `8ab4e923f2917b736320abd08357593b570fb68e`
+- GitHub Actions-run `37311026210` är **success**
+- Python-kompilering och full pytest-svit passerade
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av FX-lagret
+
+Nästa hårdvaruoberoende förbättring bör väljas efter ny genomgång av project_spec; VENTUNO-specifika steg ligger fortsatt kvar bakom fysisk verifiering enligt avsnitt 21.2.
+
+
+### 21.21 Fortsatt hårdvaruoberoende arbete 2026-10-05 – Open-Meteo-väder
+
+Efter verifierad FX valdes väder som nästa tydliga hårdvaruoberoende lucka eftersom målbilden uttryckligen innehåller frågan `Vad blir det för väder idag?`.
+
+Implementerat:
+- nytt `modules/internet/weather.py`
+- platsnamn extraheras ur svenska och engelska väderfrågor
+- explicit `weather.default_location` kan användas när frågan saknar plats
+- ingen exakt användarposition, GPS eller hårdvarusensor krävs
+- Open-Meteo geocoding används för plats → WGS84-koordinater
+- Open-Meteo forecast används för current + kort daily forecast
+- endpoint och slutlig redirect-host valideras fail-closed mot separata Open-Meteo-allowlists
+- API-fel, ogiltig JSON och ogiltiga koordinater ger tydligt fel i stället för gissad prognos
+- språkroute känner igen bland annat `Väder i ...`, `Väder idag`, `Prognos för ...` och engelska motsvarigheter
+- weather är avstängt som standard och kräver internet när det aktiveras
+- väderkoder mappas till korta svenska beskrivningar
+- inga skrivande åtgärder eller fysiska VENTUNO-funktioner ingår
+
+Verifiering:
+- första CI-run `37312118445` hittade ett isolerat regex-escape-fel i platsparsern medan Python-kompileringen passerade
+- regexen korrigerades utan ändring av övrig arkitektur
+- korrigerad feature-head före denna dokumentationscommit: `d9e12ad5a5aa406e3f89bd16183b7799689f7293`
+- GitHub Actions-run `37312236426` är **success**
+- Python-kompilering och full pytest-svit passerade
+- CI använder endast syntetiska/fake Open-Meteo-svar och kräver ingen extern tjänst
+- ingen fysisk VENTUNO-verifiering krävs eller påstås av väderlagret
+
+
+### 21.22 Fortsatt hårdvaruoberoende arbete 2026-10-05 – minnesadministration
+
+Efter väderlagret valdes användarstyrd minnesadministration som nästa tydliga hårdvaruoberoende lucka i avsnitt 15.
+
+Implementerat:
+- `memory_reviews` som persistent review-kö i SQLite
+- automatisk köläggning för policy-`review` och livscykelkonflikter
+- deduplicering av identiska väntande kandidater
+- read-only listning av pending reviews, konflikter, stale aktiva minnen och historik
+- atomiskt godkännande av konfliktfri review
+- explicit avvisning av review
+- atomisk ersättning från review till registrerat konfliktminne
+- permanent radering genom separat exakt kommando
+- fail-closed audit före alla nya minnesadministrativa mutationer
+- audit även för automatiska minnesskrivningar och review-köskrivningar
+- inga råa användarprompter eller minnesinnehåll skrivs till auditloggen
+- administrativ listgräns och stale-review-gräns är konfigurerbara och validerade
+
+Exakta skrivkommandon:
+- `GODKÄNN MINNESGRANSKNING <id>`
+- `AVVISA MINNESGRANSKNING <id>`
+- `ERSÄTT MINNE <minnes-id> MED GRANSKNING <gransknings-id>`
+- `RADERA MINNE <id>`
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `a55fc62d6c8db895354893513ae8fb9f06fbc566`
+- GitHub Actions-run `37313779564` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker review-deduplicering, konfliktfri approval, blockerad plain approval vid konflikt, korrekt och fel konfliktmål, avvisning, permanent deletion, exakt kommandosyntax, auditspår, auditfel före mutation, read-only statuslistor, MyAICore-köläggning, ambiguous lifecycle conflict, configvalidering och språkroute
+- ingen fysisk VENTUNO-verifiering krävs eller påstås
+
+Nästa större hårdvaruoberoende spår kan nu vara multimodal orkestrering: en säker planerare som kan kombinera flera redan verifierade read-only/modulära verktyg i samma uppgift utan att ge VENTUNO-specifika hårdvaruantaganden.
+
+
+### 21.23 Fortsatt hårdvaruoberoende arbete 2026-10-05 – säker multimodal orkestrering
+
+Efter minnesadministrationen implementerades ett första generellt planerarlager för att kombinera flera redan verifierade verktyg utan att ge planeraren nya skriv- eller fysiska befogenheter.
+
+Implementerat:
+- nytt `core/orchestration.py`
+- deterministisk split av multi-domain-frågor till delklausuler
+- kombination av flera säkra verktyg i samma MyAI-svar
+- separat delquery per query-aware verktyg
+- explicit ordning `camera_capture` → visionanalys när båda efterfrågas
+- max antal verktyg per plan
+- max tecken per verktygsresultat innan LLM-kontext
+- sanerad `orchestration_plan` i MyAICore-resultatet utan delquerytext
+- automatisk planner-allowlist för read-only verktyg
+- explicit lokal capture tillåts endast vid uttrycklig capture-begäran
+- skriv-/mutationsverktyg och snapshot-mutationen `hardware_changes` är inte planner-säkra
+- direkt destruktiv/skrivande routing behåller företräde och expanderas inte
+- när orkestrering är aktiv får LLM-fallback endast se planner-säkra verktyg
+- befintlig `select_tools()` är bakåtkompatibel; strukturerad exekvering använder `select_tool_plan()`
+- `run_tools()` stödjer nu per-tool-input och begränsad textresultatlängd
+
+Verifiering:
+- första feature-run `37315688587` hade ett enda testfel i en syntetisk fake-detektor som matchade `hårdvara` men testfrasen använde `hårdvaruförändringar`; produktionskoden kompilerade och övriga tester passerade
+- testmatchningen korrigerades utan ändring av produktionsbeteendet
+- korrigerad feature-head före denna dokumentationscommit: `7e33bda4c495055cfac9ebc8e4de1206e128627f`
+- GitHub Actions-run `37315787007` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker väder+RAM, kamera→vision→CPU, delquery-separation, capture-policy, maxverktygsgräns, resultattrunkering, publikt planskydd, direkt destruktiv routing, säker LLM-fallback, blockerad workspace-skrivfallback, blockerad `hardware_changes`, configvalidering och end-to-end MyAICore-exekvering
+- ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering krävs eller påstås
+
+Nästa möjliga hårdvaruoberoende steg är att bygga ett explicit, testbart mellanresultatprotokoll för vissa read-only kedjor, exempelvis visionresultat → användarbekräftad webbresearch, utan att tillåta dold självexpanderande agentloop eller skrivande åtgärder.
+
+
+### 21.24 Fortsatt hårdvaruoberoende arbete 2026-10-05 – explicit mellanresultatprotokoll
+
+Efter den säkra multi-tool-orkestreringen implementerades den första kontrollerade output→nästa-steg-kedjan utan självexpanderande agentbeteende.
+
+Implementerat:
+- nytt `core/intermediate_results.py`
+- sessionsbunden `IntermediateResultStore`
+- one-shot-ID:n `IR<n>`
+- TTL och max pending
+- bounded source→query-normalisering
+- explicit visual-source allowlist
+- explicit target allowlist med endast `research_top_three`
+- beroende researchfraser flyttas från direkt tool-plan till `deferred_steps`
+- `MyAICore` skapar `pending_intermediate_results` först efter lyckat source-resultat
+- exakt `FORTSÄTT MED RESEARCH <id>` fångas före vanlig routing
+- bekräftad research körs en gång och ID:t konsumeras
+- ogiltigt/utgånget ID kör inget verktyg
+- konversationsreset rensar pending-kön
+- beroende visual research utan aktuell source blockeras från vanlig direct research
+- systemprompten markerar uttryckligen att uppskjuten research ännu inte är körd
+- publika planer visar deferred source/target men ingen rå delquery
+- config och configvalidering för pending-, query- och TTL-gränser
+
+Verifiering:
+- feature-head före denna dokumentationscommit: `78ce0db2cee5f2921840e9aeffebc9f3390bc1b9`
+- GitHub Actions-run `37317696484` är **success**
+- Python-kompilering och full pytest-svit passerade
+- tester täcker dependency-detektion, bounded query, source-prefixborttagning, felvision, OCR/objekt-no-result, TTL, one-shot consume, exakt bekräftelsesyntax, pending-limit, deferred planner-steg, publik plansanering, blockering utan source, end-to-end bekräftad research, återanvändning av ID, lowercase-bekräftelse och clear-conversation
+- ingen fysisk VENTUNO/NPU/ASR/VLM/STM32-verifiering krävs eller påstås
+
+Nästa säkra utvecklingssteg bör väljas från kvarvarande hårdvaruoberoende luckor i projektmålen. Protokollet ska inte breddas till skrivande target-verktyg eller autonom loop utan separat design- och säkerhetsgranskning.
+
+
+### 21.25 Plattformsaudit 2026-10-05 – full VENTUNO Q-rensning
+
+En ny helhetsaudit genomfördes efter att den hårdvaruoberoende mjukvaran i övrigt bedömts färdig.
+
+Korrigerat:
+- Qualcomm-måltypen är **Dragonwing QCS8275**; den tidigare felaktiga SoC-beteckningen är borttagen ur aktuell konfiguration och VENTUNO-dokumentation
+- aktiva `modules/pi/` och `scripts/pi_hardware_validation.py` är borttagna
+- generisk Linux-diagnostik är porterad till `modules/ventuno/platform.py`
+- `pi_*`-routing är borttagen
+- GPIO/I2C/SPI/UART-frågor går till VENTUNO-säkerhets-/inventeringsverktyg och inte till Raspberry Pi-pinout
+- `/dev/ttyHS1` är explicit reserverad för Arduino Router och filtreras ur vanlig UART-lista
+- NPU-frågor använder `ventuno_accelerator_status`, som skiljer backend-readiness från faktisk NPU-telemetri
+- VENTUNO-profilen gör kamera, voice, GPS/location och trusted-terminal-lägen explicita och håller otestade fysiska funktioner avstängda
+- `camera.enabled=false` spärrar stillbild, stream och videoinspelning innan någon kamera öppnas
+- `requirements-gps.txt` använder korrekta radbrytningar
+- basdependencies `requests` och `psutil` har versionsintervall; `bleak` är flyttat till `requirements-bluetooth.txt` och observeras endast som valfritt installerat paket i deployment-lock
+- deployment-lock schema är uppgraderat till version 2 och inkluderar hashes för bas-, VENTUNO-, Bluetooth-, kamera-, röst- och GPS-requirements; `bleak` och `arduino-router-bridge` får vara frånvarande när motsvarande funktion är avstängd
+- VENTUNO-preflight kontrollerar Linux ARM64, Python 3.12-signal, board identity när den kan läsas, feature-dependencies endast för aktiverade funktioner och kräver Arduino Router Bridge/socket endast när RPC är aktiverat
+- ett plattformsguard-test blockerar återintroduktion av aktiv Pi-runtime och fel SoC-märkning
+
+Officiell Arduino-dokumentation bekräftar att VENTUNO Q använder Dragonwing QCS8275, kör Ubuntu Linux, använder Python 3.12 i aktuella exempel, kan köra GenieX på Hexagon NPU och reserverar `/dev/ttyHS1` för Arduino Router/Bridge.
+
+Fysisk prestanda, effekt, termik, kamera, ljud, NPU-telemetri, GenieX-version, Arduino Router-version och STM32/RPC är fortfarande **inte** verifierade av CI och ska testas enligt avsnitt 21.2 på den riktiga VENTUNO Q.
+
+
+
+### 21.26 Pauscheckpoint 2026-10-05 – efter full VENTUNO Q-plattformsaudit
+
+Arbetet pausas här på användarens begäran.
+
+Verifierat läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- aktiv integrations-head: `615215ecc1d039d9413a4306e359c62c6da38533`
+- draft PR för VENTUNO-spåret: `#85`
+- PR `#104` (full VENTUNO-plattformsaudit) är mergad
+- GitHub Actions-run `37327846143` är **success**
+- `main` är fortsatt orörd
+
+Auditresultat som nu är infört:
+- Raspberry Pi-runtime och `modules/pi/` är borttagna
+- Pi-specifik routing och Pi-pinout är borttagna
+- generisk Linux-diagnostik är porterad till `modules/ventuno/`
+- målplattformen är Arduino VENTUNO Q med Qualcomm Dragonwing QCS8275
+- `/dev/ttyHS1` är markerad som reserverad för Arduino Router/Bridge och filtreras bort från vanlig UART-användning
+- NPU-status skiljs från GenieX-readiness
+- kamera/voice/GPS/trusted-terminal/VLM/RPC är explicit avstängda eller spärrade tills fysisk verifiering
+- kamerans `enabled=false` stoppar stillbild, stream och video innan enheten öppnas
+- deployment-lock är härdat och täcker relevanta requirements-hashar och basdependencies
+- Bluetooth LE och Arduino Router Bridge är valfria dependencies och tvingas inte in när motsvarande funktion är avstängd
+- preflight är anpassad till VENTUNO Q/Linux ARM64/Python 3.12-signaler och feature-baserade dependencykrav
+- CI har regressionsskydd mot återinförd Pi-runtime, fel SoC-namn och reserverad Router-UART
+
+Nästa exakta steg vid återupptag:
+1. utgå från `dev/ventuno-q-provider` och verifiera att head/CI fortfarande är gröna
+2. ändra inte mer mjukvara enbart för att fortsätta utveckla om inget nytt konkret behov hittas
+3. när fysisk Arduino VENTUNO Q finns, följ verifieringsordningen i avsnitt 21.2 utan att hoppa över steg
+4. börja med verklig VENTUNO/Qualcomm/GenieX-installation och versionslåsning
+5. kör read-only preflight på kortet
+6. verifiera Qwen3-4B-bundle, GenieX cold start, TTFT, tokens/s, RAM och temperatur
+7. verifiera därefter streaming + TTS, mic/VAD/STT-handoff, VLM/kamera och sedan Router/RPC i angiven ordning
+8. håll STM32/RPC-skrivning avstängd tills separat fysisk säkerhetsgranskning
+9. kör slutligen minst 72 timmars stabilitetstest och analysera loggen med det befintliga stabilitetsrapportlagret
+
+Ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller påstås vid denna paus.
+
+
+### 21.27 Pauscheckpoint 2026-10-05 – inväntar fysisk Arduino VENTUNO Q
+
+Arbetet pausas här på användarens begäran.
+
+Verifierat läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- aktiv integrations-head: `051fa57dbc973993f80482485c9d1f46f83ccf74`
+- draft PR för VENTUNO-spåret: `#85`
+- senaste GitHub Actions-run: `37349085251` = **success**
+- `main` är fortsatt orörd
+
+Beslut vid denna paus:
+- ingen ytterligare mjukvarufunktion ska läggas till enbart för att fortsätta utveckla
+- ingen fysisk VENTUNO Q-verifiering påbörjas ännu
+- inga nya antaganden om NPU, kamera, ljud, termik, Arduino Router, STM32 eller RPC ska göras före fysisk testning
+- den nuvarande mjukvarubaslinjen betraktas som fryst tills ett konkret behov eller fysisk hårdvara finns
+
+När Arduino VENTUNO Q finns tillgänglig ska arbetet återupptas exakt enligt avsnitt 21.2:
+1. installera och versionslåsa den verkliga VENTUNO/Qualcomm/GenieX-stacken
+2. köra read-only preflight
+3. verifiera Qwen3-4B-modellbundle för QCS8275
+4. mäta cold start, TTFT, tokens/s, RAM och temperatur
+5. verifiera streaming + buffered TTS
+6. verifiera mikrofon/VAD/STT och 1.5 s handoff
+7. verifiera dokumenterad accelererad Whisper-backend; fallback kvarstår tills dess
+8. verifiera VLM/kamera
+9. verifiera Arduino Router socket och en allowlistad read-only STM32-metod
+10. först därefter överväga fysisk RPC-write efter separat säkerhetsgranskning
+11. verifiera Bluetooth/Wi-Fi/USB/GPS och övriga perifera enheter
+12. genomföra minst 72 timmars stabilitetstest
+
+Ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller påstås vid denna paus.
+
+
+### 21.28 Andra VENTUNO-kodaudit 2026-10-06 – routing, config, latency och repo-hygien
+
+En andra full mjukvaruaudit genomfördes på den frysta pre-hardware-baslinjen efter användargranskning och ytterligare statisk analys.
+
+Korrigerat i runtime:
+- status-hints i `core/orchestration.py` använder token-/ordgränser i stället för naiv delsträngsmatchning
+- samma härdning är införd i den äldre direktroutingen i `core/tool_manager.py`
+- exempel som `program`, `gram`, `frame`, `varmt` och `diskutera` kan därför inte oavsiktligt trigga RAM-, temperatur- eller diskverktyg
+- explicit hårdvaruidentifierare som `GPIO17` och `I2C-1` stöds fortfarande separat
+- `validate_settings()` normaliserar feltypade objektsektioner säkert och rapporterar `config_section_not_object` i stället för att kasta `AttributeError`
+- dubbla fel för `camera.enabled` är borttagna; flaggan valideras endast av den kameraspecifika regeln
+- config-schema är uppgraderat till version 2
+- `assistant.gpu` är ersatt av `assistant.compute_accelerator`
+- schema-1-konfiguration migreras in-memory till det nya fältet
+- VENTUNO-profilen använder `Qualcomm Hexagon NPU (QCS8275)` som compute accelerator och lämnar `future_target=""` eftersom VENTUNO Q redan är aktuell målplattform
+- systemprofilen hanterar tomt future target utan motsägande migreringstext
+
+Flaskhals-/latencyförbättringar i samma auditspår:
+- VENTUNO-profilens LLM-baserade tool-router-fallback är avstängd före fysisk verifiering för att undvika onödigt extra modellvarv
+- bakgrunds-`hardware_watch` är avstängd i pre-hardware-profilen
+- CPU-status använder kortare sampling i stället för tidigare blockerande lång sampling
+- minnessökningens keyword-fallback är reducerad till en rankad SQL-fråga i stället för upprepade separata queries
+- manuella `/remember`-skrivningar går genom auditspärren
+- videoarbete är bounded och pace:at för att minska CPU/RAM-belastning och okontrollerad frameproduktion
+
+Repo-hygien:
+- `.gitignore` blockerar nu `*.db`, `*.db-wal`, `*.db-shm` samt befintliga `*.py[cod]`
+- GitHub-historiken visar att `memory.db` och två root-`.pyc`-filer lades till i commit `60f87698784e42788d0b0640927c73a6104612d9` och togs bort i `31b0392684865c05c2626249caa777face8dffe1`
+- en fullare read-only blobinspektion av den historiska 12 KiB SQLite-filen bekräftade tre `user`-poster med personligt projektminne om MyAI; inga lösenord, tokens, finansuppgifter eller andra uppenbara högriskhemligheter observerades, men filen innehåller faktisk användardata och ska därför behandlas som historik som bör rensas
+- de historiska root-filerna `__init__.cpython-314.pyc` och `system.cpython-314.pyc` är också bekräftade i samma tidiga commitkedja
+- gamla stacked/legacy-PR:er är stängda; `#107` och `#108` är mergade och endast `#85` (VENTUNO umbrella) är öppen
+- explicit GitHub-sökning visar inga öppna Raspberry Pi-PR:er; gamla Pi-brancher finns fortfarande som historiska refs men saknar öppen mergeväg
+
+Verifiering:
+- kodhead före denna dokumentationscommit: `fce64ca598244a6ae9999966e89e4f21650d97ad`
+- GitHub Actions-run `37423075643` är **success**
+- Python-kompilering och full pytest-svit passerade
+- regressionsprov täcker substring-falskpositiv routing, fullständiga statusord, GPIO/I2C-identifikatorer, null top-level/nested configsektioner, enkel camera.enabled-felrapportering, schema-1→2-migrering, compute-acceleratorprofil och SQLite-ignore
+
+Ingen fysisk VENTUNO Q-verifiering påstås av denna audit. Eftersom den fullständigare inspektionen bekräftade faktisk användardata i historisk `memory.db` ska historikrensning med `git filter-repo` genomföras som en separat kontrollerad operation. Den operationen får inte ersättas av en squash som tappar projektets författar-/tidsmetadata.
+
+
+### 21.29 Historikhygien 2026-10-06 – bekräftad användardata i gammal SQLite-blob
+
+Efter §21.28 genomfördes en mer fullständig read-only inspektion av den historiska `memory.db`-blobben från commit `60f87698784e42788d0b0640927c73a6104612d9`.
+
+Bekräftat:
+- filen är en giltig SQLite 3-databas på 12 KiB
+- tabellen `memories` finns
+- tre poster med kategori `user` innehåller faktisk användarspecifik projektinformation om MyAI
+- inga lösenord, API-nycklar, tokens, finansuppgifter eller andra uppenbara högriskhemligheter observerades i den inspekterade blobben
+- `memory.db`, `__init__.cpython-314.pyc` och `system.cpython-314.pyc` är historiskt nåbara via tidiga commits trots att de inte finns i aktuell working tree
+- nuvarande `.gitignore` blockerar `*.db`, `*.db-wal`, `*.db-shm` och `*.py[cod]`
+- CI ska dessutom kontrollera tracked filer, inte bara ignore-mönster
+
+Beslut:
+- historiken ska rensas med en riktig history-rewrite som bevarar övrig commitstruktur och metadata så långt verktyget tillåter
+- rekommenderad metod är `git filter-repo` över alla branches/tags
+- efter rewrite måste berörda refs force-pushas kontrollerat och gamla kloner får inte pushas tillbaka utan ombasering/reclone
+- en detaljerad procedur finns i `docs/HISTORY_CLEANUP.md`
+- GitHub-cachade commitvyer kan kräva separat purge/support om full offentlig eliminering av gamla blobbar önskas
+
+Denna historikoperation är separat från normal featureutveckling eftersom den ändrar commit-SHA:n för hela den berörda historiken.
 
 ---
 

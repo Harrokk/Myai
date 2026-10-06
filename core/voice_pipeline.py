@@ -1,4 +1,6 @@
 from difflib import SequenceMatcher
+
+from core.voice_streaming import StreamingTTSCoordinator
 import re
 import time
 
@@ -299,6 +301,7 @@ class VoicePipeline:
         settings=None,
         semantic_resolver=None,
         clock=None,
+        before_assistant=None,
     ):
         self.assistant = assistant
         self.primary_stt = primary_stt
@@ -312,6 +315,8 @@ class VoicePipeline:
         self.last_tts_text = ""
         self.last_tts_started_at = None
         self.pending_confirmation = None
+        self.streaming_tts = None
+        self.before_assistant = before_assistant
 
     @property
     def voice_settings(self):
@@ -398,6 +403,15 @@ class VoicePipeline:
             ),
         }
 
+    def _stop_streaming_tts(self):
+        coordinator = self.streaming_tts
+
+        if coordinator is None:
+            return False
+
+        self.streaming_tts = None
+        return coordinator.stop()
+
     def _speak_control_message(self, text):
         config = self.voice_settings
 
@@ -408,10 +422,90 @@ class VoicePipeline:
         ):
             return False
 
+        self._stop_streaming_tts()
         self.last_tts_text = text
         self.last_tts_started_at = self.clock()
         self.tts.speak(text)
         return True
+
+    def _respond_and_speak(self, transcript):
+        if self.before_assistant is not None:
+            self.before_assistant()
+
+        config = self.voice_settings
+        tts_enabled = bool(
+            self.tts is not None
+            and config.get("tts_enabled", False)
+        )
+        stream_enabled = bool(
+            tts_enabled
+            and config.get(
+                "llm_streaming_enabled",
+                False,
+            )
+            and callable(
+                getattr(
+                    self.assistant,
+                    "respond_stream",
+                    None,
+                )
+            )
+        )
+
+        if stream_enabled:
+            self._stop_streaming_tts()
+            coordinator = StreamingTTSCoordinator(
+                self.tts,
+                clock=self.clock,
+                min_chars=config.get(
+                    "stream_tts_min_chars",
+                    24,
+                ),
+                max_chars=config.get(
+                    "stream_tts_max_chars",
+                    220,
+                ),
+                stop_timeout_seconds=config.get(
+                    "stream_tts_stop_timeout_seconds",
+                    2.0,
+                ),
+            )
+            self.streaming_tts = coordinator
+
+            response = self.assistant.respond_stream(
+                transcript,
+                on_chunk=coordinator.feed,
+            )
+            coordinator.finish()
+            answer = response.get(
+                "answer",
+                "",
+            )
+
+            if answer:
+                self.last_tts_text = answer
+                self.last_tts_started_at = (
+                    coordinator.started_at
+                    if coordinator.started_at is not None
+                    else self.clock()
+                )
+
+            return response
+
+        response = self.assistant.respond(
+            transcript
+        )
+        answer = response.get(
+            "answer",
+            "",
+        )
+
+        if tts_enabled and answer:
+            self.last_tts_text = answer
+            self.last_tts_started_at = self.clock()
+            self.tts.speak(answer)
+
+        return response
 
     def _confirmation_message(self, transcript):
         return (
@@ -560,13 +654,9 @@ class VoicePipeline:
                 }
 
             self.pending_confirmation = None
-            response = self.assistant.respond(
+            response = self._respond_and_speak(
                 pending["transcript"]
             )
-            answer = response.get("answer", "")
-
-            if answer:
-                self._speak_control_message(answer)
 
             return {
                 "status": "completed",
@@ -809,22 +899,9 @@ class VoicePipeline:
                 "consensus": consensus,
             }
 
-        response = self.assistant.respond(
+        response = self._respond_and_speak(
             transcript
         )
-        answer = response.get(
-            "answer",
-            "",
-        )
-
-        if (
-            self.tts is not None
-            and config.get("tts_enabled", False)
-            and answer
-        ):
-            self.last_tts_text = answer
-            self.last_tts_started_at = self.clock()
-            self.tts.speak(answer)
 
         return {
             "status": "completed",
@@ -835,8 +912,10 @@ class VoicePipeline:
         }
 
     def interrupt(self):
+        changed = self._stop_streaming_tts()
+
         if self.tts is None:
-            return False
+            return changed
 
         stop = getattr(
             self.tts,
@@ -845,7 +924,7 @@ class VoicePipeline:
         )
 
         if not callable(stop):
-            return False
+            return changed
 
         stop()
         return True

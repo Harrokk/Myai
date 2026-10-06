@@ -1,5 +1,5 @@
 from core.config import load_settings
-from core.vision_client import VisionClient
+from core.vision_factory import build_vision_client
 from modules.camera.capture import _load_cv2
 from modules.camera.stream import run_bounded_stream
 
@@ -86,17 +86,7 @@ def analyze_live_camera(
     if not encoded_frames:
         return "Live-vision kunde inte samla några analyserbara bildrutor."
 
-    active_client = client or VisionClient(
-        url=vision.get(
-            "url",
-            settings.get("ollama", {}).get(
-                "url",
-                "http://localhost:11434/api/chat",
-            ),
-        ),
-        model=model,
-        enabled=True,
-    )
+    active_client = client or build_vision_client(settings)
 
     timeout = int(vision.get("timeout_seconds", 120))
     answer = active_client.analyze_bytes(

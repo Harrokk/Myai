@@ -1,21 +1,132 @@
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
+
+from core.config_schema import (
+    CURRENT_CONFIG_SCHEMA_VERSION,
+    migrate_config_document,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.json"
 
 DEFAULT_SETTINGS = {
+    "schema_version": CURRENT_CONFIG_SCHEMA_VERSION,
+    "llm": {
+        "provider": "ollama",
+        "fallback": {
+            "enabled": False,
+            "provider": "geniex",
+            "model": "",
+            "health_aware": {
+                "enabled": False,
+                "failure_threshold": 3,
+                "recovery_success_threshold": 3,
+            },
+        },
+    },
     "ollama": {
         "url": "http://localhost:11434/api/chat",
         "model": "qwen3:8b",
     },
+    "geniex": {
+        "base_url": "http://127.0.0.1:18181/v1",
+        "model": "ai-hub-models/Qwen3-4B-Instruct-2507",
+        "api_key": "geniex",
+        "max_tokens": 256,
+        "temperature": 0.4,
+        "enable_think": False,
+        "stream_enabled": True,
+    },
+    "geniex_supervisor": {
+        "enabled": False,
+        "health_timeout_seconds": 3.0,
+        "failure_threshold": 3,
+        "restart_enabled": False,
+        "restart_command": [],
+        "restart_timeout_seconds": 30.0,
+        "restart_cooldown_seconds": 60.0,
+        "max_restart_attempts": 3,
+        "state_path": "runtime/geniex_health.json",
+        "state_stale_seconds": 30.0,
+    },
+    "health": {
+        "state_path": "runtime/myai_health.json",
+        "state_stale_seconds": 60.0,
+    },
+    "diagnostics": {
+        "runtime_stale_seconds": 30.0,
+    },
+    "orchestration": {
+        "enabled": True,
+        "max_tools": 5,
+        "max_result_chars_per_tool": 6000,
+        "allow_local_capture": True,
+    },
+    "tool_routing": {
+        "llm_fallback_enabled": True,
+    },
+    "intermediate_results": {
+        "enabled": True,
+        "max_pending": 5,
+        "max_query_chars": 240,
+        "max_age_seconds": 1800,
+        "require_confirmation": True,
+    },
+    "logging": {
+        "jsonl_max_bytes": 5_000_000,
+        "jsonl_backups": 5,
+    },
+    "error_logging": {
+        "enabled": True,
+        "path": "runtime/errors.jsonl",
+        "max_message_chars": 500,
+        "recent_limit": 10,
+    },
+    "audit_logging": {
+        "enabled": True,
+        "require_for_writes": True,
+        "path": "runtime/audit.jsonl",
+        "max_detail_chars": 200,
+        "recent_limit": 20,
+    },
+    "stability_analysis": {
+        "log_path": "runtime/ventuno_stability.jsonl",
+        "max_records": 10_000,
+        "target_hours": 72.0,
+        "trend_fraction": 0.25,
+        "latency_degradation_ratio": 1.25,
+    },
+    "deployment_lock": {
+        "required": False,
+        "lock_path": "config/ventuno_stack_lock.json",
+    },
+    "selfdev": {
+        "enabled": False,
+        "workspace_root": "runtime/selfdev",
+        "promotion_enabled": False,
+        "require_bubblewrap": True,
+        "verification_timeout_seconds": 300.0,
+    },
     "vision": {
         "enabled": False,
+        "provider": "ollama",
         "url": "http://localhost:11434/api/chat",
         "model": "",
         "timeout_seconds": 120,
+        "max_tokens": 256,
+        "temperature": 0.2,
+    },
+    "ventuno": {
+        "enabled": False,
+        "rpc_enabled": False,
+        "rpc_write_enabled": False,
+        "rpc_connect_timeout_seconds": 5.0,
+        "rpc_call_timeout_seconds": 5.0,
+        "rpc_allowed_read_methods": [],
+        "rpc_allowed_write_methods": [],
     },
     "voice": {
         "enabled": False,
@@ -23,6 +134,7 @@ DEFAULT_SETTINGS = {
         "microphone_provider": "sounddevice",
         "vad_provider": "webrtcvad",
         "stt_provider": "faster_whisper",
+        "backup_stt_provider": "faster_whisper",
         "tts_provider": "pyttsx3",
         "sample_rate": 16000,
         "channels": 1,
@@ -40,6 +152,13 @@ DEFAULT_SETTINGS = {
         "tts_voice_id": "",
         "tts_async": True,
         "tts_stop_timeout_seconds": 2.0,
+        "llm_streaming_enabled": False,
+        "stream_tts_min_chars": 24,
+        "stream_tts_max_chars": 220,
+        "stream_tts_stop_timeout_seconds": 2.0,
+        "release_microphone_during_inference": False,
+        "model_handoff_delay_seconds": 0.0,
+        "release_stt_before_model": False,
         "semantic_consensus_enabled": False,
         "semantic_consensus_for_high_risk": False,
         "semantic_consensus_min_confidence": 0.85,
@@ -66,6 +185,7 @@ DEFAULT_SETTINGS = {
         "high_risk_confirmation_transcript_count": 3,
     },
     "camera": {
+        "enabled": True,
         "default_index": 0,
         "capture_dir": "runtime/captures",
         "video_dir": "runtime/video",
@@ -113,6 +233,29 @@ DEFAULT_SETTINGS = {
         "max_page_chars": 20_000,
         "max_redirects": 5,
     },
+    "fx": {
+        "enabled": False,
+        "provider": "ecb",
+        "ecb_url": (
+            "https://www.ecb.europa.eu/stats/eurofxref/"
+            "eurofxref-daily.xml"
+        ),
+        "target_currency": "SEK",
+        "max_age_days": 7,
+    },
+    "weather": {
+        "enabled": False,
+        "provider": "open_meteo",
+        "geocoding_url": (
+            "https://geocoding-api.open-meteo.com/v1/search"
+        ),
+        "forecast_url": (
+            "https://api.open-meteo.com/v1/forecast"
+        ),
+        "default_location": "",
+        "language": "sv",
+        "forecast_days": 3,
+    },
     "files": {
         "enabled": True,
         "workspace_root": "runtime/workspace",
@@ -139,9 +282,25 @@ DEFAULT_SETTINGS = {
         "auto_save_enabled": True,
         "auto_save_threshold": 80,
         "review_threshold": 55,
+        "lifecycle_enabled": True,
+        "auto_supersede_explicit_updates": True,
+        "conflict_similarity_threshold": 0.65,
+        "supersede_similarity_threshold": 0.85,
+        "max_conflict_scan": 200,
+        "stale_after_days": 0,
+        "review_queue_enabled": True,
+        "administration_limit": 50,
+        "stale_review_days": 365,
+        "permanent_delete_enabled": True,
     },
     "conversation": {
         "max_turns": 6,
+    },
+    "runtime": {
+        "require_preflight": False,
+        "heartbeat_path": "runtime/myai_runtime.json",
+        "heartbeat_interval_seconds": 10.0,
+        "shutdown_timeout_seconds": 10.0,
     },
     "hardware_watch": {
         "enabled": True,
@@ -163,10 +322,11 @@ DEFAULT_SETTINGS = {
     },
     "assistant": {
         "name": "MyAI v2",
-        "engine": "Ollama",
-        "gpu": "NVIDIA RTX 3060 12 GB",
+        "engine": "Local LLM provider",
+        "compute_accelerator": "NVIDIA RTX 3060 12 GB",
         "memory_label": "SQLite",
-        "future_target": "Raspberry Pi 5 B",
+        "current_platform": "Windows-dator",
+        "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",
     },
 }
 
@@ -187,17 +347,107 @@ def _merge_settings(defaults, overrides):
     return result
 
 
-def load_settings(path=None):
-    """Ladda konfiguration och fyll i saknade värden med säkra standarder."""
-    settings_path = Path(path) if path else DEFAULT_SETTINGS_PATH
+def _settings_path(path=None):
+    if path is not None:
+        return Path(path)
+
+    configured = os.environ.get(
+        "MYAI_SETTINGS",
+        "",
+    ).strip()
+
+    if configured:
+        candidate = Path(configured)
+
+        if not candidate.is_absolute():
+            candidate = (
+                PROJECT_ROOT
+                / candidate
+            )
+
+        return candidate
+
+    return DEFAULT_SETTINGS_PATH
+
+
+def load_settings_with_metadata(
+    path=None,
+):
+    """Load settings with in-memory schema migration and provenance metadata."""
+
+    settings_path = _settings_path(
+        path
+    )
 
     if not settings_path.exists():
-        return deepcopy(DEFAULT_SETTINGS)
+        return {
+            "settings": deepcopy(
+                DEFAULT_SETTINGS
+            ),
+            "metadata": {
+                "source_path": str(
+                    settings_path
+                ),
+                "source_exists": False,
+                "source_version": (
+                    CURRENT_CONFIG_SCHEMA_VERSION
+                ),
+                "effective_version": (
+                    CURRENT_CONFIG_SCHEMA_VERSION
+                ),
+                "migration_changed": False,
+                "migration_steps": [],
+            },
+        }
 
-    with settings_path.open("r", encoding="utf-8") as file:
-        loaded = json.load(file)
+    with settings_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        loaded = json.load(
+            file
+        )
 
-    if not isinstance(loaded, dict):
-        raise ValueError("Konfigurationsfilen måste innehålla ett JSON-objekt.")
+    migration = migrate_config_document(
+        loaded
+    )
+    effective = _merge_settings(
+        DEFAULT_SETTINGS,
+        migration[
+            "document"
+        ],
+    )
 
-    return _merge_settings(DEFAULT_SETTINGS, loaded)
+    return {
+        "settings": effective,
+        "metadata": {
+            "source_path": str(
+                settings_path
+            ),
+            "source_exists": True,
+            "source_version": migration[
+                "source_version"
+            ],
+            "effective_version": migration[
+                "effective_version"
+            ],
+            "migration_changed": migration[
+                "changed"
+            ],
+            "migration_steps": list(
+                migration[
+                    "steps"
+                ]
+            ),
+        },
+    }
+
+
+def load_settings(path=None):
+    """Ladda konfiguration och migrera äldre schema endast i minnet."""
+
+    return load_settings_with_metadata(
+        path
+    )[
+        "settings"
+    ]

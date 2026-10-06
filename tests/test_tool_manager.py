@@ -276,70 +276,99 @@ def test_detect_tools_routes_bluetooth_distance_to_proximity():
     assert result == ["bluetooth_nearby"]
 
 
-def test_detect_tools_routes_raspberry_pi_status():
+def test_detect_tools_routes_ventuno_status_bundle():
     result = tool_manager.detect_tools(
-        "Hur mår min Raspberry Pi 5, är den varm eller throttlar?"
-    )
-    assert result == ["pi_system_status"]
-
-
-def test_detect_tools_routes_pi_bus_devices():
-    result = tool_manager.detect_tools(
-        "Vilka I2C-enheter och SPI-enheter finns på min Raspberry Pi?"
-    )
-    assert result == ["pi_bus_devices_status"]
-
-
-def test_detect_tools_routes_raspberry_pi_gpio_reference():
-    result = tool_manager.detect_tools(
-        "Vilken GPIO ska jag använda för I2C på Raspberry Pi?"
-    )
-    assert result == ["pi_gpio_reference"]
-
-
-def test_detect_tools_routes_explicit_gpio_without_pi_name():
-    result = tool_manager.detect_tools(
-        "Kan jag koppla en 5 V-signal till GPIO17?"
-    )
-    assert result == ["pi_gpio_reference"]
-
-
-def test_detect_tools_routes_pi_interface_inventory():
-    result = tool_manager.detect_tools(
-        "Vilka gränssnitt och portar finns på min Raspberry Pi?"
-    )
-    assert result == ["pi_interfaces_status"]
-
-
-def test_detect_tools_routes_pi_power_status():
-    result = tool_manager.detect_tools(
-        "Hur mycket ström drar min Raspberry Pi i watt?"
-    )
-    assert result == ["pi_power_status"]
-
-
-def test_detect_tools_routes_pi_network_status():
-    result = tool_manager.detect_tools(
-        "Vilket nätverk och vilka IP-adresser har min Raspberry Pi?"
-    )
-    assert result == ["pi_network_status"]
-
-
-def test_detect_tools_routes_pi_processes_and_services_together():
-    result = tool_manager.detect_tools(
-        "Vilka processer och tjänster körs på min Raspberry Pi?"
+        "Hur mår min Arduino VENTUNO Q, CPU RAM temperatur och disk?"
     )
     assert result == [
-        "pi_process_status",
-        "pi_services_status",
+        "cpu_status",
+        "ram_status",
+        "temperature_status",
+        "disk_status",
+        "geniex_status",
     ]
 
 
-def test_detect_tools_routes_pi_system_logs():
+def test_detect_tools_routes_ventuno_bus_devices():
     result = tool_manager.detect_tools(
-        "Visa systemloggarna på min Raspberry Pi."
+        "Vilka I2C-enheter och SPI-enheter finns på min VENTUNO?"
     )
-    assert result == ["pi_system_logs"]
+    assert result == [
+        "ventuno_bus_devices_status"
+    ]
+
+
+def test_detect_tools_routes_gpio_to_ventuno_safety_not_pi_pinout():
+    result = tool_manager.detect_tools(
+        "Vilken GPIO ska jag använda för I2C på Arduino VENTUNO Q?"
+    )
+    assert result == [
+        "ventuno_io_safety"
+    ]
+
+
+def test_detect_tools_routes_explicit_gpio_to_ventuno_safety():
+    result = tool_manager.detect_tools(
+        "Kan jag koppla en 5 V-signal till GPIO17?"
+    )
+    assert result == [
+        "ventuno_io_safety"
+    ]
+
+
+def test_detect_tools_routes_ventuno_interface_inventory():
+    result = tool_manager.detect_tools(
+        "Vilka gränssnitt och portar finns på min VENTUNO?"
+    )
+    assert result == [
+        "ventuno_interfaces_status"
+    ]
+
+
+def test_detect_tools_routes_ventuno_power_status():
+    result = tool_manager.detect_tools(
+        "Hur mycket ström drar min VENTUNO i watt?"
+    )
+    assert result == [
+        "ventuno_power_status"
+    ]
+
+
+def test_detect_tools_routes_ventuno_network_status():
+    result = tool_manager.detect_tools(
+        "Vilket nätverk och vilka IP-adresser har min VENTUNO?"
+    )
+    assert result == [
+        "ventuno_network_status"
+    ]
+
+
+def test_detect_tools_routes_ventuno_processes_and_services_together():
+    result = tool_manager.detect_tools(
+        "Vilka processer och tjänster körs på min VENTUNO?"
+    )
+    assert result == [
+        "ventuno_process_status",
+        "ventuno_services_status",
+    ]
+
+
+def test_detect_tools_routes_ventuno_system_logs():
+    result = tool_manager.detect_tools(
+        "Visa systemloggarna på min VENTUNO."
+    )
+    assert result == [
+        "ventuno_system_logs"
+    ]
+
+
+def test_detect_tools_routes_npu_to_ventuno_accelerator_status():
+    result = tool_manager.detect_tools(
+        "Visa NPU accelerator status."
+    )
+    assert result == [
+        "ventuno_accelerator_status"
+    ]
 
 
 def test_detect_tools_finds_hardware_inventory():
@@ -468,3 +497,341 @@ def test_run_tools_reports_missing_user_input_for_query_tool():
     )
 
     assert "kräver användarens fråga" in result["internet_search"]
+
+
+
+def test_detect_tools_routes_ventuno_rpc_status():
+    result = tool_manager.detect_tools(
+        "Visa status för Ventuno RPC."
+    )
+    assert result == [
+        "ventuno_rpc_status"
+    ]
+
+
+
+def test_detect_tools_routes_ventuno_mcu_status():
+    result = tool_manager.detect_tools(
+        "Visa STM32 status."
+    )
+    assert result == [
+        "ventuno_mcu_status"
+    ]
+
+
+
+def test_detect_tools_routes_geniex_status():
+    result = tool_manager.detect_tools(
+        "Visa GenieX status."
+    )
+    assert result == [
+        "geniex_status"
+    ]
+
+
+
+def test_detect_tools_routes_myai_health():
+    assert tool_manager.detect_tools(
+        "Hur mår MyAI?"
+    ) == [
+        "myai_health_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa MyAI status."
+    ) == [
+        "myai_health_status"
+    ]
+
+
+class FakeErrorLogger:
+    def __init__(self):
+        self.events = []
+
+    def log_exception(
+        self,
+        event,
+        component,
+        error,
+    ):
+        self.events.append(
+            (
+                event,
+                component,
+                type(error).__name__,
+                str(error),
+            )
+        )
+        return True
+
+
+def test_run_tools_logs_failure_and_keeps_other_results():
+    logger = FakeErrorLogger()
+
+    def broken():
+        raise RuntimeError(
+            "sensor unavailable"
+        )
+
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU OK",
+            "description": "cpu",
+        },
+        "temperature_status": {
+            "function": broken,
+            "description": "temperature",
+        },
+    }
+
+    result = tool_manager.run_tools(
+        [
+            "cpu_status",
+            "temperature_status",
+        ],
+        tools,
+        error_logger=logger,
+    )
+
+    assert result["cpu_status"] == "CPU OK"
+    assert "sensor unavailable" in result[
+        "temperature_status"
+    ]
+    assert logger.events == [
+        (
+            "tool_error",
+            "temperature_status",
+            "RuntimeError",
+            "sensor unavailable",
+        )
+    ]
+
+
+def test_run_tools_survives_error_logger_failure():
+    class BrokenLogger:
+        def log_exception(
+            self,
+            event,
+            component,
+            error,
+        ):
+            raise OSError(
+                "log target unavailable"
+            )
+
+    def broken():
+        raise RuntimeError(
+            "tool failed"
+        )
+
+    result = tool_manager.run_tools(
+        ["ram_status"],
+        {
+            "ram_status": {
+                "function": broken,
+                "description": "ram",
+            }
+        },
+        error_logger=BrokenLogger(),
+    )
+
+    assert "tool failed" in result[
+        "ram_status"
+    ]
+
+
+def test_detect_tools_routes_recent_myai_errors():
+    assert tool_manager.detect_tools(
+        "Vilka fel har MyAI haft?"
+    ) == [
+        "myai_recent_errors"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa MyAI fellogg."
+    ) == [
+        "myai_recent_errors"
+    ]
+
+
+def test_detect_tools_routes_ventuno_stability_report():
+    assert tool_manager.detect_tools(
+        "Visa VENTUNO stabilitetsrapport."
+    ) == [
+        "ventuno_stability_report"
+    ]
+    assert tool_manager.detect_tools(
+        "Analysera 72-timmarstestet."
+    ) == [
+        "ventuno_stability_report"
+    ]
+
+
+def test_detect_tools_routes_myai_audit_status():
+    assert tool_manager.detect_tools(
+        "Visa auditloggen."
+    ) == [
+        "myai_audit_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Vilka ändringar har MyAI gjort?"
+    ) == [
+        "myai_audit_status"
+    ]
+
+
+def test_detect_tools_routes_combined_myai_diagnostics():
+    assert tool_manager.detect_tools(
+        "Gör en MyAI diagnostik."
+    ) == [
+        "myai_diagnostic_report"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa samlad diagnostik."
+    ) == [
+        "myai_diagnostic_report"
+    ]
+
+
+def test_detect_tools_routes_sweden_shopping_comparison():
+    assert tool_manager.detect_tools(
+        "Jämför pris på Widget Pro."
+    ) == [
+        "shopping_compare_sweden"
+    ]
+    assert tool_manager.detect_tools(
+        "Hitta billigaste Widget Pro."
+    ) == [
+        "shopping_compare_sweden"
+    ]
+
+
+def test_detect_tools_routes_weather_requests():
+    assert tool_manager.detect_tools(
+        "Vad blir det för väder i Stockholm idag?"
+    ) == [
+        "weather_forecast"
+    ]
+    assert tool_manager.detect_tools(
+        "Vad blir det för väder idag?"
+    ) == [
+        "weather_forecast"
+    ]
+    assert tool_manager.detect_tools(
+        "Weather in London tomorrow"
+    ) == [
+        "weather_forecast"
+    ]
+
+
+def test_detect_tools_routes_memory_administration_status():
+    assert tool_manager.detect_tools(
+        "Visa minnen som behöver granskas."
+    ) == [
+        "memory_review_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa minneskonflikter."
+    ) == [
+        "memory_review_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Visa gamla minnen."
+    ) == [
+        "memory_review_status"
+    ]
+
+
+def test_detect_tools_routes_memory_administration_actions():
+    assert tool_manager.detect_tools(
+        "GODKÄNN MINNESGRANSKNING 3"
+    ) == [
+        "memory_review_action"
+    ]
+    assert tool_manager.detect_tools(
+        "RADERA MINNE 7"
+    ) == [
+        "memory_review_action"
+    ]
+
+
+def test_select_tool_plan_skips_second_llm_inference_when_fallback_disabled():
+    from copy import deepcopy
+
+    from core.config import DEFAULT_SETTINGS
+
+    class FailLLM:
+        def chat(
+            self,
+            *args,
+            **kwargs,
+        ):
+            raise AssertionError(
+                "LLM-router ska inte köras när fallback är avstängd."
+            )
+
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings[
+        "tool_routing"
+    ][
+        "llm_fallback_enabled"
+    ] = False
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU",
+            "description": "cpu",
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        "Berätta något om filosofi.",
+        tools,
+        FailLLM(),
+        settings=settings,
+    )
+
+    assert plan[
+        "source"
+    ] == "llm_fallback_disabled"
+    assert plan[
+        "steps"
+    ] == []
+
+
+def test_detect_tools_status_keywords_do_not_match_substrings():
+    assert tool_manager.detect_tools(
+        "Diskutera program och frame-format."
+    ) == []
+    assert tool_manager.detect_tools(
+        "Hur många gram väger paketet?"
+    ) == []
+    assert tool_manager.detect_tools(
+        "Ventuno: diskutera programarkitekturen."
+    ) == []
+
+
+def test_detect_tools_status_keywords_still_match_complete_tokens():
+    assert tool_manager.detect_tools(
+        "Hur mycket RAM används?"
+    ) == [
+        "ram_status"
+    ]
+    assert tool_manager.detect_tools(
+        "Hur mycket disk är ledigt?"
+    ) == [
+        "disk_status"
+    ]
+
+
+def test_npu_routing_does_not_match_input_substring():
+    assert tool_manager.detect_tools(
+        "Visa input-formatet."
+    ) == []
+
+
+def test_npu_routing_still_matches_complete_token():
+    assert tool_manager.detect_tools(
+        "Visa NPU status."
+    ) == [
+        "ventuno_accelerator_status"
+    ]

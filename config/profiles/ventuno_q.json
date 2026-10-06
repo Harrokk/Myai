@@ -1,0 +1,152 @@
+{
+  "schema_version": 2,
+  "llm": {
+    "provider": "geniex",
+    "fallback": {
+      "enabled": false,
+      "provider": "geniex",
+      "model": "",
+      "health_aware": {
+        "enabled": true,
+        "failure_threshold": 3,
+        "recovery_success_threshold": 3
+      }
+    }
+  },
+  "geniex": {
+    "base_url": "http://127.0.0.1:18181/v1",
+    "model": "ai-hub-models/Qwen3-4B-Instruct-2507",
+    "api_key": "geniex",
+    "max_tokens": 256,
+    "temperature": 0.4,
+    "enable_think": false,
+    "stream_enabled": true
+  },
+  "assistant": {
+    "name": "MyAI v2",
+    "engine": "Qualcomm GenieX / QAIRT",
+    "memory_label": "SQLite",
+    "current_platform": "Arduino VENTUNO Q",
+    "future_target": "",
+    "compute_accelerator": "Qualcomm Hexagon NPU (QCS8275)"
+  },
+  "voice": {
+    "llm_streaming_enabled": true,
+    "stream_tts_min_chars": 24,
+    "stream_tts_max_chars": 220,
+    "stream_tts_stop_timeout_seconds": 2,
+    "release_microphone_during_inference": true,
+    "model_handoff_delay_seconds": 1.5,
+    "release_stt_before_model": true,
+    "stt_provider": "faster_whisper",
+    "stt_model": "small",
+    "stt_language": "sv",
+    "backup_stt_provider": "faster_whisper",
+    "enabled": false,
+    "tts_enabled": false,
+    "handsfree_enabled": false
+  },
+  "ventuno": {
+    "enabled": true,
+    "rpc_enabled": false,
+    "rpc_write_enabled": false,
+    "rpc_connect_timeout_seconds": 5,
+    "rpc_call_timeout_seconds": 5,
+    "rpc_allowed_read_methods": [
+      "myai_ping",
+      "myai_uptime_ms",
+      "myai_mcu_status"
+    ],
+    "rpc_allowed_write_methods": []
+  },
+  "vision": {
+    "enabled": false,
+    "provider": "geniex",
+    "url": "http://127.0.0.1:18181/v1",
+    "model": "qualcomm/Qwen3-VL-4B-Instruct",
+    "timeout_seconds": 120,
+    "max_tokens": 256,
+    "temperature": 0.2
+  },
+  "geniex_supervisor": {
+    "enabled": true,
+    "health_timeout_seconds": 3,
+    "failure_threshold": 3,
+    "restart_enabled": false,
+    "restart_command": [],
+    "restart_timeout_seconds": 30,
+    "restart_cooldown_seconds": 60,
+    "max_restart_attempts": 3,
+    "state_path": "runtime/geniex_health.json",
+    "state_stale_seconds": 30
+  },
+  "health": {
+    "state_path": "runtime/myai_health.json",
+    "state_stale_seconds": 60
+  },
+  "logging": {
+    "jsonl_max_bytes": 5000000,
+    "jsonl_backups": 5
+  },
+  "runtime": {
+    "require_preflight": true,
+    "heartbeat_path": "runtime/myai_runtime.json",
+    "heartbeat_interval_seconds": 10,
+    "shutdown_timeout_seconds": 10
+  },
+  "selfdev": {
+    "enabled": false,
+    "workspace_root": "runtime/selfdev",
+    "promotion_enabled": false,
+    "require_bubblewrap": true,
+    "verification_timeout_seconds": 300
+  },
+  "deployment_lock": {
+    "required": false,
+    "lock_path": "config/ventuno_stack_lock.json"
+  },
+  "stability_analysis": {
+    "log_path": "runtime/ventuno_stability.jsonl",
+    "max_records": 10000,
+    "target_hours": 72,
+    "trend_fraction": 0.25,
+    "latency_degradation_ratio": 1.25
+  },
+  "diagnostics": {
+    "runtime_stale_seconds": 30
+  },
+  "camera": {
+    "enabled": false,
+    "default_index": 0,
+    "stream_enabled": false
+  },
+  "location": {
+    "enabled": false,
+    "source": "gps_serial",
+    "serial_port": "",
+    "baudrate": 9600,
+    "timeout_seconds": 1,
+    "max_lines": 20
+  },
+  "hardware_watch": {
+    "enabled": false,
+    "interval_seconds": 30
+  },
+  "trusted_terminals": {
+    "enabled": false,
+    "connect_rssi": -60,
+    "disconnect_rssi": -75,
+    "scan_interval_seconds": 5,
+    "scan_timeout_seconds": 5,
+    "connect_confirm_scans": 2,
+    "disconnect_confirm_scans": 3,
+    "auto_execute": false,
+    "connector_provider": "none",
+    "connector_timeout_seconds": 10,
+    "require_service_uuid": true,
+    "terminals": []
+  },
+  "tool_routing": {
+    "llm_fallback_enabled": false
+  }
+}

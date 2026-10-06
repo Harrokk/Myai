@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from core.config import PROJECT_ROOT, load_settings
-from core.vision_client import VisionClient
+from core.vision_factory import build_vision_client
 
 
 DEFAULT_PROMPT = (
@@ -62,17 +62,7 @@ def analyze_latest_capture(
             "camera_capture."
         )
 
-    active_client = client or VisionClient(
-        url=vision.get(
-            "url",
-            settings.get("ollama", {}).get(
-                "url",
-                "http://localhost:11434/api/chat",
-            ),
-        ),
-        model=model,
-        enabled=True,
-    )
+    active_client = client or build_vision_client(settings)
 
     timeout = int(vision.get("timeout_seconds", 120))
     answer = active_client.analyze(

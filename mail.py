@@ -23,7 +23,7 @@ CORE = MyAICore(
 TOOLS = CORE.tools
 MEMORY = CORE.memory
 LLM = CORE.llm
-OLLAMA_URL = CORE.ollama_url
+LLM_URL = CORE.llm_url
 MODEL = CORE.model
 DEVICE_REGISTRY = DeviceRegistry()
 VOICE_SESSION = None
@@ -307,7 +307,127 @@ for tool_name in TOOLS:
     print(f" - {tool_name}")
 
 
+def required_preflight(
+    runner=None,
+):
+    ventuno = SETTINGS.get(
+        "ventuno",
+        {},
+    )
+    runtime = SETTINGS.get(
+        "runtime",
+        {},
+    )
+
+    if not (
+        ventuno.get(
+            "enabled",
+            False,
+        )
+        and runtime.get(
+            "require_preflight",
+            False,
+        )
+    ):
+        return {
+            "required": False,
+            "passed": True,
+        }
+
+    if runner is None:
+        from core.ventuno_preflight import (
+            run_ventuno_preflight,
+        )
+        runner = run_ventuno_preflight
+
+    result = runner(
+        SETTINGS
+    )
+    return {
+        "required": True,
+        **dict(
+            result
+        ),
+    }
+
+
+def save_manual_memory(
+    content,
+):
+    value = str(
+        content
+        or ""
+    ).strip()
+
+    if not value:
+        raise ValueError(
+            "Minnesinnehållet får inte vara tomt."
+        )
+
+    target = "memory/manual"
+    CORE.audit_logger.write_attempt(
+        action="memory_manual_store",
+        component="memory",
+        target=target,
+        details={
+            "category": "manual",
+        },
+    )
+
+    try:
+        memory_id = MEMORY.save(
+            "manual",
+            value,
+        )
+    except Exception as error:
+        try:
+            CORE.audit_logger.write_result(
+                action="memory_manual_store",
+                component="memory",
+                outcome="failed",
+                target=target,
+                details={
+                    "error_type": type(
+                        error
+                    ).__name__,
+                },
+            )
+        except Exception:
+            pass
+        raise
+
+    try:
+        CORE.audit_logger.write_result(
+            action="memory_manual_store",
+            component="memory",
+            outcome="success",
+            target=(
+                f"memory/{memory_id}"
+            ),
+            details={
+                "memory_id": memory_id,
+                "category": "manual",
+            },
+        )
+    except Exception:
+        pass
+
+    return memory_id
+
+
 def main():
+    preflight = required_preflight()
+
+    if not preflight.get(
+        "passed",
+        False,
+    ):
+        print(
+            "VENTUNO preflight har blockerande fel. "
+            "Interaktiv runtime startades inte."
+        )
+        return 2
+
     CORE.initialize()
 
     if SETTINGS.get("hardware_watch", {}).get("enabled", True):
@@ -326,7 +446,8 @@ def main():
     print("==========================================")
     print()
     print(f"Modell:          {MODEL}")
-    print(f"Motor:           {SETTINGS['assistant']['engine']}")
+    print(f"LLM-provider:    {CORE.llm_provider}")
+    print(f"LLM-endpoint:    {LLM_URL}")
     print(f"GPU:             {SETTINGS['assistant']['gpu']}")
     print(f"Långtidsminne:   {SETTINGS['assistant']['memory_label']}")
     print(f"Framtida mål:    {SETTINGS['assistant']['future_target']}")
@@ -688,7 +809,9 @@ def main():
             memory_content = user_input[len("/remember "):].strip()
 
             if memory_content:
-                MEMORY.save("manual", memory_content)
+                save_manual_memory(
+                    memory_content
+                )
                 print("Sparat i långtidsminnet.")
             else:
                 print("Inget innehåll att spara.")
@@ -734,7 +857,10 @@ def main():
 
         except requests.exceptions.ConnectionError:
             print()
-            print("Kunde inte ansluta till Ollama.")
+            print(
+                f"Kunde inte ansluta till LLM-provider "
+                f"{CORE.llm_provider} på {CORE.llm_url}."
+            )
             print()
 
         except Exception as error:

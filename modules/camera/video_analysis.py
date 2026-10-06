@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from core.config import load_settings
-from core.vision_client import VisionClient
+from core.vision_factory import build_vision_client
 from modules.camera.video_frames import (
     sample_frame_indices,
     sample_latest_video_from_settings,
@@ -70,17 +70,7 @@ def analyze_latest_video(
 
     image_paths = [Path(item["path"]) for item in frames]
 
-    active_client = client or VisionClient(
-        url=vision.get(
-            "url",
-            settings.get("ollama", {}).get(
-                "url",
-                "http://localhost:11434/api/chat",
-            ),
-        ),
-        model=model,
-        enabled=True,
-    )
+    active_client = client or build_vision_client(settings)
 
     timeout = int(vision.get("timeout_seconds", 120))
     answer = active_client.analyze_images(

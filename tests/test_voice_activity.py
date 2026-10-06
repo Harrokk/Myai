@@ -144,3 +144,80 @@ def test_controller_sends_completed_audio_to_pipeline():
     assert event["type"] == "utterance_complete"
     assert pipeline.audio == [b"abcd"]
     assert event["pipeline_result"]["status"] == "completed"
+
+
+
+def test_controller_calls_resource_handoff_around_inference():
+    events = []
+    pipeline = FakePipeline()
+    controller = VoiceStreamController(
+        vad=FakeVAD(
+            [True, False, False]
+        ),
+        gate=VoiceActivityGate(
+            start_speech_frames=1,
+            end_silence_frames=2,
+        ),
+        pipeline=pipeline,
+        before_process=lambda: events.append(
+            "before"
+        ),
+        after_process=lambda: events.append(
+            "after"
+        ),
+    )
+
+    controller.feed_frame(b"a")
+    controller.feed_frame(b"b")
+    result = controller.feed_frame(b"c")
+
+    assert result["type"] == "utterance_complete"
+    assert events == [
+        "before",
+        "after",
+    ]
+    assert pipeline.audio == [b"abc"]
+
+
+def test_controller_restores_resources_when_pipeline_fails():
+    events = []
+
+    class FailingPipeline(FakePipeline):
+        def process_utterance(self, audio):
+            raise RuntimeError(
+                "inference-fel"
+            )
+
+    controller = VoiceStreamController(
+        vad=FakeVAD(
+            [True, False, False]
+        ),
+        gate=VoiceActivityGate(
+            start_speech_frames=1,
+            end_silence_frames=2,
+        ),
+        pipeline=FailingPipeline(),
+        before_process=lambda: events.append(
+            "before"
+        ),
+        after_process=lambda: events.append(
+            "after"
+        ),
+    )
+
+    controller.feed_frame(b"a")
+    controller.feed_frame(b"b")
+
+    try:
+        controller.feed_frame(b"c")
+    except RuntimeError as error:
+        assert "inference-fel" in str(error)
+    else:
+        raise AssertionError(
+            "Pipeline-felet skulle ha propagerats."
+        )
+
+    assert events == [
+        "before",
+        "after",
+    ]
