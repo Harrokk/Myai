@@ -107,6 +107,34 @@ def _is_public_ip(address):
     return ip.is_global
 
 
+def _response_peer_ip(response):
+    raw = getattr(response, "raw", None)
+    connection = (
+        getattr(raw, "_connection", None)
+        or getattr(raw, "connection", None)
+    )
+    sock = getattr(connection, "sock", None)
+
+    if sock is None:
+        raise ValueError(
+            "Kunde inte verifiera webbanslutningens faktiska peer-IP."
+        )
+
+    try:
+        peer = sock.getpeername()
+    except OSError as error:
+        raise ValueError(
+            "Kunde inte verifiera webbanslutningens faktiska peer-IP."
+        ) from error
+
+    if not peer:
+        raise ValueError(
+            "Kunde inte verifiera webbanslutningens faktiska peer-IP."
+        )
+
+    return str(peer[0])
+
+
 class PublicWebClient:
     def __init__(
         self,
@@ -115,12 +143,14 @@ class PublicWebClient:
         max_redirects=5,
         session=None,
         resolver=None,
+        peer_ip_getter=None,
     ):
         self.timeout_seconds = float(timeout_seconds)
         self.max_bytes = int(max_bytes)
         self.max_redirects = int(max_redirects)
         self.session = session or requests.Session()
         self.resolver = resolver or socket.getaddrinfo
+        self.peer_ip_getter = peer_ip_getter or _response_peer_ip
 
         if self.timeout_seconds <= 0 or self.timeout_seconds > 120:
             raise ValueError("timeout_seconds måste vara > 0 och <= 120.")
@@ -237,6 +267,13 @@ class PublicWebClient:
                 allow_redirects=False,
                 stream=True,
             )
+
+            peer_ip = self.peer_ip_getter(response)
+            if not _is_public_ip(peer_ip):
+                response.close()
+                raise ValueError(
+                    "Privat, lokal eller icke-publik peer-IP blockeras."
+                )
 
             if response.status_code in {301, 302, 303, 307, 308}:
                 location = response.headers.get("Location")
