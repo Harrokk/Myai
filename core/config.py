@@ -323,7 +323,7 @@ DEFAULT_SETTINGS = {
     "assistant": {
         "name": "MyAI v2",
         "engine": "Local LLM provider",
-        "gpu": "NVIDIA RTX 3060 12 GB",
+        "compute_accelerator": "NVIDIA RTX 3060 12 GB",
         "memory_label": "SQLite",
         "current_platform": "Windows-dator",
         "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",
