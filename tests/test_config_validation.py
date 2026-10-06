@@ -913,3 +913,101 @@ def test_camera_workload_limits_fail_closed():
     }.issubset(
         codes
     )
+
+
+def test_null_top_level_section_is_reported_without_exception():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "camera"
+    ] = None
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result[
+        "valid"
+    ] is False
+    assert any(
+        item[
+            "code"
+        ]
+        == "config_section_not_object"
+        and "camera"
+        in item[
+            "message"
+        ]
+        for item in result[
+            "errors"
+        ]
+    )
+
+
+def test_null_nested_section_is_reported_without_exception():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "llm"
+    ][
+        "fallback"
+    ] = None
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result[
+        "valid"
+    ] is False
+    assert any(
+        item[
+            "code"
+        ]
+        == "config_section_not_object"
+        and "llm.fallback"
+        in item[
+            "message"
+        ]
+        for item in result[
+            "errors"
+        ]
+    )
+
+
+def test_camera_enabled_invalid_is_reported_once():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "camera"
+    ][
+        "enabled"
+    ] = "yes"
+
+    result = validate_settings(
+        settings
+    )
+
+    camera_enabled_errors = [
+        item
+        for item in result[
+            "errors"
+        ]
+        if item[
+            "code"
+        ]
+        in {
+            "camera_enabled_invalid",
+            "hardware_flag_not_boolean",
+        }
+        and "camera"
+        in item[
+            "message"
+        ]
+    ]
+
+    assert len(
+        camera_enabled_errors
+    ) == 1
+    assert camera_enabled_errors[
+        0
+    ][
+        "code"
+    ] == "camera_enabled_invalid"
