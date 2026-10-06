@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "llm": {
     "provider": "geniex",
     "fallback": {
@@ -25,10 +25,10 @@
   "assistant": {
     "name": "MyAI v2",
     "engine": "Qualcomm GenieX / QAIRT",
-    "gpu": "Qualcomm Dragonwing QCS8275 / Hexagon NPU",
     "memory_label": "SQLite",
     "current_platform": "Arduino VENTUNO Q",
-    "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275"
+    "future_target": "",
+    "compute_accelerator": "Qualcomm Hexagon NPU (QCS8275)"
   },
   "voice": {
     "llm_streaming_enabled": true,
