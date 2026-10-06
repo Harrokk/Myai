@@ -2514,6 +2514,40 @@ Nästa exakta steg vid återupptag:
 
 Ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller påstås vid denna paus.
 
+
+### 21.27 Pauscheckpoint 2026-10-05 – inväntar fysisk Arduino VENTUNO Q
+
+Arbetet pausas här på användarens begäran.
+
+Verifierat läge vid paus:
+- aktiv integrationsgren: `dev/ventuno-q-provider`
+- aktiv integrations-head: `051fa57dbc973993f80482485c9d1f46f83ccf74`
+- draft PR för VENTUNO-spåret: `#85`
+- senaste GitHub Actions-run: `37349085251` = **success**
+- `main` är fortsatt orörd
+
+Beslut vid denna paus:
+- ingen ytterligare mjukvarufunktion ska läggas till enbart för att fortsätta utveckla
+- ingen fysisk VENTUNO Q-verifiering påbörjas ännu
+- inga nya antaganden om NPU, kamera, ljud, termik, Arduino Router, STM32 eller RPC ska göras före fysisk testning
+- den nuvarande mjukvarubaslinjen betraktas som fryst tills ett konkret behov eller fysisk hårdvara finns
+
+När Arduino VENTUNO Q finns tillgänglig ska arbetet återupptas exakt enligt avsnitt 21.2:
+1. installera och versionslåsa den verkliga VENTUNO/Qualcomm/GenieX-stacken
+2. köra read-only preflight
+3. verifiera Qwen3-4B-modellbundle för QCS8275
+4. mäta cold start, TTFT, tokens/s, RAM och temperatur
+5. verifiera streaming + buffered TTS
+6. verifiera mikrofon/VAD/STT och 1.5 s handoff
+7. verifiera dokumenterad accelererad Whisper-backend; fallback kvarstår tills dess
+8. verifiera VLM/kamera
+9. verifiera Arduino Router socket och en allowlistad read-only STM32-metod
+10. först därefter överväga fysisk RPC-write efter separat säkerhetsgranskning
+11. verifiera Bluetooth/Wi-Fi/USB/GPS och övriga perifera enheter
+12. genomföra minst 72 timmars stabilitetstest
+
+Ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller påstås vid denna paus.
+
 ---
 
 ## 22. Övergripande vision
