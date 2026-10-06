@@ -268,85 +268,87 @@ class PublicWebClient:
                 stream=True,
             )
 
-            peer_ip = self.peer_ip_getter(response)
-            if not _is_public_ip(peer_ip):
+            try:
+                peer_ip = self.peer_ip_getter(response)
+                if not _is_public_ip(peer_ip):
+                    raise ValueError(
+                        "Privat, lokal eller icke-publik peer-IP blockeras."
+                    )
+
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("Location")
+
+                    if not location:
+                        raise ValueError("Redirect saknar Location-header.")
+
+                    if redirect_index >= self.max_redirects:
+                        raise ValueError("För många redirects.")
+
+                    current = urljoin(current, location)
+                    continue
+
+                response.raise_for_status()
+
+                content_type = (
+                    response.headers.get("Content-Type", "")
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()
+                )
+
+                if content_type not in ALLOWED_CONTENT_TYPES:
+                    raise ValueError(
+                        "Otillåten eller okänd innehållstyp: "
+                        f"{content_type or 'saknas'}"
+                    )
+
+                raw_text = self._read_body(response)
+                title = ""
+
+                metadata = {}
+                canonical_url = ""
+                external_links = []
+
+                if content_type in {"text/html", "application/xhtml+xml"}:
+                    parser = _VisibleTextParser()
+                    parser.feed(raw_text)
+                    title = parser.title
+                    text = parser.text
+                    metadata = dict(parser.meta)
+                    canonical_url = (
+                        urljoin(current, parser.canonical_url)
+                        if parser.canonical_url
+                        else ""
+                    )
+                    current_host = (urlparse(current).hostname or "").lower()
+
+                    for href in parser.links:
+                        absolute = urljoin(current, href)
+                        parsed_link = urlparse(absolute)
+                        host = (parsed_link.hostname or "").lower()
+
+                        if (
+                            parsed_link.scheme in {"http", "https"}
+                            and host
+                            and host != current_host
+                        ):
+                            external_links.append(absolute)
+                else:
+                    text = raw_text.strip()
+
+                return {
+                    "requested_url": url,
+                    "final_url": current,
+                    "status_code": response.status_code,
+                    "content_type": content_type,
+                    "title": title,
+                    "text": text,
+                    "metadata": metadata,
+                    "canonical_url": canonical_url,
+                    "external_links": sorted(set(external_links)),
+                    "redirects": redirect_index,
+                }
+            finally:
                 response.close()
-                raise ValueError(
-                    "Privat, lokal eller icke-publik peer-IP blockeras."
-                )
-
-            if response.status_code in {301, 302, 303, 307, 308}:
-                location = response.headers.get("Location")
-
-                if not location:
-                    raise ValueError("Redirect saknar Location-header.")
-
-                if redirect_index >= self.max_redirects:
-                    raise ValueError("För många redirects.")
-
-                current = urljoin(current, location)
-                continue
-
-            response.raise_for_status()
-
-            content_type = (
-                response.headers.get("Content-Type", "")
-                .split(";", 1)[0]
-                .strip()
-                .lower()
-            )
-
-            if content_type not in ALLOWED_CONTENT_TYPES:
-                raise ValueError(
-                    "Otillåten eller okänd innehållstyp: "
-                    f"{content_type or 'saknas'}"
-                )
-
-            raw_text = self._read_body(response)
-            title = ""
-
-            metadata = {}
-            canonical_url = ""
-            external_links = []
-
-            if content_type in {"text/html", "application/xhtml+xml"}:
-                parser = _VisibleTextParser()
-                parser.feed(raw_text)
-                title = parser.title
-                text = parser.text
-                metadata = dict(parser.meta)
-                canonical_url = (
-                    urljoin(current, parser.canonical_url)
-                    if parser.canonical_url
-                    else ""
-                )
-                current_host = (urlparse(current).hostname or "").lower()
-
-                for href in parser.links:
-                    absolute = urljoin(current, href)
-                    parsed_link = urlparse(absolute)
-                    host = (parsed_link.hostname or "").lower()
-
-                    if (
-                        parsed_link.scheme in {"http", "https"}
-                        and host
-                        and host != current_host
-                    ):
-                        external_links.append(absolute)
-            else:
-                text = raw_text.strip()
-
-            return {
-                "requested_url": url,
-                "final_url": current,
-                "status_code": response.status_code,
-                "content_type": content_type,
-                "title": title,
-                "text": text,
-                "metadata": metadata,
-                "canonical_url": canonical_url,
-                "external_links": sorted(set(external_links)),
-                "redirects": redirect_index,
-            }
 
         raise ValueError("Webbsidan kunde inte hämtas.")
