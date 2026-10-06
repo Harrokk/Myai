@@ -288,3 +288,27 @@ def test_ble_is_optional_not_a_base_runtime_dependency():
 
     assert "bleak" not in base.lower()
     assert "bleak==3.0.2" in bluetooth
+
+
+def test_pre_hardware_ventuno_profile_avoids_background_router_and_hardware_cost():
+    profile = json.loads(
+        (
+            PROJECT_ROOT
+            / "config"
+            / "profiles"
+            / "ventuno_q.json"
+        ).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert profile[
+        "tool_routing"
+    ][
+        "llm_fallback_enabled"
+    ] is False
+    assert profile[
+        "hardware_watch"
+    ][
+        "enabled"
+    ] is False
