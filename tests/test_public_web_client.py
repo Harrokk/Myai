@@ -283,3 +283,44 @@ def test_fetch_accepts_public_connected_peer():
     result = client.fetch("https://example.com/public")
 
     assert result["text"] == "public peer"
+
+
+def test_successful_streamed_response_is_closed():
+    response = FakeResponse(
+        headers={"Content-Type": "text/plain"},
+        body=b"closed after read",
+    )
+    session = FakeSession([response])
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=public_resolver,
+        peer_ip_getter=lambda item: public_resolver("", 0)[0][4][0],
+    )
+
+    result = client.fetch("https://example.com/close")
+
+    assert result["text"] == "closed after read"
+    assert response.closed is True
+
+
+def test_redirect_response_is_closed_before_next_request():
+    redirect = FakeResponse(
+        status_code=302,
+        headers={"Location": "https://example.com/final"},
+    )
+    final = FakeResponse(
+        headers={"Content-Type": "text/plain"},
+        body=b"final",
+    )
+    session = FakeSession([redirect, final])
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=public_resolver,
+        peer_ip_getter=lambda item: public_resolver("", 0)[0][4][0],
+    )
+
+    result = client.fetch("https://example.com/start")
+
+    assert result["text"] == "final"
+    assert redirect.closed is True
+    assert final.closed is True
