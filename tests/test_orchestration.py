@@ -668,3 +668,68 @@ def test_dependent_visual_research_without_current_source_is_blocked():
     assert plan[
         "steps"
     ] == []
+
+
+def test_status_hints_use_word_boundaries_not_substrings():
+    assert (
+        tool_manager.detect_tools(
+            "Diskutera program och frame-format."
+        )
+        == []
+    )
+
+    assert (
+        tool_manager.detect_tools(
+            "Det blir varmt i Stockholm idag."
+        )
+        != [
+            "temperature_status"
+        ]
+    )
+
+    plan = build_safe_orchestration_plan(
+        (
+            "Sök information om program, gram, frame "
+            "och diskutera resultatet"
+        ),
+        available_tools={
+            "cpu_status": {},
+            "ram_status": {},
+            "temperature_status": {},
+            "disk_status": {},
+        },
+        detect_function=lambda text: [],
+        settings=deepcopy(
+            DEFAULT_SETTINGS
+        ),
+    )
+
+    assert plan[
+        "steps"
+    ] == []
+
+
+def test_status_hints_still_match_complete_status_words():
+    plan = build_safe_orchestration_plan(
+        "Visa RAM och disk status",
+        available_tools={
+            "ram_status": {},
+            "disk_status": {},
+        },
+        detect_function=lambda text: [],
+        settings=deepcopy(
+            DEFAULT_SETTINGS
+        ),
+    )
+
+    assert [
+        step[
+            "tool"
+        ]
+        for step in plan[
+            "steps"
+        ]
+    ] == [
+        "ram_status",
+        "disk_status",
+    ]
