@@ -56,9 +56,28 @@ jobs:
               if re.fullmatch(r"refs/pull/\d+/head", ref.strip())
           )
 
-          print(f"AFFECTED_PR_COUNT={len(pr_refs)}")
+          print(f"CHANGED_REF_COUNT={len(changed)}")
+          print(f"AFFECTED_PR_HEAD_COUNT={len(pr_refs)}")
           for ref in pr_refs:
-              print(f"AFFECTED_PR_REF={ref}")
+              print(f"AFFECTED_PR_HEAD_REF={ref}")
+
+          pull_refs = sorted(
+              ref.strip()
+              for ref in changed
+              if ref.strip().startswith("refs/pull/")
+          )
+          print(f"AFFECTED_PR_ANY_COUNT={len(pull_refs)}")
+          for ref in pull_refs:
+              print(f"AFFECTED_PR_ANY_REF={ref}")
+
+          namespaces = {}
+          for ref in changed:
+              clean = ref.strip()
+              parts = clean.split("/")
+              namespace = "/".join(parts[:2]) if len(parts) >= 2 else clean
+              namespaces[namespace] = namespaces.get(namespace, 0) + 1
+          for namespace, count in sorted(namespaces.items()):
+              print(f"CHANGED_NAMESPACE={namespace} COUNT={count}")
 
           output = Path("sdr-output.txt").read_text(
               encoding="utf-8",
