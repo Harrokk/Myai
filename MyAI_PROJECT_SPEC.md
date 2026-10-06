@@ -2579,9 +2579,10 @@ Flaskhals-/latencyförbättringar i samma auditspår:
 Repo-hygien:
 - `.gitignore` blockerar nu `*.db`, `*.db-wal`, `*.db-shm` samt befintliga `*.py[cod]`
 - GitHub-historiken visar att `memory.db` och två root-`.pyc`-filer lades till i commit `60f87698784e42788d0b0640927c73a6104612d9` och togs bort i `31b0392684865c05c2626249caa777face8dffe1`
-- en read-only binary/string-audit bekräftade SQLite-header och hittade inga tydliga e-post-, lösenords-/token-, preferens-, finans- eller personnamssträngar; detta är inte samma sak som en full SQLite-query och därför gjordes ingen destruktiv history rewrite automatiskt
-- gamla stacked/legacy-PR:er stängdes; endast `#85` (VENTUNO umbrella) och `#107` (denna audit) är öppna
-- hela Raspberry Pi-PR-spåret är därmed stängt och kan inte mergas av misstag via gamla öppna PR:er
+- en fullare read-only blobinspektion av den historiska 12 KiB SQLite-filen bekräftade tre `user`-poster med personligt projektminne om MyAI; inga lösenord, tokens, finansuppgifter eller andra uppenbara högriskhemligheter observerades, men filen innehåller faktisk användardata och ska därför behandlas som historik som bör rensas
+- de historiska root-filerna `__init__.cpython-314.pyc` och `system.cpython-314.pyc` är också bekräftade i samma tidiga commitkedja
+- gamla stacked/legacy-PR:er är stängda; `#107` och `#108` är mergade och endast `#85` (VENTUNO umbrella) är öppen
+- explicit GitHub-sökning visar inga öppna Raspberry Pi-PR:er; gamla Pi-brancher finns fortfarande som historiska refs men saknar öppen mergeväg
 
 Verifiering:
 - kodhead före denna dokumentationscommit: `fce64ca598244a6ae9999966e89e4f21650d97ad`
@@ -2589,7 +2590,30 @@ Verifiering:
 - Python-kompilering och full pytest-svit passerade
 - regressionsprov täcker substring-falskpositiv routing, fullständiga statusord, GPIO/I2C-identifikatorer, null top-level/nested configsektioner, enkel camera.enabled-felrapportering, schema-1→2-migrering, compute-acceleratorprofil och SQLite-ignore
 
-Ingen fysisk VENTUNO Q-verifiering påstås av denna audit. Historikomskrivning med `git filter-repo` ska endast göras som en separat kontrollerad operation om en senare fullständig inspektion visar personlig/känslig data eller om användaren uttryckligen vill eliminera de historiska binärblobbarna trots att inga tydliga hemligheter hittades.
+Ingen fysisk VENTUNO Q-verifiering påstås av denna audit. Eftersom den fullständigare inspektionen bekräftade faktisk användardata i historisk `memory.db` ska historikrensning med `git filter-repo` genomföras som en separat kontrollerad operation. Den operationen får inte ersättas av en squash som tappar projektets författar-/tidsmetadata.
+
+
+### 21.29 Historikhygien 2026-10-06 – bekräftad användardata i gammal SQLite-blob
+
+Efter §21.28 genomfördes en mer fullständig read-only inspektion av den historiska `memory.db`-blobben från commit `60f87698784e42788d0b0640927c73a6104612d9`.
+
+Bekräftat:
+- filen är en giltig SQLite 3-databas på 12 KiB
+- tabellen `memories` finns
+- tre poster med kategori `user` innehåller faktisk användarspecifik projektinformation om MyAI
+- inga lösenord, API-nycklar, tokens, finansuppgifter eller andra uppenbara högriskhemligheter observerades i den inspekterade blobben
+- `memory.db`, `__init__.cpython-314.pyc` och `system.cpython-314.pyc` är historiskt nåbara via tidiga commits trots att de inte finns i aktuell working tree
+- nuvarande `.gitignore` blockerar `*.db`, `*.db-wal`, `*.db-shm` och `*.py[cod]`
+- CI ska dessutom kontrollera tracked filer, inte bara ignore-mönster
+
+Beslut:
+- historiken ska rensas med en riktig history-rewrite som bevarar övrig commitstruktur och metadata så långt verktyget tillåter
+- rekommenderad metod är `git filter-repo` över alla branches/tags
+- efter rewrite måste berörda refs force-pushas kontrollerat och gamla kloner får inte pushas tillbaka utan ombasering/reclone
+- en detaljerad procedur finns i `docs/HISTORY_CLEANUP.md`
+- GitHub-cachade commitvyer kan kräva separat purge/support om full offentlig eliminering av gamla blobbar önskas
+
+Denna historikoperation är separat från normal featureutveckling eftersom den ändrar commit-SHA:n för hela den berörda historiken.
 
 ---
 
