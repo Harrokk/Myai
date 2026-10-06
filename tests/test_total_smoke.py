@@ -8,8 +8,13 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 from core.jsonl_log import append_jsonl
+from copy import deepcopy
+
+from core.config import DEFAULT_SETTINGS
+from core.config_validation import validate_settings
 from core.memory import MemoryStore
 from core import public_web_client
+from core import tool_manager
 
 
 def _public_resolver(host, port, type=None):
@@ -96,3 +101,54 @@ def test_total_smoke_public_web_accepts_public_dns():
     assert client.validate_url("https://example.com/smoke") == (
         "https://example.com/smoke"
     )
+
+
+class _NoRoutingLLM:
+    def chat(self, messages, timeout=120):
+        raise AssertionError("Smoke routing should be deterministic.")
+
+
+def _tool(name):
+    return {
+        "function": lambda: name,
+        "description": name,
+    }
+
+
+def test_total_smoke_safe_default_configuration():
+    result = validate_settings(deepcopy(DEFAULT_SETTINGS))
+    assert result["valid"] is True
+    assert result["errors"] == []
+
+
+def test_total_smoke_multitool_routing():
+    available = {
+        "cpu_status": _tool("cpu"),
+        "ram_status": _tool("ram"),
+        "disk_status": _tool("disk"),
+    }
+    settings = deepcopy(DEFAULT_SETTINGS)
+
+    plan = tool_manager.select_tool_plan(
+        "Visa CPU och RAM status",
+        available,
+        _NoRoutingLLM(),
+        settings=settings,
+    )
+
+    assert [step["tool"] for step in plan["steps"]] == [
+        "cpu_status",
+        "ram_status",
+    ]
+
+
+def test_total_smoke_routing_does_not_match_status_substrings():
+    available = {
+        "ram_status": _tool("ram"),
+        "disk_status": _tool("disk"),
+        "temperature_status": _tool("temperature"),
+    }
+
+    assert tool_manager.detect_tools(
+        "Kan du diskutera program och bildramar?"
+    ) == []
