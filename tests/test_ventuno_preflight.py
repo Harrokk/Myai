@@ -58,6 +58,12 @@ def ventuno_settings():
     settings["vision"][
         "enabled"
     ] = False
+    settings["excel"][
+        "enabled"
+    ] = False
+    settings["excel"][
+        "write_enabled"
+    ] = False
     return settings
 
 
