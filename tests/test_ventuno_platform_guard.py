@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 
 
 PROJECT_ROOT = Path(
@@ -169,6 +170,9 @@ def test_active_runtime_contains_no_legacy_pi_assumptions():
         "pi_power_status",
         "vcgencmd",
         "IQ-8275",
+        "Raspberry Pi",
+        "raspberry pi",
+        "raspbian",
     )
     roots = (
         "core",
@@ -337,3 +341,42 @@ def test_gitignore_blocks_sqlite_database_and_wal_sidecars():
     assert "*.db-wal" in lines
     assert "*.db-shm" in lines
     assert "*.py[cod]" in lines
+
+
+def test_git_index_contains_no_runtime_database_or_bytecode_artifacts():
+    result = subprocess.run(
+        [
+            "git",
+            "ls-files",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    tracked = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip()
+    ]
+    forbidden = [
+        path
+        for path in tracked
+        if (
+            path.endswith(
+                (
+                    ".db",
+                    ".db-wal",
+                    ".db-shm",
+                    ".pyc",
+                    ".pyo",
+                )
+            )
+            or "/__pycache__/" in (
+                "/"
+                + path
+            )
+        )
+    ]
+
+    assert forbidden == []
