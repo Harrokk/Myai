@@ -751,3 +751,48 @@ def test_detect_tools_routes_memory_administration_actions():
     ) == [
         "memory_review_action"
     ]
+
+
+def test_select_tool_plan_skips_second_llm_inference_when_fallback_disabled():
+    from copy import deepcopy
+
+    from core.config import DEFAULT_SETTINGS
+
+    class FailLLM:
+        def chat(
+            self,
+            *args,
+            **kwargs,
+        ):
+            raise AssertionError(
+                "LLM-router ska inte köras när fallback är avstängd."
+            )
+
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings[
+        "tool_routing"
+    ][
+        "llm_fallback_enabled"
+    ] = False
+    tools = {
+        "cpu_status": {
+            "function": lambda: "CPU",
+            "description": "cpu",
+        },
+    }
+
+    plan = tool_manager.select_tool_plan(
+        "Berätta något om filosofi.",
+        tools,
+        FailLLM(),
+        settings=settings,
+    )
+
+    assert plan[
+        "source"
+    ] == "llm_fallback_disabled"
+    assert plan[
+        "steps"
+    ] == []
