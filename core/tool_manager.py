@@ -863,15 +863,15 @@ def detect_tools(user_input):
         ),
     )
 
-    asks_accelerator = any(
-        phrase in text
-        for phrase in (
+    asks_accelerator = _contains_any_token(
+        text,
+        (
             "npu",
             "hexagon",
             "ai accelerator",
             "ai-accelerator",
             "accelerator status",
-        )
+        ),
     )
 
     if asks_accelerator:
