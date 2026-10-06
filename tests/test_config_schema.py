@@ -200,3 +200,33 @@ def test_profile_comparison_redacts_sensitive_values():
     assert "secret-right" not in str(
         result
     )
+
+
+def test_schema_v1_gpu_field_migrates_to_compute_accelerator():
+    migrated = migrate_config_document(
+        {
+            "schema_version": 1,
+            "assistant": {
+                "gpu": "Legacy accelerator",
+            },
+        }
+    )
+
+    assert migrated[
+        "effective_version"
+    ] == 2
+    assert migrated[
+        "document"
+    ][
+        "assistant"
+    ][
+        "compute_accelerator"
+    ] == "Legacy accelerator"
+    assert (
+        "gpu"
+        not in migrated[
+            "document"
+        ][
+            "assistant"
+        ]
+    )
