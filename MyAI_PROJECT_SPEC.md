@@ -2615,6 +2615,21 @@ Beslut:
 
 Denna historikoperation är separat från normal featureutveckling eftersom den ändrar commit-SHA:n för hela den berörda historiken.
 
+
+### 21.29 Korrigerad historikgranskning 2026-10-06 – personlig data kräver sanering
+
+En fördjupad read-only inspektion av den historiska SQLite-blobben `memory.db` från commit `60f87698784e42788d0b0640927c73a6104612d9` visar att databasen innehåller användarens egna projektminnen och formuleringar. Den tidigare formuleringen i §21.28 om att inga tydliga personliga strängar hittades är därför inte tillräcklig och ska inte användas som grund för att avstå historiksanering.
+
+Korrigerad status:
+- `memory.db`, `__init__.cpython-314.pyc` och `system.cpython-314.pyc` lades till i commit `60f87698784e42788d0b0640927c73a6104612d9` och togs bort i `31b0392684865c05c2626249caa777face8dffe1`
+- nuvarande träd innehåller inte dessa filer och `.gitignore` blockerar `*.db`, `*.db-wal`, `*.db-shm` och `*.py[cod]`
+- historisk `memory.db` innehåller personlig projektkontext och ska därför behandlas som data som ska tas bort ur publik Git-historik
+- en full historikomskrivning med `git filter-repo` eller motsvarande, följd av force-push av berörda refs och verifiering att inga refs längre når blobbarna, är fortfarande obligatorisk
+- ingen merge till `main` ska göras innan denna historiksanering är genomförd och verifierad
+- gamla Raspberry Pi-PR:er är stängda; endast VENTUNO-umbrella-PR #85 är fortsatt öppen som draft
+
+Denna punkt ändrar inte VENTUNO-runtimekoden; den korrigerar sekretessbedömningen och markerar historiksaneringen som blockerande återstående repo-åtgärd.
+
 ---
 
 ## 22. Övergripande vision
