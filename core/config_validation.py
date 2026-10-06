@@ -83,6 +83,65 @@ def _is_string_list(value):
     )
 
 
+def _normalize_object_sections(
+    value,
+    defaults,
+    issues,
+    path="",
+):
+    result = dict(
+        value
+    )
+
+    for key, default_value in defaults.items():
+        if (
+            not isinstance(
+                default_value,
+                dict,
+            )
+            or key not in result
+        ):
+            continue
+
+        section_path = (
+            f"{path}.{key}"
+            if path
+            else key
+        )
+        current = result[
+            key
+        ]
+
+        if not isinstance(
+            current,
+            dict,
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    "config_section_not_object",
+                    (
+                        f"{section_path} måste vara ett objekt."
+                    ),
+                )
+            )
+            result[
+                key
+            ] = default_value
+            continue
+
+        result[
+            key
+        ] = _normalize_object_sections(
+            current,
+            default_value,
+            issues,
+            section_path,
+        )
+
+    return result
+
+
 def validate_settings(
     settings,
     *,
@@ -105,6 +164,12 @@ def validate_settings(
             ],
             "warnings": [],
         }
+
+    settings = _normalize_object_sections(
+        settings,
+        DEFAULT_SETTINGS,
+        issues,
+    )
 
     schema_version = settings.get(
         "schema_version"
@@ -795,26 +860,6 @@ def validate_settings(
                     ),
                 )
             )
-
-    camera = settings.get(
-        "camera",
-        {},
-    )
-
-    if not isinstance(
-        camera.get(
-            "enabled",
-            True,
-        ),
-        bool,
-    ):
-        issues.append(
-            _issue(
-                "error",
-                "camera_enabled_invalid",
-                "camera.enabled måste vara true eller false.",
-            )
-        )
 
     voice = settings.get(
         "voice",

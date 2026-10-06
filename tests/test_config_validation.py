@@ -857,3 +857,58 @@ def test_default_intermediate_result_config_is_valid():
             "errors"
         ]
     )
+
+
+def test_null_object_section_is_reported_without_crashing():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings["camera"] = None
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"] == "config_section_not_object"
+        and "camera" in item["message"]
+        for item in result["errors"]
+    )
+
+
+def test_nested_null_object_section_is_reported_without_crashing():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings["llm"]["fallback"] = None
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result["valid"] is False
+    assert any(
+        item["code"] == "config_section_not_object"
+        and "llm.fallback" in item["message"]
+        for item in result["errors"]
+    )
+
+
+def test_camera_enabled_is_reported_only_once():
+    settings = deepcopy(
+        DEFAULT_SETTINGS
+    )
+    settings["camera"]["enabled"] = "yes"
+
+    result = validate_settings(
+        settings
+    )
+
+    matching = [
+        item
+        for item in result["errors"]
+        if "camera.enabled" in item["message"]
+    ]
+    assert len(matching) == 1
+    assert matching[0]["code"] == "hardware_flag_not_boolean"
