@@ -74,7 +74,7 @@ def ventuno_accelerator_status():
     return (
         "VENTUNO AI-acceleratorstatus (read-only):\n"
         f"- Konfigurerad accelerator: "
-        f"{assistant.get('gpu') or 'Qualcomm QCS8275 / Hexagon NPU'}\n"
+        f"{assistant.get('compute_accelerator') or 'Qualcomm QCS8275 / Hexagon NPU'}\n"
         f"- GenieX-modell: "
         f"{geniex.get('model') or 'saknas'}\n"
         f"- Backend readiness: {readiness}\n"
