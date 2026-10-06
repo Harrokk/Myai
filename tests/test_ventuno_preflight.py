@@ -444,6 +444,50 @@ def test_preflight_warns_when_geniex_model_list_command_fails():
     assert result["passed"] is True
 
 
+def test_enabled_excel_requires_openpyxl():
+    settings = ventuno_settings()
+    settings["excel"] = {
+        "enabled": True,
+        "write_enabled": False,
+    }
+
+    result = safe_preflight(
+        settings,
+        module_available=lambda name: False,
+    )
+
+    assert result["passed"] is False
+    assert (
+        _statuses(
+            result
+        )[
+            "VENTUNO Excel dependency"
+        ]
+        == "FAIL"
+    )
+
+
+def test_disabled_excel_does_not_require_openpyxl():
+    settings = ventuno_settings()
+    settings["excel"] = {
+        "enabled": False,
+        "write_enabled": False,
+    }
+
+    result = safe_preflight(
+        settings,
+        module_available=lambda name: False,
+    )
+
+    assert result["passed"] is True
+    assert (
+        "VENTUNO Excel dependency"
+        not in _statuses(
+            result
+        )
+    )
+
+
 def test_enabled_camera_requires_opencv():
     settings = ventuno_settings()
     settings["camera"][
@@ -534,6 +578,7 @@ def _locked_stack(
             "psutil": "7.1.0",
             "bleak": "3.0.2",
             "arduino-router-bridge": "0.5.0",
+            "openpyxl": None,
         },
         "files": {
             "requirements.txt": {
@@ -553,6 +598,9 @@ def _locked_stack(
             },
             "requirements-gps.txt": {
                 "sha256": "gps",
+            },
+            "requirements-excel.txt": {
+                "sha256": "excel",
             },
         },
         "models": {
