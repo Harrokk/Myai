@@ -22,6 +22,7 @@ _REQUIRED_FIELDS = (
     ("files", "requirements-camera.txt", "sha256"),
     ("files", "requirements-voice.txt", "sha256"),
     ("files", "requirements-gps.txt", "sha256"),
+    ("files", "requirements-excel.txt", "sha256"),
     ("models", "llm"),
 )
 
@@ -210,6 +211,7 @@ def collect_ventuno_stack(
         "psutil",
         "bleak",
         "arduino-router-bridge",
+        "openpyxl",
     ):
         try:
             package_versions[
@@ -232,6 +234,7 @@ def collect_ventuno_stack(
         "requirements-camera.txt",
         "requirements-voice.txt",
         "requirements-gps.txt",
+        "requirements-excel.txt",
     )
     requirement_hashes = {
         name: _file_sha256(
@@ -281,6 +284,7 @@ def collect_ventuno_stack(
                 "psutil",
                 "bleak",
                 "arduino-router-bridge",
+                "openpyxl",
             )
         },
         "files": {
