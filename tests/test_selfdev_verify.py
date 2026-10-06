@@ -199,3 +199,126 @@ def test_verifier_rejects_deleted_files(
         match="filradering",
     ):
         verifier.verify()
+
+
+def test_type_aware_validation_commands_cover_supported_formats(
+    tmp_path,
+    monkeypatch,
+):
+    workspace = make_workspace(
+        tmp_path
+    )
+    workspace.write_text(
+        "config/example.json",
+        '{"ok": true}\n',
+    )
+    workspace.write_text(
+        "config/example.toml",
+        'name = "myai"\n',
+    )
+    workspace.write_text(
+        "scripts/example.sh",
+        "#!/bin/sh\necho ok\n",
+    )
+    workspace.write_text(
+        "docs/example.md",
+        "# Documentation\n",
+    )
+    monkeypatch.setattr(
+        "core.selfdev_verify.shutil.which",
+        lambda name: (
+            "/bin/bash"
+            if name == "bash"
+            else None
+        ),
+    )
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        python_executable="/usr/bin/python3",
+    )
+
+    commands = (
+        verifier
+        .build_validation_commands()
+    )
+    checks = {
+        (kind, path): command
+        for kind, path, command
+        in commands
+    }
+
+    assert (
+        "python-compile",
+        "core/example.py",
+    ) in checks
+    assert (
+        "json",
+        "config/example.json",
+    ) in checks
+    assert (
+        "toml",
+        "config/example.toml",
+    ) in checks
+    assert (
+        "shell",
+        "scripts/example.sh",
+    ) in checks
+    assert not any(
+        path == "docs/example.md"
+        for _, path in checks
+    )
+    assert checks[
+        (
+            "shell",
+            "scripts/example.sh",
+        )
+    ][-2:] == [
+        "-n",
+        "/workspace/scripts/example.sh",
+    ]
+
+
+def test_verifier_stops_before_pytest_when_type_check_fails(
+    tmp_path,
+):
+    workspace = make_workspace(
+        tmp_path
+    )
+    workspace.write_text(
+        "config/broken.json",
+        "{broken",
+    )
+    calls = []
+
+    def runner(
+        command,
+        *,
+        timeout,
+    ):
+        calls.append(
+            command
+        )
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="syntax error",
+        )
+
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        python_executable="/usr/bin/python3",
+        command_runner=runner,
+    )
+
+    result = verifier.verify()
+
+    assert result["passed"] is False
+    assert len(calls) == 1
+    assert result["checks"][0][
+        "type"
+    ] == "python-compile"
+    assert result["checks"][0][
+        "passed"
+    ] is False
