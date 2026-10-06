@@ -1178,6 +1178,22 @@ def select_tool_plan(
             source="direct",
         )
 
+    if (
+        settings is not None
+        and not settings.get(
+            "tool_routing",
+            {},
+        ).get(
+            "llm_fallback_enabled",
+            True,
+        )
+    ):
+        return _direct_plan(
+            user_input,
+            [],
+            source="llm_fallback_disabled",
+        )
+
     fallback_tools = tools
     fallback_source = "llm_fallback"
 
