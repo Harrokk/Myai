@@ -1,0 +1,287 @@
+name: Guarded history cleanup apply
+
+on:
+  push:
+    branches:
+      - "dev/routing-boundary-followup"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Run guarded history cleanup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install git-filter-repo
+        run: |
+          python -m pip install --disable-pip-version-check git-filter-repo==2.47.0
+          git filter-repo --version
+
+      - name: Clone protected before/after mirrors
+        run: |
+          git clone --mirror "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" before.git
+          cp -a before.git after.git
+          git --git-dir=before.git bundle create rollback.bundle --all
+
+      - name: Rewrite cleanup mirror
+        run: |
+          git --git-dir=after.git filter-repo --force \
+            --invert-paths \
+            --path memory.db \
+            --path __init__.cpython-314.pyc \
+            --path system.cpython-314.pyc
+
+      - name: Pre-push structural verification
+        shell: python
+        run: |
+          import subprocess
+          from pathlib import Path
+
+          forbidden = {
+              "memory.db",
+              "__init__.cpython-314.pyc",
+              "system.cpython-314.pyc",
+          }
+
+          def git(repo, *args):
+              return subprocess.run(
+                  ["git", f"--git-dir={repo}", *args],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout
+
+          def refs(repo):
+              out = git(
+                  repo,
+                  "for-each-ref",
+                  "--format=%(refname) %(objectname)",
+                  "refs/heads",
+                  "refs/tags",
+              )
+              result = {}
+              for line in out.splitlines():
+                  if not line.strip():
+                      continue
+                  ref, sha = line.split(" ", 1)
+                  result[ref] = sha
+              return result
+
+          def paths(repo, sha):
+              return {
+                  line.strip()
+                  for line in git(repo, "ls-tree", "-r", "--name-only", sha).splitlines()
+                  if line.strip()
+              }
+
+          before = refs("before.git")
+          after = refs("after.git")
+
+          if set(before) != set(after):
+              raise SystemExit("Branch/tag ref set changed during rewrite.")
+
+          if not before:
+              raise SystemExit("No branch/tag refs found; refusing rewrite.")
+
+          for ref in sorted(before):
+              old_paths = paths("before.git", before[ref])
+              new_paths = paths("after.git", after[ref])
+              removed = old_paths - new_paths
+              added = new_paths - old_paths
+
+              unexpected_removed = {
+                  path
+                  for path in removed
+                  if Path(path).name not in forbidden
+              }
+
+              if added or unexpected_removed:
+                  raise SystemExit(
+                      f"Unexpected tip-tree change on {ref}: "
+                      f"added={sorted(added)} "
+                      f"unexpected_removed={sorted(unexpected_removed)}"
+                  )
+
+          objects = git("after.git", "rev-list", "--objects", "--branches", "--tags")
+          leaks = []
+          for line in objects.splitlines():
+              parts = line.strip().split(" ", 1)
+              if len(parts) == 2 and Path(parts[1]).name in forbidden:
+                  leaks.append(line.strip())
+
+          if leaks:
+              raise SystemExit("Forbidden objects remain after rewrite.")
+
+          print(f"Pre-push verification passed for {len(before)} refs.")
+
+      - name: Race-check remote refs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git ls-remote "$remote" 'refs/heads/*' 'refs/tags/*' > remote-refs.txt
+          python - <<'PY'
+          import subprocess
+
+          def local_refs():
+              out = subprocess.run(
+                  [
+                      "git",
+                      "--git-dir=before.git",
+                      "for-each-ref",
+                      "--format=%(objectname) %(refname)",
+                      "refs/heads",
+                      "refs/tags",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout
+              return {
+                  ref: sha
+                  for sha, ref in (
+                      line.split(" ", 1)
+                      for line in out.splitlines()
+                      if line.strip()
+                  )
+              }
+
+          expected = local_refs()
+          remote = {}
+          with open("remote-refs.txt", encoding="utf-8") as handle:
+              for line in handle:
+                  if not line.strip():
+                      continue
+                  sha, ref = line.rstrip("\n").split("\t", 1)
+                  if ref.endswith("^{}"):
+                      continue
+                  remote[ref] = sha
+
+          if expected != remote:
+              missing = sorted(set(expected) - set(remote))
+              added = sorted(set(remote) - set(expected))
+              moved = sorted(
+                  ref
+                  for ref in set(expected) & set(remote)
+                  if expected[ref] != remote[ref]
+              )
+              raise SystemExit(
+                  f"Remote refs changed since mirror clone. "
+                  f"missing={missing} added={added} moved={moved}"
+              )
+
+          print(f"Race check passed for {len(expected)} refs.")
+          PY
+
+      - name: Atomically replace branch and tag refs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          git --git-dir=after.git remote remove origin 2>/dev/null || true
+          git --git-dir=after.git remote add origin "$remote"
+          git --git-dir=before.git remote remove origin 2>/dev/null || true
+          git --git-dir=before.git remote add origin "$remote"
+
+          mapfile -t clean_refs < <(
+            git --git-dir=after.git for-each-ref \
+              --format='%(refname):%(refname)' refs/heads refs/tags
+          )
+
+          if [ "${#clean_refs[@]}" -eq 0 ]; then
+            echo "No refs found; refusing push."
+            exit 1
+          fi
+
+          git --git-dir=after.git push --atomic --force origin "${clean_refs[@]}"
+
+      - name: Verify fresh remote mirror or roll back
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          rollback() {
+            echo "Post-push verification failed; attempting atomic rollback."
+            mapfile -t old_refs < <(
+              git --git-dir=before.git for-each-ref \
+                --format='%(refname):%(refname)' refs/heads refs/tags
+            )
+            git --git-dir=before.git push --atomic --force origin "${old_refs[@]}"
+          }
+
+          rm -rf verify.git
+          if ! git clone --mirror "$remote" verify.git; then
+            rollback
+            exit 1
+          fi
+
+          if ! python - <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          forbidden = {
+              "memory.db",
+              "__init__.cpython-314.pyc",
+              "system.cpython-314.pyc",
+          }
+
+          def git(repo, *args):
+              return subprocess.run(
+                  ["git", f"--git-dir={repo}", *args],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout
+
+          def refs(repo):
+              out = git(
+                  repo,
+                  "for-each-ref",
+                  "--format=%(refname) %(objectname)",
+                  "refs/heads",
+                  "refs/tags",
+              )
+              result = {}
+              for line in out.splitlines():
+                  if not line.strip():
+                      continue
+                  ref, sha = line.split(" ", 1)
+                  result[ref] = sha
+              return result
+
+          expected = refs("after.git")
+          actual = refs("verify.git")
+
+          if expected != actual:
+              raise SystemExit("Fresh remote ref map does not match cleaned mirror.")
+
+          objects = git("verify.git", "rev-list", "--objects", "--branches", "--tags")
+          leaks = []
+          for line in objects.splitlines():
+              parts = line.strip().split(" ", 1)
+              if len(parts) == 2 and Path(parts[1]).name in forbidden:
+                  leaks.append(line.strip())
+
+          if leaks:
+              raise SystemExit("Forbidden objects remain reachable from remote branches/tags.")
+
+          print(f"Post-push verification passed for {len(actual)} refs.")
+          print("History cleanup is complete for normal branch/tag history.")
+          PY
+          then
+            rollback
+            exit 1
+          fi
