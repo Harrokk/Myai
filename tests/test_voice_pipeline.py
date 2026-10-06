@@ -30,6 +30,31 @@ class FakeAssistant:
         }
 
 
+class ToolPlanningAssistant(FakeAssistant):
+    def __init__(self, tool_name):
+        super().__init__()
+        self.tool_name = tool_name
+        self.tools = {
+            tool_name: {
+                "description": "test tool",
+                "safety": {
+                    "effect": "write",
+                    "voice_confirmation_required": True,
+                },
+            }
+        }
+
+    def preview_tool_plan(self, message):
+        return {
+            "steps": [
+                {
+                    "tool": self.tool_name,
+                    "input": message,
+                }
+            ]
+        }
+
+
 class FakeTTS:
     def __init__(self):
         self.spoken = []
@@ -938,4 +963,63 @@ def test_resource_handoff_hook_runs_after_stt_before_assistant():
         "stt",
         "handoff",
         "assistant",
+    ]
+
+
+def test_selected_write_tool_requires_confirmation_even_without_risk_words():
+    assistant = ToolPlanningAssistant(
+        "workspace_write"
+    )
+    primary = FakeSTT(
+        {
+            "text": "Skapa filen notes txt med innehållet hej",
+            "confidence": 0.99,
+        }
+    )
+    backups = [
+        FakeSTT(
+            {
+                "text": "Skapa filen notes txt med innehållet hej",
+                "confidence": 0.98,
+            }
+        ),
+        FakeSTT(
+            {
+                "text": "Skapa filen notes txt med innehållet hej",
+                "confidence": 0.97,
+            }
+        ),
+    ]
+    pipeline = VoicePipeline(
+        assistant,
+        primary,
+        backup_stt=backups,
+        settings=settings(
+            high_risk_confirmation_enabled=True,
+        ),
+        clock=FakeClock(),
+    )
+
+    first = pipeline.process_utterance(
+        b"write"
+    )
+
+    assert first["status"] == "confirmation_required"
+    assert first["risk"]["level"] == "high"
+    assert first["risk"]["tool_names"] == [
+        "workspace_write"
+    ]
+    assert assistant.messages == []
+
+    primary.result = {
+        "text": "bekräfta",
+        "confidence": 0.99,
+    }
+    second = pipeline.process_utterance(
+        b"confirm"
+    )
+
+    assert second["status"] == "completed"
+    assert assistant.messages == [
+        "Skapa filen notes txt med innehållet hej"
     ]

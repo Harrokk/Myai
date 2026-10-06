@@ -174,6 +174,62 @@ def classify_voice_risk(text):
     }
 
 
+def classify_tool_plan_risk(plan, tools):
+    reasons = []
+    tool_names = []
+
+    if not isinstance(plan, dict) or not isinstance(tools, dict):
+        return {
+            "level": "low",
+            "reasons": reasons,
+            "tool_names": tool_names,
+        }
+
+    for step in plan.get("steps", []):
+        if not isinstance(step, dict):
+            continue
+
+        tool_name = step.get("tool")
+
+        if not tool_name or tool_name in tool_names:
+            continue
+
+        tool_names.append(tool_name)
+        metadata = tools.get(tool_name, {})
+        safety = (
+            metadata.get("safety", {})
+            if isinstance(metadata, dict)
+            else {}
+        )
+        effect = str(
+            safety.get("effect", "read_only")
+        ).strip().lower()
+        requires_confirmation = bool(
+            safety.get(
+                "voice_confirmation_required",
+                False,
+            )
+        )
+
+        if (
+            requires_confirmation
+            or effect in {
+                "write",
+                "mutate",
+                "destructive",
+            }
+        ):
+            reasons.append(
+                f"verktyg kräver röstbekräftelse: {tool_name}"
+            )
+
+    return {
+        "level": "high" if reasons else "low",
+        "reasons": reasons,
+        "tool_names": tool_names,
+    }
+
+
 def normalize_stt_result(result):
     if isinstance(result, str):
         return {
@@ -321,6 +377,78 @@ class VoicePipeline:
     @property
     def voice_settings(self):
         return self.settings.get("voice", {})
+
+    def _classify_risk(self, text):
+        phrase_risk = classify_voice_risk(text)
+        preview = getattr(
+            self.assistant,
+            "preview_tool_plan",
+            None,
+        )
+        tools = getattr(
+            self.assistant,
+            "tools",
+            None,
+        )
+
+        if not callable(preview) or not isinstance(tools, dict):
+            return phrase_risk
+
+        try:
+            plan = preview(text)
+        except Exception as error:
+            reasons = list(
+                phrase_risk.get(
+                    "reasons",
+                    [],
+                )
+            )
+            reasons.append(
+                "verktygsplanen kunde inte säkerhetsbedömas"
+            )
+            return {
+                "level": "high",
+                "reasons": reasons,
+                "tool_names": [],
+                "tool_plan_error": type(error).__name__,
+            }
+
+        tool_risk = classify_tool_plan_risk(
+            plan,
+            tools,
+        )
+        reasons = list(
+            dict.fromkeys(
+                list(
+                    phrase_risk.get(
+                        "reasons",
+                        [],
+                    )
+                )
+                + list(
+                    tool_risk.get(
+                        "reasons",
+                        [],
+                    )
+                )
+            )
+        )
+
+        return {
+            "level": (
+                "high"
+                if (
+                    phrase_risk.get("level") == "high"
+                    or tool_risk.get("level") == "high"
+                )
+                else "low"
+            ),
+            "reasons": reasons,
+            "tool_names": tool_risk.get(
+                "tool_names",
+                [],
+            ),
+        }
 
     def _transcribe(self, provider, audio):
         return normalize_stt_result(
@@ -653,6 +781,43 @@ class VoicePipeline:
                     ),
                 }
 
+            current_risk = self._classify_risk(
+                pending["transcript"]
+            )
+            pending_tools = set(
+                pending["risk"].get(
+                    "tool_names",
+                    [],
+                )
+            )
+            current_tools = set(
+                current_risk.get(
+                    "tool_names",
+                    [],
+                )
+            )
+
+            if (
+                current_risk.get("level") == "high"
+                and current_tools != pending_tools
+            ):
+                self.pending_confirmation = {
+                    **pending,
+                    "risk": current_risk,
+                    "created_at": self.clock(),
+                }
+                message = (
+                    "Den valda verktygsplanen ändrades efter bekräftelsen. "
+                    'Säg "bekräfta" igen för den nya planen eller "avbryt".'
+                )
+                self._speak_control_message(message)
+                return {
+                    "status": "confirmation_required",
+                    "message": message,
+                    "transcript": pending["transcript"],
+                    "risk": current_risk,
+                }
+
             self.pending_confirmation = None
             response = self._respond_and_speak(
                 pending["transcript"]
@@ -744,7 +909,7 @@ class VoicePipeline:
         if pending_result is not None:
             return pending_result
 
-        risk = classify_voice_risk(
+        risk = self._classify_risk(
             primary["text"]
         )
         echo = self._probable_tts_echo(
@@ -870,7 +1035,7 @@ class VoicePipeline:
             }
             transcript = primary["text"]
 
-        final_risk = classify_voice_risk(
+        final_risk = self._classify_risk(
             transcript
         )
 

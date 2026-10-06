@@ -383,5 +383,9 @@ TOOLS = {
             "sandboxade workspace när skrivning uttryckligen är aktiverad."
         ),
         "pass_user_input": True,
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
     },
 }

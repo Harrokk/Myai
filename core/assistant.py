@@ -836,6 +836,16 @@ Svara kort och tydligt på svenska.
             [],
         )
 
+    def preview_tool_plan(self, user_message):
+        """Returnera vald verktygsplan utan att köra verktygen."""
+        with self._response_lock:
+            return select_tool_plan(
+                user_message,
+                self.tools,
+                self.llm,
+                settings=self.settings,
+            )
+
     def _prepare_response(self, user_message):
         confirmed = self._confirmed_intermediate_response(
             user_message

@@ -876,6 +876,10 @@ TOOLS = {
             ".xlsx-fil när Excel-skrivning är aktiverad."
         ),
         "pass_user_input": True,
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
     },
     "excel_create": {
         "function": excel_create,
@@ -884,6 +888,10 @@ TOOLS = {
             "som anges i användarens instruktion."
         ),
         "pass_user_input": True,
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
     },
     "excel_read": {
         "function": excel_read,
@@ -898,6 +906,10 @@ TOOLS = {
             "Lägger till en rad i en befintlig .xlsx-fil i workspace."
         ),
         "pass_user_input": True,
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
     },
     "excel_set_cell": {
         "function": excel_set_cell,
@@ -906,5 +918,9 @@ TOOLS = {
             "och kan bevara Excel-formler som börjar med =."
         ),
         "pass_user_input": True,
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
     },
 }
