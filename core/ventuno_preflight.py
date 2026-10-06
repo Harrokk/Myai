@@ -592,6 +592,23 @@ def run_ventuno_preflight(
 
     feature_dependencies = []
 
+    excel = settings.get(
+        "excel",
+        {},
+    )
+    if excel.get(
+        "enabled",
+        False,
+    ):
+        feature_dependencies.append(
+            (
+                "VENTUNO Excel dependency",
+                "openpyxl",
+                "excel.enabled=true kräver openpyxl; "
+                "installera requirements-excel.txt.",
+            )
+        )
+
     camera = settings.get(
         "camera",
         {},
