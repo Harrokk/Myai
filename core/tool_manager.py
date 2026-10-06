@@ -1021,19 +1021,35 @@ def detect_tools(user_input):
             "ventuno_interfaces_status"
         ]
 
-    asks_io_reference = _contains_any_token(
-        text,
-        (
-            "gpio",
-            "i2c",
-            "spi",
-            "uart",
-            "pinout",
-            "vilken pin",
-            "vilken pinne",
-            "koppla in",
-            "inkoppling",
-        ),
+    asks_io_reference = (
+        _contains_any_token(
+            text,
+            (
+                "gpio",
+                "i2c",
+                "spi",
+                "uart",
+                "pinout",
+                "vilken pin",
+                "vilken pinne",
+                "koppla in",
+                "inkoppling",
+            ),
+        )
+        or bool(
+            re.search(
+                r"(?<!\w)gpio\d+\b",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
+        or bool(
+            re.search(
+                r"(?<!\w)i2c-?\d+\b",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
     )
 
     if asks_io_reference:
