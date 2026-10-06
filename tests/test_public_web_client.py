@@ -39,6 +39,7 @@ class FakeResponse:
         self.headers = headers or {}
         self.body = body
         self.encoding = encoding
+        self.closed = False
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -46,6 +47,9 @@ class FakeResponse:
 
     def iter_content(self, chunk_size=16384):
         yield self.body
+
+    def close(self):
+        self.closed = True
 
 
 class FakeSession:
@@ -70,6 +74,7 @@ def test_validate_url_blocks_private_network():
 def test_validate_url_blocks_non_http_scheme():
     client = public_web_client.PublicWebClient(
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
 
     with pytest.raises(ValueError):
@@ -79,6 +84,7 @@ def test_validate_url_blocks_non_http_scheme():
 def test_validate_url_blocks_embedded_credentials():
     client = public_web_client.PublicWebClient(
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
 
     with pytest.raises(ValueError):
@@ -101,6 +107,7 @@ def test_fetch_extracts_visible_html_text():
     client = public_web_client.PublicWebClient(
         session=session,
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
 
     result = client.fetch("https://example.com/page")
@@ -130,6 +137,7 @@ def test_redirect_to_private_address_is_blocked():
     client = public_web_client.PublicWebClient(
         session=session,
         resolver=resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
 
     with pytest.raises(ValueError):
@@ -150,6 +158,7 @@ def test_binary_content_is_rejected():
     client = public_web_client.PublicWebClient(
         session=session,
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
 
     with pytest.raises(ValueError):
@@ -168,6 +177,7 @@ def test_page_size_limit_is_enforced():
     client = public_web_client.PublicWebClient(
         session=session,
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
         max_bytes=10,
     )
 
@@ -190,6 +200,7 @@ def test_content_length_limit_is_enforced_before_body_read():
     client = public_web_client.PublicWebClient(
         session=session,
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
         max_bytes=100,
     )
 
@@ -222,6 +233,7 @@ def test_html_metadata_canonical_and_external_links_are_extracted():
     client = public_web_client.PublicWebClient(
         session=session,
         resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
     result = client.fetch("https://example.com/article")
 
@@ -232,3 +244,42 @@ def test_html_metadata_canonical_and_external_links_are_extracted():
     assert result["external_links"] == [
         "https://other.example/source"
     ]
+
+
+def test_fetch_blocks_nonpublic_connected_peer_after_public_dns():
+    response = FakeResponse(
+        headers={"Content-Type": "text/plain"},
+        body=b"should not be read",
+    )
+    session = FakeSession([response])
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=public_resolver,
+        peer_ip_getter=lambda item: private_resolver("", 0)[0][4][0],
+    )
+
+    with pytest.raises(ValueError, match="peer-IP"):
+        client.fetch("https://example.com/rebound")
+
+    assert len(session.calls) == 1
+    assert response.closed is True
+
+
+def test_fetch_accepts_public_connected_peer():
+    session = FakeSession(
+        [
+            FakeResponse(
+                headers={"Content-Type": "text/plain"},
+                body=b"public peer",
+            )
+        ]
+    )
+    client = public_web_client.PublicWebClient(
+        session=session,
+        resolver=public_resolver,
+        peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
+    )
+
+    result = client.fetch("https://example.com/public")
+
+    assert result["text"] == "public peer"
