@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 
-CURRENT_CONFIG_SCHEMA_VERSION = 1
+CURRENT_CONFIG_SCHEMA_VERSION = 2
 
 
 _SENSITIVE_KEY_PARTS = (
@@ -87,6 +87,46 @@ def migrate_config_document(
             }
         )
         version = 1
+
+    if version == 1:
+        assistant = result.get(
+            "assistant"
+        )
+
+        if isinstance(
+            assistant,
+            dict,
+        ):
+            if (
+                "compute_accelerator"
+                not in assistant
+                and "gpu" in assistant
+            ):
+                assistant[
+                    "compute_accelerator"
+                ] = assistant.get(
+                    "gpu"
+                )
+
+            assistant.pop(
+                "gpu",
+                None,
+            )
+
+        result[
+            "schema_version"
+        ] = 2
+        steps.append(
+            {
+                "from_version": 1,
+                "to_version": 2,
+                "description": (
+                    "Byt assistant.gpu till "
+                    "assistant.compute_accelerator."
+                ),
+            }
+        )
+        version = 2
 
     if (
         version

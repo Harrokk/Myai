@@ -55,13 +55,19 @@ def test_ventuno_profile_targets_qcs8275_and_geniex():
     assert "QCS8275" in profile[
         "assistant"
     ][
-        "gpu"
+        "compute_accelerator"
     ]
-    assert "QCS8275" in profile[
+    assert (
+        "gpu"
+        not in profile[
+            "assistant"
+        ]
+    )
+    assert profile[
         "assistant"
     ][
         "future_target"
-    ]
+    ] == ""
     assert "IQ-8275" not in str(
         profile
     )
@@ -288,3 +294,46 @@ def test_ble_is_optional_not_a_base_runtime_dependency():
 
     assert "bleak" not in base.lower()
     assert "bleak==3.0.2" in bluetooth
+
+
+def test_pre_hardware_ventuno_profile_avoids_background_router_and_hardware_cost():
+    profile = json.loads(
+        (
+            PROJECT_ROOT
+            / "config"
+            / "profiles"
+            / "ventuno_q.json"
+        ).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert profile[
+        "tool_routing"
+    ][
+        "llm_fallback_enabled"
+    ] is False
+    assert profile[
+        "hardware_watch"
+    ][
+        "enabled"
+    ] is False
+
+
+def test_gitignore_blocks_sqlite_database_and_wal_sidecars():
+    text = (
+        PROJECT_ROOT
+        / ".gitignore"
+    ).read_text(
+        encoding="utf-8"
+    )
+    lines = {
+        line.strip()
+        for line in text.splitlines()
+        if line.strip()
+    }
+
+    assert "*.db" in lines
+    assert "*.db-wal" in lines
+    assert "*.db-shm" in lines
+    assert "*.py[cod]" in lines

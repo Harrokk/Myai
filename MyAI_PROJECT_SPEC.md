@@ -1664,11 +1664,13 @@ Inställningar och regler bör så långt som möjligt vara dokumenterade, versi
 ### 20.2 Teknisk status för versionshanterad konfiguration
 
 Konfigurationsformatet har nu ett explicit schema:
-- aktuell `schema_version=1`
-- versionshanterade `config/settings.json` och `config/profiles/ventuno_q.json` anger schema 1
-- äldre filer utan versionsfält migreras endast i minnet till schema 1; källfilen skrivs inte om automatiskt
+- aktuell `schema_version=2`
+- versionshanterade `config/settings.json` och `config/profiles/ventuno_q.json` anger schema 2
+- äldre filer utan versionsfält migreras endast i minnet via schema 1 till schema 2; källfilen skrivs inte om automatiskt
+- schema 1 migrerar `assistant.gpu` till det plattformsneutrala `assistant.compute_accelerator`
 - konfiguration med framtida schema_version blockeras i stället för att tolkas på chans
 - schema_version måste vara ett heltal
+- sektioner som ska vara JSON-objekt men är `null`/skalära ger `config_section_not_object` i stället för att valideringen kraschar
 
 Fail-closed validering jämför effektiv konfiguration mot kända standardnycklar och blockerar okända/feilstavade nycklar, inklusive nested paths.
 
@@ -2547,6 +2549,47 @@ När Arduino VENTUNO Q finns tillgänglig ska arbetet återupptas exakt enligt a
 12. genomföra minst 72 timmars stabilitetstest
 
 Ingen fysisk VENTUNO Q-/NPU-/ASR-/VLM-/STM32-verifiering har genomförts eller påstås vid denna paus.
+
+
+### 21.28 Andra VENTUNO-kodaudit 2026-10-06 – routing, config, latency och repo-hygien
+
+En andra full mjukvaruaudit genomfördes på den frysta pre-hardware-baslinjen efter användargranskning och ytterligare statisk analys.
+
+Korrigerat i runtime:
+- status-hints i `core/orchestration.py` använder token-/ordgränser i stället för naiv delsträngsmatchning
+- samma härdning är införd i den äldre direktroutingen i `core/tool_manager.py`
+- exempel som `program`, `gram`, `frame`, `varmt` och `diskutera` kan därför inte oavsiktligt trigga RAM-, temperatur- eller diskverktyg
+- explicit hårdvaruidentifierare som `GPIO17` och `I2C-1` stöds fortfarande separat
+- `validate_settings()` normaliserar feltypade objektsektioner säkert och rapporterar `config_section_not_object` i stället för att kasta `AttributeError`
+- dubbla fel för `camera.enabled` är borttagna; flaggan valideras endast av den kameraspecifika regeln
+- config-schema är uppgraderat till version 2
+- `assistant.gpu` är ersatt av `assistant.compute_accelerator`
+- schema-1-konfiguration migreras in-memory till det nya fältet
+- VENTUNO-profilen använder `Qualcomm Hexagon NPU (QCS8275)` som compute accelerator och lämnar `future_target=""` eftersom VENTUNO Q redan är aktuell målplattform
+- systemprofilen hanterar tomt future target utan motsägande migreringstext
+
+Flaskhals-/latencyförbättringar i samma auditspår:
+- VENTUNO-profilens LLM-baserade tool-router-fallback är avstängd före fysisk verifiering för att undvika onödigt extra modellvarv
+- bakgrunds-`hardware_watch` är avstängd i pre-hardware-profilen
+- CPU-status använder kortare sampling i stället för tidigare blockerande lång sampling
+- minnessökningens keyword-fallback är reducerad till en rankad SQL-fråga i stället för upprepade separata queries
+- manuella `/remember`-skrivningar går genom auditspärren
+- videoarbete är bounded och pace:at för att minska CPU/RAM-belastning och okontrollerad frameproduktion
+
+Repo-hygien:
+- `.gitignore` blockerar nu `*.db`, `*.db-wal`, `*.db-shm` samt befintliga `*.py[cod]`
+- GitHub-historiken visar att `memory.db` och två root-`.pyc`-filer lades till i commit `60f87698784e42788d0b0640927c73a6104612d9` och togs bort i `31b0392684865c05c2626249caa777face8dffe1`
+- en read-only binary/string-audit bekräftade SQLite-header och hittade inga tydliga e-post-, lösenords-/token-, preferens-, finans- eller personnamssträngar; detta är inte samma sak som en full SQLite-query och därför gjordes ingen destruktiv history rewrite automatiskt
+- gamla stacked/legacy-PR:er stängdes; endast `#85` (VENTUNO umbrella) och `#107` (denna audit) är öppna
+- hela Raspberry Pi-PR-spåret är därmed stängt och kan inte mergas av misstag via gamla öppna PR:er
+
+Verifiering:
+- kodhead före denna dokumentationscommit: `fce64ca598244a6ae9999966e89e4f21650d97ad`
+- GitHub Actions-run `37423075643` är **success**
+- Python-kompilering och full pytest-svit passerade
+- regressionsprov täcker substring-falskpositiv routing, fullständiga statusord, GPIO/I2C-identifikatorer, null top-level/nested configsektioner, enkel camera.enabled-felrapportering, schema-1→2-migrering, compute-acceleratorprofil och SQLite-ignore
+
+Ingen fysisk VENTUNO Q-verifiering påstås av denna audit. Historikomskrivning med `git filter-repo` ska endast göras som en separat kontrollerad operation om en senare fullständig inspektion visar personlig/känslig data eller om användaren uttryckligen vill eliminera de historiska binärblobbarna trots att inga tydliga hemligheter hittades.
 
 ---
 

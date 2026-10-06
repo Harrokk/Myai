@@ -6,6 +6,7 @@ from modules.camera.capture import _load_cv2, resolve_capture_dir
 
 DEFAULT_VIDEO_DIR = PROJECT_ROOT / "runtime" / "video"
 DEFAULT_FRAME_DIR = PROJECT_ROOT / "runtime" / "video_frames"
+MAX_VIDEO_SAMPLE_COUNT = 12
 
 
 def latest_video(video_dir=None):
@@ -44,6 +45,12 @@ def sample_frame_indices(total_frames, count):
 
     if requested <= 0:
         raise ValueError("Antal samplingsbilder måste vara större än 0.")
+
+    if requested > MAX_VIDEO_SAMPLE_COUNT:
+        raise ValueError(
+            "Antal samplingsbilder får vara högst "
+            f"{MAX_VIDEO_SAMPLE_COUNT}."
+        )
 
     actual = min(total, requested)
 

@@ -1,6 +1,7 @@
 import json
 
 from core.config import DEFAULT_SETTINGS, load_settings
+from core.config_schema import CURRENT_CONFIG_SCHEMA_VERSION
 
 
 def test_load_settings_uses_defaults_when_file_is_missing(tmp_path):
@@ -61,6 +62,10 @@ def test_load_settings_merges_partial_override(tmp_path):
     assert settings["selfdev"]["require_bubblewrap"] is True
     assert settings["selfdev"]["workspace_root"] == "runtime/selfdev"
     assert settings["assistant"]["name"] == DEFAULT_SETTINGS["assistant"]["name"]
+    assert settings["assistant"]["compute_accelerator"] == (
+        "NVIDIA RTX 3060 12 GB"
+    )
+    assert "gpu" not in settings["assistant"]
     assert settings["assistant"]["future_target"] == (
         "Arduino VENTUNO Q / Dragonwing QCS8275"
     )
@@ -202,7 +207,7 @@ def test_explicit_settings_path_overrides_environment(
 def test_default_settings_have_current_schema_version():
     assert DEFAULT_SETTINGS[
         "schema_version"
-    ] == 1
+    ] == CURRENT_CONFIG_SCHEMA_VERSION
 
 
 def test_partial_override_receives_current_schema_version(
@@ -229,4 +234,4 @@ def test_partial_override_receives_current_schema_version(
 
     assert settings[
         "schema_version"
-    ] == 1
+    ] == CURRENT_CONFIG_SCHEMA_VERSION

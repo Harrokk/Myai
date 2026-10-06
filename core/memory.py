@@ -1135,40 +1135,103 @@ class MemoryStore:
         return True
 
     def search(self, user_message):
-        words = user_message.lower().split()
+        words = str(
+            user_message
+            or ""
+        ).lower().split()
+        keywords = []
+        seen = set()
 
-        keywords = [
-            word.strip(".,!?")
-            for word in words
-            if len(word) >= 3 and word not in IGNORED_WORDS
-        ]
+        for raw_word in words:
+            word = raw_word.strip(
+                ".,!?;:()[]{}\"'"
+            )
+
+            if (
+                len(
+                    word
+                )
+                < 3
+                or word in IGNORED_WORDS
+                or word in seen
+            ):
+                continue
+
+            seen.add(
+                word
+            )
+            keywords.append(
+                word
+            )
+
+            if len(
+                keywords
+            ) >= 20:
+                break
 
         if not keywords:
             return []
 
-        results = []
+        patterns = [
+            f"%{keyword}%"
+            for keyword in keywords
+        ]
+        score_sql = " + ".join(
+            (
+                "CASE WHEN content LIKE ? "
+                "THEN 1 ELSE 0 END"
+            )
+            for _ in patterns
+        )
+        where_sql = " OR ".join(
+            "content LIKE ?"
+            for _ in patterns
+        )
+        limit = max(
+            1,
+            int(
+                self.max_search_results
+            ),
+        )
+        params = (
+            patterns
+            + patterns
+            + [
+                limit
+            ]
+        )
 
-        with sqlite3.connect(self.database_path) as conn:
-            for keyword in keywords:
-                rows = conn.execute(
-                    """
-                    SELECT id, category, content, created_at
-                    FROM memories
-                    WHERE content LIKE ?
-                      AND COALESCE(status, 'active') = 'active'
-                    ORDER BY
-                        COALESCE(updated_at, created_at) DESC,
-                        id DESC
-                    LIMIT 5
-                    """,
-                    (f"%{keyword}%",),
-                ).fetchall()
+        with sqlite3.connect(
+            self.database_path
+        ) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id,
+                    category,
+                    content,
+                    created_at,
+                    ({score_sql}) AS match_score
+                FROM memories
+                WHERE COALESCE(status, 'active') = 'active'
+                  AND ({where_sql})
+                ORDER BY
+                    match_score DESC,
+                    COALESCE(updated_at, created_at) DESC,
+                    id DESC
+                LIMIT ?
+                """,
+                tuple(
+                    params
+                ),
+            ).fetchall()
 
-                for row in rows:
-                    if row not in results:
-                        results.append(row)
-
-        return results[: self.max_search_results]
+        return [
+            row[
+                :4
+            ]
+            for row in rows
+        ]
 
     @staticmethod
     def format(memories):

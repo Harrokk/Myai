@@ -157,18 +157,40 @@ def _split_clauses(
     ]
 
 
+def _contains_status_keyword(
+    text,
+    keyword,
+):
+    return bool(
+        re.search(
+            (
+                r"(?<!\w)"
+                + re.escape(
+                    keyword
+                )
+                + r"(?!\w)"
+            ),
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _status_hint_tools(
     clause,
 ):
     text = str(
         clause
         or ""
-    ).lower()
+    )
     results = []
 
     for keywords, tool_name in _STATUS_HINTS:
         if any(
-            keyword in text
+            _contains_status_keyword(
+                text,
+                keyword,
+            )
             for keyword in keywords
         ):
             results.append(
