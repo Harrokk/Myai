@@ -128,6 +128,31 @@ class MyAICore:
             "current_platform",
             "Windows-dator",
         )
+        compute_accelerator = str(
+            assistant.get(
+                "compute_accelerator",
+                "",
+            )
+            or "okänd"
+        ).strip()
+        future_target = str(
+            assistant.get(
+                "future_target",
+                "",
+            )
+            or ""
+        ).strip()
+        target_line = (
+            (
+                "Planerad målhårdvara är "
+                f"{future_target}."
+            )
+            if future_target
+            else (
+                "Nuvarande plattform är den aktiva "
+                "embedded-målplattformen."
+            )
+        )
 
         return f"""
 Du är MyAI, en lokal personlig AI-assistent.
@@ -135,12 +160,12 @@ Du är MyAI, en lokal personlig AI-assistent.
 Din språkmodell är {self.model}.
 Du körs genom {provider_label}.
 Du kör för närvarande på {current_platform}.
-Beräkningsprofil: {assistant["gpu"]}.
+Beräkningsaccelerator: {compute_accelerator}.
 
 Du har ett separat långtidsminne som hanteras av Python och SQLite.
 
 Utvecklingsmiljön kan använda en annan LLM-provider än målhårdvaran.
-Planerad målhårdvara är {assistant["future_target"]}.
+{target_line}
 
 Svara på svenska när användaren skriver svenska.
 Var saklig och tydlig.

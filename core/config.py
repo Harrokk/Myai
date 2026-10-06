@@ -65,6 +65,9 @@ DEFAULT_SETTINGS = {
         "max_result_chars_per_tool": 6000,
         "allow_local_capture": True,
     },
+    "tool_routing": {
+        "llm_fallback_enabled": True,
+    },
     "intermediate_results": {
         "enabled": True,
         "max_pending": 5,
@@ -320,7 +323,7 @@ DEFAULT_SETTINGS = {
     "assistant": {
         "name": "MyAI v2",
         "engine": "Local LLM provider",
-        "gpu": "NVIDIA RTX 3060 12 GB",
+        "compute_accelerator": "NVIDIA RTX 3060 12 GB",
         "memory_label": "SQLite",
         "current_platform": "Windows-dator",
         "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",

@@ -176,3 +176,20 @@ def test_sample_latest_video_reports_missing_video(tmp_path):
 
     assert result["success"] is False
     assert "Ingen sparad video" in result["error"]
+
+
+def test_sample_frame_indices_rejects_excessive_sample_count():
+    try:
+        video_frames.sample_frame_indices(
+            100,
+            video_frames.MAX_VIDEO_SAMPLE_COUNT
+            + 1,
+        )
+    except ValueError as error:
+        assert "högst" in str(
+            error
+        )
+    else:
+        raise AssertionError(
+            "För många videoframes ska blockeras."
+        )

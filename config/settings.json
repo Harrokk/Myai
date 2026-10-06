@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "llm": {
     "provider": "ollama",
     "fallback": {
@@ -47,10 +47,10 @@
   "assistant": {
     "name": "MyAI v2",
     "engine": "Local LLM provider",
-    "gpu": "NVIDIA RTX 3060 12 GB",
     "memory_label": "SQLite",
     "future_target": "Arduino VENTUNO Q / Dragonwing QCS8275",
-    "current_platform": "Windows-dator"
+    "current_platform": "Windows-dator",
+    "compute_accelerator": "NVIDIA RTX 3060 12 GB"
   },
   "conversation": {
     "max_turns": 6
@@ -293,5 +293,8 @@
     "max_query_chars": 240,
     "max_age_seconds": 1800,
     "require_confirmation": true
+  },
+  "tool_routing": {
+    "llm_fallback_enabled": true
   }
 }

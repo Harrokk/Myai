@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -83,6 +84,68 @@ def _is_string_list(value):
     )
 
 
+def _normalize_object_sections(
+    settings,
+    schema,
+    issues,
+    *,
+    prefix="",
+):
+    result = dict(
+        settings
+    )
+
+    for key, expected in schema.items():
+        if (
+            not isinstance(
+                expected,
+                dict,
+            )
+            or key not in settings
+        ):
+            continue
+
+        path = (
+            f"{prefix}.{key}"
+            if prefix
+            else str(
+                key
+            )
+        )
+        value = settings.get(
+            key
+        )
+
+        if not isinstance(
+            value,
+            dict,
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    "config_section_not_object",
+                    f"{path} måste vara ett objekt.",
+                )
+            )
+            result[
+                key
+            ] = deepcopy(
+                expected
+            )
+            continue
+
+        result[
+            key
+        ] = _normalize_object_sections(
+            value,
+            expected,
+            issues,
+            prefix=path,
+        )
+
+    return result
+
+
 def validate_settings(
     settings,
     *,
@@ -141,6 +204,12 @@ def validate_settings(
                 ),
             )
         )
+
+    settings = _normalize_object_sections(
+        settings,
+        DEFAULT_SETTINGS,
+        issues,
+    )
 
     weather = settings.get(
         "weather",
@@ -760,7 +829,6 @@ def validate_settings(
             )
 
     boolean_paths = (
-        ("camera", "enabled", True),
         ("voice", "enabled", False),
         ("voice", "tts_enabled", False),
         ("voice", "handsfree_enabled", False),
@@ -815,6 +883,165 @@ def validate_settings(
                 "camera.enabled måste vara true eller false.",
             )
         )
+
+    if not isinstance(
+        camera.get(
+            "stream_enabled",
+            False,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "camera_stream_enabled_invalid",
+                (
+                    "camera.stream_enabled måste vara "
+                    "true eller false."
+                ),
+            )
+        )
+
+    try:
+        camera_index = int(
+            camera.get(
+                "default_index",
+                0,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        camera_index = -1
+
+    if camera_index < 0:
+        issues.append(
+            _issue(
+                "error",
+                "camera_default_index_invalid",
+                (
+                    "camera.default_index måste vara "
+                    "ett heltal >= 0."
+                ),
+            )
+        )
+
+    for (
+        key,
+        default,
+        minimum,
+        maximum,
+        code,
+    ) in (
+        (
+            "video_duration_seconds",
+            5.0,
+            0.1,
+            60.0,
+            "camera_video_duration_invalid",
+        ),
+        (
+            "video_fps",
+            10.0,
+            0.1,
+            30.0,
+            "camera_video_fps_invalid",
+        ),
+        (
+            "stream_duration_seconds",
+            5.0,
+            0.1,
+            60.0,
+            "camera_stream_duration_invalid",
+        ),
+        (
+            "stream_fps",
+            2.0,
+            0.1,
+            30.0,
+            "camera_stream_fps_invalid",
+        ),
+    ):
+        try:
+            value = float(
+                camera.get(
+                    key,
+                    default,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = minimum - 1.0
+
+        if not (
+            minimum
+            <= value
+            <= maximum
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"camera.{key} måste vara "
+                        f"mellan {minimum:g} och {maximum:g}."
+                    ),
+                )
+            )
+
+    for (
+        key,
+        default,
+        minimum,
+        maximum,
+        code,
+    ) in (
+        (
+            "video_sample_count",
+            5,
+            1,
+            12,
+            "camera_video_sample_count_invalid",
+        ),
+        (
+            "stream_max_frames",
+            10,
+            1,
+            300,
+            "camera_stream_max_frames_invalid",
+        ),
+    ):
+        try:
+            value = int(
+                camera.get(
+                    key,
+                    default,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = minimum - 1
+
+        if not (
+            minimum
+            <= value
+            <= maximum
+        ):
+            issues.append(
+                _issue(
+                    "error",
+                    code,
+                    (
+                        f"camera.{key} måste vara "
+                        f"mellan {minimum} och {maximum}."
+                    ),
+                )
+            )
 
     voice = settings.get(
         "voice",
@@ -1599,6 +1826,29 @@ def validate_settings(
                 (
                     "orchestration.max_result_chars_per_tool måste "
                     "vara mellan 256 och 20000."
+                ),
+            )
+        )
+
+    tool_routing = settings.get(
+        "tool_routing",
+        {},
+    )
+
+    if not isinstance(
+        tool_routing.get(
+            "llm_fallback_enabled",
+            True,
+        ),
+        bool,
+    ):
+        issues.append(
+            _issue(
+                "error",
+                "tool_routing_llm_fallback_invalid",
+                (
+                    "tool_routing.llm_fallback_enabled måste "
+                    "vara true eller false."
                 ),
             )
         )

@@ -97,3 +97,36 @@ def test_temperature_status_falls_back_to_linux_thermal_zones(
 
     assert "soc: 48.5 °C" in result
     assert "cpu: 50.0 °C" in result
+
+
+def test_cpu_status_uses_short_bounded_sample_interval(
+    monkeypatch,
+):
+    seen = {}
+
+    def fake_cpu_percent(
+        interval,
+    ):
+        seen[
+            "interval"
+        ] = interval
+        return 12.5
+
+    monkeypatch.setattr(
+        system.psutil,
+        "cpu_percent",
+        fake_cpu_percent,
+    )
+    monkeypatch.setattr(
+        system.psutil,
+        "cpu_count",
+        lambda logical=True: 8,
+    )
+
+    result = system.cpu_status()
+
+    assert seen[
+        "interval"
+    ] == system.CPU_SAMPLE_SECONDS
+    assert system.CPU_SAMPLE_SECONDS == 0.2
+    assert "12.5%" in result

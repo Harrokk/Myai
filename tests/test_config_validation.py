@@ -857,3 +857,157 @@ def test_default_intermediate_result_config_is_valid():
             "errors"
         ]
     )
+
+
+def test_tool_routing_fallback_flag_must_be_boolean():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "tool_routing"
+    ][
+        "llm_fallback_enabled"
+    ] = "false"
+
+    result = validate_settings(
+        settings
+    )
+
+    assert any(
+        item["code"]
+        == "tool_routing_llm_fallback_invalid"
+        for item in result["errors"]
+    )
+
+
+def test_camera_workload_limits_fail_closed():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings["camera"].update(
+        {
+            "default_index": -1,
+            "stream_enabled": "yes",
+            "video_duration_seconds": 61,
+            "video_fps": 31,
+            "video_sample_count": 13,
+            "stream_duration_seconds": 61,
+            "stream_fps": 31,
+            "stream_max_frames": 301,
+        }
+    )
+
+    result = validate_settings(
+        settings
+    )
+    codes = {
+        item["code"]
+        for item in result["errors"]
+    }
+
+    assert {
+        "camera_default_index_invalid",
+        "camera_stream_enabled_invalid",
+        "camera_video_duration_invalid",
+        "camera_video_fps_invalid",
+        "camera_video_sample_count_invalid",
+        "camera_stream_duration_invalid",
+        "camera_stream_fps_invalid",
+        "camera_stream_max_frames_invalid",
+    }.issubset(
+        codes
+    )
+
+
+def test_null_top_level_section_is_reported_without_exception():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "camera"
+    ] = None
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result[
+        "valid"
+    ] is False
+    assert any(
+        item[
+            "code"
+        ]
+        == "config_section_not_object"
+        and "camera"
+        in item[
+            "message"
+        ]
+        for item in result[
+            "errors"
+        ]
+    )
+
+
+def test_null_nested_section_is_reported_without_exception():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "llm"
+    ][
+        "fallback"
+    ] = None
+
+    result = validate_settings(
+        settings
+    )
+
+    assert result[
+        "valid"
+    ] is False
+    assert any(
+        item[
+            "code"
+        ]
+        == "config_section_not_object"
+        and "llm.fallback"
+        in item[
+            "message"
+        ]
+        for item in result[
+            "errors"
+        ]
+    )
+
+
+def test_camera_enabled_invalid_is_reported_once():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    settings[
+        "camera"
+    ][
+        "enabled"
+    ] = "yes"
+
+    result = validate_settings(
+        settings
+    )
+
+    camera_enabled_errors = [
+        item
+        for item in result[
+            "errors"
+        ]
+        if item[
+            "code"
+        ]
+        in {
+            "camera_enabled_invalid",
+            "hardware_flag_not_boolean",
+        }
+        and "camera"
+        in item[
+            "message"
+        ]
+    ]
+
+    assert len(
+        camera_enabled_errors
+    ) == 1
+    assert camera_enabled_errors[
+        0
+    ][
+        "code"
+    ] == "camera_enabled_invalid"
