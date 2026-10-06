@@ -1,6 +1,7 @@
 import json
 
 from core.config import DEFAULT_SETTINGS, load_settings
+from core.config_schema import CURRENT_CONFIG_SCHEMA_VERSION
 
 
 def test_load_settings_uses_defaults_when_file_is_missing(tmp_path):
@@ -206,7 +207,7 @@ def test_explicit_settings_path_overrides_environment(
 def test_default_settings_have_current_schema_version():
     assert DEFAULT_SETTINGS[
         "schema_version"
-    ] == 1
+    ] == CURRENT_CONFIG_SCHEMA_VERSION
 
 
 def test_partial_override_receives_current_schema_version(
@@ -233,4 +234,4 @@ def test_partial_override_receives_current_schema_version(
 
     assert settings[
         "schema_version"
-    ] == 1
+    ] == CURRENT_CONFIG_SCHEMA_VERSION
