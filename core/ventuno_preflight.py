@@ -116,12 +116,13 @@ def _model_list_contains(
     if not text or not model:
         return False
 
+    catalog_model = model.split(":", 1)[0]
     candidates = {
-        model,
-        model.removeprefix(
+        catalog_model,
+        catalog_model.removeprefix(
             "ai-hub-models/"
         ),
-        model.split("/")[-1],
+        catalog_model.split("/")[-1],
     }
 
     return any(

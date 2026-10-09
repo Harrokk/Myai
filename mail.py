@@ -448,7 +448,7 @@ def main():
     print(f"Modell:          {MODEL}")
     print(f"LLM-provider:    {CORE.llm_provider}")
     print(f"LLM-endpoint:    {LLM_URL}")
-    print(f"GPU:             {SETTINGS['assistant']['gpu']}")
+    print(f"Accelerator:     {SETTINGS['assistant'].get('compute_accelerator') or SETTINGS['assistant'].get('gpu', 'Ej angiven')}")
     print(f"Långtidsminne:   {SETTINGS['assistant']['memory_label']}")
     print(f"Framtida mål:    {SETTINGS['assistant']['future_target']}")
     print()

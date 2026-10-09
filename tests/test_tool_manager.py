@@ -362,6 +362,23 @@ def test_detect_tools_routes_ventuno_system_logs():
     ]
 
 
+def test_detect_tools_routes_geniex_and_ventuno_accelerator():
+    result = tool_manager.detect_tools(
+        "Visa status för GenieX och VENTUNO-acceleratorn."
+    )
+    assert result == [
+        "geniex_status",
+        "ventuno_accelerator_status",
+    ]
+
+
+def test_detect_tools_does_not_route_generic_accelerator_to_ventuno():
+    result = tool_manager.detect_tools(
+        "Visa status för acceleratorn i min dator."
+    )
+    assert "ventuno_accelerator_status" not in result
+
+
 def test_detect_tools_routes_npu_to_ventuno_accelerator_status():
     result = tool_manager.detect_tools(
         "Visa NPU accelerator status."

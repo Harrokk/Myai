@@ -872,9 +872,24 @@ def detect_tools(user_input):
             "ai-accelerator",
             "accelerator status",
         ),
+    ) or (
+        mentions_ventuno
+        and _contains_any_token(
+            text,
+            ("accelerator", "acceleratorn"),
+        )
     )
 
     if asks_accelerator:
+        asks_geniex = _contains_any_token(
+            text,
+            ("geniex",),
+        )
+        if asks_geniex:
+            return [
+                "geniex_status",
+                "ventuno_accelerator_status",
+            ]
         return [
             "ventuno_accelerator_status"
         ]
