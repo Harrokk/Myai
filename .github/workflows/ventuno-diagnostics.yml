@@ -21,8 +21,23 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 10
     steps:
-      - name: Check out diagnostics code in isolated runner workspace
-        uses: actions/checkout@v4
+      - name: Fetch exact commit without third-party Actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "Checked out exact workflow commit"
+
 
       - name: Confirm device identity
         shell: bash
