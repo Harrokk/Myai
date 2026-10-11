@@ -21,24 +21,18 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 20
     steps:
-      - name: Fetch development branch into isolated workspace
+      - name: Fetch development branch into isolated temporary directory
         shell: bash
         run: |
           set -euo pipefail
-          # GitHub self-hosted workspaces can retain files from previous jobs.
-          # Use Git clean when a previous checkout exists; otherwise remove only workspace contents.
-          if git -C "$GITHUB_WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            git -C "$GITHUB_WORKSPACE" reset --hard -q
-            git -C "$GITHUB_WORKSPACE" clean -ffdx -q
-            rm -rf "$GITHUB_WORKSPACE/.git"
-          else
-            find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          fi
-          git init -q "$GITHUB_WORKSPACE"
-          git -C "$GITHUB_WORKSPACE" remote add origin https://github.com/Harrokk/Myai.git
-          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin refs/heads/dev/routing-boundary-followup
-          git -C "$GITHUB_WORKSPACE" checkout --detach -q FETCH_HEAD
-          echo "Tested commit: $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          test -n "${RUNNER_TEMP:-}"
+          source_dir="$(mktemp -d "$RUNNER_TEMP/myai-dev-XXXXXXXX")"
+          echo "MYAI_TEST_DIR=$source_dir" >> "$GITHUB_ENV"
+          git init -q "$source_dir"
+          git -C "$source_dir" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$source_dir" fetch --depth=1 origin refs/heads/dev/routing-boundary-followup
+          git -C "$source_dir" checkout --detach -q FETCH_HEAD
+          echo "Tested commit: $(git -C "$source_dir" rev-parse HEAD)"
       - name: Verify test environment
         shell: bash
         run: |
@@ -50,14 +44,16 @@ jobs:
       - name: Run full Python test suite without touching live services
         shell: bash
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ env.MYAI_TEST_DIR }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -euo pipefail
+          cd "$MYAI_TEST_DIR"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider tests/
       - name: Verify generated systemd units without installation
         shell: bash
         run: |
           set -euo pipefail
+          cd "$MYAI_TEST_DIR"
           /home/arduino/MyAI/.venv/bin/python scripts/generate_ventuno_systemd.py
           systemd-analyze verify runtime/systemd/*.service runtime/systemd/*.target
