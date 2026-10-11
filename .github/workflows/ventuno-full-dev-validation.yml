@@ -1,0 +1,55 @@
+name: VENTUNO full development validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ventuno-full-dev-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-full-dev-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Test complete MyAI development branch on VENTUNO Q
+    if: github.repository == 'Harrokk/Myai' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 20
+    steps:
+      - name: Fetch development branch into isolated workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
+          git init -q "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin refs/heads/dev/routing-boundary-followup
+          git -C "$GITHUB_WORKSPACE" checkout --detach -q FETCH_HEAD
+          echo "Tested commit: $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+      - name: Verify test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -x /home/arduino/MyAI/.venv/bin/python
+          /home/arduino/MyAI/.venv/bin/python -m pytest --version
+      - name: Run full Python test suite without touching live services
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider tests/
+      - name: Verify generated systemd units without installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python scripts/generate_ventuno_systemd.py
+          systemd-analyze verify runtime/systemd/*.service runtime/systemd/*.target
