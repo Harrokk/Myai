@@ -21,12 +21,18 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 10
     steps:
-      - name: Check out fixed integration branch
-        uses: actions/checkout@v4
-        with:
-          ref: integration/geniex-readiness
-          persist-credentials: false
-          clean: true
+      - name: Fetch exact integration commit into isolated workspace
+        shell: bash
+        env:
+          EXPECTED_COMMIT: 2676242343d60f6f80adbf032ecb25b15cd11ecc
+        run: |
+          set -euo pipefail
+          test -z "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)"
+          git init -q "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$GITHUB_WORKSPACE" fetch --depth=1 origin refs/heads/integration/geniex-readiness
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse FETCH_HEAD)" = "$EXPECTED_COMMIT"
+          git -C "$GITHUB_WORKSPACE" checkout --detach -q FETCH_HEAD
 
       - name: Verify runtime
         shell: bash
