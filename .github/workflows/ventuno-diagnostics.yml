@@ -77,6 +77,30 @@ jobs:
           done
           echo "Generated units preserve venv Python and GenieX PATH"
 
+      - name: Inspect NPU device and runtime without inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GenieX binary:"
+          test -x /home/arduino/.local/bin/geniex
+          /home/arduino/.local/bin/geniex --version
+          echo "Qualcomm device nodes (names only):"
+          find /dev -maxdepth 2 \( -iname '*qaic*' -o -iname '*npu*' -o -iname '*dsp*' \) -print 2>/dev/null || true
+          echo "Qualcomm-related loaded kernel modules:"
+          (lsmod 2>/dev/null || true) | grep -Ei 'qaic|qcom|fastrpc|dsp' || true
+          echo "Note: This inventory does not prove live NPU utilization."
+
+      - name: Check runner and MyAI service persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-enabled --quiet actions.runner.Harrokk-Myai.ventuno-q.service
+          systemctl is-active --quiet actions.runner.Harrokk-Myai.ventuno-q.service
+          for unit in myai-geniex.service myai-ventuno.service myai-geniex-watchdog.service; do
+            systemctl is-enabled --quiet "$unit"
+          done
+          echo "Runner and MyAI services configured to start at boot"
+
       - name: Run systemd regression tests
         shell: bash
         run: |
