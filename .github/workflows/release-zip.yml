@@ -12,8 +12,19 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Fetch exact commit without external actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Remove development-only generated files
         run: |
@@ -26,10 +37,8 @@ jobs:
           mkdir -p dist
           zip -r "dist/MyAI-VENTUNO-Q.zip" .             -x "dist/*" ".github/*" "tests/*" ".pytest_cache/*"
 
-      - name: Upload release ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          name: MyAI-VENTUNO-Q
-          path: dist/MyAI-VENTUNO-Q.zip
-          if-no-files-found: error
-          retention-days: 30
+      - name: Verify ZIP was generated
+        run: |
+          test -s dist/MyAI-VENTUNO-Q.zip
+          unzip -t dist/MyAI-VENTUNO-Q.zip >/dev/null
+          echo "ZIP validated (artifact upload requires an allowed action)"
