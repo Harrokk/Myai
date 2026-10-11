@@ -59,7 +59,7 @@ StartLimitBurst=5
 
     common_service = (
         f"User={user}\n"
-        f"WorkingDirectory={_quote(root)}\n"
+        f"WorkingDirectory={root}\n"
         f"Environment={_quote(f'MYAI_SETTINGS={profile}')}\n"
         "Environment=PYTHONUNBUFFERED=1\n"
         f"ExecStartPre={_quote(python)} "
@@ -76,6 +76,8 @@ StartLimitBurst=5
         "[Unit]\n"
         "Description=MyAI VENTUNO headless runtime\n"
         + common_unit
+        + "Requires=myai-geniex.service\n"
+        "After=myai-geniex.service\n"
         + "\n[Service]\n"
         "Type=simple\n"
         + common_service
@@ -98,6 +100,27 @@ StartLimitBurst=5
         "WantedBy=multi-user.target\n"
     )
 
+    geniex_unit = (
+        "[Unit]\n"
+        "Description=GenieX Qualcomm NPU server\n"
+        + common_unit
+        + "\n[Service]\n"
+        "Type=simple\n"
+        f"User={user}\n"
+        f"WorkingDirectory={Path.home()}\n"
+        f"Environment={_quote(f'HOME={Path.home()}')}\n"
+        f"ExecStart={_quote(Path.home() / '.local/bin/geniex')} "
+        "serve --host 127.0.0.1:18181 --compute npu\n"
+        "Restart=on-failure\n"
+        "RestartSec=10\n"
+        "TimeoutStopSec=30\n"
+        "KillSignal=SIGTERM\n"
+        "UMask=0077\n"
+        "NoNewPrivileges=true\n"
+        "\n[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+
     target_unit = (
         "[Unit]\n"
         "Description=MyAI VENTUNO services\n"
@@ -109,6 +132,9 @@ StartLimitBurst=5
     )
 
     return {
+        "myai-geniex.service": (
+            geniex_unit
+        ),
         "myai-ventuno.service": (
             runtime_unit
         ),
