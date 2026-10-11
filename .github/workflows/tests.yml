@@ -1,52 +1,61 @@
-name: MyAI tests
+name: MyAI tests on VENTUNO Q
 
 on:
   push:
     branches:
       - "dev/**"
-  pull_request:
-    branches:
-      - "dev/**"
+    paths-ignore:
+      - "README.md"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: myai-ci-ventuno
+  cancel-in-progress: false
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Run isolated MyAI unit tests
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 20
     steps:
-      - name: Fetch repository using git (no external actions)
+      - name: Fetch exact commit in temporary workspace
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-ci-source"
+          cd "$RUNNER_TEMP/myai-ci-source"
           git init -q
+          git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
-          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - name: Verify Python 3.12 is available
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3.12 --version
-
-      - name: Install test dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3.12 -m venv "$RUNNER_TEMP/myai-tests-venv"
-          "$RUNNER_TEMP/myai-tests-venv/bin/python" -m pip install -r requirements.txt pytest
-
       - name: Compile Python sources
         shell: bash
-        run: "$RUNNER_TEMP/myai-tests-venv/bin/python" -m compileall -q core modules scripts mail.py
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-ci-source"
+          /home/arduino/MyAI/.venv/bin/python -m compileall -q core modules scripts mail.py
 
-      - name: Run tests
+      - name: Run full test suite without modifying live installation
         shell: bash
-        run: "$RUNNER_TEMP/myai-tests-venv/bin/python" -m pytest -q
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-ci-source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q
+
+      - name: Summarize test run
+        if: always()
+        shell: bash
+        run: |
+          echo "## MyAI CI on VENTUNO Q" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tests execute from runner temporary workspace, not /home/arduino/MyAI." >> "$GITHUB_STEP_SUMMARY"
