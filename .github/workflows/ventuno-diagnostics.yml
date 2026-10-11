@@ -28,8 +28,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(id -un)" = "arduino"
-          mkdir -p "$GITHUB_WORKSPACE"
-          cd "$GITHUB_WORKSPACE"
+          mkdir -p "$RUNNER_TEMP/myai-checkout"
+          cd "$RUNNER_TEMP/myai-checkout"
           git init -q
           git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -119,7 +119,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
+          cd "$RUNNER_TEMP/myai-checkout"
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
           /home/arduino/MyAI/.venv/bin/python scripts/generate_ventuno_systemd.py \
@@ -159,7 +159,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
+          cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python -m pytest tests/test_systemd_units.py -q
 
       - name: Publish diagnostics summary
