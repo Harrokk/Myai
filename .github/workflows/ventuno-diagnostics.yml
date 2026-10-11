@@ -21,6 +21,9 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 10
     steps:
+      - name: Check out diagnostics code in isolated runner workspace
+        uses: actions/checkout@v4
+
       - name: Confirm device identity
         shell: bash
         run: |
@@ -62,7 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd /home/arduino/MyAI
+          cd "$GITHUB_WORKSPACE"
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
           /home/arduino/MyAI/.venv/bin/python scripts/generate_ventuno_systemd.py \
@@ -78,5 +81,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd /home/arduino/MyAI
+          cd "$GITHUB_WORKSPACE"
           /home/arduino/MyAI/.venv/bin/python -m pytest tests/test_systemd_units.py -q
