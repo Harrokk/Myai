@@ -107,3 +107,23 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           /home/arduino/MyAI/.venv/bin/python -m pytest tests/test_systemd_units.py -q
+
+      - name: Publish diagnostics summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## VENTUNO Q diagnostics"
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Runner: \`$RUNNER_NAME\`"
+            echo "- Device: \`$(uname -m)\`"
+            echo "- Service status:"
+            for unit in actions.runner.Harrokk-Myai.ventuno-q.service myai-geniex.service myai-ventuno.service myai-geniex-watchdog.service; do
+              state="$(systemctl is-active "$unit" 2>/dev/null || true)"
+              echo "  - \`$unit\`: $state"
+            done
+            echo
+            echo "NPU device inventory is informational, not a utilization measurement."
+            echo "Review the individual steps for full checks and any failures."
+          } >> "$GITHUB_STEP_SUMMARY"
