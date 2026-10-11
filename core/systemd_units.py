@@ -26,9 +26,10 @@ def build_ventuno_units(
     root = Path(
         project_root
     ).resolve()
+    # Keep virtualenv symlink paths instead of resolving to system Python.
     python = Path(
         python_executable
-    ).resolve()
+    ).absolute()
     profile = (
         root
         / "config"
@@ -57,11 +58,15 @@ StartLimitIntervalSec=300
 StartLimitBurst=5
 """
 
+    geniex_bin_dir = Path.home() / ".local" / "bin"
+    service_path = f"{geniex_bin_dir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
     common_service = (
         f"User={user}\n"
         f"WorkingDirectory={root}\n"
         f"Environment={_quote(f'MYAI_SETTINGS={profile}')}\n"
         "Environment=PYTHONUNBUFFERED=1\n"
+        f"Environment={_quote(f'PATH={service_path}')}\n"
         f"ExecStartPre={_quote(python)} "
         f"{_quote(validator)} --ventuno\n"
         "Restart=on-failure\n"
