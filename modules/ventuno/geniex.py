@@ -1,5 +1,6 @@
 from core.config import load_settings
 from core.geniex_supervisor import GenieXSupervisor
+from modules.ventuno.telemetry import read_thermal_status
 
 
 def geniex_status():
@@ -71,6 +72,26 @@ def ventuno_accelerator_status():
             )
         )
 
+    thermal = read_thermal_status()
+    if thermal["temperatures_c"]:
+        thermal_report = (
+            f"- NSP/DSP-temperatur: "
+            f"{thermal['min_c']:.1f}–{thermal['max_c']:.1f} °C "
+            f"(medel {thermal['avg_c']:.1f} °C, "
+            f"{len(thermal['temperatures_c'])} sensorer)\n"
+        )
+    else:
+        thermal_report = "- NSP/DSP-temperatur: ej tillgänglig\n"
+
+    if thermal["cooling_state"] is not None:
+        thermal_report += (
+            f"- DSP termiskt tillstånd: "
+            f"{thermal['cooling_state']}/"
+            f"{thermal['cooling_max_state']}\n"
+        )
+    else:
+        thermal_report += "- DSP termiskt tillstånd: ej tillgängligt\n"
+
     return (
         "VENTUNO AI-acceleratorstatus (read-only):\n"
         f"- Konfigurerad accelerator: "
@@ -78,10 +99,9 @@ def ventuno_accelerator_status():
         f"- GenieX-modell: "
         f"{geniex.get('model') or 'saknas'}\n"
         f"- Backend readiness: {readiness}\n"
-        "- Direkt NPU-belastning, frekvens och NPU-temperatur "
-        "rapporteras inte ännu. MyAI väntar på en verifierad "
-        "QCS8275/VENTUNO-telemetriväg på fysisk hårdvara i stället "
-        "för att tolka GenieX-readiness som NPU-utnyttjande."
+        f"{thermal_report}"
+        "- Direkt NPU-belastning och NPU-frekvens rapporteras inte ännu. "
+        "NSP/DSP-temperatur är inte verifierad som NPU-kärntemperatur."
     )
 
 
