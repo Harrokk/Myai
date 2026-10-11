@@ -58,6 +58,7 @@ def test_systemd_generator_does_not_create_install_paths(tmp_path):
         path.name
         for path in written
     } == {
+        "myai-geniex.service",
         "myai-ventuno.service",
         "myai-geniex-watchdog.service",
         "myai-ventuno.target",
@@ -85,4 +86,21 @@ def test_systemd_unit_sets_explicit_runtime_profile(tmp_path):
 
     assert "MYAI_SETTINGS=" in runtime
     assert "config/profiles/ventuno_q.json" in runtime
-    assert 'WorkingDirectory="' in runtime
+    assert f"WorkingDirectory={root.resolve()}" in runtime
+
+
+def test_geniex_service_and_runtime_dependency(tmp_path):
+    units = build_ventuno_units(
+        tmp_path / "MyAI",
+        "/usr/bin/python3",
+        "arduino",
+    )
+
+    geniex = units["myai-geniex.service"]
+    runtime = units["myai-ventuno.service"]
+
+    assert "serve --host 127.0.0.1:18181 --compute npu" in geniex
+    assert "User=arduino" in geniex
+    assert "Restart=on-failure" in geniex
+    assert "Requires=myai-geniex.service" in runtime
+    assert "After=myai-geniex.service" in runtime
