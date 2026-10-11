@@ -1,0 +1,82 @@
+name: VENTUNO Q automated diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-diagnostics.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnostics:
+    name: Read-only checks on VENTUNO Q
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 10
+    steps:
+      - name: Confirm device identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          echo "VENTUNO runner: $(uname -m), $(id -un)"
+
+      - name: Check installed services and heartbeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          for unit in myai-geniex.service myai-ventuno.service myai-geniex-watchdog.service; do
+            echo "Checking $unit"
+            systemctl is-active --quiet "$unit"
+            systemctl is-enabled --quiet "$unit"
+          done
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import time
+          from pathlib import Path
+          p = Path("/home/arduino/MyAI/runtime/myai_runtime.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          assert data.get("running") is True, "Runtime not running"
+          assert not data.get("last_error"), "Runtime reports an error"
+          age = time.time() - float(data["written_unix_time"])
+          assert -30 < age < 120, f"Stale heartbeat: {age:.0f}s"
+          print(f"Heartbeat OK; age {age:.0f}s; provider {data.get('llm_provider')}")
+          PY
+
+      - name: Check GenieX API without model inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 http://127.0.0.1:18181/v1/models > /dev/null
+          echo "GenieX API responds"
+
+      - name: Check generated systemd units without installing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/arduino/MyAI
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          /home/arduino/MyAI/.venv/bin/python scripts/generate_ventuno_systemd.py \
+            --python /home/arduino/MyAI/.venv/bin/python \
+            --output-dir "$tmpdir"
+          for unit in myai-ventuno.service myai-geniex-watchdog.service; do
+            grep -Fq '/home/arduino/MyAI/.venv/bin/python' "$tmpdir/$unit"
+            grep -Fq '/home/arduino/.local/bin' "$tmpdir/$unit"
+          done
+          echo "Generated units preserve venv Python and GenieX PATH"
+
+      - name: Run systemd regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/arduino/MyAI
+          /home/arduino/MyAI/.venv/bin/python -m pytest tests/test_systemd_units.py -q
