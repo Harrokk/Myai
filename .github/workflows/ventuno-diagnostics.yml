@@ -61,6 +61,44 @@ jobs:
           curl --fail --silent --show-error --max-time 15 http://127.0.0.1:18181/v1/models > /dev/null
           echo "GenieX API responds"
 
+      - name: Run bounded GenieX inference smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import time
+          from urllib.request import Request, urlopen
+
+          base = "http://127.0.0.1:18181/v1"
+          with urlopen(base + "/models", timeout=15) as response:
+              models = json.load(response).get("data", [])
+          assert models and models[0].get("id"), "GenieX model catalog is empty"
+          model = models[0]["id"]
+          payload = json.dumps({
+              "model": model,
+              "messages": [{"role": "user", "content": "Svara enbart med talet 4: vad är 2+2?"}],
+              "max_tokens": 24,
+              "temperature": 0,
+              "stream": False,
+          }).encode("utf-8")
+          request = Request(
+              base + "/chat/completions",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          start = time.monotonic()
+          with urlopen(request, timeout=90) as response:
+              result = json.load(response)
+          elapsed = time.monotonic() - start
+          choices = result.get("choices") or []
+          answer = str((choices[0].get("message") or {}).get("content") or "").strip() if choices else ""
+          assert answer, "GenieX returned an empty response"
+          print(f"GenieX inference OK in {elapsed:.2f}s; output length {len(answer)}")
+          print("This confirms inference works, but does not independently prove NPU utilization.")
+          PY
+
       - name: Check generated systemd units without installing
         shell: bash
         run: |
