@@ -2,6 +2,10 @@ name: VENTUNO integration branch validation
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ventuno-integration-validation.yml
 
 permissions:
   contents: read
