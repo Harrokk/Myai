@@ -104,3 +104,15 @@ def test_geniex_service_and_runtime_dependency(tmp_path):
     assert "Restart=on-failure" in geniex
     assert "Requires=myai-geniex.service" in runtime
     assert "After=myai-geniex.service" in runtime
+
+
+def test_systemd_units_preserve_virtualenv_python_and_geniex_path(tmp_path):
+    venv_python = tmp_path / "MyAI" / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to("/usr/bin/python3")
+    units = build_ventuno_units(tmp_path / "MyAI", venv_python, "arduino")
+    for name in ("myai-ventuno.service", "myai-geniex-watchdog.service"):
+        content = units[name]
+        assert str(venv_python) in content
+        assert "PATH=" in content
+        assert ".local/bin" in content
