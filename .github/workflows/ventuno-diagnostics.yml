@@ -31,6 +31,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE"
           cd "$GITHUB_WORKSPACE"
           git init -q
+          git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
