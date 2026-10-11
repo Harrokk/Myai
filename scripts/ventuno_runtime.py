@@ -22,6 +22,9 @@ from core.config_validation import (
 from core.runtime_service import (
     MyAIRuntimeService,
 )
+from core.geniex_readiness import (
+    wait_for_geniex,
+)
 from core.ventuno_preflight import (
     run_ventuno_preflight,
 )
@@ -88,6 +91,19 @@ def main():
                 "Headless runtime startades inte."
             )
             return 2
+
+    try:
+        wait_for_geniex(
+            settings,
+            timeout_seconds=60,
+            interval_seconds=2,
+        )
+    except TimeoutError as error:
+        print(
+            f"VENTUNO uppstart avbruten: {error}",
+            file=sys.stderr,
+        )
+        return 3
 
     service = MyAIRuntimeService(
         settings,
