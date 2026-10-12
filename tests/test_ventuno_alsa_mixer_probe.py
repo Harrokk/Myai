@@ -130,3 +130,35 @@ def test_capture_control_without_readings_is_inconclusive(monkeypatch):
     assert result["capture_controls"] == 1
     assert result["status"] == "capture-controls-without-level-readings"
     assert result["physical_microphone_verified"] is False
+
+
+def test_capture_format_diagnostics_reports_only_shape_counts():
+    summary = mod.capture_format_diagnostics(MIXER)
+    assert summary == {
+        "capture_blocks_with_percent_token": 1,
+        "capture_blocks_with_switch_token": 1,
+        "capture_blocks_with_channel_row": 1,
+        "capture_blocks_with_enumerated_item": 0,
+        "capture_blocks_with_capture_value_row": 1,
+    }
+    assert all(type(value) is int for value in summary.values())
+    assert "private-label" not in str(summary)
+
+
+def test_capture_format_diagnostics_detects_alternate_alsa_rows():
+    body = (
+        b"Simple mixer control 'private-control',0\n"
+        b"  Capabilities: cswitch\n"
+        b"  Capture channels: Mono\n"
+        b"  Item0: 'private-input-label'\n"
+    )
+    summary = mod.capture_format_diagnostics(body)
+    assert summary["capture_blocks_with_enumerated_item"] == 1
+    assert summary["capture_blocks_with_percent_token"] == 0
+    assert summary["capture_blocks_with_capture_value_row"] == 0
+    assert "private-input-label" not in str(summary)
+
+
+def test_capture_format_diagnostics_rejects_oversize():
+    with pytest.raises(ValueError):
+        mod.capture_format_diagnostics(b"x" * (mod.MAX_RESPONSE_BYTES + 1))
