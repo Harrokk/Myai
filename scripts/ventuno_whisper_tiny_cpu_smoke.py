@@ -84,22 +84,28 @@ speech_attempted=False
 speech_word_match=False
 speech_decode_seconds=None
 speech_segment_count=None
+speech_error_type=None
 source=os.environ.get("MYAI_SWEDISH_OGG_PATH")
 if source:
     speech_attempted=True
     audio_start=time.monotonic()
-    speech, audio_info=model.transcribe(
-        source, language="sv", task="transcribe",
-        beam_size=1, best_of=1, condition_on_previous_text=False,
-        vad_filter=False, without_timestamps=True,
-        no_speech_threshold=0.6,
-    )
-    words=list(speech)
-    speech_decode_seconds=round(time.monotonic()-audio_start,3)
-    speech_segment_count=len(words)
-    # Public fixture content only; recognized words are not logged.
-    normalized=" ".join(seg.text for seg in words).lower()
-    speech_word_match="svenska" in normalized
+    try:
+        speech, audio_info=model.transcribe(
+            source, language="sv", task="transcribe",
+            beam_size=1, best_of=1, condition_on_previous_text=False,
+            vad_filter=False, without_timestamps=True,
+            no_speech_threshold=0.6,
+        )
+        words=list(speech)
+        speech_decode_seconds=round(time.monotonic()-audio_start,3)
+        speech_segment_count=len(words)
+        # Public fixture content only; recognized words are not logged.
+        normalized=" ".join(seg.text for seg in words).lower()
+        speech_word_match="svenska" in normalized
+    except Exception as error:
+        # Only exception type, never file paths or speech contents.
+        speech_error_type=type(error).__name__
+        speech_decode_seconds=round(time.monotonic()-audio_start,3)
 # No recognized text, user speech or model path is logged.
 print(json.dumps({
     "model_load_seconds": round(loaded-start,3),
@@ -112,6 +118,7 @@ print(json.dumps({
     "swedish_public_word_recognized": speech_word_match,
     "swedish_public_word_inference_seconds": speech_decode_seconds,
     "swedish_public_word_segments": speech_segment_count,
+    "swedish_public_word_error_type": speech_error_type,
     "microphone_used": False,
     "npu_used": False,
     "model_created_on_cpu": True,
@@ -341,6 +348,7 @@ def smoke(sandbox_python: Path, root: Path,
             report["status"] = "reject-incomplete-swedish-word-measurement"
             return report
         report["swedish_public_word_attempted"] = True
+        report["swedish_public_word_error_type"] = measurements.get("swedish_public_word_error_type")
         report["swedish_public_word_recognized"] = (
             measurements["swedish_public_word_recognized"]
         )
