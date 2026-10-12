@@ -9,6 +9,8 @@ on:
       - .github/workflows/qairt-245-host-conversion.yml
       - scripts/qairt_245_host_conversion_trial.py
       - tests/test_qairt_245_host_conversion_trial.py
+      - scripts/qairt_245_host_dlc_info.py
+      - tests/test_qairt_245_host_dlc_info.py
 
 permissions:
   contents: read
@@ -83,7 +85,8 @@ jobs:
             tests/test_fetch_qairt_245_official.py \
             tests/test_qairt_245_archive_audit.py \
             tests/test_prepare_tiny_qnn_host_sample.py \
-            tests/test_verify_tiny_qnn_host_sample.py
+            tests/test_verify_tiny_qnn_host_sample.py \
+            tests/test_qairt_245_host_dlc_info.py
 
       - name: Verify LLVM C++ runtime on disposable Ubuntu host
         shell: bash
@@ -163,6 +166,16 @@ jobs:
             --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture" \
             --output-dir "$RUNNER_TEMP/tiny_qnn_converted"
           echo 'Any output is host-only and has not been verified as a valid HTP context.'
+
+      - name: Read exact synthetic DLC with Qualcomm official qairt-dlc-info
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m scripts.qairt_245_host_dlc_info \
+            --sdk-root "$RUNNER_TEMP/qairt-extracted/qairt/2.45.0.260326" \
+            --dlc "$RUNNER_TEMP/tiny_qnn_converted/tiny_qdq_conv.dlc"
+          echo 'Native DLC parser only; no HTP context generated or model executed.'
 
       - name: Inspect and preserve only bounded synthetic DLC as Base64
         shell: bash
