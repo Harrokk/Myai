@@ -379,7 +379,7 @@ def smoke(sandbox_python: Path, root: Path,
             and "\\n" not in private_reference_text
             and "\\r" not in private_reference_text
             and all(ord(ch) >= 32 for ch in private_reference_text)
-            and "svenska" in private_reference_text.split()):
+            and re.search(r"\bsvenska\b", private_reference_text) is not None):
         public_transcript_sink(private_reference_text)
     return report
 
