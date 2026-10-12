@@ -94,3 +94,23 @@ and **no second physical recording is authorized** by this
 checkpoint. Do not rerun the one-time workflow or create another
 capture job without a new explicit user approval. The corrected
 source files do not change active production voice settings.
+
+
+## Corrected arecord CLI option verified on VENTUNO
+
+Read-only GitHub Actions run:
+https://github.com/Harrokk/Myai/actions/runs/38248872064
+
+- Workflow conclusion: **success**, checked from GitHub jobs/logs.
+- Installed `arecord --help` confirms these six flags:
+  `--file-type`, `--format`, `--rate`, `--channels`,
+  `--duration` and `--device`.
+- **41 tests passed** using only generated/mocked audio bytes;
+  no physical capture or playback occurred.
+- Services stayed active; changes remain on development branch only.
+
+The documented `--file-type=raw` correction has therefore passed
+hardware-local command-line preflight, but **actual USB microphone
+signal quality after this correction has not yet been tested**.
+A fresh, explicit user approval is required for another real
+two-second recording.
