@@ -50,7 +50,7 @@ def test_only_two_seconds_raw_audio_and_aggregate_level(monkeypatch):
         assert argv[0] == "/usr/bin/arecord"
         assert "--duration=2" in argv
         assert "--rate=16000" in argv
-        assert "--type=raw" in argv
+        assert "--file-type=raw" in argv
         assert kwargs["timeout"] <= 6
         return SimpleNamespace(
             returncode=0, stdout=waveform.tobytes(), stderr=b""
@@ -146,7 +146,7 @@ def test_explicit_device_invokes_only_two_seconds_when_authorized(
         assert "--device=plughw:0,1" in argv
         assert "--duration=2" in argv
         assert "--rate=16000" in argv
-        assert "--type=raw" in argv
+        assert "--file-type=raw" in argv
         assert argv[-1] == "-"
         assert kwargs["timeout"] <= 6
         return SimpleNamespace(
