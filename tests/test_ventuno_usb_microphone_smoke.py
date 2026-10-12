@@ -69,7 +69,7 @@ def test_authorized_usb_two_second_capture_reports_only_aggregate(monkeypatch):
         assert argv == [
             "/usr/bin/arecord", "--quiet", "--device=plughw:1,0",
             "--format=S16_LE", "--rate=16000", "--channels=1",
-            "--duration=2", "--type=raw", "-",
+            "--duration=2", "--file-type=raw", "-",
         ]
         assert kw["timeout"] <= 6
         assert kw["stdout"] == mod.subprocess.PIPE
