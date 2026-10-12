@@ -164,6 +164,37 @@ jobs:
             --output-dir "$RUNNER_TEMP/tiny_qnn_converted"
           echo 'Any output is host-only and has not been verified as a valid HTP context.'
 
+      - name: Inspect and preserve only bounded synthetic DLC as Base64
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" - <<'PY'
+          import base64
+          import hashlib
+          import os
+          from pathlib import Path
+          from zipfile import is_zipfile, ZipFile
+          p = Path(os.environ["RUNNER_TEMP"]) / "tiny_qnn_converted" / "tiny_qdq_conv.dlc"
+          if p.is_symlink() or not p.is_file():
+              raise RuntimeError("synthetic DLC not generated")
+          n = p.stat().st_size
+          if not 512 <= n <= 65536:
+              raise RuntimeError("synthetic DLC outside size cap")
+          data = p.read_bytes()
+          if data.startswith(b"\\x7fELF"):
+              raise RuntimeError("SDK executable must never be treated as DLC")
+          print("SYNTHETIC_QNN_DLC_SIZE:", n)
+          print("SYNTHETIC_QNN_DLC_SHA256:", hashlib.sha256(data).hexdigest())
+          print("SYNTHETIC_QNN_DLC_ZIP:", is_zipfile(p))
+          if is_zipfile(p):
+              with ZipFile(p) as archive:
+                  print("SYNTHETIC_QNN_DLC_ZIP_ENTRY_COUNT:", len(archive.namelist()))
+          print("SYNTHETIC_QNN_DLC_BASE64_START")
+          print(base64.b64encode(data).decode("ascii"))
+          print("SYNTHETIC_QNN_DLC_BASE64_END")
+          print("This is only the synthetic compiled model, not the QAIRT SDK.")
+          PY
+
       - name: Delete official SDK and converter outputs
         if: always()
         shell: bash
