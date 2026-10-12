@@ -19,7 +19,7 @@ jobs:
     name: Save one plain user-owned checkpoint; no service changes
     if: >-
       github.event_name == 'push' &&
-      github.event.head_commit.message == 'Authorize one-time VENTUNO checkpoint save without service changes' &&
+      github.event.head_commit.message == 'Authorize verified VENTUNO pause checkpoint save' &&
       github.run_attempt == 1 &&
       github.repository == 'Harrokk/Myai'
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
@@ -79,9 +79,9 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          GH_TOKEN: \${{ github.token }}
-          RESULT: \${{ steps.saved.outputs.result }}
-          JOB_STATUS: \${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.saved.outputs.result }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           python3 - <<'PY'
           import json,os,re,urllib.request
