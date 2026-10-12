@@ -162,3 +162,40 @@ def test_explicit_device_invokes_only_two_seconds_when_authorized(
     assert report["bytes_received"] == 64000
     assert report["audio_saved_to_disk"] is False
     assert report["service_changed"] is False
+
+
+@pytest.mark.parametrize(
+    ("stderr", "category"),
+    [
+        (b"arecord: audio open error: Permission denied", "access-denied"),
+        (b"arecord: audio open error: Device or resource busy", "device-busy"),
+        (b"ALSA lib pcm.c: Unknown PCM plughw:0,1", "pcm-not-found"),
+        (b"arecord: audio open error: Invalid argument", "unsupported-parameters"),
+        (b"arecord: audio open error: Input/output error", "io-failure"),
+        (b"potentially private device/recording description", "unclassified"),
+        (b"", "unclassified"),
+        (None, "unclassified"),
+    ],
+)
+def test_alsa_stderr_is_classified_without_content_leak(stderr, category):
+    assert mod.classify_alsa_error(stderr) == category
+
+
+def test_nonzero_capture_never_reports_raw_alsa_error(monkeypatch):
+    monkeypatch.setattr(mod.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/bin/arecord")
+    secret = b"Device or resource busy; private captured phrase 4392"
+    monkeypatch.setattr(
+        mod.subprocess, "run",
+        lambda *a, **kw: SimpleNamespace(
+            returncode=1, stdout=b"", stderr=secret,
+        ),
+    )
+    report = mod.microphone_capture(explicit_flag=True, consent=True)
+    assert report["status"] == "alsa-capture-nonzero"
+    assert report["alsa_error_category"] == "device-busy"
+    assert report["audio_saved_to_disk"] is False
+    assert secret.decode() not in str(report)
+    assert "private captured phrase" not in str(report)
+    assert "stderr" not in report
+    assert "stdout" not in report
