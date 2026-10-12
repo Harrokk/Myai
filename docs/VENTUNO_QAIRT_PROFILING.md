@@ -608,3 +608,73 @@ Source guidance:
   https://docs.qualcomm.com/nav/home/htp_auto_tutorial_3_la_gvm.html?product=924033590759186372
 - Native QNN input dtypes and `qnn-net-run` usage:
   https://github.com/google-ai-edge/LiteRT/blob/main/litert/vendors/qualcomm/doc/LITERT_QNN_NATIVE_RUN.md
+
+## Host ONNX microfixture export and numerical verification completed (2026-10-12)
+
+The **independent GitHub-hosted x86_64** workflow now successfully exports
+the synthetic `tiny_qdq_conv.onnx` from
+`scripts/prepare_tiny_qnn_host_sample.py` and checks it using
+`scripts/verify_tiny_qnn_host_sample.py`.
+
+Workflow: https://github.com/Harrokk/Myai/actions/runs/38219747737
+
+- Environment: Ubuntu 24.04, Python venv, pinned
+  `numpy==1.26.4`, `onnx==1.17.0`,
+  `onnxruntime==1.20.1`, `pytest==8.3.5`.
+- Host-specific tests: **12 passed**, no skipped host tests.
+- `onnx.checker.check_model(full_check=True)`: **passed**.
+- `onnxruntime` with **CPUExecutionProvider only** executed the model;
+  results exactly matched an independent NumPy Q/DQ + 3×3 Conv + ReLU
+  calculation within `atol=1e-7`.
+- Output tensor: `float32 [1, 1, 8, 8]`, with **27 nonzero values**
+  out of 64. The originally too-coarse output quantization was corrected
+  to `y_scale=1/512`, preventing an all-zero test result.
+- Raw input: 256 bytes, deterministic `float32 [1, 1, 8, 8]`.
+- Actual ONNX size: **608 bytes**.
+- ONNX SHA-256:
+  `e347c2197d3006e32eec580c85a6eb2c0cbd460150d4a72ae80e9d78573b94f9`.
+- CPU reference output SHA-256:
+  `b4dc4e231b1f89b8675bff35d9c9eb896b773f038b681af1e05ab43b4dfe76b7`.
+- A four-file verified synthetic sample bundle (ONNX, raw input,
+  input list, provenance JSON) was reassembled and SHA-256 verified
+  from the successful job's bounded export log.
+  Bundle SHA-256:
+  `f7a74fae41a2c0373b7934e07ca4956f9c4324cd51d7915e9777c008771a2e11`.
+  The model source and host workflow remain checked into the development
+  branch, so the fixture can be rebuilt independently.
+- Complete VENTUNO test run for this code state: **967 passed, 4 skipped**.
+  The skipped cases require host-only ONNX packages and never ran on
+  the live ARM device.
+
+**Three problems were detected and corrected during actual host testing:**
+an escaped newline unintentionally commented out the requested ONNX IR 8
+assignment; the older ONNX `ReferenceEvaluator` did not implement
+the model's opset 13 DQ operator; and a directly invoked validation script
+lacked its Python package import path. Tests now run through ONNX Runtime
+CPU and invoke scripts as Python modules. A first version of the host workflow
+failed before job startup when using `actions/upload-artifact`; the
+working workflow deliberately uses no upload action and exposes only a
+strictly bounded, synthetic archive in its build logs.
+
+**Critical distinction:** All of this is **ONNX model correctness on a
+host CPU**, not proof of conversion to QAIRT 2.45, validation of converted
+QNN native quantized tensor encodings, context construction, HTP v75 graph
+placement or direct NPU profiling. No QNN converter, `qnn-net-run`,
+`qnn-context-binary-generator` or production GenieX service was invoked
+by the hosted workflow.
+
+### Next gated QAIRT conversion step
+
+A **separate host** must have an appropriately licensed and compatible
+QAIRT 2.45 toolchain with ONNX converter/model-library generator, or a
+validated alternative `qairt-converter`/DLC route. The VENTUNO device
+currently has `qnn-context-binary-generator` and runtime tools but
+not the ONNX converter or model-library generator on its PATH. The tiny
+ONNX bundle is safe for *host conversion research* only; it is not yet
+ready for native `qnn-net-run` on VENTUNO Q.
+
+Conversion should not be automated against production without:
+verified SDK version and target ABI, verified HTP v75 graph support,
+correct output tensor quantization/input mapping, an independent small
+context, memory budget, and a bounded profiling/recovery plan. No automatic
+service interruptions or second 4B model loads.
