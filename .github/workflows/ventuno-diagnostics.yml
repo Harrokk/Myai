@@ -463,7 +463,7 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_geniex_benchmark.py
 
-      - name: Validate QNN graph tensor types and native buffer requirements
+      - name: Dry-run native QNN input fixture and validate model graph metadata
         shell: bash
         run: |
           set -euo pipefail
