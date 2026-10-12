@@ -98,6 +98,52 @@ def preview_schema(data: object, max_depth: int = 6, max_lines: int = 75) -> lis
     return result
 
 
+
+def graph_io_summary(data: object) -> dict[str, object]:
+    """Numbers and structural types only; never log graph/tensor names."""
+    if not isinstance(data, dict):
+        return {"status": "missing"}
+    info = data.get("info")
+    if not isinstance(info, dict) or not isinstance(info.get("graphs"), list):
+        return {"status": "missing"}
+    graphs = info["graphs"]
+    output: list[dict[str, object]] = []
+    for index, graph in enumerate(graphs[:24]):
+        graph_info = graph.get("info") if isinstance(graph, dict) else None
+        if not isinstance(graph_info, dict):
+            continue
+        inputs = graph_info.get("graphInputs")
+        outputs = graph_info.get("graphOutputs")
+        sizes = graph_info.get("graphBlobInfoV2")
+        counts = {
+            "index": index,
+            "inputs": len(inputs) if isinstance(inputs, list) else None,
+            "outputs": len(outputs) if isinstance(outputs, list) else None,
+        }
+        if isinstance(sizes, dict):
+            counts["serialized_sizes_bytes"] = {
+                k: sizes[k] for k in (
+                    "constSize", "sharedWeightsSize", "ioTensorSize", "ddrTensorSize", "opDataSize",
+                ) if isinstance(sizes.get(k), int) and 0 <= sizes[k] < 10**12
+            }
+        output.append(counts)
+    first_info = next(
+        (x.get("info") for x in graphs
+         if isinstance(x, dict) and isinstance(x.get("info"), dict)),
+        None,
+    )
+    inputs = first_info.get("graphInputs") if isinstance(first_info, dict) else None
+    outputs = first_info.get("graphOutputs") if isinstance(first_info, dict) else None
+    return {
+        "graph_count": len(graphs),
+        "graphs": output,
+        "first_input_tensor_schema": preview_schema(inputs[0], max_depth=5, max_lines=36)
+            if isinstance(inputs, list) and inputs else [],
+        "first_output_tensor_schema": preview_schema(outputs[0], max_depth=5, max_lines=36)
+            if isinstance(outputs, list) and outputs else [],
+    }
+
+
 def summarize_context_metadata(data: object) -> dict[str, object]:
     """Report counts and first shapes; never expose arbitrary tensor names/data."""
     if not isinstance(data, dict):
@@ -132,6 +178,7 @@ def summarize_context_metadata(data: object) -> dict[str, object]:
         "tensor_shapes_sample": shapes,
         "visited_nodes": visited,
         "schema_preview": preview_schema(data),
+        "graph_io": graph_io_summary(data),
         "traversal_capped": bool(stack),
     }
 
