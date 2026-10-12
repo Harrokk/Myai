@@ -99,7 +99,7 @@ def test_transcription_is_really_forwarded_into_existing_local_geniex(
     monkeypatch, tmp_path,
 ):
     root = stage(tmp_path, monkeypatch)
-    user_text = "Det är svenska."
+    user_text = "  Det är svenska. "
     prompts = []
     def local_api(request, *, timeout):
         if isinstance(request, str):
@@ -131,7 +131,8 @@ def test_transcription_is_really_forwarded_into_existing_local_geniex(
     assert result["status"] == "real-public-swedish-transcript-geniex-wav-verified"
     assert result["real_public_transcript_forwarded"] is True
     assert result["myai_voice_pipeline_used"] is True
-    assert len(prompts) == 1 and user_text in prompts[0]
+    assert len(prompts) == 1 and user_text.strip() in prompts[0]
+    assert user_text not in prompts[0]
     assert len(spoken) == 1
     assert user_text not in str(result)
     assert "already-active-Qwen" not in str(result)
