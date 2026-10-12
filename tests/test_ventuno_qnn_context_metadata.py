@@ -91,3 +91,17 @@ def test_graph_io_summary_counts_and_memory_without_names():
     }
     assert "sensitive_name" not in str(report)
     assert "private_input" not in str(report)
+
+
+def test_tensor_native_byte_estimate_and_dynamic_rejection():
+    from scripts.ventuno_qnn_context_metadata import tensor_raw_bytes
+
+    sample = {"info": {"dataType": "QNN_DATATYPE_UFIXED_POINT_16", "dimensions": [2, 3, 4]}}
+    assert tensor_raw_bytes(sample) == ("QNN_DATATYPE_UFIXED_POINT_16", 48)
+    sample["info"]["dimensions"] = [0, 3, 4]
+    assert tensor_raw_bytes(sample)[1] is None
+    sample["info"]["dimensions"] = [100000, 100000]
+    assert tensor_raw_bytes(sample)[1] is None
+    sample["info"]["dimensions"] = [3, 4]
+    sample["info"]["dataType"] = "UNKNOWN_DTYPE"
+    assert tensor_raw_bytes(sample) == ("UNKNOWN_DTYPE", None)
