@@ -44,17 +44,21 @@ def validate_wav(raw: bytes) -> dict[str, object]:
             channels = handle.getnchannels()
             width = handle.getsampwidth()
             sample_rate = handle.getframerate()
-            frames = handle.getnframes()
+            declared_frames = handle.getnframes()
             compression = handle.getcomptype()
             if (channels != 1 or width != 2 or compression != "NONE"
                     or sample_rate not in (16000, 22050, 24000, 44100, 48000)
-                    or not 1 <= frames <= MAX_WAV_BYTES // 2):
+                    or declared_frames < 1):
                 return result
+            # espeak --stdout sends a non-seekable WAV with a sentinel-sized
+            # RIFF/data length. Respect actual bounded buffer size, never
+            # trust the sentinel as a literal duration.
+            pcm = handle.readframes(min(declared_frames, MAX_WAV_BYTES // 2))
+            if len(pcm) < 2 or len(pcm) % 2:
+                return result
+            frames = len(pcm) // 2
             seconds = frames / sample_rate
             if not MIN_DURATION_SECONDS <= seconds <= MAX_DURATION_SECONDS:
-                return result
-            pcm = handle.readframes(frames)
-            if len(pcm) != frames * 2:
                 return result
     except (ValueError, EOFError, OSError, wave.Error):
         return result
