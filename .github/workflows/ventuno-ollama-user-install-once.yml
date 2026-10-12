@@ -1,0 +1,269 @@
+name: ONE-TIME approved VENTUNO local Ollama and Qwen3 0.6B installation
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-ollama-user-install-once.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-ollama-user-install-v0340-one-time
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Install verified Ollama into arduino user home, leave disabled
+    if: >-
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Authorize isolated user-local Ollama installation on VENTUNO Q' &&
+      github.run_attempt == 1 &&
+      github.repository == 'Harrokk/Myai'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 25
+    steps:
+      - name: Check resource, service and existing installation safeguards
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$HOME" = "/home/arduino"
+          test -n "${RUNNER_TEMP:-}"
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          for tool in curl tar zstd sha256sum python3; do
+            command -v "$tool" >/dev/null || { echo "Missing provision prerequisite: $tool"; exit 2; }
+          done
+          python3 - <<'PY'
+          import os,shutil,socket
+          root="/home/arduino"
+          available=next(int(s.split()[1]) for s in open("/proc/meminfo")
+                         if s.startswith("MemAvailable:"))*1024
+          free=shutil.disk_usage(root).free
+          assert free>=9*1024**3, "insufficient-user-home-free-disk"
+          assert available>=8*1024**3, "insufficient-available-memory"
+          sock=socket.socket()
+          try:
+              sock.settimeout(0.6)
+              assert sock.connect_ex(("127.0.0.1",11434))!=0, "existing-Ollama-port-occupied"
+              assert sock.connect_ex(("127.0.0.1",11435))!=0, "isolated-test-port-occupied"
+          finally: sock.close()
+          print("ARM64, free disk, RAM, production services and ports verified.")
+          PY
+          parent="$HOME/.local/opt/myai-ollama"
+          target="$parent/v0.34.0"
+          test ! -e "$target" && test ! -L "$target"
+          mkdir -p "$parent"
+          test ! -L "$parent"
+          stage="$(mktemp -d "$parent/.stage-${GITHUB_RUN_ID}-XXXXXXXX")"
+          echo "MYAI_OLLAMA_STAGE=$stage" >> "$GITHUB_ENV"
+          echo "MYAI_OLLAMA_TARGET=$target" >> "$GITHUB_ENV"
+
+      - name: Retrieve and SHA256-check official pinned ARM64 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_OLLAMA_STAGE"
+          curl --fail --location --silent --show-error \
+            --connect-timeout 15 --max-time 900 --retry 1 \
+            --output ollama-linux-arm64.tar.zst \
+            "https://github.com/ollama/ollama/releases/download/v0.34.0/ollama-linux-arm64.tar.zst"
+          printf '%s  %s\n' \
+            "6a9e5b3650c2024d8a78da86b23876f6eea238657a3262d7e5ec0f3688c5d28e" \
+            "ollama-linux-arm64.tar.zst" | sha256sum -c -
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          archive=Path(os.environ["MYAI_OLLAMA_STAGE"])/"ollama-linux-arm64.tar.zst"
+          assert 200_000_000 <= archive.stat().st_size <= 2_100_000_000
+          print("Pinned Ollama ARM64 release v0.34.0 checksum verified.")
+          PY
+
+      - name: Extract verified binary to private staging (no root install)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_OLLAMA_STAGE"
+          tar --zstd -tf ollama-linux-arm64.tar.zst | python3 -c '
+          import sys
+          from pathlib import PurePosixPath
+          count=0
+          for entry in sys.stdin:
+              p=PurePosixPath(entry.strip())
+              assert not p.is_absolute() and ".." not in p.parts
+              count+=1
+              assert count<=30000
+          assert count>0
+          '
+          mkdir runtime
+          tar --zstd --no-same-owner --no-same-permissions \
+            -xf ollama-linux-arm64.tar.zst -C runtime
+          test -x runtime/bin/ollama
+          echo "Verified Ollama unpacked in staging; no production paths modified."
+
+      - name: Test local text inference and stage tiny model without touching GenieX
+        id: prove
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$MYAI_OLLAMA_STAGE"
+          bin="$stage/runtime/bin/ollama"
+          export HOME="$stage/home"
+          export OLLAMA_MODELS="$stage/runtime/models"
+          export OLLAMA_HOST="127.0.0.1:11435"
+          export OLLAMA_NUM_PARALLEL=1
+          export OLLAMA_MAX_LOADED_MODELS=1
+          export OLLAMA_KEEP_ALIVE=0
+          export OLLAMA_NO_CLOUD=1
+          export OLLAMA_DEBUG=0
+          mkdir -p "$HOME" "$OLLAMA_MODELS"
+          pid=""
+          cleanup() {
+            if [ -n "$pid" ]; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          "$bin" serve > "$stage/ollama-server-private.log" 2>&1 &
+          pid=$!
+          ready=0
+          for n in $(seq 1 35); do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            if curl --noproxy "*" --silent --fail --max-time 2 \
+                 http://127.0.0.1:11435/api/version -o "$stage/version.json"; then
+              ready=1; break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1 || { echo "Local temporary Ollama server failed to start"; exit 2; }
+          timeout 420 "$bin" pull qwen3:0.6b > /dev/null 2>&1
+          python3 - <<'PY'
+          import json, urllib.request, time
+          base="http://127.0.0.1:11435"
+          with urllib.request.urlopen(base+"/api/tags",timeout=5) as response:
+              tags=json.loads(response.read(65537))
+          assert any(x.get("name")=="qwen3:0.6b" for x in tags.get("models",[]))
+          payload={
+              "model":"qwen3:0.6b",
+              "messages":[{"role":"user","content":"Svara med ett kort svenskt hej."}],
+              "think":False,"stream":False,"keep_alive":0,
+              "options":{"num_ctx":1024,"num_predict":24,"temperature":0},
+          }
+          req=urllib.request.Request(base+"/api/chat",
+              data=json.dumps(payload).encode("utf-8"),
+              method="POST",headers={"Content-Type":"application/json"})
+          now=time.monotonic()
+          with urllib.request.urlopen(req,timeout=110) as response:
+              data=response.read(65537)
+          assert len(data)<=65536
+          result=json.loads(data)
+          reply=(result.get("message") or {}).get("content","")
+          assert isinstance(reply,str) and 1<=len(reply.strip())<=120
+          print("User-local Ollama Qwen3 0.6B inference verified; seconds:",
+                round(time.monotonic()-now,2))
+          PY
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo "verified=local-ollama-qwen3-inference-pass" >> "$GITHUB_OUTPUT"
+          echo "Private Ollama test server stopped by process EXIT trap."
+
+      - name: Commit staged Ollama to new user-local versioned path, leave server disabled
+        id: installed
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$MYAI_OLLAMA_STAGE"
+          target="$MYAI_OLLAMA_TARGET"
+          test -n "$stage" && test -n "$target"
+          test "$target" = "/home/arduino/.local/opt/myai-ollama/v0.34.0"
+          test ! -e "$target" && test ! -L "$target"
+          test -x "$stage/runtime/bin/ollama"
+          test -d "$stage/runtime/models"
+          test -n "$(find "$stage/runtime/models" -maxdepth 2 -type f -print -quit)"
+          cat > "$stage/runtime/start-local-only.sh" <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+          export OLLAMA_HOST="127.0.0.1:11434"
+          export OLLAMA_MODELS="$root/models"
+          export OLLAMA_NUM_PARALLEL=1
+          export OLLAMA_MAX_LOADED_MODELS=1
+          export OLLAMA_KEEP_ALIVE=0
+          export OLLAMA_NO_CLOUD=1
+          exec "$root/bin/ollama" serve
+          SH
+          chmod 700 "$stage/runtime/start-local-only.sh"
+          bash -n "$stage/runtime/start-local-only.sh"
+          # The payload was fully verified before this single move.
+          mv --no-target-directory -- "$stage/runtime" "$target"
+          test -x "$target/bin/ollama"
+          test -x "$target/start-local-only.sh"
+          echo "Persisted Ollama v0.34.0 and Qwen3 0.6B in user-local directory."
+          echo "No systemd service created, no server left running, no production config changed."
+          echo "installed=user-local-installed-inactive" >> "$GITHUB_OUTPUT"
+
+      - name: Verify services and safely remove leftover staging only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_OLLAMA_STAGE:-}" ]; then
+            case "$MYAI_OLLAMA_STAGE" in
+              /home/arduino/.local/opt/myai-ollama/.stage-*)
+                if [ -d "$MYAI_OLLAMA_STAGE" ] && [ ! -L "$MYAI_OLLAMA_STAGE" ]; then
+                  rm -rf -- "$MYAI_OLLAMA_STAGE"
+                fi
+                ;;
+              *) echo "Refusing unsafe staging cleanup" >&2; exit 1 ;;
+            esac
+          fi
+          echo "Production GenieX and MyAI remained active; no live audio touched."
+
+      - name: Report installation outcome to originating commit
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          INSTALL_RESULT: ${{ steps.installed.outputs.installed }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,urllib.request
+          repo=os.environ.get("GITHUB_REPOSITORY","")
+          sha=os.environ.get("GITHUB_SHA","")
+          token=os.environ.get("GH_TOKEN","")
+          if not (re.fullmatch(r"[0-9a-f]{40}",sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo)):
+              raise SystemExit(0)
+          success=(os.environ.get("JOB_RESULT")=="success" and
+                   os.environ.get("INSTALL_RESULT")=="user-local-installed-inactive")
+          body={
+              "state":"success" if success else "failure",
+              "context":"myai/ventuno-ollama-user-local-install-once",
+              "description":("Ollama: user-local-installed-inactive" if success
+                             else "Ollama: installation-incomplete"),
+              "target_url":"https://github.com/"+repo+"/actions/runs/"+
+                           os.environ.get("GITHUB_RUN_ID",""),
+          }
+          req=urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              data=json.dumps(body).encode(),method="POST",
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "X-GitHub-Api-Version":"2022-11-28",
+                       "Content-Type":"application/json"})
+          try:
+              with urllib.request.urlopen(req,timeout=10) as response:
+                  print("User-local Ollama installation status recorded:",response.status==201)
+          except Exception as exc:
+              print("Status reporting unavailable:",type(exc).__name__)
+          PY
