@@ -1,0 +1,129 @@
+name: Try isolated QAIRT 2.45 host ONNX conversion
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/qairt-245-host-conversion.yml
+      - scripts/qairt_245_host_conversion_trial.py
+      - tests/test_qairt_245_host_conversion_trial.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qairt-245-isolated-host-conversion
+  cancel-in-progress: true
+
+jobs:
+  trial:
+    name: Convert verified tiny ONNX with official QAIRT 2.45, no device
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact commit on x86_64 Ubuntu
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          mkdir -p "$RUNNER_TEMP/myai-qairt-trial"
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up separate Python host validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/qairt-host-venv"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1 pytest==8.3.5
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m pytest -q \
+            tests/test_qairt_245_host_conversion_trial.py \
+            tests/test_fetch_qairt_245_official.py \
+            tests/test_qairt_245_archive_audit.py \
+            tests/test_prepare_tiny_qnn_host_sample.py \
+            tests/test_verify_tiny_qnn_host_sample.py
+
+      - name: Generate and verify fixed ONNX model with CPU reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m scripts.prepare_tiny_qnn_host_sample \
+            --output-dir "$RUNNER_TEMP/tiny_qnn_fixture"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m scripts.verify_tiny_qnn_host_sample \
+            --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture"
+
+      - name: Download official SDK and confirm previously observed ZIP identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m scripts.fetch_qairt_245_official \
+            --output "$RUNNER_TEMP/qairt_245.zip"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m scripts.qairt_245_archive_audit \
+            --zip "$RUNNER_TEMP/qairt_245.zip"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" - <<'PY'
+          from pathlib import Path
+          from scripts.qairt_245_archive_audit import inspect_archive
+          import os
+          p = Path(os.environ["RUNNER_TEMP"]) / "qairt_245.zip"
+          report = inspect_archive(p)
+          expected = "ffa6a5d6eb0be2846de2fa4fbeb1389ef91a1b92ef894cdcd38cad66ed7ccab7"
+          assert report["status"] == "host-conversion-components-in-official-archive"
+          assert report["archive_sha256"] == expected, "archive identity changed"
+          print("Official QAIRT archive matches tested SHA-256.")
+          PY
+
+      - name: Extract validated SDK only on disposable x86 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+          from zipfile import ZipFile
+          root = Path(os.environ["RUNNER_TEMP"])
+          if shutil.disk_usage(root).free < 5_000_000_000:
+              raise RuntimeError("insufficient space for SDK extraction")
+          dest = root / "qairt-extracted"
+          dest.mkdir(mode=0o700)
+          with ZipFile(root / "qairt_245.zip") as archive:
+              archive.extractall(dest)
+          sdk = dest / "qairt" / "2.45.0.260326"
+          assert sdk.is_dir(), "expected QAIRT versioned SDK root absent"
+          print("Verified QAIRT 2.45 SDK extracted in isolated runner temp only.")
+          PY
+
+      - name: Try QNN source and DLC conversion on host only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qairt-trial"
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" -m scripts.qairt_245_host_conversion_trial \
+            --sdk-root "$RUNNER_TEMP/qairt-extracted/qairt/2.45.0.260326" \
+            --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture" \
+            --output-dir "$RUNNER_TEMP/tiny_qnn_converted"
+          echo 'Any output is host-only and has not been verified as a valid HTP context.'
+
+      - name: Delete official SDK and converter outputs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/qairt-extracted" "$RUNNER_TEMP/tiny_qnn_converted"
+          rm -f "$RUNNER_TEMP/qairt_245.zip"
+          echo 'Official SDK removed from ephemeral runner; no redistribution.'
+          echo 'VENTUNO systemd services and production model were not touched.'
