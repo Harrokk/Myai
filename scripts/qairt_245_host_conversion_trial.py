@@ -81,8 +81,11 @@ def sdk_env(root: Path) -> dict[str, str]:
         [str(root / "lib" / "python"), str(root / "bin" / "x86_64-linux-clang"),
          env.get("PYTHONPATH", "")]
     )
+    # The official QAIRT 2.45 Python extensions link to libpython3.10.
+    # The matching shared library must come from the isolated host Python 3.10.
+    python_libdir = env.get("QAIRT_HOST_PYLIB", "")
     env["LD_LIBRARY_PATH"] = os.pathsep.join(
-        [str(lib), env.get("LD_LIBRARY_PATH", "")]
+        [str(lib), python_libdir, env.get("LD_LIBRARY_PATH", "")]
     )
     return env
 
