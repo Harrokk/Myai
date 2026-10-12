@@ -1,0 +1,128 @@
+name: VENTUNO Whisper Tiny CPU silence benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-whisper-tiny-smoke.yml
+      - scripts/ventuno_whisper_tiny_cpu_smoke.py
+      - tests/test_ventuno_whisper_tiny_cpu_smoke.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-tiny-whisper-smoke
+  cancel-in-progress: false
+
+jobs:
+  tiny:
+    name: Pinned multilingual tiny STT CPU inference on VENTUNO ARM64
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 10
+    steps:
+      - name: Read exact commit on runner without third-party actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-tiny-whisper-checkout"
+          cd "$RUNNER_TEMP/myai-tiny-whisper-checkout"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test fail-closed gate logic without downloading a model
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tiny-whisper-checkout"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q \
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          from pathlib import Path
+          from scripts.ventuno_voice_wheel_staging import mem_available_kib, disk_free_bytes
+          from scripts.ventuno_whisper_tiny_cpu_smoke import MIN_MEM_AVAILABLE_KIB, MIN_DISK_AVAILABLE_BYTES
+          mem = mem_available_kib()
+          disk = disk_free_bytes(Path(__import__("os").environ["RUNNER_TEMP"]))
+          assert mem is not None and mem >= MIN_MEM_AVAILABLE_KIB, "Whisper smoke resource gate: RAM"
+          assert disk is not None and disk >= MIN_DISK_AVAILABLE_BYTES, "Whisper smoke resource gate: disk"
+          print(f"CPU Tiny model initial safety headroom: {round(mem/1024)} MiB RAM available")
+          print(f"Disk free: {round(disk/1024**2)} MiB")
+          PY
+
+      - name: Confirm production GenieX and MyAI active and voice disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          cfg=json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text())
+          voice=cfg.get("voice",{})
+          assert voice.get("enabled") is not True
+          assert voice.get("tts_enabled") is not True
+          assert voice.get("handsfree_enabled") is not True
+          PY
+
+      - name: Create isolated venv and stage ARM64 STT CPU wheels only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tiny-whisper-checkout"
+          SYSTEM_PY="$(readlink -f "$(command -v python3)")"
+          test -x "$SYSTEM_PY"
+          "$SYSTEM_PY" -m venv "$RUNNER_TEMP/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$RUNNER_TEMP"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$RUNNER_TEMP"
+
+      - name: Run pinned 78 MB multilingual Whisper Tiny on 2 sec digital silence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tiny-whisper-checkout"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_whisper_tiny_cpu_smoke \
+            --runner-temp "$RUNNER_TEMP"
+          echo 'Only synthetic silence tested; Swedish recognition accuracy unmeasured.'
+
+      - name: Recheck production MyAI and GenieX after isolated benchmark
+        shell: bash
+        if: always()
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo 'Production services still active; no service restarts triggered.'
+
+      - name: Delete every temporary STT wheel, model and cache
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_TEMP" in
+            ""|"/"|/home/arduino/MyAI/.venv*) exit 2 ;;
+          esac
+          for name in myai-voice-staging myai-voice-wheel-report \
+                      myai-whisper-tiny-model myai-whisper-hf-cache; do
+            path="$RUNNER_TEMP/$name"
+            if test -e "$path" && ! test -L "$path"; then
+              rm -rf -- "$path"
+            fi
+          done
+          echo 'Ephemeral speech model and wheels removed; no production changes.'
