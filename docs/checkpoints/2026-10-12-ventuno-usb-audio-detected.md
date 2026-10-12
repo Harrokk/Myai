@@ -114,3 +114,45 @@ hardware-local command-line preflight, but **actual USB microphone
 signal quality after this correction has not yet been tested**.
 A fresh, explicit user approval is required for another real
 two-second recording.
+
+
+## Corrected, explicitly approved USB microphone capture: PASS
+
+The user expressly approved a new and separate **one-time**
+two-second USB microphone capture after correction of the
+`arecord --file-type=raw` argument.
+
+- Authorized commit: `cc25f7fec9251998b24ae61526ab48febd85d33b`
+- One-time workflow: `.github/workflows/ventuno-usb-microphone-corrected-once.yml`
+- Verified GitHub Actions run:
+  https://github.com/Harrokk/Myai/actions/runs/38249279855
+- Job ID: `114811069110`, conclusion **success**.
+- **41/41 safety and mocked-audio tests passed**.
+- Fresh USB ALSA metadata: capture on **card 1, device 0**
+  and accessible PCM node.
+- Installed `arecord --file-type=raw` command-line support confirmed.
+- Exactly one real capture with `plughw:1,0`,
+  16 kHz, 1 channel, S16_LE, duration 2 s, raw stream in RAM.
+- Bytes received: **64,000** (32,000 16-bit samples).
+- Normalized RMS: **0.023983** (~2.40% of full scale).
+- Normalized peak: **0.180634** (~18.06% of full scale).
+- Status: **`microphone-signal-measured`**; non-silent physical
+  capture verified.
+- PCM was discarded after numeric measurement, not written to
+  disk, sent to a remote service, played back or transcribed.
+- MyAI and GenieX remained active; production voice options stayed
+  disabled; no model loaded.
+
+**Milestone completed:** Physical USB microphone PCM capture
+is working on the current VENTUNO Q hardware and ALSA mapping.
+
+**What is not yet verified:** intelligibility or transcription of
+actual user speech, VAD behavior, stable ALSA card numbering after
+reboot, audible USB speaker output, acoustic echo handling,
+full-duplex conversations, production voice orchestration, long-term
+stability, or performance under sustained GenieX load.
+
+The user's authorization was only for this single capture.
+Do **not** rerun the capture. The next logical step is a
+separately authorized, safely volume-limited physical USB speaker
+test, or alternatively a no-playback metadata preflight.
