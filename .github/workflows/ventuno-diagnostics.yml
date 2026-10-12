@@ -290,6 +290,57 @@ jobs:
           print("CPU time and frequency alone do not prove NPU utilization.")
           PY
 
+      - name: Discover available Qualcomm performance telemetry (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          from pathlib import Path
+
+          keywords = ("npu", "dsp", "cdsp", "adsp", "fastrpc", "qnn",
+                      "htp", "hexagon", "q6", "compute", "qcom")
+          def read_short(path):
+              try:
+                  return path.read_text(errors="replace").strip().replace("\\x00", " ")[:120]
+              except (OSError, UnicodeError):
+                  return None
+
+          for label, root in (
+              ("remoteproc", Path("/sys/class/remoteproc")),
+              ("devfreq", Path("/sys/class/devfreq")),
+              ("qualcomm platform devices", Path("/sys/bus/platform/devices")),
+              ("trace event systems", Path("/sys/kernel/tracing/events")),
+              ("debug trace event systems", Path("/sys/kernel/debug/tracing/events")),
+          ):
+              if not root.is_dir():
+                  print(f"{label}: unavailable")
+                  continue
+              try:
+                  entries = sorted(root.iterdir(), key=lambda p: p.name)
+              except OSError:
+                  print(f"{label}: not readable")
+                  continue
+              if label in ("remoteproc", "devfreq"):
+                  selected = entries[:40]
+              else:
+                  selected = [p for p in entries
+                              if any(term in p.name.lower() for term in keywords)][:40]
+              print(f"{label}: total={len(entries)}, candidates={len(selected)}")
+              for entry in selected:
+                  print(" ", entry.name)
+                  fields = ("name", "state") if label == "remoteproc" else (
+                      "governor", "cur_freq", "available_frequencies",
+                      "busy_time", "total_time", "trans_stat"
+                  ) if label == "devfreq" else ()
+                  for field in fields:
+                      value = read_short(entry / field)
+                      if value is not None:
+                          print(f"    {field}: {value}")
+          for root in (Path("/sys/kernel/debug"), Path("/sys/kernel/tracing")):
+              print(f"{root}: exists={root.exists()}, readable={root.is_dir()}")
+          print("Discovery does not enable tracing, change clocks, or modify services.")
+          PY
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
