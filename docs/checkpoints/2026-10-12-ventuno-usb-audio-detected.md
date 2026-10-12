@@ -48,3 +48,49 @@ Before enabling MyAI voice:
 All current voice production settings remain disabled. The earlier
 on-board `hw:0,1` ALSA `alsa-capture-nonzero` issue does not
 automatically apply to this newly enumerated USB device.
+
+
+## One-time consented physical USB microphone attempt
+
+On explicit user approval, we created the single-purpose workflow
+`.github/workflows/ventuno-usb-microphone-consent-once.yml` with a
+one-time exact commit-message gate and `github.run_attempt == 1`.
+
+- Authorized commit: `3abdf734b5f34dfd2df98f8ca72d0613b8ad4342`.
+- Actual VENTUNO job:
+  https://github.com/Harrokk/Myai/actions/runs/38248566824
+- **41 targeted automated tests passed.**
+- The VENTUNO USB card and accessible capture PCM remained **1:0**;
+  the active production voice flags remained disabled.
+- The `arecord` subprocess was **invoked once**, but exited nonzero
+  before a complete 64,000-byte PCM capture could be validated.
+  Reported status: `alsa-capture-nonzero`, error category:
+  `unclassified`.
+- Both MyAI and GenieX services stayed active. No audio data was
+  retained, transmitted, displayed, or transcribed.
+
+**Root-cause candidate identified immediately afterwards:** both old
+internal and new USB microphone scripts called `arecord` with
+`--type=raw` (unsupported option name); ALSA's documented flag is
+`--file-type=raw`. This explains why both calls may have returned
+nonzero extremely quickly; do not assume either microphone hardware
+is defective solely from those failed attempts.
+
+Source files and tests have been corrected to enforce
+`--file-type=raw`:
+- `scripts/ventuno_microphone_smoke.py`
+- `scripts/ventuno_usb_microphone_smoke.py`
+- both corresponding regression test modules.
+
+A separate **no-recording** workflow,
+`.github/workflows/ventuno-arecord-options-readonly.yml`, was
+introduced to verify the installed `arecord --help` output contains
+the supported flags and run mock-only tests. Its result must be
+checked before any future physical recording.
+
+**Consent boundary:** The user approved this *one* two-second
+physical attempt. The workflow ran, the result was inconclusive,
+and **no second physical recording is authorized** by this
+checkpoint. Do not rerun the one-time workflow or create another
+capture job without a new explicit user approval. The corrected
+source files do not change active production voice settings.
