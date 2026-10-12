@@ -112,6 +112,15 @@ jobs:
           answer = str((choices[0].get("message") or {}).get("content") or "").strip() if choices else ""
           assert answer, "GenieX returned an empty response"
           print(f"GenieX inference OK in {elapsed:.2f}s; output length {len(answer)}")
+          # Only print numeric performance metrics, never prompts or generated text.
+          for key in ("usage", "timings", "profile", "performance"):
+              value = result.get(key)
+              if isinstance(value, dict):
+                  metrics = {str(k)[:60]: v for k, v in value.items()
+                             if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                  print("GenieX response numeric", key, metrics)
+          print("Metrics from the GenieX API are host-level inference timings,")
+          print("not a direct per-layer HTP/QNN utilization profile.")
           print("This confirms inference works, but does not independently prove NPU utilization.")
           PY
 
