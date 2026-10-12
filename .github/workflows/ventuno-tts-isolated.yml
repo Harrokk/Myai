@@ -9,6 +9,8 @@ on:
       - .github/workflows/ventuno-tts-isolated.yml
       - scripts/ventuno_tts_synthesis_probe.py
       - scripts/ventuno_tts_temp_stage.py
+      - scripts/ventuno_synthetic_voice_chain.py
+      - tests/test_ventuno_synthetic_voice_chain.py
       - tests/test_ventuno_tts_synthesis_probe.py
       - tests/test_ventuno_tts_temp_stage.py
 
@@ -50,7 +52,8 @@ jobs:
           cd "$RUNNER_TEMP/myai-tts-checkout"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q \
             tests/test_ventuno_tts_temp_stage.py \
-            tests/test_ventuno_tts_synthesis_probe.py
+            tests/test_ventuno_tts_synthesis_probe.py \
+            tests/test_ventuno_synthetic_voice_chain.py
 
       - name: Confirm live services and voice disabled
         shell: bash
@@ -76,7 +79,8 @@ jobs:
           cd "$RUNNER_TEMP/myai-tts-checkout"
           /home/arduino/MyAI/.venv/bin/python \
             -m scripts.ventuno_tts_temp_stage --runner-temp "$RUNNER_TEMP"
-          echo 'Swedish TTS synthesized in memory only; no audio playback.'
+          echo 'Fixed synthetic MyAI VoicePipeline reply rendered by eSpeak to memory only.'
+          echo 'No production assistant, real STT, microphone or loudspeaker used.'
 
       - name: Confirm production services still active
         if: always()
