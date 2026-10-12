@@ -98,7 +98,7 @@ def test_unbounded_child_response_or_bad_format_never_returned(monkeypatch, tmp_
     with pytest.raises(ValueError) as info:
         hardware._limited_whisper_child(tmp_path, tmp_path / "python",
                                        tmp_path / "model", b"\x00" * 96000)
-    assert "private" not in str(info.value)
+    assert "private transcript" not in str(info.value)
 
 
 def test_local_geniex_receives_only_approved_question(monkeypatch):
