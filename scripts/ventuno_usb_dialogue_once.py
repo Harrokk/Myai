@@ -59,6 +59,28 @@ def approved_short_question(text: object) -> str | None:
     return normalized
 
 
+def classify_unapproved_question(text: object) -> str:
+    """Allowlisted failure categories only. Never publish recognized words."""
+    if not isinstance(text, str) or not text.strip():
+        return "empty-or-silence"
+    if len(text) > 96 or any(ord(ch) < 32 for ch in text):
+        return "invalid-or-oversize"
+    normalized = normalize_transcript(text)
+    if classify_voice_risk(text).get("level") != "low" or "--" in text:
+        return "unsafe-command-or-control"
+    if normalized in APPROVED_QUESTIONS:
+        return "approved"
+    words = normalized.split()
+    if (words and words[0] in ("säg", "sag")
+            and "vad heter du" in normalized):
+        return "spoken-cue-echo-suspected"
+    if any(question in normalized for question in APPROVED_QUESTIONS):
+        return "test-question-with-extra-words"
+    if len(words) <= 2:
+        return "unrelated-short-utterance"
+    return "other-unmatched-utterance"
+
+
 def pcm_signal_ok(raw: object) -> bool:
     if not isinstance(raw, bytes) or len(raw) != CAPTURE_BYTES:
         return False
@@ -148,6 +170,7 @@ class OneShotUsbDialog:
             normalized = approved_short_question(words)
             if normalized is None:
                 result["status"] = "reject-unapproved-or-unclear-test-utterance"
+                result["unmatched_category"] = classify_unapproved_question(words)
                 return result
             result["transcription_verified"] = True
             # Exit from this phase before asking the running language model.
