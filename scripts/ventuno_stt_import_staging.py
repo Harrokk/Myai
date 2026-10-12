@@ -62,7 +62,8 @@ def import_probe_command(python: Path, runner_temp: Path,
         "import faster_whisper\n"
         "import av\n"
         "rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\n"
-        "print(json.dumps({'imports_ok':True,'peak_rss_kib':int(rss)}))\n"
+        "print(json.dumps({'imports_ok':True,'peak_rss_kib':int(rss),"
+        "'av_version':av.__version__}))\n"
     )
     try:
         proc = subprocess.run(
@@ -80,13 +81,17 @@ def import_probe_command(python: Path, runner_temp: Path,
     try:
         data = json.loads(proc.stdout.strip())
         rss = data.get("peak_rss_kib")
-        if data.get("imports_ok") is not True or type(rss) is not int or not 0 < rss < 4 * 1024**2:
+        av_version = str(data.get("av_version", ""))
+        if (data.get("imports_ok") is not True
+                or type(rss) is not int or not 0 < rss < 4 * 1024**2
+                or not av_version.startswith("18.")):
             raise ValueError
     except (ValueError, TypeError, json.JSONDecodeError):
         return {"imports_ok": False, "failure": "invalid-memory-report"}
     return {
         "imports_ok": True,
         "peak_rss_mib": round(rss / 1024, 1),
+        "pyav_version": av_version,
         "stt_model_instantiated": False,
         "htp_npu_used": False,
     }
