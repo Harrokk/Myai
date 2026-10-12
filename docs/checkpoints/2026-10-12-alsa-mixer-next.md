@@ -73,3 +73,18 @@ because their outcome is unavailable.
 
 This checkpoint is documentation only. No running service or physical
 audio device was changed.
+
+
+## Guard against false-positive mixer status
+
+A subsequent source review identified a false-positive risk: an ALSA capture
+mixer control can be enumerated without readable switch or level values.
+Previously, that case could produce `capture-control-metadata-readable`
+although no actual level or switch reading was available.
+
+The read-only mixer probe now returns
+`capture-controls-without-level-readings` in that case, and a regression
+test was added. Source commits: `1a3224b` (classification) and `9b13878`
+(test). A small local isolated logic check passed for the no-controls,
+no-readings and switch-off branches. **Full CI / real mixer results still
+remain unverified**, and no audio was recorded.
