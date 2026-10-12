@@ -74,3 +74,46 @@ one reference phrase only. It does not prove free-form questions,
 turn-taking, wake-word/VAD, echo handling, long-running sessions or
 production readiness. Further live audio tests require fresh
 authorization and incremental verification.
+
+
+## Verified dynamic transcript integration on VENTUNO Q
+
+The first successful actual dynamic transcript handoff ran on source
+commit `735301ab5085eb9e469449413f15706eeab66a43`:
+
+- GitHub Actions run:
+  https://github.com/Harrokk/Myai/actions/runs/38254119684
+- Workflow conclusion: **success**; every step including cleanup passed.
+- **58 regression tests passed** in the isolated test suite.
+- The pinned public Swedish audio word was actually recognized by
+  Whisper Tiny on ARM64 CPU, and its recognized text was passed through
+  a private in-memory callback; **no transcript text was logged**.
+- MyAI's real `VoicePipeline` received that exact recognized text,
+  trimmed only for edge whitespace, and forwarded it to an existing
+  live GenieX model in one bounded prompt.
+- `real_public_transcript_forwarded=true`,
+  `existing_geniex_queried=true`,
+  `myai_voice_pipeline_used=true`, `swedish_wav_verified=true`.
+- Swedish WAV in RAM: duration **4.106 seconds**, sample rate
+  **22,050 Hz**, normalized RMS **0.08061**.
+- No actual user microphone, USB speaker, production voice
+  configuration, logs of recognized/reply text, stored audio,
+  model deployment or service restarts were involved.
+- All temporary speech model/voice packages were cleaned and both
+  MyAI and GenieX production services stayed active.
+
+A subsequent commit `e7b38c9cdd3ff3d4c8a4c4fcfb75d66894c7244c`
+added a stricter test for Whisper leading/trailing whitespace and passed
+all **58** regression tests again (workflow run `38254151558`).
+That later run halted **before** reloading Whisper because
+`MemAvailable` was below the preflight gate of **8 GiB**. This was
+an appropriate fail-closed resource stop, **not** a dynamic handoff
+test failure. One non-audio retry was requested without relaxing
+resource thresholds; its outcome must be verified separately.
+
+**Production status:** USB microphone and speaker have previously
+passed individually (including user confirmation of audible TTS),
+but real user-question ASR, actual microphone-to-GenieX routing,
+speaker playback of a real dynamic response, echo suppression,
+wake/stop handling, and handsfree production service behavior
+remain unverified and disabled.
