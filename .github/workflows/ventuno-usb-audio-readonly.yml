@@ -1,0 +1,153 @@
+name: VENTUNO USB audio discovery read-only
+
+on:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-usb-audio-readonly.yml
+      - scripts/ventuno_usb_audio_inventory.py
+      - tests/test_ventuno_usb_audio_inventory.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-usb-audio-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Identify USB capture/playback metadata (no audio)
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact diagnostic source to runner temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          source_dir="$(mktemp -d "$RUNNER_TEMP/myai-usbaudio-XXXXXXXX")"
+          echo "MYAI_USB_SOURCE=$source_dir" >> "$GITHUB_ENV"
+          git init -q "$source_dir"
+          git -C "$source_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$source_dir" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$source_dir" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$source_dir" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify no-audio hardware discovery unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_USB_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_ventuno_usb_audio_inventory.py
+
+      - name: Inspect USB audio hardware metadata with live services unchanged
+        id: usb
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_USB_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from scripts.ventuno_usb_audio_inventory import inventory_usb_audio
+          report = inventory_usb_audio()
+          print("VENTUNO USB read-only audio inventory:", json.dumps(report, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("usb_status=" + str(report["status"]) + "\n")
+              output.write("usb_capture_count=" + str(len(report["usb_capture_pairs"])) + "\n")
+              output.write("usb_playback_count=" + str(len(report["usb_playback_pairs"])) + "\n")
+          PY
+          echo "No microphone was opened, no recording or playback was performed."
+
+      - name: Confirm services and remove only isolated diagnostic checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_USB_SOURCE:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_USB_SOURCE" in
+              "$RUNNER_TEMP"/myai-usbaudio-*)
+                if [ -d "$MYAI_USB_SOURCE" ]; then
+                  rm -rf -- "$MYAI_USB_SOURCE"
+                fi
+                ;;
+              *)
+                echo "Refusing to remove unexpected directory" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+      - name: Publish sanitized commit status for result lookup
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          USB_STATUS: ${{ steps.usb.outputs.usb_status }}
+          CAPTURE_COUNT: ${{ steps.usb.outputs.usb_capture_count }}
+          PLAYBACK_COUNT: ${{ steps.usb.outputs.usb_playback_count }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+          sha = os.environ.get("GITHUB_SHA", "")
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) and token):
+              print("Status post skipped due to unavailable token or repository identity")
+              raise SystemExit(0)
+          allowed = {
+              "inconclusive-alsa-metadata", "no-usb-audio-card-detected",
+              "usb-capture-and-playback-pcm-detected", "usb-capture-only-pcm-detected",
+              "usb-playback-only-pcm-detected", "usb-card-without-pcm-routes",
+          }
+          value = os.environ.get("USB_STATUS", "")
+          value = value if value in allowed else "no-usb-audio-result"
+          count = []
+          for key in ("CAPTURE_COUNT", "PLAYBACK_COUNT"):
+              number = os.environ.get(key, "")
+              count.append(number if re.fullmatch(r"[0-9]{1,2}", number) else "?")
+          state = {"success": "success", "failure": "failure"}.get(
+              os.environ.get("JOB_RESULT", ""), "error")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          body = {
+              "state": state,
+              "context": "myai/ventuno-usb-audio-readonly",
+              "description": ("USB audio: " + value + " C=" + count[0] + " P=" + count[1])[:140],
+              "target_url": ("https://github.com/" + repo + "/actions/runs/" + run_id),
+          }
+          request = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode("utf-8"),
+              headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("USB diagnostic status posted:", response.status == 201)
+          except Exception as exc:
+              print("USB diagnostic status post failed:", type(exc).__name__)
+          PY
