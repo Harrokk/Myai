@@ -86,3 +86,27 @@ was attempted by either runner.
 
 No physical recording or playback was initiated while this new
 controller/driver and its tests were created.
+
+
+## Verified final synthetic hardware adapter regression
+
+After the corrected test assertion, VENTUNO Q self-hosted CI
+completed the entire expanded synthetic-only safety suite:
+
+- Commit: `1a6b3a549d31c629754733ca06f5cedce24bab95`
+- GitHub Actions run:
+  https://github.com/Harrokk/Myai/actions/runs/38259591990
+- Job `114846403321`, conclusion: **success**
+- **85 passed, 0 failed**; tests include the new hardware ports,
+  exact arecord/aplay CLI arguments, private stdin/stdout for Whisper,
+  local-only bounded GenieX requests, playback limiting and one-shot
+  consent/resource/device guards.
+- Services healthy and runner temporary checkout removed.
+- No real recording, user speech, speaker playback, model load,
+  production settings change or active service restart.
+
+Next action is **not** another unannounced capture. Stage a guarded
+human-coordinated physical test and ask the user to be physically
+at the device to speak `Vad heter du?` during its exact 3-second
+recording interval; the physical test must be opt-in for both recording
+and an audible low-volume answer.
