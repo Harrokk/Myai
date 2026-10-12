@@ -71,7 +71,6 @@ def dry_run(sandbox_python: Path, runner_temp: Path, *, arm: bool = True
     expected = runner_temp / "myai-voice-staging" / "bin" / "python"
     if (
         not sandbox_python.is_file()
-        or sandbox_python.is_symlink()
         or sandbox_python != expected
         or not runner_temp.is_dir()
         or runner_temp.is_symlink()
