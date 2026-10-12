@@ -358,3 +358,48 @@ experiment later becomes necessary, first prepare a compatible small
 standalone context with valid native inputs, safe resource limits,
 service rollback and an explicit maintenance plan. No automatic
 `qnn-net-run` execution against the cached Qwen3 contexts.
+
+## GenieX context load-list configuration cross-check (2026-10-12)
+
+Qualcomm's open-source GenieX QAIRT plugin, specifically
+`core/src/llm/llm_spec_loader.cpp` in
+`modelConfigFromDirectory()`, reads the ordered
+`dialog.engine.model.binary.ctx-bins` array from `genie_config.json`
+into `ModelConfig.model_paths` when the configuration is present.
+For multi-engine bundles it chooses a target engine instead of mixing
+target and draft contexts. When no context list is available, the
+implementation has a separate lexically sorted `*.bin` fallback.
+This makes **`genie_config.json` a more relevant source of model
+context order than `geniex.json`'s `ModelFile`/`ExtraFiles`
+download references**.
+
+The safe inventory now parses just this allowlisted JSON structure,
+matches every relative path to a previously discovered candidate, and
+logs inventory slot numbers only. On the real VENTUNO Q it returned:
+
+- Status: **complete-declared-order**.
+- Listed context inventory slots: **[2, 0, 1, 3]**, or **C → A → B → D**.
+- All four references were resolved uniquely.
+- This configured order agrees with the previously observed
+  candidate output/input tensor matches C→A, A→B, B→D.
+- The separate `geniex.json` manifest reference order
+  **[3, 2, 0, 1]** must **not** be used as an execution-order source.
+
+**Interpretation:** We have verified the cached configuration's intended
+context-list order and its consistency with structural data-flow
+hints. We have **not** observed which loader implementation/version
+the live GenieX process invoked, its graph execution schedule,
+the exact mapping of metadata graph indices to execution input-list slots,
+or actual NPU cycles. No process tracing, extra model load, service
+interruption or privileged access was performed.
+
+Upstream source (vendor):
+https://github.com/qualcomm/geniex-qairt-plugin/blob/main/core/src/llm/llm_spec_loader.cpp
+
+Read-only diagnostic step:
+https://github.com/Harrokk/Myai/actions/runs/38212471426
+
+**Maintenance profiling remains NO-GO** until an independently
+reproducible, resource-bounded QAIRT profile method and rollback plan are
+ready. Do not treat a four-item config list alone as permission to
+stop production GenieX or execute one of the 4B cached contexts.
