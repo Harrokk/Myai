@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-voice-checkout"
           /home/arduino/MyAI/.venv/bin/python \
-            scripts/ventuno_stt_wheel_preflight.py \
+            -m scripts.ventuno_stt_wheel_preflight \
             --runner-temp "$RUNNER_TEMP"
           echo 'Whisper compatibility checked; no STT model downloaded.'
 
