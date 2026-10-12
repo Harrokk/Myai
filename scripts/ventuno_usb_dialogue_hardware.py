@@ -25,6 +25,7 @@ from scripts.ventuno_whisper_tiny_cpu_smoke import (
     MAX_AS_BYTES, MAX_CPU_SECONDS, model_integrity,
 )
 from scripts.ventuno_tts_temp_stage import espeak_paths
+from scripts.ventuno_usb_speaker_smoke import quiet_wav_from_tts
 from scripts import ventuno_geniex_tts_bridge as api_bridge
 
 DEVICE = "plughw:1,0"
@@ -220,6 +221,33 @@ def build_ports(root: Path) -> DialogPorts:
             raise ValueError("temporary-swedish-wav-failed")
         return done.stdout
 
+
+    def announce_start() -> bool:
+        # Audible coordination: this announcement finishes BEFORE arecord
+        # opens. Only the literal safe phrase is rendered; volume capped.
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = (
+            str(root / TTS_FOLDER / "extracted/usr/lib/aarch64-linux-gnu")
+            + os.pathsep + env.get("LD_LIBRARY_PATH", "")
+        )
+        try:
+            prepared = subprocess.run(
+                [str(executable), "--path=" + str(data.parent),
+                 "-v", "sv", "--stdout", "Säg: Vad heter du."],
+                cwd=root / TTS_FOLDER,
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                check=False, timeout=9,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if prepared.returncode or len(prepared.stdout) > 700_000:
+            return False
+        safe_wav, _info = quiet_wav_from_tts(prepared.stdout)
+        if safe_wav is None:
+            return False
+        # Reuse the same narrowly scoped ALSA playback port.
+        return play(safe_wav)
+
     def play(audio: bytes) -> bool:
         # The caller has applied quiet_wav_from_tts(), limiting peak to 4%.
         try:
@@ -241,6 +269,7 @@ def build_ports(root: Path) -> DialogPorts:
         play_usb=play,
         fresh_readiness=inspect,
         available_ram_kib=mem_available_kib,
+        audible_start_cue=announce_start,
     )
 
 
