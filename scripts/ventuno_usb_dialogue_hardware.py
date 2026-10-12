@@ -255,3 +255,40 @@ def run_one_authorized_hardware_dialog(root: Path, *,
     return OneShotUsbDialog(ports).run(
         consent_to_record=consent_to_record, consent_to_play=consent_to_play,
     )
+
+
+def main() -> int:
+    """User-initiated CLI only; importing this module can never open devices."""
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--isolated-runner-directory", type=Path, required=True)
+    parser.add_argument("--allow-exactly-one-three-second-recording",
+                        action="store_true")
+    parser.add_argument("--allow-exactly-one-low-level-answer",
+                        action="store_true")
+    args = parser.parse_args()
+    record = args.allow_exactly_one_three_second_recording
+    play = args.allow_exactly_one_low_level_answer
+    if not (record and play):
+        print(json.dumps({"status": "not-authorized",
+                          "physical_dialogue_attempted": False}))
+        return 0
+    try:
+        outcome = run_one_authorized_hardware_dialog(
+            args.isolated_runner_directory,
+            consent_to_record=record, consent_to_play=play,
+        )
+    except (ValueError, RuntimeError, TypeError, OSError):
+        outcome = {
+            "status": "one-shot-isolated-hardware-preflight-failed",
+            "physical_dialogue_attempted": False,
+        }
+    print("VENTUNO USB dialogue one-shot result:",
+          json.dumps(outcome, sort_keys=True))
+    return 0 if outcome.get("status") == (
+        "one-shot-usb-dialogue-alsa-playback-completed"
+    ) else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
