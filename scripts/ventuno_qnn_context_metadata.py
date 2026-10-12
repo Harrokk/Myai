@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import json
 import os
-import resource
+try:
+    import resource
+except ImportError:  # unavailable on Windows development hosts
+    resource = None
 import shutil
 import subprocess
 import tempfile
@@ -110,6 +113,8 @@ def summarize_context_metadata(data: object) -> dict[str, object]:
 
 def limit_child_resources() -> None:
     # Limit total virtual memory, CPU time, and output file size.
+    if resource is None:
+        return
     resource.setrlimit(resource.RLIMIT_AS, (3 * 1024**3, 3 * 1024**3))
     resource.setrlimit(resource.RLIMIT_CPU, (18, 18))
     resource.setrlimit(resource.RLIMIT_FSIZE, (4 * 1024**2, 4 * 1024**2))
