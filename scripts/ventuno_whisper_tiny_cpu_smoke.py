@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from scripts.ventuno_voice_wheel_staging import disk_free_bytes, mem_available_kib
+from scripts.ventuno_swedish_reference_audio import validate_swedish_sample
 
 REPO = "Systran/faster-whisper-tiny"
 REVISION = "d90ca5fe260221311c53c58e660288d3deb8d356"
@@ -78,6 +79,26 @@ segments, info=model.transcribe(
 )
 results=list(segments)
 finish=time.monotonic()
+speech_attempted=False
+speech_word_match=False
+speech_decode_seconds=None
+speech_segment_count=None
+source=os.environ.get("MYAI_SWEDISH_OGG_PATH")
+if source:
+    speech_attempted=True
+    audio_start=time.monotonic()
+    speech, audio_info=model.transcribe(
+        source, language="sv", task="transcribe",
+        beam_size=1, best_of=1, condition_on_previous_text=False,
+        vad_filter=False, without_timestamps=True,
+        no_speech_threshold=0.6,
+    )
+    words=list(speech)
+    speech_decode_seconds=round(time.monotonic()-audio_start,3)
+    speech_segment_count=len(words)
+    # Public fixture content only; recognized words are not logged.
+    normalized=" ".join(seg.text for seg in words).lower()
+    speech_word_match="svenska" in normalized
 # No recognized text, user speech or model path is logged.
 print(json.dumps({
     "model_load_seconds": round(loaded-start,3),
@@ -86,6 +107,10 @@ print(json.dumps({
     "language_requested": "sv",
     "segments_returned": len(results),
     "speech_accuracy_tested": False,
+    "swedish_public_word_attempted": speech_attempted,
+    "swedish_public_word_recognized": speech_word_match,
+    "swedish_public_word_inference_seconds": speech_decode_seconds,
+    "swedish_public_word_segments": speech_segment_count,
     "microphone_used": False,
     "npu_used": False,
     "model_created_on_cpu": True,
@@ -153,7 +178,7 @@ def model_integrity(path: Path) -> dict[str, object]:
 
 def run_restricted(python: Path, program: str,
                    root: Path, model: Path, *, timeout: int,
-                   inference: bool) -> dict[str, object]:
+                   inference: bool, speech_path: Path | None = None) -> dict[str, object]:
     import resource
     env = os.environ.copy()
     env.update({
@@ -168,6 +193,8 @@ def run_restricted(python: Path, program: str,
         "OPENBLAS_NUM_THREADS": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
     })
+    if speech_path is not None:
+        env["MYAI_SWEDISH_OGG_PATH"] = str(speech_path)
     if inference:
         env["HF_HUB_OFFLINE"] = "1"
         env["TRANSFORMERS_OFFLINE"] = "1"
@@ -227,6 +254,8 @@ def smoke(sandbox_python: Path, root: Path,
         "model_memory_peak_mib": None,
         "microphone_used": False,
         "language_accuracy_verified": False,
+        "swedish_public_word_attempted": False,
+        "swedish_public_word_recognized": None,
         "model_installed_in_production": False,
         "geniex_restarted": False,
     }
@@ -258,9 +287,24 @@ def smoke(sandbox_python: Path, root: Path,
     if (mem_available_kib() or 0) < MIN_MEM_AVAILABLE_KIB:
         report["status"] = "no-go-memory-budget-after-download"
         return report
+    sample = root / "myai-whisper-swedish-word.ogg"
+    sample_path = None
+    if sample.exists() or sample.is_symlink():
+        if sample.is_symlink() or not sample.is_file():
+            report["status"] = "reject-swedish-fixture-path"
+            return report
+        try:
+            raw = sample.read_bytes() if sample.stat().st_size < 30_001 else b""
+        except OSError:
+            raw = b""
+        if not validate_swedish_sample(raw):
+            report["status"] = "reject-swedish-audio-integrity"
+            return report
+        sample_path = sample
     result = run_restricted(
         sandbox_python, _RUN, root, folder,
         timeout=INFERENCE_TIMEOUT_SECONDS, inference=True,
+        speech_path=sample_path,
     )
     if not result["succeeded"]:
         report["status"] = "stt-cpu-inference-failed"
@@ -279,6 +323,17 @@ def smoke(sandbox_python: Path, root: Path,
     ):
         report["status"] = "reject-invalid-cpu-inference-measurement"
         return report
+    if sample_path is not None:
+        if (
+            measurements.get("swedish_public_word_attempted") is not True
+            or type(measurements.get("swedish_public_word_recognized")) is not bool
+        ):
+            report["status"] = "reject-incomplete-swedish-word-measurement"
+            return report
+        report["swedish_public_word_attempted"] = True
+        report["swedish_public_word_recognized"] = (
+            measurements["swedish_public_word_recognized"]
+        )
     report["cpu_inference_verified"] = True
     report["model_memory_peak_mib"] = measurements["peak_rss_mib"]
     report["cpu_measurements"] = measurements
