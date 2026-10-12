@@ -21,6 +21,7 @@ def test_package_path_size_and_arch_restrictions(tmp_path):
     candidate = tmp_path / "libportaudio2_19.6-1_arm64.deb"
     candidate.write_bytes(b"dummy")
     assert pa.valid_package(candidate, tmp_path)
+    assert not pa.valid_package(candidate, tmp_path, "unapproved")
     wrong = tmp_path / "libportaudio2_19.6-1_amd64.deb"
     wrong.write_bytes(b"dummy")
     assert not pa.valid_package(wrong, tmp_path)
@@ -34,6 +35,8 @@ def test_extracted_library_must_resolve_inside_temp(tmp_path):
     lib.write_bytes(b"synthetic")
     (libs / "libportaudio.so.2").symlink_to(lib.name)
     assert pa.extracted_library(root) == lib.resolve()
+    (libs / "libjack.so.0").write_bytes(b"synthetic-jack")
+    assert pa.extracted_library(root, "libjack.so.0") is not None
 
 
 def test_escape_symlink_is_rejected(tmp_path):
@@ -61,13 +64,18 @@ def test_no_root_install_only_apt_download_dpkg_extract(monkeypatch, tmp_path):
         assert kwargs["cwd"] in (base, stage)
         assert argv[0] not in ("sudo", "apt-get", "dpkg")
         assert "install" not in argv
-        if argv[1:] == ["download", "libportaudio2"]:
+        if argv[1:3] == ["download", "libportaudio2"]:
             (stage / "libportaudio2_19.6_arm64.deb").write_bytes(b"package")
+        if argv[1:3] == ["download", "libjack-jackd2-0"]:
+            (stage / "libjack-jackd2-0_1.9_arm64.deb").write_bytes(b"package")
         if "--extract" in argv:
             out = Path(argv[-1])
             libdir = out / "usr" / "lib" / "aarch64-linux-gnu"
-            libdir.mkdir(parents=True)
-            (libdir / "libportaudio.so.2").write_bytes(b"verified")
+            libdir.mkdir(parents=True, exist_ok=True)
+            if "libportaudio2_" in argv[-2]:
+                (libdir / "libportaudio.so.2").write_bytes(b"verified")
+            if "libjack-jackd2-0_" in argv[-2]:
+                (libdir / "libjack.so.0").write_bytes(b"verified")
         return {"success": True, "exit_code": 0}
 
     monkeypatch.setattr(pa, "run_bounded", simulated)
@@ -76,8 +84,9 @@ def test_no_root_install_only_apt_download_dpkg_extract(monkeypatch, tmp_path):
     assert result["sounddevice_import_with_isolated_portaudio"] is True
     assert result["system_packages_installed"] is False
     assert result["audio_stream_opened"] is False
-    assert len(calls) == 4
+    assert len(calls) == 7
     assert calls[0][1:] == ["download", "libportaudio2"]
+    assert calls[3][1:] == ["download", "libjack-jackd2-0"]
     assert calls[-1][1:3] == ["-I", "-c"]
     assert "import sounddevice" in calls[-1][-1]
 
