@@ -468,6 +468,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-checkout"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_qnn_context_metadata.py
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qnn_context_metadata.py
 
       - name: Check runner and MyAI service persistence
