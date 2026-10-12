@@ -1,0 +1,103 @@
+name: VENTUNO isolated Swedish eSpeak TTS synthesis
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-tts-isolated.yml
+      - scripts/ventuno_tts_synthesis_probe.py
+      - scripts/ventuno_tts_temp_stage.py
+      - tests/test_ventuno_tts_synthesis_probe.py
+      - tests/test_ventuno_tts_temp_stage.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-tts-isolated
+  cancel-in-progress: false
+
+jobs:
+  tts:
+    name: ARM64 Swedish offline TTS without playback or system install
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact commit on isolated runner workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-tts-checkout"
+          cd "$RUNNER_TEMP/myai-tts-checkout"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test staging guardrails without downloading or opening audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tts-checkout"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q \
+            tests/test_ventuno_tts_temp_stage.py \
+            tests/test_ventuno_tts_synthesis_probe.py
+
+      - name: Confirm live services and voice disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          profile = json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text())
+          voice = profile.get("voice", {})
+          assert voice.get("enabled") is not True
+          assert voice.get("tts_enabled") is not True
+          assert voice.get("handsfree_enabled") is not True
+          print("MyAI production voice settings remain disabled.")
+          PY
+
+      - name: Download only official distro ARM64 eSpeak packages to runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tts-checkout"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_tts_temp_stage --runner-temp "$RUNNER_TEMP"
+          echo 'Swedish TTS synthesized in memory only; no audio playback.'
+
+      - name: Confirm production services still active
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo 'No GenieX or MyAI restart or reconfiguration performed.'
+
+      - name: Remove every downloaded voice package and temporary library
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_TEMP" in
+            ""|"/"|/home/arduino/MyAI/.venv*) exit 2 ;;
+          esac
+          dir="$RUNNER_TEMP/myai-tts-espeak-stage"
+          if test -d "$dir" && ! test -L "$dir"; then
+            rm -rf -- "$dir"
+          fi
+          echo 'Only temporary eSpeak packages removed.'
+          echo 'No microphone, speaker, system packages or production model changed.'
