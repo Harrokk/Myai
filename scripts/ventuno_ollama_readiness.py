@@ -23,6 +23,7 @@ RECOMMENDED_MODEL = "qwen3:0.6b"
 MAX_HTTP_BODY = 64 * 1024
 MIN_SPARE_RAM_KIB = 2 * 1024 * 1024
 MIN_SPARE_DISK_BYTES = 2 * 1024 * 1024 * 1024
+USER_LOCAL_BINARY = Path("/home/arduino/.local/opt/myai-ollama/v0.34.0/bin/ollama")
 
 
 def _local_json(path: str) -> dict[str, object] | None:
@@ -45,6 +46,7 @@ def inspect_ollama(
     machine: str | None = None,
     available_mem_kib: int | None = None,
     free_disk_bytes: int | None = None,
+    user_local_binary: Path = USER_LOCAL_BINARY,
 ) -> dict[str, object]:
     machine = platform.machine() if machine is None else machine
     if available_mem_kib is None:
@@ -52,9 +54,17 @@ def inspect_ollama(
     if free_disk_bytes is None:
         free_disk_bytes = disk_free_bytes(Path("/"))
     binary = shutil.which("ollama")
+    try:
+        staged_exists = (
+            not user_local_binary.is_symlink()
+            and user_local_binary.is_file()
+            and os.access(user_local_binary, os.X_OK)
+        )
+    except (OSError, ValueError):
+        staged_exists = False
     version = _local_json("/api/version")
     tags = _local_json("/api/tags") if version is not None else None
-    installed = bool(binary)
+    installed = bool(binary) or staged_exists
     server = isinstance(version, dict) and isinstance(version.get("version"), str)
     models = tags.get("models") if isinstance(tags, dict) else None
     model_ready = (isinstance(models, list) and any(
