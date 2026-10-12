@@ -68,3 +68,61 @@ are checked before and after.
 **Run result pending verification at checkpoint creation.** A CI
 `success` without phrase matches counts as a **completed negative
 diagnostic**, not successful Swedish speech recognition.
+
+
+## Verified actual VENTUNO Q test result
+
+After an initial trivial missing `argparse` import was fixed,
+the entire comparison completed successfully on the actual
+VENTUNO Q self-hosted ARM64 runner:
+
+- Comparison source commit:
+  `452bfbbea3b577eb5c1999624665180de6be8fd8`
+- GitHub Actions run:
+  https://github.com/Harrokk/Myai/actions/runs/38282373164
+- Job `114922481879`, **success**, all workflow steps
+  including staging, model integrity, measurements and cleanup passed.
+- **103 / 103** targeted regression tests passed.
+- Pinned multilingual Tiny passed its pre-existing licensed
+  Swedish public pronunciation word control.
+- SHA256-verified multilingual Base loaded correctly on VENTUNO
+  using local ARM64 CPU.
+- Both models processed exactly two offline synthetic Swedish
+  pronunciations of "Vad heter du?", each with beam sizes 1 and 5.
+- **All eight** strict full-phrase matching checks were false:
+  Tiny: 0/2 with beam 1, 0/2 with beam 5;
+  Base: 0/2 with beam 1, 0/2 with beam 5.
+- All eight returned the coarse classification
+  `other-unmatched`, meaning the decoded phrase was neither
+  exactly the target nor an empty/two-word string. Exact
+  decoded words were **not** logged or saved.
+- Tiny CPU inference: 1.47–2.00 seconds per synthetic case/beam,
+  model load 0.472 seconds, worker peak RSS ~242.5 MiB.
+- Base CPU inference: 1.72–6.41 seconds per synthetic case/beam,
+  model load 0.702 seconds, worker peak RSS ~322.8 MiB.
+  These are limited synthetic one-off worker measurements,
+  **not** end-to-end conversational latency benchmarks.
+- No real microphone, physical playback, Ollama or GenieX
+  calls were made; both active production services stayed running,
+  and temporary model weights, synthetic audio and logs were removed.
+
+### Engineering conclusion
+
+**Upgrading from Tiny to Base alone did not improve recognition
+of this exact synthetic Swedish short question**, even with
+beam size 5. This does not imply that either model cannot
+recognize Swedish generally, and does not prove a microphone
+or Whisper decoder defect. eSpeak NG's synthetic articulation,
+the particular short question, and strict literal phrase
+matching all remain plausible contributors.
+
+Do not change the running MyAI default STT model, enable
+handsfree, or make another real microphone recording on the
+strength of these results. Recommended next **synthetic-only**
+diagnostic: quantify how close the eight decoded strings were
+to the target without exposing any raw text (e.g. Levenshtein
+distance bands, position/token agreement), and compare against
+an independently sourced, natural or higher-quality Swedish
+sample of the exact phrase if one can be license/identity
+verified. Only authorize another physical mic test after
+controlled accuracy improves.
