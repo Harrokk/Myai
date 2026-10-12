@@ -118,3 +118,27 @@ higher-quality Swedish voice in a disposable environment.
 No new microphone or loudspeaker test was authorized in
 this diagnostic stage. The running Whisper default,
 MyAI/GenieX services and installed Ollama remain unchanged.
+
+
+## Higher-quality Swedish voice candidate for next test
+
+A different-quality Swedish synthetic voice is worth testing before
+any further recording of the user:
+
+- Piper `sv_SE/alma/medium` TTS model card:
+  https://huggingface.co/rhasspy/piper-voices/blob/main/sv/sv_SE/alma/medium/MODEL_CARD
+- This model card identifies the voice as Swedish `sv_SE`,
+  trained on the NST Swedish TTS corpus (studio recordings),
+  sample rate 22,050 Hz, and states **CC BY 4.0** terms
+  for the voice weights. Follow the model-card attribution terms.
+- Model repository:
+  https://huggingface.co/rhasspy/piper-voices/tree/main/sv/sv_SE/alma/medium
+
+**This is a candidate, NOT an installed or verified VENTUNO model.**
+Before a real ARM64 test, pin exact revision + SHA256 model/config,
+check licensing/attribution, confirm bounded ARM64 runtime availability
+and disk/RAM headroom, synthesize the same fixed phrase in a private
+temporary workspace, and run the unchanged Whisper Tiny/Base strict
+recognition checks. Do not rely on the fact that Piper uses studio
+voice training as proof that it will solve Swedish ASR; it remains
+an experiment. No microphone or playback permission is implied.
