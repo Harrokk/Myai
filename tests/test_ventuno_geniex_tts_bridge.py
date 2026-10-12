@@ -13,7 +13,7 @@ import pytest
 import scripts.ventuno_geniex_tts_bridge as bridge
 
 
-def test_wav():
+def make_wav():
     rate = 22050
     samples = [int(3000 * math.sin(2 * math.pi * 220 * n / rate))
                for n in range(rate)]
@@ -93,7 +93,7 @@ def test_bounded_live_local_response_to_real_pipeline_to_wav(monkeypatch, tmp_pa
         assert "Hej från GenieX." not in str(argv)
         assert kwargs["timeout"] <= 12
         assert kwargs["capture_output"] is True
-        return SimpleNamespace(returncode=0, stdout=test_wav(), stderr=b"")
+        return SimpleNamespace(returncode=0, stdout=make_wav(), stderr=b"")
     monkeypatch.setattr(bridge, "fetch_small_json", fake_api)
     monkeypatch.setattr(bridge.subprocess, "run", fake_espeak)
     report = bridge.run_live_voice_bridge(
