@@ -355,7 +355,13 @@ def smoke(sandbox_python: Path, root: Path,
     report["cpu_inference_verified"] = True
     report["model_memory_peak_mib"] = measurements["peak_rss_mib"]
     report["cpu_measurements"] = measurements
-    report["status"] = "tiny-sv-cpu-silence-inference-verified"
+    report["status"] = (
+        "tiny-sv-cpu-word-and-silence-verified"
+        if report["swedish_public_word_recognized"] is True
+        else "tiny-sv-cpu-word-unmatched"
+        if report["swedish_public_word_attempted"]
+        else "tiny-sv-cpu-silence-inference-verified"
+    )
     return report
 
 
