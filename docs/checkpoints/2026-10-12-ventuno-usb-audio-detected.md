@@ -156,3 +156,51 @@ The user's authorization was only for this single capture.
 Do **not** rerun the capture. The next logical step is a
 separately authorized, safely volume-limited physical USB speaker
 test, or alternatively a no-playback metadata preflight.
+
+
+## One-time user-approved USB speaker playback: ALSA success
+
+The user gave permission to play one low-volume Swedish speaker test
+using the connected USB sound card on VENTUNO Q. The dedicated
+one-time workflow was triggered by the exact authorization commit
+`036b85aadd80da6b6a12f9e1abc7fdcbbe91fb26` and
+`github.run_attempt == 1`. It cannot repeat through an ordinary
+workflow retry.
+
+Source: `scripts/ventuno_usb_speaker_smoke.py`;
+test suite: `tests/test_ventuno_usb_speaker_smoke.py`;
+workflow: `.github/workflows/ventuno-usb-speaker-consent-once.yml`.
+
+**Actual GitHub Actions run:**
+https://github.com/Harrokk/Myai/actions/runs/38250308186
+Job ID `114814586738`, concluded **success**.
+- Exactly **28/28** targeted mock-only safety tests passed.
+- USB ALSA card 1, PCM playback 0 was still accessible and `aplay`
+  CLI flags were supported.
+- eSpeak NG and Swedish voice data were downloaded from trusted
+  distro packages and extracted only into a fresh runner temporary
+  workspace; synthetic MyAI VoicePipeline-to-TTS synthesis succeeded.
+- A single fixed phrase, `Hej. Jag heter My AI.`, was synthesized
+  in memory, limited to at most **4% digital peak** (about -28 dBFS)
+  and passed to `aplay --device=plughw:1,0 --file-type=wav`.
+- WAV sample rate: **22,050 Hz**. Duration: **2.09 seconds**.
+  Measured PCM digital peak after limiting: **0.039978**.
+- `aplay` returned exit code 0:
+  `usb-speaker-pcm-playback-completed`.
+- No audio files or microphone recordings were made; no mixer
+  controls written or production MyAI/GenieX voice settings changed.
+  Both services remained active after cleanup of all temporary files.
+
+**Verification boundary:** This proves the fixed Swedish test PCM
+was accepted by USB playback. It does **not** prove the user could
+physically hear the sound, its intelligibility or acoustic level,
+full-duplex communication, microphone-to-Whisper chain, or usable
+MyAI handsfree conversation. The result explicitly reports
+`audible_sound_confirmed_by_person=false`.
+
+**Next step:** Ask user if the exact one-time phrase was heard from
+the USB speaker. Do not replay audio automatically without a new
+request. With hearing confirmed, build a separately validated
+USB input->Whisper STT->MyAI/GenieX->Swedish TTS->USB output
+integration with explicit per-stage resource bounds and rollback,
+without immediately enabling the production voice flags.
