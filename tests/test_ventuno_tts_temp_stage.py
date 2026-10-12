@@ -55,7 +55,20 @@ def test_symlink_espeak_binary_rejected(tmp_path):
 
 
 def test_no_apt_install_or_device_output(monkeypatch, tmp_path):
-    from tests.test_ventuno_tts_synthesis_probe import make_wav
+    import io
+    import math
+    import struct
+    import wave
+
+    wav_stream = io.BytesIO()
+    samples = [int(2400 * math.sin(2 * math.pi * 220 * i / 22050))
+               for i in range(22050)]
+    with wave.open(wav_stream, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(22050)
+        writer.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+    sample_wav = wav_stream.getvalue()
     root = tmp_path / "myai-tts-espeak-stage"
     monkeypatch.setattr(stage.shutil, "which", lambda tool: "/usr/bin/" + tool)
     monkeypatch.setattr(stage.shutil, "disk_usage", lambda path:
@@ -86,7 +99,7 @@ def test_no_apt_install_or_device_output(monkeypatch, tmp_path):
             assert "--stdout" in args
             assert "-v" in args and "sv" in args
             assert kwargs["timeout"] <= 8
-            return {"ok": True, "stdout": make_wav()}
+            return {"ok": True, "stdout": sample_wav}
         return {"ok": True}
 
     monkeypatch.setattr(stage, "run_command", fake)
