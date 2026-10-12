@@ -88,3 +88,74 @@ yet been independently checked at checkpoint creation.** A failed
 dependency installation or source checksum is a blocked test,
 NOT a negative Swedish recognition result. Do not claim
 recognition improvement unless the verified run completes.
+
+
+## Actual VENTUNO Q results: all eight Piper Alma recognitions succeeded
+
+The genuine self-hosted ARM64 run completed with all steps
+successful:
+
+- Exact workflow source commit:
+  `8f4262a9360e4b4ce78f373792fed1c1ff1f8e5c`
+- Run: https://github.com/Harrokk/Myai/actions/runs/38284679674
+- Job: `114930090247`, conclusion **success**.
+- **120 / 120** targeted mock/security/regression tests passed.
+- The official Piper ARM64 1.8.0 wheel was SHA256-verified and
+  installed only into a disposable virtual environment.
+- The Swedish Piper Alma model was downloaded with an immutable
+  revision locator; actual ONNX weight SHA256 verified against
+  `f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc`.
+- Two in-memory Piper variants (normal speaking speed and
+  25% slower) were converted to the same 3 s / 16 kHz /
+  mono S16_LE recording format as the previous eSpeak
+  synthetic test and the physical USB microphone.
+- Identical pinned multilingual Whisper Tiny and Base, with
+  decoding `beam_size=1` and `beam_size=5`, were run
+  in separate CPU processes, without expected-text prompting.
+- **8/8 strict exact phrase matches** for
+  `Vad heter du?` after plain normalization.
+  Every decoded result contained all 3 correct words,
+  all 3 at the expected positions and in order.
+  The edit-distance band was **0** for every result.
+- Tiny: **4/4**; Base: **4/4**.
+- Whisper worker peak RSS ~**236.2 MiB** for Tiny, ~**314.9 MiB**
+  for Base (does not include Piper render peak or concurrent
+  MyAI end-to-end memory use).
+- No user microphone, real speaker, real user recording,
+  networked model provider chat, or production voice service was
+  involved. Whisper/Piper temporary model files, WAV and checkout
+  were removed. MyAI/GenieX stayed active and local Ollama
+  installation was untouched.
+
+### Engineering interpretation
+
+Compared with the earlier eSpeak-generated synthetic question,
+which had **0/8 matches** in the identical model/beam matrix,
+Piper Alma's higher-quality Swedish question had **8/8 exact
+matches**. This strongly suggests **the synthetic eSpeak
+pronunciation was an unreliable evaluation input**, not that
+Whisper Tiny fundamentally cannot transcribe this Swedish
+question.
+
+**Important limitation:** This does NOT establish the cause of
+the real user's two rejected microphone utterances. The original
+physical audio was deliberately discarded, so possible recording
+timing/position/USB capture quality, surrounding sound and
+ASR-specific errors remain unverified. The Piper-generated
+speech is still synthetic, not a natural human recording.
+
+### Next recommended gate
+
+1. Retain Whisper Tiny (beam 1) as the minimal-resource
+   candidate for the next evaluation; do **not** deploy Whisper
+   Base automatically since Base added no benefit here.
+2. The next meaningful accuracy control is an independently
+   licensed, verified human Swedish pronunciation of the
+   **same** question, processed without mic or speaker.
+3. If the user explicitly authorizes another one-time real
+   microphone test, add a fresh audible cue and use only
+   constrained diagnostic categories. Never infer previously
+   discarded speech content or retry old approvals.
+4. Do not loosen safe command matching, enable handsfree or
+   replace the active GenieX/Ollama runtime as a response
+   to this experiment.
