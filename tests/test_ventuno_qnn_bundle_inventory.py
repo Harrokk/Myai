@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from scripts.ventuno_qnn_bundle_inventory import (
-    context_order_from_genie_config, find_bundle, graph_info,
+    candidate_graph_index_map, context_order_from_genie_config, find_bundle, graph_info,
     inspect_genie_config, manifest_reference_summary, manifest_refs,
     overlap_counts, summarize_graphs,
 )
@@ -204,3 +204,49 @@ def test_genie_order_report_never_prints_model_paths(tmp_path):
     assert "context-0.bin" not in text
     assert "context-1.bin" not in text
     assert str(tmp_path) not in text
+
+
+def test_candidate_global_graph_index_mapping_follows_ctx_bin_order():
+    declared = {
+        "complete_ctx_bin_reference_list": True,
+        "declared_inventory_slots": [2, 0, 1, 3],
+    }
+    result = candidate_graph_index_map(declared, [10, 10, 10, 10])
+    assert result["status"] == "candidate-vendor-global-graph-indices"
+    assert result["candidate_index_ranges"] == [
+        {"context_inventory_slot": 2, "first_index": 0, "last_index": 9},
+        {"context_inventory_slot": 0, "first_index": 10, "last_index": 19},
+        {"context_inventory_slot": 1, "first_index": 20, "last_index": 29},
+        {"context_inventory_slot": 3, "first_index": 30, "last_index": 39},
+    ]
+    assert result["live_execution_order_proven"] is False
+    assert result["qnn_net_run_graph_slots_proven"] is False
+
+
+def test_candidate_indices_reject_wrong_graph_counts():
+    declared = {
+        "complete_ctx_bin_reference_list": True,
+        "declared_inventory_slots": [2, 0, 1, 3],
+    }
+    for counts in ([10, 10, 9, 10], [10, 10, None, 10],
+                   [10, 0, 10, 10], [10, True, 10, 10]):
+        result = candidate_graph_index_map(declared, counts)
+        assert result["status"] == "no-go-insufficient-graph-index-evidence"
+
+
+def test_candidate_indices_reject_duplicate_or_unverified_order():
+    for order in ([0, 0, 1, 3], [2, 0, 1], [2, 0, 1, 4]):
+        report = {
+            "complete_ctx_bin_reference_list": True,
+            "declared_inventory_slots": order,
+        }
+        assert candidate_graph_index_map(
+            report, [10, 10, 10, 10]
+        )["status"] == "no-go-insufficient-graph-index-evidence"
+    report = {
+        "complete_ctx_bin_reference_list": False,
+        "declared_inventory_slots": [0, 1, 2, 3],
+    }
+    assert candidate_graph_index_map(
+        report, [10, 10, 10, 10]
+    )["status"] == "no-go-insufficient-graph-index-evidence"
