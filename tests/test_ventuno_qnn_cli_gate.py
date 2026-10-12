@@ -1,5 +1,8 @@
 """Safety and capability tests for read-only QNN profiling gate."""
-from scripts.ventuno_qnn_cli_gate import assess_help, help_documents_graph_skip, parse_flags
+from scripts.ventuno_qnn_cli_gate import (
+    assess_help, build_single_graph_input_list_arg,
+    help_documents_graph_skip, parse_flags,
+)
 
 
 def test_parse_flags_discards_example_values():
@@ -91,3 +94,39 @@ def test_graph_selector_still_requires_review_when_skip_is_documented():
     report = assess_help(text)
     assert report["status"] == "review-graph-selection-semantics"
     assert report["direct_npu_profile_verified"] is False
+
+
+def test_multigraph_skip_argument_has_exactly_one_selected_list():
+    result = build_single_graph_input_list_arg(10, 5, "temporary/input_list.txt")
+    slots = result.split(",")
+    assert len(slots) == 10
+    assert slots[5] == "temporary/input_list.txt"
+    assert slots.count("__") == 9
+
+
+def test_single_graph_has_no_skip_marker():
+    assert build_single_graph_input_list_arg(1, 0, "example.txt") == "example.txt"
+
+
+def test_invalid_graph_indexes_fail_closed():
+    import pytest
+    for total, selected in ((0, 0), (25, 0), (10, -1), (10, 10),
+                            (True, 0), (10, True)):
+        with pytest.raises(ValueError, match="invalid-graph-selection"):
+            build_single_graph_input_list_arg(total, selected, "safe.txt")
+
+
+def test_reject_unsafe_input_paths():
+    import pytest
+    invalid = ("__", "a,b", "a b", "-option", "../tmp/${HOME}",
+               "foo\nbar", "", "a" * 256)
+    for path in invalid:
+        with pytest.raises(ValueError, match="unsafe-input-list-path"):
+            build_single_graph_input_list_arg(10, 5, path)
+
+
+def test_build_plan_never_opens_files(tmp_path):
+    missing_path = str(tmp_path / "nonexistent.raw")
+    output = build_single_graph_input_list_arg(2, 1, missing_path)
+    assert output.endswith(missing_path)
+    assert not (tmp_path / "nonexistent.raw").exists()
