@@ -278,7 +278,7 @@ def validate_temp_fixture(data: object, base: Path) -> dict[str, object]:
             return {"status": "inconclusive", "reason": "size-mismatch"}
         entries.append(f"{name}:={target}")
     manifest = output_dir / "input_list.txt"
-    manifest.write_text(" ".join(entries) + "\\n", encoding="utf-8")
+    manifest.write_text(" ".join(entries) + "\n", encoding="utf-8")
     if len(manifest.read_text().split()) != len(inputs):
         return {"status": "inconclusive", "reason": "manifest-entry-count"}
     return {
