@@ -141,3 +141,68 @@ Neither a stop nor any change to the live model/service was attempted.
 Never interpret success of a preflight or throughput benchmark as a
 successful direct HTP profiling session.
 
+
+## QNN context metadata and synthetic-input readiness (2026-10-12)
+
+A resource-bounded inspection of a **632.2 MiB** context binary in the
+existing GenieX cache succeeded using the installed
+`qnn-context-binary-utility --context_binary ... --json_file ...` tool.
+The probe uses a temporary output folder, a 22-second timeout and Linux
+memory/CPU/file-size limits. It never starts `qnn-net-run`, loads a second
+LLM into GenieX or changes the live systemd units.
+
+The binary reports:
+
+- **10 QNN graphs**.
+- Every graph has **28 inputs** and **25 outputs**.
+- In every graph, the input types are **24
+  `QNN_DATATYPE_UFIXED_POINT_8`** tensors and **4
+  `QNN_DATATYPE_UFIXED_POINT_16`** tensors.
+- No input tensor has unresolved dimensions or native byte length.
+- Estimated total native input-buffer sizes across the 10 graphs range from
+  approximately **9.78 MiB to 95.99 MiB**, depending on graph.
+- Per-graph metadata reports `sharedWeightsSize = 614,834,176` bytes
+  (about 586.35 MiB) in this serialized context. The repeated figure
+  **must not be added across graphs as independent memory allocations**.
+  These values describe the serialized graph structures and do not provide
+  a direct measurement of live HTP utilization or allocations.
+
+`scripts/ventuno_qnn_context_metadata.py` now generates a **temporary,
+synthetic, native-dtype input fixture** for the smallest eligible graph,
+validates sizes and the QNN `tensor_name:=raw_file` input-list structure,
+and automatically deletes all generated input files. On the VENTUNO,
+**graph index 5, 28 inputs, 9.78 MiB, 29 temporary files** passed this
+validation. Nine focused preflight tests and the regular diagnostic
+systemd tests passed.
+
+**Critical limitation:** The fixture has zero-initialized quantized input
+buffers. It is suitable for interface/size validation, **not**
+semantically valid Qwen generation or an accuracy check. No
+`qnn-net-run` execution has been performed. The current context
+contains 10 graphs and the model bundle has four separate context
+binaries; the exact multi-graph / weight-sharing load and selection
+procedure must be validated before any attempt to execute a graph or
+interrupt live GenieX.
+
+For native QNN input files, see:
+https://github.com/google-ai-edge/LiteRT/blob/main/litert/vendors/qualcomm/doc/LITERT_QNN_NATIVE_RUN.md
+
+For context metadata utility usage, see:
+https://github.com/qualcomm/qai-appbuilder/blob/main/tools/convert/dlc2bin/README.md
+
+### Next controlled execution gate
+
+A maintenance-window trial can be considered **only after** the installed
+`qnn-net-run` graph-selection and context/weight-sharing flags are
+verified against the bundled QAIRT v2.45 runtime, including any required
+backend configuration and `ADSP_LIBRARY_PATH`. If there is no supported
+way to execute a single chosen graph without all the other contexts,
+stop and use a smaller independent profiling fixture instead. Never
+silently interrupt the live model just to try unknown flags.
+
+A valid QNN profiling run must produce a profiling log that
+`qnn-profile-viewer` can read; otherwise report **profiling inconclusive**.
+Keep duration/memory limits, ensure the watchdog does not restart a
+maintenance-stopped service, restore services on every exit path, and
+verify GenieX's API plus MyAI heartbeat after restoration.
+
