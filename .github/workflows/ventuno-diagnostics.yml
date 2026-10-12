@@ -144,6 +144,46 @@ jobs:
           (lsmod 2>/dev/null || true) | grep -Ei 'qaic|qcom|fastrpc|dsp' || true
           echo "Note: This inventory does not prove live NPU utilization."
 
+      - name: Inspect GenieX accelerator backend evidence (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+
+          needles = ("qnn", "qairt", "htp", "hexagon", "fastrpc", "adsprpc", "cdsprpc", "qaic", "npu", "dsp")
+          processes = []
+          for entry in Path("/proc").iterdir():
+              if not entry.name.isdigit():
+                  continue
+              try:
+                  comm = (entry / "comm").read_text(errors="replace").strip()
+                  cmd = (entry / "cmdline").read_bytes().replace(b"\\x00", b" ").decode(errors="replace").lower()
+                  if "geniex" in comm.lower() or "geniex" in cmd:
+                      processes.append((int(entry.name), comm))
+              except (OSError, PermissionError):
+                  continue
+          print("GenieX process count:", len(processes))
+          for pid, comm in processes:
+              root = Path("/proc") / str(pid)
+              print(f"PID {pid}, executable name: {comm}")
+              try:
+                  lines = (root / "maps").read_text(errors="replace").splitlines()
+                  libraries = sorted({line.split()[-1] for line in lines if "/" in line and
+                                      any(word in line.lower() for word in needles)})
+                  print("Accelerator-related mapped libraries (paths):", libraries[:40])
+              except (OSError, PermissionError) as exc:
+                  print("Cannot inspect maps:", type(exc).__name__)
+              try:
+                  devices = sorted({os.readlink(fd) for fd in (root / "fd").iterdir()
+                                    if any(word in os.readlink(fd).lower() for word in needles)})
+                  print("Accelerator-related open descriptors:", devices[:40])
+              except (OSError, PermissionError) as exc:
+                  print("Cannot inspect descriptors:", type(exc).__name__)
+          print("Backend library/device evidence is suggestive, not proof of NPU execution.")
+          PY
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
