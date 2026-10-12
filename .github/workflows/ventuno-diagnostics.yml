@@ -463,7 +463,7 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_geniex_benchmark.py
 
-      - name: Enumerate QNN graph IO counts and serialized sizes safely
+      - name: Validate QNN graph tensor types and native buffer requirements
         shell: bash
         run: |
           set -euo pipefail
