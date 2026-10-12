@@ -172,7 +172,16 @@ def run_public_transcript_to_wav(
     try:
         processing = pipeline.process_utterance(TRIGGER)
     except (ValueError, RuntimeError, TypeError, HTTPError, URLError,
-            TimeoutError, OSError, json.JSONDecodeError):
+            TimeoutError, OSError, json.JSONDecodeError) as error:
+        # Only allowlisted metadata: never exception str, transcript, reply,
+        # URL, model identifier, audio bytes, or stack trace in CI.
+        result["failure_class"] = type(error).__name__
+        result["failure_boundary"] = (
+            "before-llm" if responder.calls == 0
+            else "model-catalogue" if not responder.used_live_catalogue
+            else "tts-render" if tts.calls > 0
+            else "llm-answer"
+        )
         result["status"] = "inconclusive-public-transcript-voice-chain"
         return result
     result["real_public_transcript_forwarded"] = stt.calls == 1 and responder.calls == 1
