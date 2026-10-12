@@ -32,25 +32,44 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
     """
     outputs: dict[str, list[dict[str, object]]] = {"input": [], "output": []}
     section: str | None = None
+    headers_seen: set[str] = set()
+    candidate_rows: dict[str, int] = {"input": 0, "output": 0}
+    rejected_dimension_formats: set[str] = set()
     for raw in stdout[:131072].splitlines():
         line = raw.strip()
         lower = line.lower()
-        if "|" in lower and "dimensions" in lower:
+        if "dimensions" in lower:
             if "input name" in lower:
                 section = "input"
+                headers_seen.add(section)
                 continue
             if "output name" in lower:
                 section = "output"
+                headers_seen.add(section)
                 continue
-        if not line.startswith("|") or not line.endswith("|") or section is None:
+        if "|" not in line or section is None:
             continue
         parts = [p.strip() for p in line.strip("|").split("|")]
         if len(parts) < 3 or len(outputs[section]) >= 8:
             continue
-        dim_text = parts[1]
-        if not re.fullmatch(r"[0-9]+(?:,[0-9]+){0,5}", dim_text):
+        if not parts[0] or set(parts[0]) <= {"-", "+", " "}:
             continue
-        dims = [int(p) for p in dim_text.split(",")]
+        candidate_rows[section] += 1
+        dim_text = parts[1].strip().strip("[]()").strip()
+        dim_parts = re.split(r"\\s*[,xX]\\s*", dim_text)
+        if not 1 <= len(dim_parts) <= 6 or any(
+            not re.fullmatch(r"[0-9]{1,5}", item) for item in dim_parts
+        ):
+            if "[" in dim_text:
+                rejected_dimension_formats.add("bracketed-or-nested")
+            elif "," in dim_text:
+                rejected_dimension_formats.add("comma-other")
+            elif "x" in dim_text.lower():
+                rejected_dimension_formats.add("x-other")
+            else:
+                rejected_dimension_formats.add("unrecognized")
+            continue
+        dims = [int(p) for p in dim_parts]
         if not all(0 < d <= 8192 for d in dims):
             continue
         dtype = parts[2].lower()
@@ -79,6 +98,9 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
         inputs[0]["elements"] == 64
     )
     return {
+        "io_table_headers_detected": sorted(headers_seen),
+        "io_candidate_row_counts": candidate_rows,
+        "unrecognized_dimension_formats": sorted(rejected_dimension_formats),
         "dlc_declared_inputs": inputs,
         "dlc_declared_outputs": outputs["output"],
         "dlc_io_tables_both_parsed": bool(inputs and outputs["output"]),
