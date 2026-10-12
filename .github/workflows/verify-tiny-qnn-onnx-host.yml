@@ -11,6 +11,8 @@ on:
       - scripts/verify_tiny_qnn_host_sample.py
       - tests/test_prepare_tiny_qnn_host_sample.py
       - tests/test_verify_tiny_qnn_host_sample.py
+      - scripts/qairt_host_toolchain_preflight.py
+      - tests/test_qairt_host_toolchain_preflight.py
 
 permissions:
   contents: read
@@ -57,7 +59,8 @@ jobs:
           cd "$RUNNER_TEMP/tiny-qnn-checkout"
           "$RUNNER_TEMP/tiny-qnn-venv/bin/python" -m pytest -q \
             tests/test_prepare_tiny_qnn_host_sample.py \
-            tests/test_verify_tiny_qnn_host_sample.py
+            tests/test_verify_tiny_qnn_host_sample.py \
+            tests/test_qairt_host_toolchain_preflight.py
 
       - name: Generate and independently validate test model
         shell: bash
@@ -72,6 +75,17 @@ jobs:
             --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/context.bin"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/htp-profile.bin"
+
+      - name: Test QAIRT host SDK readiness without installing SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/tiny-qnn-checkout"
+          "$RUNNER_TEMP/tiny-qnn-venv/bin/python" \
+            -m scripts.qairt_host_toolchain_preflight \
+            --sdk-root "$RUNNER_TEMP/not-installed-qairt-sdk" \
+            --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture" \
+            --host linux
 
       - name: Encode only the verified synthetic fixture for manual transfer
         shell: bash
