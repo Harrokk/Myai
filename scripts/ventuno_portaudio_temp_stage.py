@@ -16,17 +16,20 @@ import subprocess
 from pathlib import Path
 
 MAX_DEB_BYTES = 3 * 1024 * 1024
+ALLOWED_PACKAGES = ("libportaudio2", "libjack-jackd2-0")
 APT_TIMEOUT = 90
 DPKG_TIMEOUT = 30
 
 
-def valid_package(path: Path, root: Path) -> bool:
+def valid_package(path: Path, root: Path, package: str = "libportaudio2") -> bool:
+    if package not in ALLOWED_PACKAGES:
+        return False
     try:
         return (
             path.parent.resolve() == root.resolve()
             and not path.is_symlink()
             and path.is_file()
-            and path.name.startswith("libportaudio2_")
+            and path.name.startswith(package + "_")
             and path.name.endswith("_arm64.deb")
             and 0 < path.stat().st_size <= MAX_DEB_BYTES
         )
@@ -34,8 +37,10 @@ def valid_package(path: Path, root: Path) -> bool:
         return False
 
 
-def extracted_library(root: Path) -> Path | None:
-    lib = root / "usr" / "lib" / "aarch64-linux-gnu" / "libportaudio.so.2"
+def extracted_library(root: Path, name: str = "libportaudio.so.2") -> Path | None:
+    if name not in ("libportaudio.so.2", "libjack.so.0"):
+        return None
+    lib = root / "usr" / "lib" / "aarch64-linux-gnu" / name
     try:
         resolved = lib.resolve(strict=True)
         if (
@@ -113,38 +118,43 @@ def stage_portaudio_for_import(
     env = os.environ.copy()
     env["DEBIAN_FRONTEND"] = "noninteractive"
     # Standard distribution apt configuration and mirrors only. No sudo.
-    fetched = run_bounded(
-        [apt, "download", "libportaudio2"],
-        cwd=folder, timeout=APT_TIMEOUT, env=env,
-    )
-    if not fetched["success"]:
-        report["status"] = "no-go-official-distro-portaudio-download"
-        return report
-    packages = list(folder.glob("libportaudio2_*_arm64.deb"))
-    if len(packages) != 1 or not valid_package(packages[0], folder):
-        report["status"] = "no-go-unsupported-portaudio-package"
-        return report
-    info = run_bounded(
-        [dpkg, "--field", str(packages[0]), "Architecture"],
-        cwd=folder, timeout=10, env=env,
-    )
-    if not info["success"]:
-        report["status"] = "no-go-deb-architecture-unreadable"
-        return report
-    # Filename restricts architecture to arm64 and package name exactly.
+    # libjack.so.0 was separately identified missing in the first isolated
+    # PortAudio attempt. Fetch only these two allowlisted distro packages;
+    # never install them globally, and refuse unforeseen dependencies.
     dest = folder / "extracted"
     dest.mkdir(mode=0o700)
-    expanded = run_bounded(
-        [dpkg, "--extract", str(packages[0]), str(dest)],
-        cwd=folder, timeout=DPKG_TIMEOUT, env=env,
-    )
-    if not expanded["success"]:
-        report["status"] = "no-go-portaudio-extract"
-        return report
+    for pkg in ALLOWED_PACKAGES:
+        fetched = run_bounded(
+            [apt, "download", pkg],
+            cwd=folder, timeout=APT_TIMEOUT, env=env,
+        )
+        if not fetched["success"]:
+            report["status"] = "no-go-official-distro-audio-download"
+            return report
+        packages = list(folder.glob(pkg + "_*_arm64.deb"))
+        if len(packages) != 1 or not valid_package(packages[0], folder, pkg):
+            report["status"] = "no-go-unsupported-audio-package"
+            return report
+        info = run_bounded(
+            [dpkg, "--field", str(packages[0]), "Architecture"],
+            cwd=folder, timeout=10, env=env,
+        )
+        if not info["success"]:
+            report["status"] = "no-go-deb-architecture-unreadable"
+            return report
+        expanded = run_bounded(
+            [dpkg, "--extract", str(packages[0]), str(dest)],
+            cwd=folder, timeout=DPKG_TIMEOUT, env=env,
+        )
+        if not expanded["success"]:
+            report["status"] = "no-go-audio-extract"
+            return report
     library = extracted_library(dest)
-    if library is None:
-        report["status"] = "no-go-portaudio-library-unavailable"
+    jack = extracted_library(dest, "libjack.so.0")
+    if library is None or jack is None:
+        report["status"] = "no-go-required-audio-libraries-unavailable"
         return report
+    report["jack_extracted_only_in_runner_temp"] = True
     report["portaudio_extracted_only_in_runner_temp"] = True
     # sounddevice imports ctypes.util.find_library('portaudio'). Patch the
     # resolver only in this throwaway child interpreter, not in source or
