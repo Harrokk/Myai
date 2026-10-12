@@ -344,6 +344,65 @@ jobs:
           print("Discovery does not enable tracing, change clocks, or modify services.")
           PY
 
+      - name: Inventory QAIRT and GenieX profiling support (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          commands = ("qnn-net-run", "qnn-profile-viewer", "qnn-context-binary-utility",
+                      "snpe-net-run", "geniex")
+          print("Profiler command availability:")
+          for cmd in commands:
+              print(" ", cmd, shutil.which(cmd) or "not on PATH")
+
+          # Restrict traversal to SDK/tool locations. Never print model files,
+          # configurations, environment values or service credentials.
+          roots = [
+              Path("/home/arduino/.local/share/geniex/qairt"),
+              Path("/home/arduino/.local/bin"),
+              Path("/opt/qcom"),
+              Path("/opt/qualcomm"),
+              Path("/opt/qairt"),
+              Path("/usr/local/bin"),
+              Path("/usr/local/lib"),
+          ]
+          patterns = ("profil", "qnn-net-run", "qnn-context-binary",
+                      "libqnnhtp", "qnn-sdk", "qairt")
+          count = 0
+          matches = []
+          for root in roots:
+              if not root.is_dir():
+                  continue
+              print("Search root:", str(root))
+              for current, directories, files in os.walk(root, followlinks=False):
+                  count += 1
+                  if count > 800:
+                      print("Directory scan cap reached")
+                      break
+                  depth = len(Path(current).relative_to(root).parts)
+                  if depth >= 5:
+                      directories[:] = []
+                  for name in files:
+                      if any(needle in name.lower() for needle in patterns):
+                          # Do not inspect or execute these files.
+                          matches.append(str(Path(current) / name))
+                          if len(matches) >= 90:
+                              break
+                  if len(matches) >= 90:
+                      break
+              if count > 800 or len(matches) >= 90:
+                  break
+          print("Found profiler/backend files:", len(matches))
+          for path in sorted(matches):
+              print(" ", path)
+          print("QNN profiling requires runtime support and an enabled profile session.")
+          print("Library presence alone does not establish NPU execution time.")
+          PY
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
