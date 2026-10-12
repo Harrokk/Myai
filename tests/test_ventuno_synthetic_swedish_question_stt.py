@@ -47,7 +47,7 @@ def setup(monkeypatch, tmp_path):
     root.mkdir()
     (root / subject.MODEL_FOLDER).mkdir()
     py = root / subject.STT_PYTHON
-    py.parent.mkdir()
+    py.parent.mkdir(parents=True)
     py.write_text("mock")
     (root / subject.TTS_FOLDER).mkdir()
     monkeypatch.setattr(subject, "mem_available_kib", lambda: 12 * 1024 * 1024)
