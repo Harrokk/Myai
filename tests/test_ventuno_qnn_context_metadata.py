@@ -66,3 +66,28 @@ def test_schema_preview_reports_types_without_values():
     assert "$.info.graphs: list(1 items)" in summary
     assert "$.info.graphs[].tensors: list(1 items)" in summary
     assert not any("secret-name" in entry for entry in summary)
+
+
+def test_graph_io_summary_counts_and_memory_without_names():
+    from scripts.ventuno_qnn_context_metadata import graph_io_summary
+
+    data = {"info": {"graphs": [{
+        "info": {
+            "graphName": "sensitive_name",
+            "graphInputs": [{"info": {"name": "private_input", "dimensions": [1, 8]}}],
+            "graphOutputs": [{"info": {"name": "private_output", "dimensions": [1, 8]}}],
+            "graphBlobInfoV2": {
+                "constSize": 2048, "sharedWeightsSize": 4096,
+                "badField": "should_not_show",
+            },
+        }
+    }]}}
+    report = graph_io_summary(data)
+    assert report["graph_count"] == 1
+    assert report["graphs"][0]["inputs"] == 1
+    assert report["graphs"][0]["outputs"] == 1
+    assert report["graphs"][0]["serialized_sizes_bytes"] == {
+        "constSize": 2048, "sharedWeightsSize": 4096,
+    }
+    assert "sensitive_name" not in str(report)
+    assert "private_input" not in str(report)
