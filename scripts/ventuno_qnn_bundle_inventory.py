@@ -206,6 +206,48 @@ def inspect_genie_config(binaries: list[Path]) -> dict[str, object]:
     return context_order_from_genie_config(config, config_dir, binaries)
 
 
+def candidate_graph_index_map(
+    declared_order: object, counts_by_slot: list[int]
+) -> dict[str, object]:
+    """Derive POSSIBLE QnnApi graph slots from equal-size ordered contexts.
+
+    Based on the vendor createFromBinaryHtp() indexing logic. No claim
+    about installed GenieX binary provenance or qnn-net-run --input_list.
+    """
+    result: dict[str, object] = {
+        "status": "no-go-insufficient-graph-index-evidence",
+        "candidate_index_ranges": [],
+        "qnn_net_run_graph_slots_proven": False,
+        "live_execution_order_proven": False,
+    }
+    if not isinstance(declared_order, dict):
+        return result
+    order = declared_order.get("declared_inventory_slots")
+    if (declared_order.get("complete_ctx_bin_reference_list") is not True
+            or not isinstance(order, list)
+            or len(order) != len(counts_by_slot)
+            or not 1 <= len(order) <= MAX_CONTEXTS
+            or any(type(x) is not int for x in order)
+            or sorted(order) != list(range(len(order)))):
+        return result
+    if (not counts_by_slot or len(set(counts_by_slot)) != 1
+            or any(type(x) is not int or not 1 <= x <= 24
+                   for x in counts_by_slot)):
+        return result
+    per_context = counts_by_slot[0]
+    result.update({
+        "status": "candidate-vendor-global-graph-indices",
+        "candidate_index_ranges": [
+            {
+                "context_inventory_slot": slot,
+                "first_index": i * per_context,
+                "last_index": (i + 1) * per_context - 1,
+            } for i, slot in enumerate(order)
+        ],
+    })
+    return result
+
+
 def graph_info(graph: object, position: int) -> tuple[dict[str, object], set[tuple]]:
     data = graph.get("info") if isinstance(graph, dict) else None
     if not isinstance(data, dict):
@@ -344,20 +386,25 @@ def main() -> int:
         manifest_data = None
     print("Manifest references:", json.dumps(
         manifest_reference_summary(manifest_data, binaries), sort_keys=True))
+    declared_order = inspect_genie_config(binaries)
     print("Genie ctx-bin order declaration:", json.dumps(
-        inspect_genie_config(binaries), sort_keys=True))
+        declared_order, sort_keys=True))
     all_signatures = []
+    graph_counts = []
     completed = 0
     for slot, binary in enumerate(binaries):
         report, signatures = inspect_context(binary, tmp)
         if report.get("status") == "metadata-read":
             completed += 1
+        graph_counts.append(report.get("graph_count"))
         all_signatures.append(signatures)
         print("Context:", json.dumps({
             "inventory_slot": slot,
             "binary_size_mib": round(binary.stat().st_size / 1048576, 1),
             **report,
         }, sort_keys=True))
+    print("Candidate vendor graph index mapping:", json.dumps(
+        candidate_graph_index_map(declared_order, graph_counts), sort_keys=True))
     print("Cross-context signature overlaps:", json.dumps(
         overlap_counts(all_signatures), sort_keys=True))
     print("Summary:", json.dumps({
