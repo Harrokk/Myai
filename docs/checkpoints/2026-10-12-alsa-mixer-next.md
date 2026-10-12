@@ -88,3 +88,59 @@ test was added. Source commits: `1a3224b` (classification) and `9b13878`
 (test). A small local isolated logic check passed for the no-controls,
 no-readings and switch-off branches. **Full CI / real mixer results still
 remain unverified**, and no audio was recorded.
+
+
+## Verified mixer reading on VENTUNO Q (2026-10-12)
+
+We solved the workflow-observability blocker without extending privileges
+on the production device. The read-only workflow now posts a narrowly
+scoped **GitHub commit status** (requires `statuses: write` in CI;
+no production service configuration is changed). The status carries
+only predefined diagnostic categories/counts and links to its run.
+
+Successful VENTUNO runs:
+
+- `38246902076`: **9 targeted tests passed**. ALSA returned 37
+  capture-related controls, but the original parser found no values.
+- `38247122857`: **9 targeted tests passed**. An anonymized
+  output-structure probe established all 37 control blocks contain
+  percentage tokens, all 37 contain channel rows, and 3 blocks contain
+  on/off tokens. Zero blocks used the original expected
+  `: Capture` value-row format.
+- `38247293898`: **12 targeted tests passed** after adding support
+  for alternate ALSA channel-value rows. Actual value readings emerged.
+- `38247327122`: **14 targeted tests passed**, after adding tests
+  that exclude playback-only channel values from capture counts.
+  Its final mixer report:
+
+  - Capture-related mixer controls: **37**.
+  - Capture switch observations: **6 on, 0 off**.
+  - Capture volume percentage observations: **32 above zero,
+    8 equal to zero**.
+  - Read-only inventory status: `some-capture-volumes-report-zero`.
+  - No recorded audio, speaker playback, mixer writes or production
+    service restart by this workflow.
+
+**Caution:** These are counts of observations, not necessarily unique
+controls. A mixer can have more than one channel per control. Some
+inactive capture routes may legitimately be zero; this does not prove
+the active microphone path is muted or identify the cause of the
+earlier `alsa-capture-nonzero` failure.
+
+Latest verified targeted-tests commit: `0b8dfe1415cf2ec4f7a484d4b88f6823522732b2`.
+This is **not** a substitute for verifying the full MyAI test suite.
+
+## Safest next troubleshooting boundary
+
+1. Inspect only the ALSA card and capture-path topology/routing
+   metadata to associate mixer controls with the actual `hw:0,1`
+   path; keep control labels and raw output out of CI logs.
+2. Do not infer that changing any of the zero-level controls will
+   correct capture.
+3. Make no mixer writes, audio recordings, system service changes, or
+   voice-enable toggles without a separately documented plan.
+4. Once the active path is identified, stage a reversible manual change
+   only if evidence requires one, and require fresh opt-in for any
+   subsequent physical microphone capture.
+
+No new microphone recording was performed during these investigations.
