@@ -2,6 +2,7 @@
 import json
 
 import pytest
+from pathlib import Path
 
 import scripts.ventuno_ollama_readiness as mod
 
@@ -16,7 +17,8 @@ def _ready(monkeypatch, *, binary="/usr/bin/ollama", server=True,
         if path == "/api/tags" and server else None
     ))
     return mod.inspect_ollama(
-        machine="aarch64", available_mem_kib=mem, free_disk_bytes=disk
+        machine="aarch64", available_mem_kib=mem, free_disk_bytes=disk,
+        user_local_binary=Path("/__nonexistent_test_ollama_bin__"),
     )
 
 
@@ -104,3 +106,36 @@ def test_oversize_response_fails_closed(monkeypatch):
         def read(self, size): return b"x" * (mod.MAX_HTTP_BODY + 1)
     monkeypatch.setattr(mod, "urlopen", lambda *args, **kwargs: Response())
     assert mod._local_json("/api/version") is None
+
+
+def test_user_local_binary_detected_even_when_path_not_set(monkeypatch,tmp_path):
+    installed=tmp_path/"bin"/"ollama"
+    installed.parent.mkdir()
+    installed.write_text("#!/bin/sh\nexit 0\n")
+    installed.chmod(0o700)
+    monkeypatch.setattr(mod.shutil, "which", lambda _: None)
+    monkeypatch.setattr(mod, "_local_json", lambda _: None)
+    result=mod.inspect_ollama(
+        machine="aarch64", available_mem_kib=10*1024*1024,
+        free_disk_bytes=10*1024**3,
+        user_local_binary=installed,
+    )
+    assert result["status"] == "ollama-binary-present-api-unavailable"
+    assert result["ollama_binary_present"] is True
+    assert result["model_loaded"] is False
+
+
+def test_user_local_symlink_is_not_treated_as_verified_binary(monkeypatch,tmp_path):
+    real=tmp_path/"not-an-ollama-install"
+    real.write_text("not a binary")
+    real.chmod(0o700)
+    link=tmp_path/"ollama"
+    link.symlink_to(real)
+    monkeypatch.setattr(mod.shutil, "which", lambda _: None)
+    monkeypatch.setattr(mod,"_local_json",lambda _: None)
+    result=mod.inspect_ollama(
+        machine="aarch64", available_mem_kib=10*1024*1024,
+        free_disk_bytes=10*1024**3,
+        user_local_binary=link,
+    )
+    assert result["status"] == "ollama-not-installed"
