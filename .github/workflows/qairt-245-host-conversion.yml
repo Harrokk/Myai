@@ -39,11 +39,39 @@ jobs:
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Resolve Python 3.10 with its matching shared library on host
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY310=""
+          for candidate in /opt/hostedtoolcache/Python/3.10.*/x64/bin/python3.10; do
+            if test -x "$candidate"; then
+              PY310="$candidate"
+              break
+            fi
+          done
+          if test -z "$PY310" && command -v python3.10 >/dev/null 2>&1; then
+            PY310="$(command -v python3.10)"
+          fi
+          if test -z "$PY310" && command -v uv >/dev/null 2>&1; then
+            uv python install 3.10
+            PY310="$(uv python find 3.10)"
+          fi
+          test -n "$PY310" || { echo 'No Python 3.10 on isolated host'; exit 2; }
+          "$PY310" -c 'import sys; assert sys.version_info[:2] == (3, 10)'
+          PYLIB="$("$PY310" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
+          test -f "$PYLIB/libpython3.10.so.1.0" || {
+            echo 'Python 3.10 shared library missing'; exit 2;
+          }
+          echo "QAIRT_HOST_PY310=$PY310" >> "$GITHUB_ENV"
+          echo "QAIRT_HOST_PYLIB=$PYLIB" >> "$GITHUB_ENV"
+          echo "Python 3.10 and required libpython3.10.so.1.0 confirmed."
+
       - name: Set up separate Python host validation environment
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/qairt-host-venv"
+          "$QAIRT_HOST_PY310" -m venv "$RUNNER_TEMP/qairt-host-venv"
           "$RUNNER_TEMP/qairt-host-venv/bin/python" -m pip install \
             --disable-pip-version-check --only-binary=:all: \
             numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1 pytest==8.3.5
