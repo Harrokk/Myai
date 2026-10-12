@@ -112,6 +112,47 @@ def result_of_command(argv: list[str], *, timeout: int,
         return {"completed": False, "exit_zero": False, "error": "os-error"}
 
 
+
+def import_probe(python: Path, module: str, folder: Path,
+                 env: dict[str, str]) -> dict[str, object]:
+    """Import one allowlisted package, expose error category, never raw output."""
+    if module not in IMPORTS:
+        raise ValueError("invalid-optional-module")
+    try:
+        run = subprocess.run(
+            [str(python), "-I", "-c", "import " + module],
+            cwd=folder, env=env, check=False,
+            capture_output=True, text=True, errors="replace", timeout=18,
+        )
+    except subprocess.TimeoutExpired:
+        return {"importable": False, "failure": "import-timeout"}
+    except OSError:
+        return {"importable": False, "failure": "import-os-error"}
+    if run.returncode == 0:
+        return {"importable": True, "failure": None}
+    # Never publish raw stack traces/paths; extract only known categorical
+    # exception kinds and bounded safe library/module basenames.
+    tail = run.stderr[-3000:]
+    kinds = re.findall(
+        r"(?m)^(ModuleNotFoundError|ImportError|OSError|RuntimeError|"
+        r"AttributeError|TypeError|ValueError):", tail,
+    )
+    libraries = re.findall(
+        r"lib[a-zA-Z0-9_+.-]{1,65}[.]so(?:[.][0-9]{1,2}){0,3}",
+        tail,
+    )
+    missing = re.findall(
+        r"No module named ['\"]([a-zA-Z_][a-zA-Z0-9_.]{0,65})['\"]",
+        tail,
+    )
+    return {
+        "importable": False,
+        "failure": kinds[-1] if kinds else "unknown-import-error",
+        "missing_library": libraries[-1] if libraries else None,
+        "missing_module": missing[-1] if missing else None,
+    }
+
+
 def stage_light_voice(python: Path, folder: Path,
                       runner_temp: Path,
                       *, check_stt_wheels: bool = False) -> dict[str, object]:
@@ -171,15 +212,17 @@ def stage_light_voice(python: Path, folder: Path,
     if not wheels["exit_zero"]:
         report["status"] = "light-wheel-install-unavailable"
         return report
-    # Importing the package is NOT equivalent to microphone capture or TTS.
-    probe = result_of_command(
-        [str(sandbox_py), "-I", "-c",
-         "import sounddevice, webrtcvad, pyttsx3; "
-         "print('isolated-voice-imports-ok')"],
-        timeout=25, cwd=runner_temp, env=env,
+    # Imports occur in separate bounded subprocesses, without any audio
+    # stream, speech engine initialization, or model download.
+    module_results = {
+        module: import_probe(sandbox_py, module, runner_temp, env)
+        for module in IMPORTS
+    }
+    report["module_imports"] = module_results
+    report["light_imports_verified"] = all(
+        result["importable"] for result in module_results.values()
     )
-    report["light_imports_verified"] = bool(probe["exit_zero"])
-    if not probe["exit_zero"]:
+    if not report["light_imports_verified"]:
         report["status"] = "light-import-check-failed"
         return report
     report["status"] = "light-voice-packages-import-in-isolation"
