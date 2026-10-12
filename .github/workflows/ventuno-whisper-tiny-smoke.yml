@@ -107,7 +107,7 @@ jobs:
             --runner-temp "$RUNNER_TEMP"
           echo 'Only a licensed public Swedish word, never user or microphone audio.'
 
-      - name: Run pinned 78 MB multilingual Whisper Tiny on 2 sec digital silence
+      - name: Verify multilingual Whisper Tiny on silence and licensed Swedish word
         shell: bash
         run: |
           set -euo pipefail
@@ -115,7 +115,7 @@ jobs:
           /home/arduino/MyAI/.venv/bin/python \
             -m scripts.ventuno_whisper_tiny_cpu_smoke \
             --runner-temp "$RUNNER_TEMP"
-          echo 'Only synthetic silence tested; Swedish recognition accuracy unmeasured.'
+          echo 'Verified public Swedish pronunciation and silence; conversational quality remains unmeasured.'
 
       - name: Recheck production MyAI and GenieX after isolated benchmark
         shell: bash
