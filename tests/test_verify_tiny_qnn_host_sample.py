@@ -14,7 +14,7 @@ def test_full_onnx_reference_oracle_matches(tmp_path):
     create_host_sample(folder, machine="x86_64")
     result = verify_fixture(folder, machine="x86_64")
     assert result["onnx_checker_passed"] is True
-    assert result["onnx_reference_cpu_executed"] is True
+    assert result["onnxruntime_cpu_executed"] is True
     assert result["independent_numpy_oracle_matched"] is True
     assert result["output_tensor_shape"] == [1, 1, 8, 8]
     assert 0 < result["nonzero_output_elements"] < 64
