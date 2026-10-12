@@ -208,7 +208,7 @@ def _pure_phrase_metrics():
     ("Vad heter det?", "1-2", 2, 2, False),
     ("Vad heter", "3-5", 2, 2, False),
     ("Hej, vad heter du?", "3-5", 3, 0, True),
-    ("du heter vad", "6-10", 3, 0, False),
+    ("du heter vad", "6-10", 3, 1, False),
     ("", "11+", 0, 0, False),
 ])
 def test_private_metrics_compute_only_categorical_distance(
