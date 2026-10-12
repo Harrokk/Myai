@@ -341,3 +341,51 @@ Nästa lämpliga steg inför en första samtalsbar MyAI:
    och validera handsfree/avbrott vid normalt samtal.
 
 Aktiv MyAI- och GenieX-installation har inte ändrats.
+
+## MyAI VoicePipeline → svensk TTS: isolerad integration verifierad (2026-10-12)
+
+MyAI:s befintliga `core.voice_pipeline.VoicePipeline` kan nu i en
+separat ARM64-testmiljö dirigera ett syntetiskt svar direkt till den
+verifierade svenska `espeak-ng`-motorn. Vi har **inte** ersatt
+produktionsprovidern, installerat något ljudpaket permanent eller
+ändrat röstflaggorna.
+
+Ny modul: `scripts/ventuno_synthetic_voice_chain.py`.
+
+- Använder ett exakt fast *syntetiskt* STT-resultat,
+  inte något inspelat ljud eller Whisper-modell.
+- Använder ett exakt fast *syntetiskt* assistantsvar, inte en
+  livefråga till GenieX, och inga verktygsanrop.
+- Kör MyAI:s **faktiska** `VoicePipeline.process_utterance()` med
+  en isolerad `tts.speak()`-adapter.
+- Kontrollerar att endast det förväntade svenska svaret skickas
+  **en gång** vidare till eSpeak med `--stdout`.
+- Validerar att WAV är mono PCM16, har en verklig icke-tyst
+  signal och begränsad varaktighet. PCM sparas inte till disk,
+  spelas inte upp och förs inte vidare till en fysisk ljudenhet.
+- Kräver separat `explicitly_authorized=True` endast för
+  det syntetiska testet. Standardanrop gör ingen TTS.
+- Rapporterar att den verkliga mikrofonen, GenieX-LLM, faktisk
+  Whisper-STT, högtalare och produktionsinställningar **inte**
+  har rörts.
+
+Den redan beprövade tillfälliga distro-paketstagingen
+(`scripts/ventuno_tts_temp_stage.py`) använder nu just denna
+röstkedja och rensar paketen efteråt.
+
+**Mätt på VENTUNO Q:** en genererad 2,09 s svensk WAV,
+22 050 Hz, RMS 0,089433.
+**23/23** riktade tester passerade.
+
+Verifierad körning:
+https://github.com/Harrokk/Myai/actions/runs/38239897858
+
+Fullständig MyAI-regressionstestning efter integration:
+**1 136 tester godkända, 6 överhoppade**:
+https://github.com/Harrokk/Myai/actions/runs/38239897809
+
+**Nästa gräns att verifiera:** En verklig, men kort och begränsad,
+MyAI/GenieX-textrespons som syntetiseras till minnet utan uppspelning,
+och därefter de separat godkända fysiska mikrofon- och
+högtalartesterna. Syntetisk röstintegrering får inte rapporteras
+som en färdig handsfree-assistent.
