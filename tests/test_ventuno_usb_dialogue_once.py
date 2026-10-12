@@ -252,7 +252,8 @@ def test_failed_audible_cue_does_not_record_or_repeat():
 def test_unapproved_question_reports_only_safe_category(words, expected):
     actual = mod.classify_unapproved_question(words)
     assert actual == expected
-    assert words not in str({"unmatched_category": actual})
+    if words:
+        assert words not in str({"unmatched_category": actual})
     assert len(actual) <= 40
 
 
