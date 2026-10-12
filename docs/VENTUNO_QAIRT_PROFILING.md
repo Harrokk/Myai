@@ -292,3 +292,69 @@ References:
 - HTP context weight sharing API: https://github.com/qualcomm/geniex-qairt-plugin/blob/main/qnn-api/include/HTP/QnnHtpContext.h
 - QAIRT multi-graph input-list syntax: https://docs.radxa.com/en/dragon/q8b/app-dev/npu-dev/qairt-tools
 - Qualcomm LLM compile/link and shared-weight contexts: https://github.com/qualcomm/ai-hub-models/blob/main/tutorials/llm/onboarding.md
+
+## Four-context graph metadata inventory (2026-10-12)
+
+A new read-only, bounded device-side inventory runs as
+`scripts/ventuno_qnn_bundle_inventory.py` with regression coverage
+in `tests/test_ventuno_qnn_bundle_inventory.py`.
+
+The VENTUNO Q run completed successfully and inspected **all four** cached
+QNN context binaries sequentially. For safety, the tool uses Qualcomm's
+metadata-only utility, strict per-process CPU/address-space/file limits,
+a timeout per context, a Linux available-memory threshold, temporary JSON
+files deleted after reading, and an unambiguous four-binary/one-manifest gate.
+It never starts `qnn-net-run` or a second GenieX instance, and logs no raw
+model-file paths, graph names, tensor names, manifest values or generated
+prompts.
+
+Inventory slots are sorted by file size (then path) **for stable reporting
+only**. These are not model execution slots:
+
+| Inventory slot | Alias | Context MiB | Graphs | Inputs/outputs per graph |
+| --- | --- | ---: | ---: | --- |
+| 0 | A | 632.2 | 10 | 28 / 25 |
+| 1 | B | 632.2 | 10 | 28 / 25 |
+| 2 | C | 742.1 | 10 | 1 / 1 |
+| 3 | D | 1013.7 | 10 | 28 / 25 |
+
+The allowlisted `ModelFile`/`ExtraFiles` fields in `geniex.json`
+referenced each candidate exactly once. The order in which those fields
+yielded candidate references was **D, C, A, B** (inventory slots 3, 2, 0, 1).
+This is **manifest reference order**, not evidence that GenieX actually
+loads, invokes or frees contexts in that sequence. The four binaries
+contain a total of **40 serialized QNN graphs**.
+
+A cautious graph-IO comparison found potential directed matches
+between contexts **C→A**, **A→B** and **B→D**, with 50 matching
+input/output signature pairs for each candidate context-level link.
+These matches use tensor name, QNN datatype and static dimensions
+internally; the raw names are not logged. Name/shape matches alone do
+not prove data transfer, tensor lifetimes, execution order, or successful
+cross-context replay. No inferred link is a green light for profiling.
+
+The inventory reports graph-name fingerprints to correlate metadata
+without revealing model graph identifiers, and marks every graph's
+runtime slot as **unverified**. It does not claim that the graph order
+stored in serialized metadata corresponds exactly to
+`qnn-net-run --input_list` graph ordering.
+
+**Result:** Four-context inventory is complete at the structural
+metadata level, but the runtime sequence, inter-context scheduling,
+shared HTP weight lifecycle and exact graph-slot binding remain
+**unproven**. The profiling/no-service-pause gate is unchanged.
+
+CI evidence:
+- Four-context diagnostics: https://github.com/Harrokk/Myai/actions/runs/38212086214
+- Full regression suite for the inventory integration: **926 passed**,
+  https://github.com/Harrokk/Myai/actions/runs/38212086166
+
+### Next decision gate
+
+Verify GenieX's documented QNN model/extra-context load and invocation
+semantics, and determine whether any **non-inferential** startup or
+profiling metadata can establish ordering. If a direct profiling
+experiment later becomes necessary, first prepare a compatible small
+standalone context with valid native inputs, safe resource limits,
+service rollback and an explicit maintenance plan. No automatic
+`qnn-net-run` execution against the cached Qwen3 contexts.
