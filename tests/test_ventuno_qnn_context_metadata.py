@@ -105,3 +105,35 @@ def test_tensor_native_byte_estimate_and_dynamic_rejection():
     sample["info"]["dimensions"] = [3, 4]
     sample["info"]["dataType"] = "UNKNOWN_DTYPE"
     assert tensor_raw_bytes(sample) == ("UNKNOWN_DTYPE", None)
+
+
+def test_temporary_native_fixture_validates_without_running_model(tmp_path: Path):
+    from scripts.ventuno_qnn_context_metadata import validate_temp_fixture
+
+    data = {"info": {"graphs": [{"info": {
+        "graphInputs": [
+            {"info": {"name": "input_one", "dataType": "QNN_DATATYPE_UFIXED_POINT_8",
+                      "dimensions": [2, 3]}},
+            {"info": {"name": "cache_0", "dataType": "QNN_DATATYPE_UFIXED_POINT_16",
+                      "dimensions": [3, 4]}},
+        ]
+    }}]}}
+    report = validate_temp_fixture(data, tmp_path)
+    assert report["status"] == "fixture-validated"
+    assert report["graph_index"] == 0
+    assert report["input_count"] == 2
+    assert report["model_executed"] is False
+    assert (tmp_path / "input-fixture" / "input-00.raw").stat().st_size == 6
+    assert (tmp_path / "input-fixture" / "input-01.raw").stat().st_size == 24
+    assert (tmp_path / "input-fixture" / "input_list.txt").read_text().endswith("\n")
+
+
+def test_fixture_rejects_unknown_and_unsafe_graph_inputs(tmp_path: Path):
+    from scripts.ventuno_qnn_context_metadata import validate_temp_fixture
+
+    data = {"info": {"graphs": [{"info": {
+        "graphInputs": [{"info": {"name": "unsafe name",
+                       "dataType": "QNN_DATATYPE_UFIXED_POINT_8",
+                       "dimensions": [4]}}]
+    }}]}}
+    assert validate_temp_fixture(data, tmp_path)["reason"] == "unsafe-tensor-name"
