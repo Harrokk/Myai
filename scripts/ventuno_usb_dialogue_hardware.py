@@ -76,7 +76,10 @@ def _preflight(root: Path) -> tuple[Path, Path, Path, Path]:
     python = root / STT_PYTHON
     model = root / MODEL_FOLDER
     voice = root / TTS_FOLDER
-    if (not python.is_file() or python.is_symlink()
+    # Standard Python venvs expose bin/python as a symlink. The
+    # isolated venv root is already checked; permit that interpreter
+    # link rather than incorrectly rejecting valid ARM64 staging.
+    if (not python.is_file()
             or not model.is_dir() or model.is_symlink()
             or not voice.is_dir() or voice.is_symlink()):
         raise ValueError("reject-missing-ephemeral-components")
