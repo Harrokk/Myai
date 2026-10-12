@@ -1,0 +1,208 @@
+name: VENTUNO Swedish question synthetic Whisper diagnostic - NO AUDIO DEVICES
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-synthetic-swedish-question-stt.yml
+      - scripts/ventuno_synthetic_swedish_question_stt.py
+      - tests/test_ventuno_synthetic_swedish_question_stt.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-synthetic-swedish-question-stt
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Test exact Swedish question at normal and slow speeds using pinned Whisper
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact source in separate disposable workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-synthetic-phrase-XXXXXXXX")"
+          echo "MYAI_SYNTHETIC_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run mock-only safety and PCM conversion tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_synthetic_swedish_question_stt.py \
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py \
+            tests/test_ventuno_tts_temp_stage.py \
+            tests/test_ventuno_usb_dialogue_once.py
+          echo "Only mocked samples; no physical microphone or speaker opened."
+
+      - name: Check resource reserve and voice remains disabled in active profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import MIN_MEM_AVAILABLE_KIB, MIN_DISK_AVAILABLE_BYTES
+          from scripts.ventuno_voice_wheel_staging import mem_available_kib, disk_free_bytes
+          p=json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text(encoding="utf-8"))
+          voice=p.get("voice",{})
+          assert isinstance(voice,dict)
+          assert all(voice.get(key) is not True for key in ("enabled","tts_enabled","handsfree_enabled"))
+          mem=mem_available_kib()
+          disk=disk_free_bytes(Path(os.environ["MYAI_SYNTHETIC_WORK"]))
+          assert mem is not None and mem >= MIN_MEM_AVAILABLE_KIB
+          assert disk is not None and disk >= MIN_DISK_AVAILABLE_BYTES
+          print("RAM, disk, two active services and disabled voice flags verified.")
+          PY
+
+      - name: Stage ARM64 CPU Whisper in isolated temporary Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          PY="$(readlink -f "$(command -v python3)")"
+          test -x "$PY"
+          "$PY" -m venv "$MYAI_SYNTHETIC_WORK/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_SYNTHETIC_WORK"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_SYNTHETIC_WORK"
+
+      - name: Load verified licensed public Swedish reference fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$MYAI_SYNTHETIC_WORK"
+          echo "Pinned publicly licensed fixture downloaded. No user audio."
+
+      - name: Confirm pinned Whisper can recognize the existing public Swedish word
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          root=Path(os.environ["MYAI_SYNTHETIC_WORK"])
+          report=smoke(root/"myai-voice-staging/bin/python",root)
+          allowed=report.get("status") == "tiny-sv-cpu-word-and-silence-verified"
+          print("Pinned baseline Swedish speech recognition verified:",allowed)
+          assert allowed
+          assert report["microphone_used"] is False
+          PY
+
+      - name: Stage offline Swedish eSpeak NG in temporary user-space
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_tts_temp_stage import stage_sweden_tts
+          root=Path(os.environ["MYAI_SYNTHETIC_WORK"])
+          state=stage_sweden_tts(root/"myai-tts-espeak-stage",root)
+          ok=state.get("status")=="isolated-swedish-tts-signal-verified"
+          print("Temporary Swedish eSpeak synthesis verified:",ok)
+          assert ok
+          assert state["physical_playback_verified"] is False
+          PY
+
+      - name: Compare synthetic Vad heter du question in exact 3s USB PCM format
+        id: diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYNTHETIC_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_synthetic_swedish_question_stt \
+            --runner-temp "$MYAI_SYNTHETIC_WORK" \
+            --isolated-synthetic-speech-only
+          echo "result=synthetic-two-speed-whisper-classified" >> "$GITHUB_OUTPUT"
+          echo "No USB microphone, speaker, Ollama chat, GenieX request or speech data logged."
+
+      - name: Verify active services then remove only disposable workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          if [ -n "${MYAI_SYNTHETIC_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_SYNTHETIC_WORK" in
+              "$RUNNER_TEMP"/myai-synthetic-phrase-*)
+                if [ -d "$MYAI_SYNTHETIC_WORK" ] && [ ! -L "$MYAI_SYNTHETIC_WORK" ]; then
+                  rm -rf -- "$MYAI_SYNTHETIC_WORK"
+                fi
+                ;;
+              *) echo "Refusing unexpected temp location" >&2; exit 1 ;;
+            esac
+          fi
+          echo "No temporary weights, synthesized WAV or transcript retained; production unchanged."
+
+      - name: Publish sanitized synthetic recognition status on source commit
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          STT_DIAG_RESULT: ${{ steps.diagnosis.outputs.result }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,urllib.request
+          repo=os.environ.get("GITHUB_REPOSITORY","")
+          sha=os.environ.get("GITHUB_SHA","")
+          token=os.environ.get("GH_TOKEN","")
+          if not (re.fullmatch(r"[0-9a-f]{40}",sha) and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo)
+                  and token):
+              raise SystemExit(0)
+          ready=(os.environ.get("JOB_RESULT")=="success"
+                 and os.environ.get("STT_DIAG_RESULT")=="synthetic-two-speed-whisper-classified")
+          body={
+              "state":"success" if ready else "failure",
+              "context":"myai/ventuno-synthetic-swedish-question",
+              "description":("Synthetic-only two-speed Swedish STT diagnostic complete"
+                             if ready else "Synthetic Swedish STT diagnostic incomplete"),
+              "target_url":"https://github.com/"+repo+"/actions/runs/"+
+                           os.environ.get("GITHUB_RUN_ID",""),
+          }
+          req=urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              data=json.dumps(body).encode(),method="POST",
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "X-GitHub-Api-Version":"2022-11-28",
+                       "Content-Type":"application/json"})
+          try:
+              with urllib.request.urlopen(req,timeout=10) as response:
+                  print("Privacy-safe Swedish synthetic diagnostic status posted:",response.status==201)
+          except Exception as exc:
+              print("GitHub status unavailable:",type(exc).__name__)
+          PY
