@@ -435,3 +435,59 @@ Prioriterat kvar: uttryckligt godkänt fysiskt
 högtalarverifiering; sedan transkriberad svensk
 fråga genom MyAI:s verkliga minne/verktyg och
 talat svar med avbrott, allt med säker rollback.
+
+## Första uttryckligen godkända fysiska mikrofonförsöket (2026-10-12)
+
+Användaren godkände specifikt en **tvåsekunders** mikrofoninspelning
+enbart i VENTUNO Q:s RAM, utan lagring eller överföring. Därför
+skapades `.github/workflows/ventuno-microphone-consent-once.yml`,
+som **endast** utlösts av sin egen första kodpush och av ett exakt
+engångsmeddelande; den har ingen tidsstyrd eller återkommande
+inspelningsfunktion. Inga andra pushar återutlöser inspelningen.
+
+I körning
+https://github.com/Harrokk/Myai/actions/runs/38241190603
+passerade kontrollerna: ARM64-hårdvara, `arduino`-konto,
+testsvit, aktiva MyAI-/GenieX-tjänster, avstängt
+produktionsröstläge och befintlig ALSA capture-nod.
+
+Det existerande programmet `ventuno_microphone_smoke.py` anropade
+`arecord` **en gång**, med fast `16 kHz / mono / S16_LE / 2 s`
+och STDOUT-pipe till RAM, men `arecord` returnerade en icke-noll
+exitkod innan ett giltigt 64 000-byte PCM-prov kunde verifieras.
+Resultat: **`alsa-capture-nonzero`**, således **INTE**
+verifierad fysisk mikrofonfunktion.
+
+Ljuddata har **inte** sparats till disk, skickats vidare,
+transkriberats, spelats upp eller loggats. MyAI- och
+GenieX-tjänsterna verifierades fortsatt aktiva.
+
+### Efterföljande undersökning – endast ALSA-metadata
+
+Ett separat, **helt inspelningsfritt** program,
+`scripts/ventuno_alsa_capture_inventory.py`, använder bara
+`arecord -l`, `arecord -L` och `/proc/asound/pcm`. Körning:
+https://github.com/Harrokk/Myai/actions/runs/38241599603
+
+Följande bekräftades:
+
+- ALSA har en inspelnings-PCM på **kort 0, enhet 1**,
+  med hårdvaruadress `hw:0,1`.
+- Utgångarna finns på 0:0 och 0:2.
+- Namngivna PCM-alias: `default` och `pipewire`.
+- Utan försök att öppna någon ljudenhet är det ännu okänt om
+  `default` routas till 0:1 och om den faktiska ingången
+  stöder exakt det begärda ljudformatet.
+
+Nästa tekniskt avgränsade alternativ är `plughw:0,1`
+(ALSA-konvertering om hårdvaran själv saknar 16 kHz mono).
+`scripts/ventuno_microphone_smoke.py` stöder nu frivilligt
+`--device=plughw:0,1`, men bara med **båda** explicita
+inspelnings-/samtyckesflaggorna och efter att enheten verifierats
+i läsbara `/proc/asound/pcm`-metadata. Säkerhetsreglerna är
+regressionstestade med **simulerade** PCM-bytes.
+
+**Ingen ytterligare fysisk inspelning har utförts.**
+Ett nytt godkännande krävs för ett nytt verkligt
+tvåsekundersförsök med `plughw:0,1`. Ingen röstflagga
+eller produktionsinstallation har ändrats.
