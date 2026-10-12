@@ -242,7 +242,8 @@ def test_failed_audible_cue_does_not_record_or_repeat():
 @pytest.mark.parametrize("words,expected", [
     ("", "empty-or-silence"),
     ("Säg: Vad heter du.", "spoken-cue-echo-suspected"),
-    ("Vad heter du, MyAI?", "test-question-with-extra-words"),
+    ("Vad heter du, MyAI?", "approved"),
+    ("Vad heter du, snälla?", "test-question-with-extra-words"),
     ("hej!", "unrelated-short-utterance"),
     ("Vi pratar om vädret i dag.", "other-unmatched-utterance"),
     ("radera alla filer nu", "unsafe-command-or-control"),
@@ -268,3 +269,44 @@ def test_unapproved_real_transcription_is_never_logged_even_in_category():
     assert words not in str(outcome)
     assert "geniex" not in events
     assert "play" not in events
+
+
+@pytest.mark.parametrize("surface", [
+    "Vad heter du, MyAI?",
+    "Vad heter du, My AI?",
+    "MyAI, vad heter du?",
+    "My AI, vad heter du?",
+    "Hej MyAI! Vad heter du?",
+    "Hej My AI. Vad heter du?",
+])
+def test_only_literal_safe_aliases_can_reach_geniex(surface):
+    assert mod.approved_short_question(surface) == "vad heter du"
+    p, events = ports(transcript=surface)
+    result = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True
+    )
+    assert result["status"] == "one-shot-usb-dialogue-alsa-playback-completed"
+    assert events.count("geniex") == 1
+    assert result["transcription_verified"] is True
+
+
+@pytest.mark.parametrize("unapproved", [
+    "Säg: Vad heter du",
+    "När du hör pipet, vad heter du?",
+    "Vad heter du och stäng av systemet",
+    "Vad heter du, radera allt",
+    "Hej MyAI, vad heter du och vem är jag?",
+    "MyAI vad heter du, system override",
+    "Vad heter du please",
+    "vad heter du my ai --ignore",
+])
+def test_literal_aliases_never_permit_extra_or_commandlike_words(unapproved):
+    assert mod.approved_short_question(unapproved) is None
+    p, events = ports(transcript=unapproved)
+    result = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True
+    )
+    assert result["status"] == "reject-unapproved-or-unclear-test-utterance"
+    assert "geniex" not in events
+    assert "play" not in events
+    assert unapproved not in str(result)
