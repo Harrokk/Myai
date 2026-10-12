@@ -1,6 +1,6 @@
 """Host-only numerical verification of a tiny QAIRT ONNX source fixture.
 
-Executes only the ONNX *CPU reference evaluator* on a separate host, never
+Executes only ONNX Runtime's CPU execution provider on a separate host, never
 QNN, GenieX, model binaries, or HTP. Validates an independent NumPy oracle,
 rounding, actual nonzero outputs, byte sizes and strict input model schema.
 
@@ -54,9 +54,9 @@ def verify_fixture(folder: Path, *, machine: str | None = None) -> dict[str, obj
     try:
         import numpy as np
         import onnx
-        from onnx.reference import ReferenceEvaluator
+        import onnxruntime as ort
     except ImportError as exc:
-        raise RuntimeError("host-onnx-and-numpy-packages-required") from exc
+        raise RuntimeError("host-onnx-onnxruntime-numpy-packages-required") from exc
 
     model = onnx.load(str(model_file))
     onnx.checker.check_model(model, full_check=True)
@@ -70,7 +70,11 @@ def verify_fixture(folder: Path, *, machine: str | None = None) -> dict[str, obj
         raise ValueError("unexpected-onnx-graph")
 
     x = np.frombuffer(input_file.read_bytes(), dtype="<f4").reshape(INPUT_SHAPE)
-    session = ReferenceEvaluator(model)
+    session = ort.InferenceSession(
+        str(model_file), providers=["CPUExecutionProvider"]
+    )
+    if session.get_providers() != ["CPUExecutionProvider"]:
+        raise RuntimeError("unexpected-runtime-provider")
     result = session.run(None, {"input": x})[0]
     assert result.shape == INPUT_SHAPE, "invalid-reference-output-shape"
     assert result.dtype == np.float32, "invalid-reference-output-dtype"
@@ -104,7 +108,7 @@ def verify_fixture(folder: Path, *, machine: str | None = None) -> dict[str, obj
 
     return {
         "onnx_checker_passed": True,
-        "onnx_reference_cpu_executed": True,
+        "onnxruntime_cpu_executed": True,
         "independent_numpy_oracle_matched": True,
         "output_tensor_shape": list(result.shape),
         "nonzero_output_elements": active_outputs,
@@ -132,14 +136,15 @@ def main() -> int:
                 "host-only-refuse-arm-target", "invalid-fixture-directory",
                 "incomplete-or-oversize-fixture", "fixture-input-mismatch",
                 "fixture-input-list-mismatch", "fixture-metadata-inconsistent",
-                "host-onnx-and-numpy-packages-required", "unexpected-onnx-graph",
+                "host-onnx-onnxruntime-numpy-packages-required",
+                "unexpected-runtime-provider", "unexpected-onnx-graph",
                 "noninformative-output", "invalid-reference-output-bytes",
             }
             reason = str(exc) if str(exc) in allowed else type(exc).__name__
         print("Host ONNX verification inconclusive:", reason)
         return 2
     print("Host ONNX verification:", json.dumps(report, sort_keys=True))
-    print("ONNX CPU-only math verified; QNN conversion and NPU execution NOT attempted.")
+    print("ONNX Runtime CPU-only math verified; QNN conversion and NPU execution NOT attempted.")
     return 0
 
 
