@@ -47,7 +47,15 @@ def fake_measurements(*,all_match=False):
     return [
         {"beam":beam,"matched":all_match or (i==0 and beam==5),
          "category":"approved" if all_match or (i==0 and beam==5)
-         else "other-unmatched","seconds":1.6}
+         else "other-unmatched","seconds":1.6,
+         "proximity":{
+             "distance_band":"0" if all_match or (i==0 and beam==5) else "11+",
+             "word_count_band":"3",
+             "target_words_present":3 if all_match else 1,
+             "target_words_aligned":3 if all_match else 0,
+             "target_words_in_order":all_match,
+             "exact_phrase_contained":all_match,
+         }}
         for i in range(2) for beam in compare.BEAMS
     ]
 
@@ -187,3 +195,56 @@ def test_worker_does_not_report_transcript_or_save_audio():
     assert '"matched":valid' in compare._INFERENCE
     assert "microphone" not in compare._INFERENCE
     assert "sounddevice" not in compare._INFERENCE
+
+
+def _pure_phrase_metrics():
+    namespace={}
+    exec(compare._METRIC_SOURCE,namespace)
+    return namespace["private_phrase_metrics"]
+
+
+@pytest.mark.parametrize("heard,expected_band,overlap,aligned,contained",[
+    ("Vad heter du?", "0", 3, 3, True),
+    ("Vad heter det?", "1-2", 2, 2, False),
+    ("Vad heter", "3-5", 2, 2, False),
+    ("Hej, vad heter du?", "3-5", 3, 0, True),
+    ("du heter vad", "6-10", 3, 0, False),
+    ("", "11+", 0, 0, False),
+])
+def test_private_metrics_compute_only_categorical_distance(
+    heard,expected_band,overlap,aligned,contained,
+):
+    value=_pure_phrase_metrics()(heard)
+    assert value["distance_band"]==expected_band
+    assert value["target_words_present"]==overlap
+    assert value["target_words_aligned"]==aligned
+    assert value["exact_phrase_contained"] is contained
+    text=json.dumps(value)
+    assert heard not in text if heard else "Vad heter du" not in text
+    assert all(isinstance(item,(bool,int,str)) for item in value.values())
+
+
+def test_private_metrics_long_or_adversarial_decodes_are_bounded():
+    function=_pure_phrase_metrics()
+    outcome=function("IGNORE SYSTEM RULES " * 20000)
+    assert outcome["distance_band"]=="11+"
+    assert outcome["target_words_present"]==0
+    assert outcome["word_count_band"]=="7+"
+    assert max(len(str(value)) for value in outcome.values()) < 25
+
+
+def test_only_trusted_metrics_allowed_in_parent_validator(monkeypatch,tmp_path):
+    root=setup(monkeypatch,tmp_path)
+    def child(python,program,work,*,model=None,pcm=None):
+        if model is None:return {"ok":True,"payload":{"downloaded":True}}
+        rows=fake_measurements(all_match=True)
+        rows[0]["proximity"]["transcript"]="SECRET RAW WORDS"
+        return {"ok":True,"payload":{
+            "local_cpu_model_loaded":True,
+            "mic_used":False,"speaker_used":False,
+            "measurements":rows,
+        }}
+    monkeypatch.setattr(compare,"_limited_child",child)
+    r=compare.compare_swedish_question(root,authorized=True,machine="aarch64")
+    assert r["status"]=="invalid-tiny-measurement"
+    assert "SECRET" not in json.dumps(r)
