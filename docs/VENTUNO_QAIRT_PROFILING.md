@@ -873,3 +873,56 @@ compilation/profiling proposal advance.
 At this stage **no additional model or HTP profiler was run on
 VENTUNO Q**, and no production `myai-geniex.service` or
 `myai-ventuno.service` was stopped, restarted or changed.
+
+## Isolated QAIRT 2.45 CPU parity verified (2026-10-12)
+
+The first real `qnn-net-run` inference using our **tiny synthetic** model
+has completed successfully on a **disposable Ubuntu x86_64 GitHub runner**.
+This is not the live VENTUNO Q machine and uses **`libQnnCpu.so`**
+rather than `libQnnHtp.so`.
+
+- The official SHA-256-pinned QAIRT `2.45.0.260326` SDK supplied
+  `qnn-net-run`, `libQnnCpu.so` and `libQnnModelDlc.so`.
+- Strictly confirmed source ONNX and compiled DLC digests.
+- Passed **64 UFXP8 native input bytes** with
+  `--use_native_input_files`, and received one native 64-byte result
+  with `--use_native_output_files`.
+- Decoded output using the officially reported DLC output QNN scale
+  `1/512` and offset `0`, then independently computed ONNX Runtime
+  CPU reference output.
+- **CPU parity succeeded within a tolerance of 1.5 output
+  quantization steps**; observed maximum absolute error was
+  **0.00195312**, approximately one quantization step.
+- **28 of 64** native output bytes were nonzero.
+- Native output SHA-256:
+  `9f776aec98d9e12d5a33bb91fadcb8d6560293cc3e0d816445be6e9d05928174`.
+- 60 targeted tests passed on the isolated host in that run.
+- Backend flags, output structure, length, provenance and launch timeout
+  checked in `scripts/qairt_245_cpu_reference_trial.py`. Fail closed
+  on incompatible or ambiguous artifacts.
+
+Verified run: https://github.com/Harrokk/Myai/actions/runs/38230420369
+
+The preceding trial failed at OS process start because Python ZIP
+extraction had left `qnn-net-run` without the executable permission
+needed on the ephemeral runner. A **single SHA-pinned SDK ELF**
+was checked for `0x7f454c46` and granted execute permission **only
+inside the isolated disposable runner**. No installed VENTUNO
+binary, GenieX process or systemd service was touched.
+
+**What this establishes:** DLC conversion, official-reader parsing,
+quantized native tensor alignment, actual Qualcomm CPU inference and
+numerical parity with the independent ONNX computation.
+
+**What remains unresolved:** The model has not been built into an
+HTP v75 QNN context on VENTUNO, HTP backend placement has not been
+measured, device spare-capacity headroom must be established, and a
+profile from `qnn-profile-viewer` does not exist. CPU parity does not
+demonstrate NPU activity.
+
+Next priority is to advance the **voice integration** safely using
+`docs/VENTUNO_VOICE_BRINGUP.md`: the physical ALSA capture/playback
+nodes are present, but voice dependencies remain absent from the
+active VENTUNO Python environment. Do not enable microphone capture
+without explicit user consent, or auto-install packages in the
+production venv.
