@@ -27,6 +27,7 @@ from scripts.ventuno_whisper_tiny_cpu_smoke import (
 from scripts.ventuno_tts_temp_stage import espeak_paths
 from scripts.ventuno_usb_speaker_smoke import quiet_wav_from_tts
 from scripts import ventuno_geniex_tts_bridge as api_bridge
+from scripts.ventuno_voice_backend_selector import answer_one_short_voice_question
 
 DEVICE = "plughw:1,0"
 MODEL_FOLDER = "myai-whisper-tiny-model"
@@ -200,9 +201,23 @@ def _local_short_response(question: str) -> str:
     return answer
 
 
-def build_ports(root: Path) -> DialogPorts:
+def build_ports(root: Path, *, response_backend: str = "geniex") -> DialogPorts:
+    if response_backend not in ("geniex", "ollama"):
+        raise ValueError("unsupported-isolated-dialogue-backend")
     python, model, executable, data = _preflight(root)
     audio_cli = _require_executable("aplay")
+    if response_backend == "ollama":
+        # The staged checkout is read-only; never modify live MyAI settings.
+        selected_path = root / "source/config/profiles/ventuno_q.json"
+        if (selected_path.is_symlink() or not selected_path.is_file()
+                or selected_path.stat().st_size > 64 * 1024):
+            raise ValueError("isolated-ollama-profile-not-found")
+        profile = json.loads(selected_path.read_text(encoding="utf-8"))
+        answer_port = lambda text: answer_one_short_voice_question(
+            text, profile, provider="ollama", timeout=80,
+        )
+    else:
+        answer_port = _local_short_response
 
     def synthesize(answer: str) -> bytes:
         env = os.environ.copy()
@@ -267,7 +282,7 @@ def build_ports(root: Path) -> DialogPorts:
     return DialogPorts(
         capture=capture_one_three_second_pcm,
         transcribe_local=lambda pcm: _limited_whisper_child(root, python, model, pcm),
-        answer_local=_local_short_response,
+        answer_local=answer_port,
         synthesize_local=synthesize,
         play_usb=play,
         fresh_readiness=inspect,
@@ -278,12 +293,13 @@ def build_ports(root: Path) -> DialogPorts:
 
 def run_one_authorized_hardware_dialog(root: Path, *,
                                        consent_to_record: bool = False,
-                                       consent_to_play: bool = False
+                                       consent_to_play: bool = False,
+                                       response_backend: str = "geniex",
                                        ) -> dict[str, object]:
     if not (consent_to_record and consent_to_play):
         return {"status": "not-authorized", "physical_dialogue_attempted": False}
     # Preflight is purposely separate from the actual one-shot record event.
-    ports = build_ports(root)
+    ports = build_ports(root, response_backend=response_backend)
     return OneShotUsbDialog(ports).run(
         consent_to_record=consent_to_record, consent_to_play=consent_to_play,
     )
@@ -298,6 +314,8 @@ def main() -> int:
                         action="store_true")
     parser.add_argument("--allow-exactly-one-low-level-answer",
                         action="store_true")
+    parser.add_argument("--response-backend", choices=("geniex", "ollama"),
+                        default="geniex")
     args = parser.parse_args()
     record = args.allow_exactly_one_three_second_recording
     play = args.allow_exactly_one_low_level_answer
@@ -309,6 +327,7 @@ def main() -> int:
         outcome = run_one_authorized_hardware_dialog(
             args.isolated_runner_directory,
             consent_to_record=record, consent_to_play=play,
+            response_backend=args.response_backend,
         )
     except (ValueError, RuntimeError, TypeError, OSError):
         outcome = {
