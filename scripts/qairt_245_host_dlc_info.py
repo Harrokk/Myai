@@ -80,11 +80,14 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
             "uint8": "uint_8", "int8": "int_8",
             "uint16": "uint_16", "int16": "int_16",
             "uint32": "uint_32", "int32": "int_32",
+            "ufxp8": "ufxp_8", "fxp8": "fxp_8",
+            "ufxp16": "ufxp_16", "fxp16": "fxp_16",
         }
         dtype = dtype_aliases.get(dtype, dtype)
         if dtype not in {
             "float_32", "float_16", "float_64", "int_8", "uint_8",
             "int_16", "uint_16", "int_32", "uint_32", "bool_8",
+            "ufxp_8", "fxp_8", "ufxp_16", "fxp_16",
         }:
             # Only emit the short, allowlisted datatype column token.
             # Never emit the tensor name, SDK/model path or raw log lines.
@@ -99,11 +102,22 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
             encoding = False
         elif "encoding" in encoding_text or "scale" in encoding_text:
             encoding = True
+        # Numeric tokens only; do not expose raw encoding descriptions or
+        # infer offset conventions without checking vendor semantics.
+        encoding_numeric_tokens = re.findall(
+            r"[-+]?[0-9]+(?:[.][0-9]+)?(?:[eE][-+]?[0-9]+)?",
+            encoding_text,
+        )[:16]
         outputs[section].append({
             "dimensions": dims,
             "declared_dtype": dtype,
             "elements": math.prod(dims),
             "encoding_declared": encoding,
+            "encoding_numeric_tokens": encoding_numeric_tokens,
+            "declared_byte_width": 1 if dtype in {
+                "ufxp_8", "fxp_8", "uint_8", "int_8", "bool_8",
+            } else (2 if dtype in {"ufxp_16", "fxp_16", "float_16", "uint_16", "int_16"}
+                    else (4 if dtype in {"float_32", "int_32", "uint_32"} else 8)),
         })
     inputs = outputs["input"]
     # Exact 256 bytes of float32 as declared in the ONNX source fixture.
@@ -123,6 +137,10 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
         "dlc_declared_inputs": inputs,
         "dlc_declared_outputs": outputs["output"],
         "dlc_io_tables_both_parsed": bool(inputs and outputs["output"]),
+        "dlc_declared_single_input_bytes": (
+            inputs[0]["elements"] * inputs[0]["declared_byte_width"]
+            if len(inputs) == 1 else None
+        ),
         "synthetic_float32_input_byte_size_matches_dlc": input_matches,
         "qnn_native_io_compatibility_verified": False,
     }
