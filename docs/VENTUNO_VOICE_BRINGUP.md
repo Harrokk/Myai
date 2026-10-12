@@ -101,3 +101,59 @@ Vid **godkänd** mikrofon- och beroendekontroll kan en separat
 driftsättningsplan för `voice.enabled`, `tts_enabled` och
 `handsfree_enabled` tas fram med rollback. Fram till dess är MyAI:s
 röstfunktion säkerhetsmässigt **avstängd**.
+
+## Isolerad ARM64-röststaging verifierad (2026-10-12)
+
+**Detta ändrar inte den aktiva MyAI-installationen.** På VENTUNO Q har
+ett separat, kortlivat Python-venv skapats i GitHub-runners temporära
+katalog. Hela miljön och tillfälliga OS-paket togs bort i ett
+alltid-kört rensningssteg efteråt. MyAI/GenieX-tjänsterna var aktiva
+före och efter testet, och produktionsprofilens röstflaggor förblev
+avstängda.
+
+Resursmätning före staging:
+
+- Tillgängligt RAM, \`MemAvailable\`: cirka **13,2 GB**.
+- Tillgänglig lagring: cirka **34 GB**.
+- Begränsningar: minst 1,5 GB RAM- och lagringsmarginal krävs för staging.
+- Detta är ett **ögonblicksvärde**, inte ett långtidstest av
+  samtidig Whisper-/Qwen3-exekvering eller Peak-RSS.
+
+Faktiska tester av *installerbara ARM64-wheels*:
+
+| Komponent | Separat venv | Importstatus |
+| --- | --- | --- |
+| \`webrtcvad-wheels\` / \`webrtcvad\` | Installerat | **Godkänd** |
+| \`pyttsx3\` | Installerat | **Godkänd** |
+| \`sounddevice\` | Installerat | Kräver PortAudio på denna Linux-installation |
+| Distributionens \`libportaudio2\` | Endast nedladdat och uppackat i tmp | Ytterligare \`libjack.so.0\` saknades |
+| Distributionens \`libjack-jackd2-0\` | Endast nedladdat och uppackat i tmp | **Godkänd \`sounddevice\`-import** med båda lokala biblioteken |
+
+**Alla tre lätta rösters Python-importer har därmed verifierats i en
+frikopplad ARM64-testmiljö.** Det är inte ett fungerande STT/TTS-
+end-to-end-test eller bevis på mikrofon/högtalarfunktion.
+
+- Godkänd staged-körning med PortAudio/JACK:
+  https://github.com/Harrokk/Myai/actions/runs/38232932949
+- Skript: \`scripts/ventuno_voice_wheel_staging.py\` och
+  \`scripts/ventuno_portaudio_temp_stage.py\`.
+- Inga \`sudo\`, \`apt install\`, \`dpkg --install\`, modellvikter,
+  mikrofonupptagningar, systemd-ändringar eller återstarter användes.
+
+För faktisk röstdrift behöver PortAudio och JACK göras tillgängliga
+på ett **stödd och återställningsbart sätt** i produktionsmiljön,
+med lämpliga paket, versionskontroller och en rollback-plan.
+Detta beslut är **inte** fattat eller automatiskt verkställt.
+
+### Whisper-dependencies: endast wheel-resolution
+
+\`scripts/ventuno_stt_wheel_preflight.py\` kan på samma temporära
+ARM64-venv göra en begränsad \`pip install --dry-run
+--ignore-installed --only-binary=:all:\` för \`faster-whisper\`
+och dess Python-beroenden. Detta verifierar *paketresolution*,
+**inte** att STT-beräkning eller Whisper-modellvikter fungerar.
+Det krävs separat minnes-, latens- och modellhanteringstest,
+inklusive kontroll av \`ctranslate2\` och eventuell ARM64-exekvering.
+
+Mikrofontestet \`scripts/ventuno_microphone_smoke.py\` är fortsatt
+**avstängt som standard** och får aldrig köras med inspelning av CI.
