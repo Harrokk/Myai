@@ -167,3 +167,67 @@ def test_playback_invocation_is_a_single_capped_wav_transfer(monkeypatch, tmp_pa
     ]
     assert options["input"]==b"small WAV bytes"
     assert options["timeout"] <= 9
+
+
+def test_audible_swedish_cue_low_peak_and_only_on_speaker(
+    monkeypatch, tmp_path,
+):
+    import array
+    import io
+    import wave
+
+    root = tmp_path / "myai-usb-dialog-work"
+    root.mkdir()
+    monkeypatch.setattr(hardware, "_preflight", lambda _: (
+        root / "bin/python", root / "model", root / "espeak-ng", root / "espeak-ng-data",
+    ))
+    monkeypatch.setattr(hardware, "_require_executable", lambda _: "/usr/bin/aplay")
+
+    raw = io.BytesIO()
+    with wave.open(raw, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(array.array("h", [21000] * 24000).tobytes())
+    wav_source = raw.getvalue()
+
+    calls = []
+    def process(argv, **kw):
+        calls.append((argv, kw))
+        if argv[0].endswith("espeak-ng"):
+            assert argv[-1] == "Säg: Vad heter du."
+            assert "--stdout" in argv
+            return SimpleNamespace(returncode=0, stdout=wav_source, stderr=b"")
+        assert argv == ["/usr/bin/aplay", "--quiet", "--device=plughw:1,0",
+                        "--file-type=wav", "-"]
+        with wave.open(io.BytesIO(kw["input"])) as limited:
+            samples = array.array("h")
+            samples.frombytes(limited.readframes(limited.getnframes()))
+        assert max(abs(s) for s in samples) <= int(32767 * 0.04)
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(hardware.subprocess, "run", process)
+    ports = hardware.build_ports(root)
+    assert ports.audible_start_cue is not None
+    assert ports.audible_start_cue() is True
+    assert len(calls) == 2
+    assert calls[0][0][0].endswith("espeak-ng")
+    assert calls[1][0][0] == "/usr/bin/aplay"
+
+
+def test_unusable_spoken_cue_does_not_open_speaker(monkeypatch, tmp_path):
+    root = tmp_path / "myai-usb-dialog-work"
+    root.mkdir()
+    monkeypatch.setattr(hardware, "_preflight", lambda _: (
+        root / "bin/python", root / "model", root / "espeak-ng", root / "espeak-ng-data",
+    ))
+    monkeypatch.setattr(hardware, "_require_executable", lambda _: "/usr/bin/aplay")
+    calls = []
+    def process(argv, **kwargs):
+        calls.append(argv)
+        assert argv[0].endswith("espeak-ng")
+        return SimpleNamespace(returncode=1, stdout=b"", stderr=b"unsafe-stderr")
+    monkeypatch.setattr(hardware.subprocess, "run", process)
+    p = hardware.build_ports(root)
+    assert p.audible_start_cue() is False
+    assert len(calls) == 1
