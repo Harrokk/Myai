@@ -184,6 +184,112 @@ jobs:
           print("Backend library/device evidence is suggestive, not proof of NPU execution.")
           PY
 
+      - name: Sample accelerator frequency and process CPU during inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import os
+          import threading
+          import time
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          base = "http://127.0.0.1:18181/v1"
+          with urlopen(base + "/models", timeout=15) as response:
+              models = json.load(response).get("data", [])
+          assert models and models[0].get("id"), "Missing model"
+
+          # Read only exposed counters; absence is explicitly inconclusive.
+          roots = [Path("/sys/class/devfreq"), Path("/sys/class/kgsl")]
+          sensors = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for device in root.iterdir():
+                  name = device.name.lower()
+                  if root.name == "devfreq" and not any(
+                      term in name for term in ("npu", "dsp", "htp", "cdsp", "compute", "q6")
+                  ):
+                      continue
+                  for field in ("cur_freq", "busy_time", "total_time", "gpu_busy_percentage"):
+                      candidate = device / field
+                      if candidate.is_file():
+                          sensors.append(candidate)
+          sensors = sorted(set(sensors), key=str)
+          print("Accelerator candidate counters:", [str(p) for p in sensors])
+
+          pids = []
+          for proc in Path("/proc").iterdir():
+              if not proc.name.isdigit():
+                  continue
+              try:
+                  if (proc / "comm").read_text().strip() == "geniex":
+                      pids.append(int(proc.name))
+              except OSError:
+                  pass
+          print("GenieX PIDs:", pids)
+          ticks_per_second = os.sysconf("SC_CLK_TCK")
+
+          def snapshot():
+              values = {}
+              for path in sensors:
+                  try:
+                      values[str(path)] = path.read_text().strip()[:80]
+                  except OSError:
+                      values[str(path)] = "unavailable"
+              for pid in pids:
+                  try:
+                      stat = (Path("/proc") / str(pid) / "stat").read_text()
+                      fields = stat.rsplit(")", 1)[1].split()
+                      values[f"pid:{pid}:cpu_seconds"] = round(
+                          (int(fields[11]) + int(fields[12])) / ticks_per_second, 3
+                      )
+                  except (OSError, ValueError, IndexError):
+                      pass
+              return values
+
+          samples = [("before", snapshot())]
+          stop = threading.Event()
+
+          def sampler():
+              while not stop.wait(0.5):
+                  samples.append(("during", snapshot()))
+
+          worker = threading.Thread(target=sampler, daemon=True)
+          worker.start()
+          payload = json.dumps({
+              "model": models[0]["id"],
+              "messages": [{"role": "user", "content":
+                  "Skriv en kort förklaring på svenska av skillnaden mellan CPU och NPU."}],
+              "max_tokens": 96,
+              "temperature": 0,
+              "stream": False,
+          }).encode()
+          request = Request(
+              base + "/chat/completions", data=payload,
+              headers={"Content-Type": "application/json"}, method="POST",
+          )
+          start = time.monotonic()
+          try:
+              with urlopen(request, timeout=90) as response:
+                  result = json.load(response)
+          finally:
+              stop.set()
+              worker.join(timeout=3)
+          elapsed = time.monotonic() - start
+          samples.append(("after", snapshot()))
+          answer = (result.get("choices") or [{}])[0].get("message", {}).get("content")
+          assert answer and str(answer).strip(), "Empty inference result"
+          print("Inference elapsed seconds:", round(elapsed, 2))
+          print("Sample count:", len(samples))
+          for phase, values in samples[::max(1, len(samples) // 12)]:
+              print(phase, json.dumps(values, sort_keys=True))
+          print("Final sample:", json.dumps(samples[-1][1], sort_keys=True))
+          print("CPU time and frequency alone do not prove NPU utilization.")
+          PY
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
