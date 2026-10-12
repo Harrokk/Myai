@@ -39,6 +39,16 @@ def test_existing_stage_dir_is_not_overwritten(tmp_path, monkeypatch):
     )
 
 
+def test_distro_multiarch_voice_path_is_detected(tmp_path):
+    root = tmp_path / "myai-tts-espeak-stage"
+    executable = root / "extracted/usr/bin/espeak-ng"
+    voice_dir = root / "extracted/usr/lib/aarch64-linux-gnu/espeak-ng-data"
+    executable.parent.mkdir(parents=True)
+    voice_dir.mkdir(parents=True)
+    executable.write_bytes(b"synthetic executable")
+    assert stage.espeak_paths(root) == (executable, voice_dir)
+
+
 def test_symlink_espeak_binary_rejected(tmp_path):
     root = tmp_path / "myai-tts-espeak-stage"
     bin_dir = root / "extracted/usr/bin"
