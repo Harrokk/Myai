@@ -230,3 +230,65 @@ The next safe investigation is to verify graph selection and weight sharing
 against the installed QAIRT v2.45 documentation or vendor source, and use a
 separate, smaller profiling fixture if single-graph execution is unsupported.
 The profile status remains **unverified**.
+
+## Multi-graph skip and HTP weight-sharing verification (2026-10-12)
+
+New device-side checks on the self-hosted VENTUNO Q confirmed:
+
+1. The **installed** `qnn-net-run --help` explains that `--input_list`
+   accepts comma-separated per-graph input-list entries and the literal
+   `__` to **skip execution** of a graph. There is still no explicit
+   graph-name selector among the inspected CLI flags. This reconciles the
+   previous "no graph selector" result: the CLI has a potential skip-based
+   selection route, but this is not a demonstrated runtime execution
+   of a chosen cached GenieX graph.
+2. `scripts/ventuno_qnn_cli_gate.py` now has a pure,
+   fail-closed `build_single_graph_input_list_arg()` helper. It validates
+   graph count/index and safe argument structure without running QNN.
+   A synthetic ten-graph plan selected index **5** and skipped the other
+   **nine** positions. It does not establish that metadata index 5 matches
+   the execution position of the same graph in the loaded context.
+3. `scripts/ventuno_qnn_weight_sharing_inventory.py` searches only
+   allowlisted, bounded cached HTP configuration files. Exactly **one**
+   matching config was inspected and it **declared weight sharing enabled**.
+   The output contains aggregate booleans/status counts only, never paths,
+   other configuration values, model contents or credentials.
+   **A cached declaration does not prove that the running GenieX service
+   actually applied the setting**.
+4. New focused tests for skip-plan construction and weight-sharing
+   inventory passed on VENTUNO; the overall CI and diagnostics runs also
+   completed successfully for their respective checked commits.
+
+### Supported API versus unverified bundle execution
+
+Qualcomm documents `QnnGraph_retrieve(context, graphName, ...)` for retrieving
+a graph from a loaded/cached QNN context. HTP's context API defines
+weight sharing and multi-context resource-sharing options. This SDK API
+capability is separate from the CLI `__` selection syntax. Neither
+feature proves that the **four linked GenieX context binaries** can be
+loaded, selected and profiled independently by `qnn-net-run`.
+
+Qualcomm's LLM onboarding documentation describes linking autoregressive
+variants of model parts into shared-weight QNN contexts and having Genie
+coordinate those parts. This is why treating a single cached context or an
+isolated zero-filled graph as a complete Qwen3 LLM is unsafe.
+
+The cached 4B context graphs' **28 inputs** include state-related tensors.
+The synthetic native-dtype fixture is for file/shape checks only, **not**
+a semantically valid token-generation step or an accuracy test.
+
+**Safety decision remains NO-GO for model execution or service pause.**
+The next gate is to establish, from vendor-compatible runtime
+documentation/source and bounded metadata inspection, the exact
+multi-context load order, graph-slot mapping, required backend
+configuration and memory lifetime. Prefer an independent small
+profiling fixture before attempting an installed 4B bundle trial.
+A controlled maintenance-window experiment still requires a reviewed
+restart/rollback procedure and explicit operational approval; do not
+elevate the GitHub runner or interrupt GenieX automatically.
+
+References:
+- QNN `QnnGraph_retrieve`: https://docs.qualcomm.com/nav/home/api-rst_file_include_QNN_QnnGraph_h.html?product=924033590759186372
+- HTP context weight sharing API: https://github.com/qualcomm/geniex-qairt-plugin/blob/main/qnn-api/include/HTP/QnnHtpContext.h
+- QAIRT multi-graph input-list syntax: https://docs.radxa.com/en/dragon/q8b/app-dev/npu-dev/qairt-tools
+- Qualcomm LLM compile/link and shared-weight contexts: https://github.com/qualcomm/ai-hub-models/blob/main/tutorials/llm/onboarding.md
