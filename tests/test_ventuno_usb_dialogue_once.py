@@ -212,3 +212,28 @@ def test_unexpected_io_failure_is_sanitized_and_cannot_retry():
     assert "secret private" not in str(first)
     second = instance.run(consent_to_record=True, consent_to_play=True)
     assert second["status"] == "reject-second-attempt"
+
+
+def test_spoken_cue_finishes_before_microphone():
+    p, events = ports()
+    p.audible_start_cue = lambda: events.append("cue") or True
+    report = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True,
+    )
+    assert report["status"] == "one-shot-usb-dialogue-alsa-playback-completed"
+    assert events == [
+        "readiness", "cue", "capture", "transcribe", "ram",
+        "geniex", "tts", "readiness", "play",
+    ]
+
+
+def test_failed_audible_cue_does_not_record_or_repeat():
+    p, events = ports()
+    p.audible_start_cue = lambda: events.append("cue") or False
+    dialog = mod.OneShotUsbDialog(p)
+    first = dialog.run(consent_to_record=True, consent_to_play=True)
+    assert first["status"] == "reject-audible-start-cue-failed"
+    assert events == ["readiness", "cue"]
+    second = dialog.run(consent_to_record=True, consent_to_play=True)
+    assert second["status"] == "reject-second-attempt"
+    assert events == ["readiness", "cue"]
