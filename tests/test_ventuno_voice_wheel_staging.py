@@ -185,3 +185,38 @@ def test_import_probe_disallows_arbitrary_code(monkeypatch, tmp_path):
             tmp_path / "python", "__import__('os').system('whoami')",
             tmp_path, {},
         )
+
+
+def test_missing_portaudio_can_defer_only_sounddevice(monkeypatch, tmp_path):
+    runner = tmp_path / "runner"
+    runner.mkdir()
+    base_python = tmp_path / "python3"
+    base_python.write_bytes(b"base")
+    base_python.chmod(0o700)
+    stage = runner / "myai-voice-staging"
+    monkeypatch.setattr(voice.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(voice, "mem_available_kib", lambda: 9_000_000)
+    monkeypatch.setattr(voice, "disk_free_bytes", lambda _p: 30_000_000_000)
+
+    def fake_cmd(args, **kwargs):
+        if args[1:3] == ["-m", "venv"]:
+            stage.mkdir()
+            (stage / "bin").mkdir()
+            (stage / "bin" / "python").write_bytes(b"fake")
+        return {"completed": True, "exit_zero": True, "exit_code": 0}
+
+    monkeypatch.setattr(voice, "result_of_command", fake_cmd)
+    def fake_import(_p, name, _folder, _env):
+        if name == "sounddevice":
+            return {"importable": False, "failure": "OSError"}
+        return {"importable": True, "failure": None}
+    monkeypatch.setattr(voice, "import_probe", fake_import)
+    report = voice.stage_light_voice(
+        base_python, stage, runner, allow_missing_portaudio=True
+    )
+    assert report["status"] == "light-packages-require-optional-PortAudio-runtime"
+    assert report["light_wheels_installed"] is True
+    assert report["light_imports_verified"] is False
+    assert report["module_imports"]["webrtcvad"]["importable"] is True
+    assert report["module_imports"]["pyttsx3"]["importable"] is True
+    assert report["production_venv_changed"] is False
