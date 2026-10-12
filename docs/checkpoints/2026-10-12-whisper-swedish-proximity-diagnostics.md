@@ -66,3 +66,55 @@ reference speech of this exact phrase or alternative voice
 synthesizers. If the output is near, investigate normalization,
 beam settings and robust but strictly whitelisted transcript
 variants. Live microphone tests still require new authorization.
+
+
+## Verified VENTUNO Q proximity measurement
+
+The corrected full self-hosted ARM64 run completed with every
+step green:
+
+- Source commit: `e869e381c5e05619405b4c1f2feefd9c2096912a`.
+- Run: https://github.com/Harrokk/Myai/actions/runs/38283378612
+- Job `114925795888`, conclusion **success**.
+- **111/111** unit/security tests passed.
+- Tiny and Base weights were verified and loaded separately,
+  and synthetic cases were recognized offline. Active services
+  remained healthy, with model/audio files cleaned afterward.
+- **0 of the 8** recordings produced an exact match.
+- Seven trials had edit distance **6–10 characters**;
+  the closest was Tiny / slow speaking rate / beam 5,
+  edit-distance bucket **3–5 characters**.
+- For every one of 8 outputs, the decoded words had
+  **0 aligned target-word positions**, no complete target
+  word sequence in order, and no contiguous target phrase.
+- Target-word overlap: Tiny had 0/3 in three cases,
+  1/3 in its closest case; Base had 0/3 in one case,
+  1/3 in three cases.
+- **No decoded output contained more than one** of the
+  three target words. This is not a punctuation-only
+  failure and does not support relaxing the dialogue
+  command match threshold.
+- The original decoded strings were not saved or printed,
+  and therefore cannot be reconstructed from the run logs.
+- Worker peak RSS measured about **240 MiB** (Tiny) and
+  **318 MiB** (Base), not representative of full-system
+  cold-start or multi-model memory peaks.
+
+### Recommendation after this evidence
+
+Do NOT silently turn on fuzzy phrase matching for arbitrary
+live microphone transcription. The 0–1 target word overlaps
+suggest a materially different decoded phrase, not a
+minor punctuation or spacing variation.
+
+More useful controls: a natural human pronunciation of the
+exact Swedish question, with source/rights and sample identity
+verified, and a longer innocuous Swedish test sentence.
+The existing eSpeak NG pronunciation may be a poor proxy
+for actual spoken Swedish. If independently licensed
+sample audio cannot be sourced, test a separately generated
+higher-quality Swedish voice in a disposable environment.
+
+No new microphone or loudspeaker test was authorized in
+this diagnostic stage. The running Whisper default,
+MyAI/GenieX services and installed Ollama remain unchanged.
