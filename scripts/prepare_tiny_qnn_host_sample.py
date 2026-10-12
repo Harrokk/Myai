@@ -89,7 +89,8 @@ def build_onnx_model():
     )
     model = helper.make_model(graph, opset_imports=[helper.make_operatorsetid("", 13)],
                               producer_name="MyAI isolated QAIRT microprofile fixture")
-    # Fine-grained output scale preserves nonzero results for the tiny weights.\n    model.ir_version = 8
+    # Fine-grained output scale preserves nonzero results for the tiny weights.
+    model.ir_version = 8
     onnx.checker.check_model(model)
     return model
 
