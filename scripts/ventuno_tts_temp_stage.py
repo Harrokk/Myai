@@ -77,16 +77,24 @@ def run_command(args: list[str], cwd: Path, *, timeout: int,
 def espeak_paths(root: Path) -> tuple[Path | None, Path | None]:
     extracted = root / "extracted"
     exe = extracted / "usr" / "bin" / "espeak-ng"
-    data = extracted / "usr" / "share" / "espeak-ng-data"
+    # Debian/Ubuntu multiarch packages commonly store voices under
+    # usr/lib/<triplet>/espeak-ng-data instead of usr/share.
+    options = (
+        extracted / "usr/lib/aarch64-linux-gnu/espeak-ng-data",
+        extracted / "usr/share/espeak-ng-data",
+        extracted / "usr/lib/espeak-ng-data",
+    )
     try:
         if (exe.is_symlink() or not exe.is_file()
-                or not exe.resolve().is_relative_to(extracted.resolve())
-                or data.is_symlink() or not data.is_dir()
-                or not data.resolve().is_relative_to(extracted.resolve())):
+                or not exe.resolve().is_relative_to(extracted.resolve())):
             return None, None
-        return exe, data
+        for data in options:
+            if (data.is_dir() and not data.is_symlink()
+                    and data.resolve().is_relative_to(extracted.resolve())):
+                return exe, data
     except OSError:
         return None, None
+    return None, None
 
 
 def stage_sweden_tts(folder: Path, runner_temp: Path,
