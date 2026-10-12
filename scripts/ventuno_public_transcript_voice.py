@@ -157,8 +157,12 @@ def run_public_transcript_to_wav(
     )
     # The real Whisper subprocess ended before this point. The STT adapter
     # preserves its actual output, rather than fabricating a fixed sentence.
-    stt = _RealPublicWordSTT(transcript)
-    responder = _PublicWordGenieX(transcript)
+    # VoicePipeline.normalize_stt_result() trims edge whitespace.
+    # Use the same normalized *recognized* text for both STT and
+    # GenieX's exact one-turn match; never substitute a canned transcript.
+    recognized = transcript.strip()
+    stt = _RealPublicWordSTT(recognized)
+    responder = _PublicWordGenieX(recognized)
     tts = bridge._InMemoryEspeak(exe, voice_data, env)
     pipeline = VoicePipeline(
         assistant=responder, primary_stt=stt, tts=tts,
