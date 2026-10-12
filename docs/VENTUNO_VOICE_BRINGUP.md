@@ -157,3 +157,51 @@ inklusive kontroll av \`ctranslate2\` och eventuell ARM64-exekvering.
 
 Mikrofontestet \`scripts/ventuno_microphone_smoke.py\` är fortsatt
 **avstängt som standard** och får aldrig köras med inspelning av CI.
+
+## Fullständig ARM64-röstpaketstaging: verifierad utan talmodell (2026-10-12)
+
+Den separata staging-kedjan i
+\`.github/workflows/ventuno-voice-staging.yml\` är nu **godkänd hela vägen**:
+
+1. Kontroll av 13,2 GB tillgängligt RAM och cirka 34 GB ledigt utrymme
+   vid start (momentant värde, inte belastningsreserv).
+2. Installering av \`sounddevice\`, \`webrtcvad-wheels\` och \`pyttsx3\`
+   i en ny tillfällig ARM64-venv. WebRTC VAD och pyttsx3 gick att importera.
+3. Temporär hämtning/uppackning av \`libportaudio2\` och
+   \`libjack-jackd2-0\` från distributionens befintliga apt-källor.
+   \`sounddevice\` kunde då importeras utan systeminstallation.
+4. \`pip --dry-run --ignore-installed --only-binary=:all:\` hittade
+   en ARM64-wheel-kedja med **23 paket**, inklusive
+   \`faster-whisper==1.2.1\`, \`ctranslate2==4.8.2\`,
+   \`av==19.0.1\`, \`tokenizers==0.23.3\` och
+   \`onnxruntime==1.31.0\`.
+5. Faktisk installation av \`faster-whisper\`-wheels **enbart i
+   staging-venv**; \`faster_whisper\`, \`ctranslate2\` och \`av\`
+   kunde importeras på VENTUNO ARM64.
+6. **Uppmätt peak RSS för separat importprocess: 57,1 MiB**.
+   Mätningen använder Linux \`resource.ru_maxrss\`; processen hade
+   en skyddsgräns på 4 GiB virtuellt adressutrymme och 35 CPU-sekunder.
+7. Röstflaggorna i aktiv MyAI-profil var fortsatt \`false\`,
+   GenieX/MyAI-tjänsterna aktiva och alla tillfälliga bibliotek
+   samt temporära venv-filer borttagna.
+
+Verifierad hårdvarukörning:
+https://github.com/Harrokk/Myai/actions/runs/38233884839
+
+**Begränsningar, viktigt:**
+
+- Att CTranslate2 importeras betyder **inte** att rätt Whisper-modell
+  kan laddas med vald kvantisering, CPU-arkitektur och minnesbudget.
+- 57,1 MiB är **endast bibliotekens importminne**. Modellvikter,
+  transkribering, CPU-belastning, latenser och samtidighet med Qwen3-4B
+  är fortfarande obevisade.
+- Inget \`WhisperModel(...)\`, ingen nedladdning av talmodellvikter,
+  ingen mikrofoninspelning och ingen TTS-ljuduppspelning har gjorts.
+- PortAudio/JACK-paketen installerades **inte** i det verkliga OS:et.
+  Ett framtida permanent installerat röstsystem kräver separat
+  driftsättning med beroendehantering och rollback-plan.
+
+**Nästa steg:** en kontrollerad modellbudget och prestandamätning för
+liten svensk STT-modell i staging, separat från Qwen3-processen
+och utan parallell laddning, följt av *samtyckesstyrd* mikrofoninspelning.
+Inget automatiskt produktionspåslag är tillåtet.
