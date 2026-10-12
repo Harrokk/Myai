@@ -24,6 +24,8 @@ on:
       - tests/test_qairt_245_dlc_static_audit.py
       - scripts/ventuno_voice_readiness.py
       - tests/test_ventuno_voice_readiness.py
+      - scripts/ventuno_microphone_smoke.py
+      - tests/test_ventuno_microphone_smoke.py
 
 permissions:
   contents: read
@@ -511,6 +513,8 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_voice_readiness.py
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_voice_readiness.py
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_microphone_smoke.py
+          /home/arduino/MyAI/.venv/bin/python scripts/ventuno_microphone_smoke.py
 
       - name: Validate synthetic QNN DLC container without running SDK or HTP
         shell: bash
