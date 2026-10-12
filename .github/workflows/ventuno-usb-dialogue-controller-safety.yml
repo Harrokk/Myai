@@ -7,6 +7,8 @@ on:
       - .github/workflows/ventuno-usb-dialogue-controller-safety.yml
       - scripts/ventuno_usb_dialogue_once.py
       - tests/test_ventuno_usb_dialogue_once.py
+      - scripts/ventuno_usb_dialogue_hardware.py
+      - tests/test_ventuno_usb_dialogue_hardware.py
   workflow_dispatch:
 
 permissions:
@@ -52,6 +54,7 @@ jobs:
           cd "$MYAI_DIALOG_SAFE_WORK/source"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
             tests/test_ventuno_usb_dialogue_once.py \
+            tests/test_ventuno_usb_dialogue_hardware.py \
             tests/test_ventuno_usb_voice_dialog_readiness.py \
             tests/test_ventuno_usb_speaker_smoke.py \
             tests/test_ventuno_usb_audio_inventory.py
