@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -49,7 +50,8 @@ def extracted_library(root: Path) -> Path | None:
 
 
 def run_bounded(argv: list[str], *, cwd: Path, timeout: int,
-                env: dict[str, str] | None = None) -> dict[str, object]:
+                env: dict[str, str] | None = None,
+                safe_error_hint: bool = False) -> dict[str, object]:
     try:
         result = subprocess.run(
             argv, cwd=cwd, env=env, check=False,
@@ -59,8 +61,23 @@ def run_bounded(argv: list[str], *, cwd: Path, timeout: int,
         return {"success": False, "reason": "timeout"}
     except OSError:
         return {"success": False, "reason": "os-error"}
-    return {"success": result.returncode == 0,
-            "exit_code": result.returncode}
+    report: dict[str, object] = {
+        "success": result.returncode == 0, "exit_code": result.returncode
+    }
+    if safe_error_hint and result.returncode:
+        stderr = result.stderr[-2500:]
+        errors = re.findall(
+            r"(?m)^(OSError|ImportError|ModuleNotFoundError|RuntimeError):",
+            stderr,
+        )
+        shared = re.findall(
+            r"lib[a-zA-Z0-9_+.-]{1,65}[.]so(?:[.][0-9]{1,2}){0,3}",
+            stderr,
+        )
+        report["import_exception"] = errors[-1] if errors else "unknown"
+        report["missing_shared_library"] = shared[-1] if shared else None
+        report["portaudio_text_mentioned"] = "portaudio" in stderr.lower()
+    return report
 
 
 def stage_portaudio_for_import(
@@ -144,11 +161,15 @@ def stage_portaudio_for_import(
     )
     outcome = run_bounded(
         [str(sandbox_python), "-I", "-c", program],
-        cwd=runner_temp, timeout=20, env=env,
+        cwd=runner_temp, timeout=20, env=env, safe_error_hint=True,
     )
     report["sounddevice_import_with_isolated_portaudio"] = bool(
         outcome["success"]
     )
+    if not outcome["success"]:
+        report["import_exception"] = outcome.get("import_exception")
+        report["missing_shared_library"] = outcome.get("missing_shared_library")
+        report["portaudio_text_mentioned"] = outcome.get("portaudio_text_mentioned")
     report["status"] = (
         "sounddevice-imports-with-temporary-portaudio"
         if outcome["success"] else "no-go-temporary-portaudio-dependency"
