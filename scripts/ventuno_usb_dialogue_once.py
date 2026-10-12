@@ -32,6 +32,21 @@ APPROVED_QUESTIONS = frozenset((
     "vad kan du göra",
 ))
 
+# Small, literal aliases only. No fuzzy substring matching or arbitrary
+# suffixes: the first physical test stopped on a mismatched short phrase,
+# but its private transcript was discarded, so the cause is unknown.
+# These are plausible harmless recognizer surface forms, not an assertion
+# about what the user said or what Whisper decoded.
+SAFE_QUESTION_ALIASES = {
+    "vad heter du my ai": "vad heter du",
+    "vad heter du myai": "vad heter du",
+    "my ai vad heter du": "vad heter du",
+    "myai vad heter du": "vad heter du",
+    "hej my ai vad heter du": "vad heter du",
+    "hej myai vad heter du": "vad heter du",
+}
+
+
 
 @dataclass
 class DialogPorts:
@@ -52,11 +67,11 @@ def approved_short_question(text: object) -> str | None:
     if "--" in text or any(ord(ch) < 32 for ch in text):
         return None
     normalized = normalize_transcript(text)
-    if normalized not in APPROVED_QUESTIONS:
-        return None
     if classify_voice_risk(text).get("level") != "low":
         return None
-    return normalized
+    if normalized in APPROVED_QUESTIONS:
+        return normalized
+    return SAFE_QUESTION_ALIASES.get(normalized)
 
 
 def classify_unapproved_question(text: object) -> str:
@@ -68,7 +83,7 @@ def classify_unapproved_question(text: object) -> str:
     normalized = normalize_transcript(text)
     if classify_voice_risk(text).get("level") != "low" or "--" in text:
         return "unsafe-command-or-control"
-    if normalized in APPROVED_QUESTIONS:
+    if approved_short_question(text) is not None:
         return "approved"
     words = normalized.split()
     if (words and words[0] in ("säg", "sag")
