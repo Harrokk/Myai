@@ -433,6 +433,13 @@ jobs:
           print("This only requests CLI help; it does not run qnn-net-run inference.")
           PY
 
+      - name: Preflight isolated QAIRT profiling without loading any model
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-checkout"
+          /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qairt_profile_preflight.py
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
