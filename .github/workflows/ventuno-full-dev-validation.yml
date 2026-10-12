@@ -57,3 +57,19 @@ jobs:
           cd "$MYAI_TEST_DIR"
           /home/arduino/MyAI/.venv/bin/python scripts/generate_ventuno_systemd.py
           systemd-analyze verify runtime/systemd/*.service runtime/systemd/*.target
+      - name: Remove isolated checkout after validation
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_TEST_DIR:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_TEST_DIR" in
+              "$RUNNER_TEMP"/myai-dev-*)
+                test -d "$MYAI_TEST_DIR" && rm -rf -- "$MYAI_TEST_DIR" || true
+                ;;
+              *)
+                echo "Refusing to remove unexpected test directory: $MYAI_TEST_DIR" >&2
+                exit 1
+                ;;
+            esac
+          fi
