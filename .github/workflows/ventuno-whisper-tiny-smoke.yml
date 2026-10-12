@@ -11,6 +11,9 @@ on:
       - tests/test_ventuno_whisper_tiny_cpu_smoke.py
       - scripts/ventuno_swedish_reference_audio.py
       - tests/test_ventuno_swedish_reference_audio.py
+      - scripts/ventuno_voice_wheel_staging.py
+      - scripts/ventuno_stt_import_staging.py
+      - tests/test_ventuno_stt_import_staging.py
 
 permissions:
   contents: read
