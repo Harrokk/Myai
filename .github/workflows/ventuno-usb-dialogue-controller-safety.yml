@@ -1,0 +1,118 @@
+name: VENTUNO USB single-turn dialogue controller safety (NO AUDIO)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-usb-dialogue-controller-safety.yml
+      - scripts/ventuno_usb_dialogue_once.py
+      - tests/test_ventuno_usb_dialogue_once.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-dialogue-controller-safety-no-audio
+  cancel-in-progress: false
+
+jobs:
+  safety:
+    name: Synthetic PCM to Whisper port to GenieX port to capped WAV port
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Read exact source commit into private runner temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          test -n "${GH_TOKEN:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-dialog-safety-XXXXXXXX")"
+          echo "MYAI_DIALOG_SAFE_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Exercise consent gates and synthetically generated audio only
+        id: tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_SAFE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_dialogue_once.py \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_ventuno_usb_speaker_smoke.py \
+            tests/test_ventuno_usb_audio_inventory.py
+          echo "Safety tests only; no microphone, speaker, GenieX request or model loading."
+
+      - name: Confirm services and remove only this temporary test checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_DIALOG_SAFE_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_DIALOG_SAFE_WORK" in
+              "$RUNNER_TEMP"/myai-dialog-safety-*)
+                if [ -d "$MYAI_DIALOG_SAFE_WORK" ] && [ ! -L "$MYAI_DIALOG_SAFE_WORK" ]; then
+                  rm -rf -- "$MYAI_DIALOG_SAFE_WORK"
+                fi
+                ;;
+              *) echo "Unsafe temporary checkout path" >&2; exit 1;;
+            esac
+          fi
+          echo "Production remains unchanged. No hardware audio opened."
+
+      - name: Publish allowlisted test status for run discovery
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          sha = os.environ.get("GITHUB_SHA", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) and token):
+              raise SystemExit(0)
+          outcome = "success" if os.environ.get("JOB_RESULT") == "success" else "failure"
+          body = {
+              "state": outcome,
+              "context": "myai/ventuno-usb-dialogue-controller-safety",
+              "description": "Synthetic-only dialog safety; no audio capture or playback",
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }
+          req = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode(), method="POST",
+              headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=10) as response:
+                  print("Synthetic dialogue safety status reported:", response.status == 201)
+          except Exception as error:
+              print("Status unavailable:", type(error).__name__)
+          PY
