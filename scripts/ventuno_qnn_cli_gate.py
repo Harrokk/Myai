@@ -44,6 +44,7 @@ def build_single_graph_input_list_arg(
     if (not isinstance(input_list, str) or not 1 <= len(input_list) <= 255
             or input_list == "__"
             or input_list.startswith("-")
+            or ".." in input_list.split("/")
             or re.fullmatch(r"[A-Za-z0-9_./-]+", input_list) is None):
         raise ValueError("unsafe-input-list-path")
     return ",".join(
