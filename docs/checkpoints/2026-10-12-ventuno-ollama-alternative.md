@@ -109,3 +109,57 @@ succeeded, or that Ollama is persistently installed.
 Do not confuse the prior USB audio experiments with an Ollama
 compatibility result. No new physical audio capture or speaker
 playback was performed by this work.
+
+
+## Verified persistent user-local Ollama installation
+
+The previously missing Ollama runtime is now **installed persistently**
+on the VENTUNO Q under the `arduino` home directory, without
+replacing or restarting production MyAI or GenieX:
+
+- Exact one-time authorization commit:
+  `2955390c0fc508f880a99eb0fa8634546d89e8d7`
+- Successful self-hosted ARM64 GitHub run:
+  https://github.com/Harrokk/Myai/actions/runs/38266057773
+- Job `114868389459`, all steps **success**.
+- Official pinned Ollama Linux ARM64 **v0.34.0** artifact SHA256
+  verified before unpacking.
+- Installed in:
+  `/home/arduino/.local/opt/myai-ollama/v0.34.0`
+- Included model: `qwen3:0.6b` (~523 MB downloaded from the Ollama
+  registry), held in that directory's `models/` cache.
+- A short real Qwen3 text answer on the device succeeded; measured
+  post-load single request latency **2.74 seconds** in the isolated
+  test (not an end-to-end cold-start benchmark).
+- Runnable loopback-only launcher:
+  `/home/arduino/.local/opt/myai-ollama/v0.34.0/start-local-only.sh`
+- The launcher is **not started as a permanent service**, no service
+  auto-start was created, and no background Ollama server was left
+  running after the job. GenieX continues as MyAI's production
+  default and automatic fallback remains disabled.
+- The temporary download archive/staging was removed. Active voice
+  profile, microphones, speaker, MyAI and GenieX services were not
+  changed.
+
+A subsequent read-only inventory independently confirmed the
+persisted executable:
+
+https://github.com/Harrokk/Myai/actions/runs/38266892423
+
+- **44 regression tests passed** (includes local backend selection,
+  Ollama API client and memory-safe discovery).
+- Ollama user-local binary present; local API correctly unavailable
+  because the new server is intentionally stopped.
+- ~12,760 MiB free RAM and ~31,280 MiB free disk at inventory time.
+- Production services remained active.
+
+The staged USB voice hardware driver can now accept a per-turn
+`response_backend="ollama"` option, while defaulting to
+`"geniex"`. No physical Ollama speech dialogue has been attempted.
+Its synthetic safety suite passed **117 tests**:
+https://github.com/Harrokk/Myai/actions/runs/38266474560
+
+A separate one-time test is prepared to start the newly installed
+Ollama launcher, ask exactly one safe text question through the
+actual MyAI `OllamaClient`/LLM factory, and shut the launcher down
+again; that test's own result must be checked separately.
