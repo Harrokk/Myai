@@ -440,6 +440,13 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qairt_profile_preflight.py
 
+      - name: Verify QNN profiling model-format compatibility without service stop
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-checkout"
+          /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qnn_profile_feasibility.py
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
