@@ -26,6 +26,7 @@ REPO = "Systran/faster-whisper-tiny"
 REVISION = "d90ca5fe260221311c53c58e660288d3deb8d356"
 EXPECTED_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
 MODEL_BIN_MIN = 60_000_000
+EXPECTED_MODEL_SHA256 = "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"
 MODEL_BIN_MAX = 90_000_000
 MAX_MODEL_SUM_BYTES = 105_000_000
 MIN_MEM_AVAILABLE_KIB = 8 * 1024 * 1024
@@ -162,9 +163,10 @@ def model_integrity(path: Path) -> dict[str, object]:
         meta = json.loads((path / "config.json").read_text(encoding="utf-8"))
         if not isinstance(meta, dict) or len(meta) > 120:
             return out
-        digest = hashlib.file_digest(
-            (path / "model.bin").open("rb"), "sha256"
-        ).hexdigest()
+        with (path / "model.bin").open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if digest != EXPECTED_MODEL_SHA256:
+            return out
     except (OSError, ValueError, TypeError):
         return out
     out.update({
