@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           cd "$MYAI_E2E_WORK/source"
           /home/arduino/MyAI/.venv/bin/python \
-            -m scripts.ventuno_stt_gated_geniex_voice \
+            -m scripts.ventuno_public_transcript_voice \
             --runner-temp "$MYAI_E2E_WORK" \
             --run-isolated-public-transcript
           echo "No microphone, speaker, user recording or additional live LLM loaded."
