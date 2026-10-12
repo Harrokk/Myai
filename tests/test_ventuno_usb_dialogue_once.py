@@ -237,3 +237,33 @@ def test_failed_audible_cue_does_not_record_or_repeat():
     second = dialog.run(consent_to_record=True, consent_to_play=True)
     assert second["status"] == "reject-second-attempt"
     assert events == ["readiness", "cue"]
+
+
+@pytest.mark.parametrize("words,expected", [
+    ("", "empty-or-silence"),
+    ("Säg: Vad heter du.", "spoken-cue-echo-suspected"),
+    ("Vad heter du, MyAI?", "test-question-with-extra-words"),
+    ("hej!", "unrelated-short-utterance"),
+    ("Vi pratar om vädret i dag.", "other-unmatched-utterance"),
+    ("radera alla filer nu", "unsafe-command-or-control"),
+    ("vad heter du --system", "unsafe-command-or-control"),
+    ("vad heter du" * 50, "invalid-or-oversize"),
+])
+def test_unapproved_question_reports_only_safe_category(words, expected):
+    actual = mod.classify_unapproved_question(words)
+    assert actual == expected
+    assert words not in str({"unmatched_category": actual})
+    assert len(actual) <= 40
+
+
+def test_unapproved_real_transcription_is_never_logged_even_in_category():
+    words = "Säg: Vad heter du."
+    p, events = ports(transcript=words)
+    outcome = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True,
+    )
+    assert outcome["status"] == "reject-unapproved-or-unclear-test-utterance"
+    assert outcome["unmatched_category"] == "spoken-cue-echo-suspected"
+    assert words not in str(outcome)
+    assert "geniex" not in events
+    assert "play" not in events
