@@ -94,3 +94,24 @@ def test_existing_temporary_folder_refused(tmp_path, monkeypatch):
         sandbox, stage, tmp_path, arm=True,
     )
     assert report["status"] == "no-go-staging-tools-or-path"
+
+
+def test_safe_error_hint_only_reports_library_basename(monkeypatch, tmp_path):
+    class Finished:
+        returncode = 1
+        stderr = (
+            "Traceback (most recent call last): /home/arduino/secrets\n"
+            "OSError: libjack.so.0: cannot open shared object file\n"
+        )
+        stdout = "password=dontshow"
+
+    monkeypatch.setattr(pa.subprocess, "run", lambda *a, **kw: Finished())
+    r = pa.run_bounded(
+        ["python", "-I", "-c", "import sounddevice"],
+        cwd=tmp_path, timeout=5, safe_error_hint=True,
+    )
+    assert r["success"] is False
+    assert r["import_exception"] == "OSError"
+    assert r["missing_shared_library"] == "libjack.so.0"
+    assert "secrets" not in str(r)
+    assert "dontshow" not in str(r)
