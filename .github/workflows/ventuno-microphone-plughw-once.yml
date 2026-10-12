@@ -1,0 +1,94 @@
+name: ONE-TIME VENTUNO physical microphone plughw 0 1 test
+
+on:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-microphone-plughw-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-microphone-explicit-device-single-capture
+  cancel-in-progress: false
+
+jobs:
+  microphone:
+    name: Explicit ALSA plughw 0 1, only 2s in RAM
+    if: github.event_name == 'push' && github.event.head_commit.message == 'Authorize one-time 2s plughw:0,1 microphone smoke on VENTUNO Q' && github.run_attempt == 1
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Verify runner identity and exact approved source commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-plughw-once"
+          cd "$RUNNER_TEMP/myai-plughw-once"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test microphone limits and explicit-device consent gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-plughw-once"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q \
+            tests/test_ventuno_microphone_smoke.py \
+            tests/test_ventuno_alsa_capture_inventory.py \
+            tests/test_ventuno_voice_readiness.py
+
+      - name: Check active MyAI services, inactive voice and ALSA capture 0 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$RUNNER_TEMP/myai-plughw-once"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.ventuno_alsa_capture_inventory import proc_pcm_inventory
+          from scripts.ventuno_voice_readiness import snd_device_counts
+          profile = json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text(encoding="utf-8"))
+          voice = profile.get("voice", {})
+          assert isinstance(voice, dict)
+          for key in ("enabled", "tts_enabled", "handsfree_enabled"):
+              assert voice.get(key) is not True, "Voice production must remain off"
+          devices = snd_device_counts(Path("/dev/snd"))
+          assert devices["scan_complete"] and devices["capture_device_nodes"] >= 1
+          pcm = proc_pcm_inventory(Path("/proc/asound/pcm"))
+          assert pcm["proc_pcm_readable"] and [0, 1] in pcm["capture_pcm_hardware_pairs"]
+          print("Safety gates passed. Explicit capture card 0 device 1 is present.")
+          print("No PCM will be saved, streamed, displayed or transcribed.")
+          PY
+
+      - name: Exactly ONE user-approved 2s capture from plughw 0 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-plughw-once"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_microphone_smoke \
+            --record-2s --consent-to-record \
+            --device=plughw:0,1
+
+      - name: Verify service health regardless of capture result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo "MyAI and GenieX remain running. No production voice settings changed."
+          echo "No audio retained. Workflow only triggers on one uniquely authorized source commit."
