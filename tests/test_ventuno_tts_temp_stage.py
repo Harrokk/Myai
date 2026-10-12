@@ -116,6 +116,7 @@ def test_no_apt_install_or_device_output(monkeypatch, tmp_path):
     report = stage.stage_sweden_tts(root, tmp_path, arm=True)
     assert report["status"] == "isolated-swedish-tts-signal-verified"
     assert report["swedish_pcm_synthesis_verified"] is True
+    assert report["myai_voice_pipeline_synthetic_bridge_verified"] is True
     assert report["physical_playback_verified"] is False
     assert report["microphone_used"] is False
     assert report["system_packages_installed"] is False
