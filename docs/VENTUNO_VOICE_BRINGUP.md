@@ -546,3 +546,37 @@ Eventuella framtida inspelningstester kräver nytt uttryckligt
 godkännande, ska begränsas till två sekunder och bör kategorisera
 ALSA-fel utan att publicera privata device-namn/sökvägar.
 
+
+## Integritetssäker ALSA-felklassificering och skrivskyddad mixerinventering (2026-10-12)
+
+De två tidigare dokumenterade fysiska försöken gav
+`alsa-capture-nonzero`. Färska ALSA-metadata pekade inte entydigt på
+felaktiga enhetsrättigheter eller en redan öppnad substream. Vi ska
+**inte** starta fler inspelningar automatiskt för att felsöka.
+
+- `scripts/ventuno_microphone_smoke.py` klassificerar nu ALSA:s
+  feltext lokalt till en **fast lista av kategorier**
+  (åtkomst, upptagen enhet, PCM saknas, parametrar, I/O eller
+  oklassificerat). Rå stderr, ljuddata, privat enhetsnamn och
+  ljudinnehåll returneras eller loggas **aldrig**.
+  En felkategori är bara ett felsökningsspår, inte bevisad orsak.
+  Ändringen gäller **eventuella framtida separat godkända** prov.
+- `scripts/ventuno_alsa_mixer_probe.py` gör ett enbart läsande
+  `amixer -c 0 scontents` och sammanfattar **endast heltalsräknare
+  och fördefinierade statussträngar** för capture-reglage.
+  Namn på kontroller och rå kommandoutskrift hålls borta från CI.
+  Ingen mikrofon eller högtalare öppnas för ljudström och inga
+  mixerinställningar skrivs.
+- `.github/workflows/ventuno-alsa-mixer-readonly.yml` hämtar exakt
+  källcommit i en tillfällig katalog, kör säkerhetstester och
+  mixerinventering, verifierar aktiva tjänster och rensar sin katalog.
+  Arbetsflödet kan startas av kodändringar men gör **aldrig** inspelning.
+
+Kod och regressionstester är sparade på utvecklingsgrenen.
+**Resultat från den nya fysiska mixerinventeringen och full CI är ännu
+inte kontrollerade och ska inte påstås vara godkända.**
+
+Commit `1736cd38838fe8ed8be8f4f63d5a2220123e8ed9` skapades för
+ett ytterligare uttryckligen initierat engångstest av `plughw:0,1`.
+Utfallet har ännu inte kunnat verifieras här och ska inte antas vara
+lyckat; ingen ny inspelning startas av mixerdiagnostiken.
