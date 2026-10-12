@@ -1,0 +1,231 @@
+name: VENTUNO pinned Swedish Piper Alma versus Whisper Tiny and Base
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-piper-alma-swedish-stt.yml
+      - scripts/ventuno_piper_alma_swedish_stt.py
+      - tests/test_ventuno_piper_alma_swedish_stt.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-piper-alma-swedish-stt
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: Real ARM64 synthetic Swedish phrase inference without microphone
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source into isolated temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-alma-compare-XXXXXXXX")"
+          echo "MYAI_ALMA_ROOT=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run synthetic-only safety and base-model integrity unit tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ALMA_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_piper_alma_swedish_stt.py \
+            tests/test_ventuno_whisper_base_swedish_comparison.py \
+            tests/test_ventuno_synthetic_swedish_question_stt.py \
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py \
+            tests/test_ventuno_tts_temp_stage.py \
+            tests/test_ventuno_usb_dialogue_once.py
+
+      - name: Verify 8GiB RAM, disk reserve, and unchanged MyAI/GenieX
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_ALMA_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json,os
+          from pathlib import Path
+          from scripts.ventuno_voice_wheel_staging import mem_available_kib,disk_free_bytes
+          from scripts.ventuno_whisper_tiny_cpu_smoke import MIN_MEM_AVAILABLE_KIB
+          state=json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text())
+          voice=state.get("voice",{})
+          assert isinstance(voice,dict)
+          assert all(voice.get(k) is not True for k in ("enabled","tts_enabled","handsfree_enabled"))
+          ram=mem_available_kib()
+          disk=disk_free_bytes(Path(os.environ["MYAI_ALMA_ROOT"]))
+          assert ram is not None and ram>=MIN_MEM_AVAILABLE_KIB
+          assert disk is not None and disk>=4*1024**3
+          print("Resource checks passed; production voice still disabled.")
+          PY
+
+      - name: Stage previously validated Whisper ARM64 wheels in temporary venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ALMA_ROOT/source"
+          PY="$(readlink -f "$(command -v python3)")"
+          test -x "$PY"
+          "$PY" -m venv "$MYAI_ALMA_ROOT/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_ALMA_ROOT"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_ALMA_ROOT"
+
+      - name: Prepare SHA1-verified licensed public Swedish word reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ALMA_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$MYAI_ALMA_ROOT"
+
+      - name: Stage SHA256-verified multilingual Whisper Tiny and verify baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ALMA_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          root=Path(os.environ["MYAI_ALMA_ROOT"])
+          result=smoke(root/"myai-voice-staging/bin/python",root)
+          verified=result["status"]=="tiny-sv-cpu-word-and-silence-verified"
+          print("Baseline pinned multilingual Tiny reference-word verified:",verified)
+          assert verified
+          PY
+
+      - name: Install pinned Piper wheel only in temporary ARM64 virtualenv
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$MYAI_ALMA_ROOT"
+          python3 -m venv "$root/myai-piper-venv"
+          mkdir -p "$root/piper-wheels"
+          py="$root/myai-piper-venv/bin/python"
+          "$py" -m pip download --no-cache-dir --no-deps --only-binary=:all: \
+            --dest "$root/piper-wheels" "piper-tts==1.8.0"
+          test "$(find "$root/piper-wheels" -maxdepth 1 -type f | wc -l)" -eq 1
+          wheel="$(find "$root/piper-wheels" -maxdepth 1 -type f -name '*aarch64.whl' -print -quit)"
+          test -f "$wheel"
+          printf '%s  %s\n' \
+            "3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484" \
+            "$wheel" | sha256sum -c -
+          "$py" -m pip install --no-index --no-deps "$wheel"
+          "$py" -m pip install --no-cache-dir --only-binary=:all: \
+            "onnxruntime==1.23.2" "pathvalidate==3.3.1"
+          "$py" - <<'PY'
+          import onnxruntime
+          from piper import PiperVoice,SynthesisConfig
+          assert "CPUExecutionProvider" in onnxruntime.get_available_providers()
+          print("Piper ARM64 runtime installed temporarily; not a system package.")
+          PY
+
+      - name: Verify Swedish Alma attribution and checksum parameters
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ALMA_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          from scripts.ventuno_piper_alma_swedish_stt import (
+              VOICE_WEIGHTS_SHA256,EXPECTED_PIPER_WHEEL_SHA256,PINNED_VOICE_REVISION
+          )
+          assert PINNED_VOICE_REVISION=="834f232"
+          assert VOICE_WEIGHTS_SHA256=="f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc"
+          assert EXPECTED_PIPER_WHEEL_SHA256=="3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484"
+          print("Alma weights: CC BY 4.0; NST Swedish TTS corpus attribution.")
+          PY
+
+      - name: Compare two private Piper Alma variants through verified Whisper Tiny and Base
+        id: comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ALMA_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_piper_alma_swedish_stt \
+            --runner-temp "$MYAI_ALMA_ROOT" \
+            --allow-synthetic-alma-only
+          echo "result=piper-alma-whisper-comparison-complete" >> "$GITHUB_OUTPUT"
+          echo "No real speech, microphone, speaker, LLM request or production model changed."
+
+      - name: Verify services and clean only the isolated model and voice workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          if [ -n "${MYAI_ALMA_ROOT:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_ALMA_ROOT" in
+              "$RUNNER_TEMP"/myai-alma-compare-*)
+                if [ -d "$MYAI_ALMA_ROOT" ] && [ ! -L "$MYAI_ALMA_ROOT" ]; then
+                  rm -rf -- "$MYAI_ALMA_ROOT"
+                fi
+                ;;
+              *) echo "Unsafe temporary directory, refusing delete." >&2; exit 1 ;;
+            esac
+          fi
+          echo "Tiny/Base, temporary Piper runtime, voice weights and synthetic audio discarded."
+          echo "MyAI, GenieX and local installed Ollama unchanged."
+
+      - name: Publish coarse model-comparison status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          COMPARISON_RESULT: ${{ steps.comparison.outputs.result }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,urllib.request
+          repo=os.environ.get("GITHUB_REPOSITORY","")
+          sha=os.environ.get("GITHUB_SHA","")
+          token=os.environ.get("GH_TOKEN","")
+          if not (re.fullmatch(r"[a-f0-9]{40}",sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo)):
+              raise SystemExit(0)
+          good=(os.environ.get("JOB_RESULT")=="success"
+                and os.environ.get("COMPARISON_RESULT")=="piper-alma-whisper-comparison-complete")
+          body={
+              "state":"success" if good else "failure",
+              "context":"myai/ventuno-piper-alma-swedish-stt",
+              "description":("Synthetic Piper Alma Whisper comparison completed"
+                             if good else "Synthetic Piper Alma comparison incomplete"),
+              "target_url":"https://github.com/"+repo+"/actions/runs/"+
+                           os.environ.get("GITHUB_RUN_ID",""),
+          }
+          req=urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              data=json.dumps(body).encode(),method="POST",
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "X-GitHub-Api-Version":"2022-11-28",
+                       "Content-Type":"application/json"})
+          try:
+              with urllib.request.urlopen(req,timeout=10) as response:
+                  print("Synthetic comparison status recorded:",response.status==201)
+          except Exception as error:
+              print("Status unavailable:",type(error).__name__)
+          PY
