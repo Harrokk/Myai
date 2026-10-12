@@ -113,6 +113,13 @@ def inspect_mixer() -> dict[str, object]:
     result.update(parsed)
     if not parsed["capture_controls"]:
         result["status"] = "no-capture-controls-exposed"
+    elif not any((
+        parsed["capture_switch_on_reports"],
+        parsed["capture_switch_off_reports"],
+        parsed["capture_volume_zero_reports"],
+        parsed["capture_volume_nonzero_reports"],
+    )):
+        result["status"] = "capture-controls-without-level-readings"
     elif parsed["capture_switch_off_reports"]:
         result["status"] = "some-capture-switches-report-off"
     elif parsed["capture_volume_zero_reports"]:
