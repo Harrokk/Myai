@@ -65,13 +65,45 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/tiny-qnn-checkout"
           "$RUNNER_TEMP/tiny-qnn-venv/bin/python" \
-            scripts/prepare_tiny_qnn_host_sample.py \
+            -m scripts.prepare_tiny_qnn_host_sample \
             --output-dir "$RUNNER_TEMP/tiny_qnn_fixture"
           "$RUNNER_TEMP/tiny-qnn-venv/bin/python" \
-            scripts/verify_tiny_qnn_host_sample.py \
+            -m scripts.verify_tiny_qnn_host_sample \
             --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/context.bin"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/htp-profile.bin"
+
+      - name: Encode only the verified synthetic fixture for manual transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/tiny-qnn-venv/bin/python" - <<'PY'
+          import base64
+          import hashlib
+          import io
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "tiny_qnn_fixture"
+          allowed = ("tiny_qdq_conv.onnx", "input.raw",
+                     "input_list.txt", "fixture_metadata.json")
+          buffer = io.BytesIO()
+          with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as zipped:
+              for name in allowed:
+                  path = root / name
+                  if not path.is_file() or path.is_symlink() or path.stat().st_size > 128 * 1024:
+                      raise RuntimeError("unsafe-or-unverified-sample")
+                  zipped.write(path, arcname=name)
+          binary = buffer.getvalue()
+          if len(binary) > 16384:
+              raise RuntimeError("sample-archive-too-large")
+          print("SYNTHETIC_QNN_HOST_ZIP_SHA256:", hashlib.sha256(binary).hexdigest())
+          print("SYNTHETIC_QNN_HOST_ZIP_BASE64_START")
+          print(base64.b64encode(binary).decode("ascii"))
+          print("SYNTHETIC_QNN_HOST_ZIP_BASE64_END")
+          print("Host archive is ONNX-only; not a QNN runtime context.")
+          PY
 
       - name: Print fail-closed scope
         shell: bash
