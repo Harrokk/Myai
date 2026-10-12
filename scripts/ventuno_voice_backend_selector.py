@@ -56,8 +56,21 @@ def select_isolated_voice_client(profile: object, *, provider: str):
     if not validate_settings(settings, require_ventuno_profile=True)["valid"]:
         raise ValueError("invalid-original-ventuno-profile")
     settings["llm"]["provider"] = provider
-    if not validate_settings(settings, require_ventuno_profile=False)["valid"]:
-        raise ValueError("invalid-selected-voice-backend-config")
+    selected_validation = validate_settings(
+        settings, require_ventuno_profile=False,
+    )
+    if not selected_validation["valid"]:
+        # Only validation rule identifiers; never expose configuration,
+        # model output, URLs, tokens, or user speech to CI logs.
+        safe_codes = sorted({
+            str(item.get("code", "unknown"))
+            for item in selected_validation.get("errors", [])
+            if isinstance(item, dict)
+        })
+        raise ValueError(
+            "invalid-selected-voice-backend-config:"
+            + ",".join(safe_codes[:8])
+        )
     client = build_llm_client(settings)
     if getattr(client, "provider_name", "") != provider:
         raise ValueError("wrong-local-provider-selected")
