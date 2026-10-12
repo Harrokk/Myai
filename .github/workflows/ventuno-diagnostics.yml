@@ -403,6 +403,36 @@ jobs:
           print("Library presence alone does not establish NPU execution time.")
           PY
 
+      - name: Verify profiler CLI support without running a model
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import subprocess
+
+          commands = (
+              ("qnn-net-run", "--help"),
+              ("qnn-profile-viewer", "--help"),
+              ("geniex", "serve", "--help"),
+          )
+          needles = ("profil", "reader", "trace", "qairt", "backend", "compute")
+          for argv in commands:
+              print("Checking CLI help:", " ".join(argv))
+              try:
+                  run = subprocess.run(
+                      argv, capture_output=True, text=True, timeout=8,
+                      errors="replace", check=False,
+                  )
+                  text = (run.stdout + "\\n" + run.stderr)
+                  matches = [line.strip()[:180] for line in text.splitlines()
+                             if any(key in line.lower() for key in needles)]
+                  print("Exit status:", run.returncode)
+                  print("Relevant flags:", matches[:20])
+              except (OSError, subprocess.TimeoutExpired) as exc:
+                  print("Help unavailable:", type(exc).__name__)
+          print("This only requests CLI help; it does not run qnn-net-run inference.")
+          PY
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
