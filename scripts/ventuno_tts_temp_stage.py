@@ -18,7 +18,7 @@ import subprocess
 from pathlib import Path
 
 from scripts.ventuno_tts_synthesis_probe import (
-    PHRASE, TIMEOUT_SECONDS, MAX_WAV_BYTES, validate_wav,
+    PHRASE, TIMEOUT_SECONDS, MAX_WAV_BYTES,
 )
 from scripts.ventuno_synthetic_voice_chain import run_synthetic_voice_chain
 
@@ -196,19 +196,6 @@ def stage_sweden_tts(folder: Path, runner_temp: Path,
         "isolated-swedish-tts-signal-verified"
         if bridge["tts_signal_verified"]
         else "inconclusive-synthetic-myai-tts-bridge"
-    )
-    raw = synth["stdout"]
-    if len(raw) > MAX_WAV_BYTES:
-        report["status"] = "no-go-espeak-output-over-limit"
-        return report
-    result = validate_wav(raw)
-    report["sample_rate_hz"] = result["sample_rate_hz"]
-    report["duration_seconds"] = result["duration_seconds"]
-    report["rms_fraction_full_scale"] = result["rms_fraction_full_scale"]
-    report["swedish_pcm_synthesis_verified"] = bool(result["signal_verified"])
-    report["status"] = (
-        "isolated-swedish-tts-signal-verified"
-        if result["signal_verified"] else "inconclusive-synthetic-wav"
     )
     return report
 
