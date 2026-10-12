@@ -39,7 +39,12 @@ def test_synthetic_valid_zip_and_sha(tmp_path):
 
 def test_checked_in_host_generated_dlc_checksum_matches():
     report = verify_fixture(DEFAULT_FIXTURE)
-    assert report["status"] == "synthetic-dlc-container-integrity-verified"
+    # This particular vendor-produced DLC has standard-ZIP CRC entries
+    # that Python rejects. Preserve identity evidence, not fake format proof.
+    assert report["status"] == "synthetic-dlc-identity-verified-zip-crc-unverified"
+    assert report["file_identity_verified"] is True
+    assert report["zip_structure_parseable"] is True
+    assert report["zip_entry_crcs_verified"] is False
     assert report["dlc_zip_entry_count"] == 4
     assert report["dlc_byte_count"] == 16004
 
