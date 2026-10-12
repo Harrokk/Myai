@@ -191,7 +191,7 @@ def test_model_source_pinned_and_not_english_only():
 
 def test_worker_does_not_report_transcript_or_save_audio():
     assert "print(json.dumps" in compare._INFERENCE
-    assert 'del transcript,norm' in compare._INFERENCE
+    assert 'del transcript,metrics' in compare._INFERENCE
     assert '"matched":valid' in compare._INFERENCE
     assert "microphone" not in compare._INFERENCE
     assert "sounddevice" not in compare._INFERENCE
