@@ -463,7 +463,7 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_geniex_benchmark.py
 
-      - name: Inspect QNN graph and tensor schema without loading another model
+      - name: Enumerate QNN graph IO counts and serialized sizes safely
         shell: bash
         run: |
           set -euo pipefail
