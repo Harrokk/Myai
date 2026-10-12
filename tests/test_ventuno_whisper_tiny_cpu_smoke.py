@@ -13,7 +13,8 @@ def test_pinned_multilingual_model_not_tiny_en():
     assert set(m.EXPECTED_FILES) == {
         "model.bin", "config.json", "tokenizer.json", "vocabulary.txt",
     }
-    assert "microphone" not in m._RUN
+    assert "sounddevice" not in m._RUN
+    assert "RawInputStream" not in m._RUN
     assert 'language="sv"' in m._RUN
     assert "WhisperModel(" in m._RUN
     assert "local_files_only=True" in m._RUN
