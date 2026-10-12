@@ -403,3 +403,104 @@ https://github.com/Harrokk/Myai/actions/runs/38212471426
 reproducible, resource-bounded QAIRT profile method and rollback plan are
 ready. Do not treat a four-item config list alone as permission to
 stop production GenieX or execute one of the 4B cached contexts.
+
+## Live GenieX backend attestation and vendor graph indexing (2026-10-12)
+
+The new `scripts/ventuno_geniex_runtime_attestation.py` samples only
+`systemctl show ... MainPID` and bounded read-only `/proc` fields for
+the systemd-owned GenieX process (and its descendants). It **does not**
+read raw process command lines, environment variables, model contents,
+config values or credentials, and it does not attach to a process.
+
+The successful VENTUNO Q diagnostics reported:
+
+- `service_mainpid_present: true`, **one** GenieX process.
+- `libQnnHtp.so`, `libQnnHtpV75Stub.so` and `libQnnSystem.so`
+  mapped in that live process.
+- `/dev/fastrpc-cdsp-secure` open by that process.
+- `runtime_backend_evidence: true`.
+- **`actual_context_order_proven: false`**,
+  **`actual_graph_execution_proven: false`** and
+  **`direct_htp_profiling_verified: false`**.
+
+These are strong runtime process/backend association observations,
+**not measured HTP accelerator utilization or proof of graph
+execution on the NPU**. A library may be mapped without executing
+its kernels, and opening FastRPC is not a layer-level profile.
+A missing optional library in maps does not negate the positive
+QNN/HTP/FastRPC observations.
+
+The Qualcomm QAIRT plugin's
+`QnnApi::createFromBinaryHtp()` parses each cached binary in
+`cachedBinariesPathVec` index order, builds global graph records,
+maps each graph to its source context, then creates HTP contexts
+from binaries and retrieves each graph by name via `graphRetrieve`.
+For this observed **C → A → B → D** `ctx-bins` declaration and ten
+metadata graphs per context, the conservative vendor-code **candidate**
+global graph intervals are:
+
+| Declared context | Candidate global graph indices |
+| --- | --- |
+| C | 0–9 |
+| A | 10–19 |
+| B | 20–29 |
+| D | 30–39 |
+
+The code now derives these ranges only when all four contexts have
+complete, uniquely resolved config references and equal valid graph
+counts. Tests reject malformed or ambiguous mappings. The installed
+GenieX executable has **not** been tied to an exact build of that
+upstream source and the graph list may be scheduled by token/decode
+stage rather than in index order. In particular, this mapping **does
+not** establish how `qnn-net-run --input_list` numbers graphs.
+
+Vendor reference:
+https://github.com/qualcomm/geniex-qairt-plugin/blob/main/qnn-api/src/QnnApi.cpp
+
+Device run:
+https://github.com/Harrokk/Myai/actions/runs/38213095650
+
+### Standalone, nonproduction NPU profiling plan — currently gated
+
+The installed `qnn-net-run --help` offers the usual
+`--retrieve_context`, `--profiling_level`, native-I/O flags, and
+**`--retrieve_context_list`**; the latter alone provides no proof
+that it understands GenieX's four linked, weight-sharing Qwen3
+context binaries. The CLI's `__` graph-skip convention also must
+not be mistaken for the QAIRT plugin's global graph numbering.
+
+For a **new, small, independent, known-good QAIRT context** (not any
+of the active GenieX cache files), a future maintenance test can
+follow this *illustrative, deliberately incomplete* form, only once
+its real context and native input-list are validated:
+
+```bash
+# REFERENCE ONLY -- do not execute with production cached Qwen contexts.
+qnn-net-run --backend /path/to/libQnnHtp.so \
+  --retrieve_context /separate/test/context.bin \
+  --input_list /separate/test/valid_input_list.txt \
+  --output_dir /separate/temporary/output \
+  --use_native_input_files --use_native_output_files \
+  --profiling_level basic
+
+# Only if qnn-net-run produced a valid profile log:
+qnn-profile-viewer --input_log /separate/temporary/output/qnn-profiling-data.log
+```
+
+This is **not a ready-to-run command**: paths are placeholders, and
+required QAIRT/HTP version compatibility, DSP-side shared libraries,
+environment, valid input tensors, free-memory budget, context model
+provenance, profiling semantics and result correctness need verification
+first. Limit runtime, address space, disk writes, and one-context
+memory use. First test a tiny standalone profile without stopping
+production, *only if* it fits proven spare capacity and a compatible
+isolated sample is available.
+
+A controlled 4B production-cache profiler remains **NO-GO** until
+an independently verified multi-context replay method and explicit
+service recovery/maintenance authorization exist. Never automatically
+load a second 4B Qwen model, restart the production GenieX service,
+elevate runner privileges, or claim that API token/s proves NPU cycles.
+
+Relevant native tensor I/O format:
+https://github.com/google-ai-edge/LiteRT/blob/main/litert/vendors/qualcomm/doc/LITERT_QNN_NATIVE_RUN.md
