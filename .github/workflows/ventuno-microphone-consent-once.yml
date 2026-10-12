@@ -1,0 +1,92 @@
+name: ONE-TIME explicitly consented VENTUNO 2s microphone test
+
+on:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      # Trigger only when THIS workflow is first created or deliberately edited.
+      # This does NOT run from other MyAI source changes or scheduled events.
+      - .github/workflows/ventuno-microphone-consent-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-consented-mic-two-second-only
+  cancel-in-progress: false
+
+jobs:
+  microphone:
+    name: Two-second consented PCM to RAM, numeric levels only
+    if: github.event_name == 'push' && github.event.head_commit.message == 'Authorize one-time 2s microphone smoke on VENTUNO Q'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Verify VENTUNO identity and fetch exact approved commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-one-shot-mic"
+          cd "$RUNNER_TEMP/myai-one-shot-mic"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Check safety tests before any capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-one-shot-mic"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q \
+            tests/test_ventuno_microphone_smoke.py \
+            tests/test_ventuno_voice_readiness.py
+
+      - name: Confirm live services, disabled production voice and audio capture node
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$RUNNER_TEMP/myai-one-shot-mic"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.ventuno_voice_readiness import snd_device_counts
+          cfg = json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text())
+          voice = cfg.get("voice", {})
+          assert isinstance(voice, dict)
+          assert voice.get("enabled") is not True
+          assert voice.get("tts_enabled") is not True
+          assert voice.get("handsfree_enabled") is not True
+          devices = snd_device_counts(Path("/dev/snd"))
+          assert devices["scan_complete"] and devices["capture_device_nodes"] >= 1, \
+              "No available ALSA capture device node; do not record"
+          print("Safety gate: live services active, production voice disabled, ALSA capture node present.")
+          print("Only aggregate signal levels will be reported; audio is discarded.")
+          PY
+
+      - name: ONE consented 2s recording, RAM only and numeric diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-one-shot-mic"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_microphone_smoke \
+            --record-2s --consent-to-record
+
+      - name: Confirm both production services still active
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo 'No changes to MyAI/GenieX/voice config. No microphone audio retained.'
