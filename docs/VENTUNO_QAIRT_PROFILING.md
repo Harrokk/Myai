@@ -776,3 +776,100 @@ distribution. Without that, neither a valid independent QNN context
 nor a truthful direct HTP profile can be produced. No automatic
 installation, production service pause or new model loading is
 authorized by this preflight.
+
+## Verified tiny DLC native-I/O contract — supersedes earlier conversion blockers (2026-10-12)
+
+**Host-side QAIRT 2.45 conversion is no longer blocked.** On an isolated
+GitHub-hosted Ubuntu x86_64 machine, the official, SHA-256-pinned
+`2.45.0.260326` SDK was acquired, unpacked temporarily, and used to
+convert our deterministic **608-byte** ONNX model into:
+
+- A **16,004-byte** DLC from `qairt-converter`, SHA-256
+  `137ea7f4386d0e7a090bb3d2348432eb7f90da70edf04ea15afc523948dee3ba`.
+- A **17,324-byte** QNN C++ source file from `qnn-onnx-converter`
+  (not yet compiled into a standalone model library).
+
+The synthetic DLC is represented in Git as
+`fixtures/qairt_245/tiny_qdq_conv.dlc.b64`; no Qualcomm SDK binary,
+proprietary library or 4B model was added to the repository.
+
+Ordinary Python ZIP extraction can read the DLC's directory but its
+standard ZIP CRC verification fails. This is **not** silently relabeled
+as success by `scripts/qairt_245_dlc_static_audit.py`. Crucially,
+Qualcomm's official `qairt-dlc-info -i` **returned exit code 0 and
+successfully parsed the same exact SHA-256-verified DLC** on a separate
+host. That supports readable vendor model metadata, not proof that
+HTP v75 can execute its graph.
+
+Official reader run:
+https://github.com/Harrokk/Myai/actions/runs/38226284745
+
+### Actual QNN DLC tensor metadata (not the original ONNX float I/O)
+
+The official QAIRT 2.45 `qairt-dlc-info` reported one input and one
+output, with these exact encodings:
+
+| Property | Input | Output |
+| --- | --- | --- |
+| Shape | `[1, 1, 8, 8]` | `[1, 1, 8, 8]` |
+| Type | **`UFXP_8`** | **`UFXP_8`** |
+| Bitwidth | 8 | 8 |
+| Min | -4 | 0 |
+| Max | 3.96875 | 0.498046875 |
+| Scale | **0.03125** | **0.001953125** |
+| QNN offset | **-128** | **0** |
+| Total native bytes | **64** | **64** |
+
+This supersedes the earlier assumption that the DLC input would be the
+same 256-byte float32 raw buffer as the unconverted ONNX model.
+**Do not feed that 256-byte buffer to `qnn-net-run` with native-input
+flags.** Its datatype and length are different.
+
+The QAIRT `Qnn_ScaleOffset_t` contract is:
+
+```text
+float_value = (quantized_value + QNN_offset) * scale
+quantized_value = clamp(round(float_value / scale - QNN_offset), 0, 255)
+```
+
+Primary source: Qualcomm QAIRT `QnnTypes.h`,
+https://docs.qualcomm.com/nav/home/api-rst_program_listing_file_include_QNN_QnnTypes_h.html?product=924033590759186372
+
+From those exact measured DLC values,
+`scripts/prepare_qairt245_native_fixture.py` generates a
+**64-byte** input containing integer values 122–134, preserving every
+sample in the deterministic ONNX input through exact scale-offset
+round-tripping. It checks the previously verified ONNX and DLC
+identities before writing files, and refuses to execute on the ARM
+target. The input SHA-256 is:
+
+`19a0129fd39c4e7495d7c3cc5e9ffe28220d9239ecb945b79d34f714e4ccdb15`
+
+Verified native-input host workflow:
+https://github.com/Harrokk/Myai/actions/runs/38228681154
+
+Latest device full-suite baseline at this milestone:
+**1,042 passed, 4 skipped**.
+https://github.com/Harrokk/Myai/actions/runs/38228681554
+
+### Verified scope and next gated experiment
+
+The DLC bytes and vendor-reported tensor encodings are validated, and
+the synthetic native input is mathematically sound. Still **NOT**
+verified: QNN CPU inference output equivalence; single-input runtime
+name/path resolution; successful context binary generation; HTP v75
+graph placement; device memory budget for a separate context; NPU
+profiling/utilization.
+
+Next experiment should use a **disposable x86 host only** and the tiny
+DLC: run `qnn-net-run` with an explicit CPU backend,
+`libQnnModelDlc.so`, the 64-byte UFXP8 native input, and bounded
+output. Decode the resulting UFXP8 tensor using the reported output
+scale/offset and compare it with the independent ONNX Runtime/NumPy
+oracle. Only if that experiment is demonstrated and a device-specific
+safety budget is approved should an isolated HTP v75 context
+compilation/profiling proposal advance.
+
+At this stage **no additional model or HTP profiler was run on
+VENTUNO Q**, and no production `myai-geniex.service` or
+`myai-ventuno.service` was stopped, restarted or changed.
