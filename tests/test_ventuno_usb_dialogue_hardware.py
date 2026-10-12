@@ -231,3 +231,69 @@ def test_unusable_spoken_cue_does_not_open_speaker(monkeypatch, tmp_path):
     p = hardware.build_ports(root)
     assert p.audible_start_cue() is False
     assert len(calls) == 1
+
+
+def test_explicit_ollama_reply_uses_read_only_staged_profile(
+    monkeypatch, tmp_path,
+):
+    root = tmp_path / "myai-usb-dialog-test"
+    root.mkdir()
+    (root / "source/config/profiles").mkdir(parents=True)
+    profile_path = root / "source/config/profiles/ventuno_q.json"
+    data = {
+        "llm": {"provider": "geniex", "fallback": {"enabled": False}},
+        "voice": {"enabled": False, "tts_enabled": False,
+                  "handsfree_enabled": False},
+        "ollama": {"url": "http://127.0.0.1:11434/api/chat",
+                   "model": "qwen3:0.6b"},
+    }
+    source = json.dumps(data,sort_keys=True)
+    profile_path.write_text(source, encoding="utf-8")
+    monkeypatch.setattr(hardware, "_preflight", lambda _: (
+        root/"bin/python", root/"model", root/"espeak-ng", root/"espeak-ng-data",
+    ))
+    monkeypatch.setattr(hardware, "_require_executable", lambda _: "/usr/bin/aplay")
+    calls = []
+    def alternate(question, profile, *, provider, timeout):
+        calls.append((question, provider, timeout, profile))
+        return "Jag heter MyAI."
+    monkeypatch.setattr(hardware, "answer_one_short_voice_question", alternate)
+    p=hardware.build_ports(root, response_backend="ollama")
+    assert p.answer_local("vad heter du") == "Jag heter MyAI."
+    assert len(calls) == 1
+    assert calls[0][0] == "vad heter du"
+    assert calls[0][1] == "ollama"
+    assert calls[0][2] <= 90
+    assert calls[0][3] == data
+    assert profile_path.read_text(encoding="utf-8") == source
+
+
+def test_bad_alternate_backend_never_opens_audio(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        hardware, "_preflight", lambda *args: pytest.fail("no staging"),
+    )
+    with pytest.raises(ValueError, match="unsupported-isolated-dialogue-backend"):
+        hardware.build_ports(tmp_path, response_backend="cloud")
+
+
+def test_missing_staged_profile_does_not_contact_ollama(monkeypatch, tmp_path):
+    root=tmp_path/"myai-usb-dialog-staging"
+    root.mkdir()
+    monkeypatch.setattr(hardware,"_preflight",lambda _:(
+        root/"bin/python", root/"model",root/"espeak-ng",root/"data",
+    ))
+    monkeypatch.setattr(hardware,"_require_executable",lambda _: "/usr/bin/aplay")
+    monkeypatch.setattr(hardware,"answer_one_short_voice_question",
+                        lambda *a,**k: pytest.fail("No model access"))
+    with pytest.raises(ValueError,match="isolated-ollama-profile-not-found"):
+        hardware.build_ports(root,response_backend="ollama")
+
+
+def test_no_consent_ignores_selected_ollama_backend(monkeypatch,tmp_path):
+    monkeypatch.setattr(hardware,"build_ports",lambda *a,**k:
+                        pytest.fail("no model or devices without consent"))
+    result=hardware.run_one_authorized_hardware_dialog(
+        tmp_path, consent_to_record=False, consent_to_play=True,
+        response_backend="ollama",
+    )
+    assert result["status"] == "not-authorized"
