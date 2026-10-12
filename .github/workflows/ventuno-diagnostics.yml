@@ -471,6 +471,14 @@ jobs:
           /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_qnn_context_metadata.py
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qnn_context_metadata.py
 
+      - name: Check native QNN graph-selection support without model execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-checkout"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_qnn_cli_gate.py
+          /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qnn_cli_gate.py
+
       - name: Check runner and MyAI service persistence
         shell: bash
         run: |
