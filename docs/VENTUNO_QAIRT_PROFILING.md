@@ -206,3 +206,27 @@ Keep duration/memory limits, ensure the watchdog does not restart a
 maintenance-stopped service, restore services on every exit path, and
 verify GenieX's API plus MyAI heartbeat after restoration.
 
+## QNN graph-selection CLI gate (2026-10-12)
+
+A dedicated fail-closed check was added as `scripts/ventuno_qnn_cli_gate.py`, with
+six focused tests in `tests/test_ventuno_qnn_cli_gate.py`. It executes only
+`qnn-net-run --help`, without loading a model, touching services, or reading
+model data.
+
+On the VENTUNO Q, the installed CLI exposed `--backend`,
+`--retrieve_context`, `--input_list`, `--profiling_level`,
+`--profiling_option`, `--config_file` and native-input flags.
+It exposed **no explicit graph-selection flag** from the checked common
+spellings. All six gate tests and the VENTUNO diagnostics passed.
+
+**Gate result: NO-GO** for a direct profiling attempt using an arbitrarily
+chosen graph from the cached multi-graph Qwen context. Absence of a CLI flag
+does not rule out supported graph selection through QNN configuration or the
+vendor API; this has not yet been demonstrated.
+
+Do not interrupt the live GenieX service or invoke `qnn-net-run` against
+these cached contexts based solely on the synthetic input preflight.
+The next safe investigation is to verify graph selection and weight sharing
+against the installed QAIRT v2.45 documentation or vendor source, and use a
+separate, smaller profiling fixture if single-graph execution is unsupported.
+The profile status remains **unverified**.
