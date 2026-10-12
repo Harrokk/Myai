@@ -231,6 +231,66 @@ def limit_child_resources() -> None:
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
+
+def validate_temp_fixture(data: object, base: Path) -> dict[str, object]:
+    """Prepare and size-check exactly one graph's native input files.
+
+    This never executes the model. All files stay in TemporaryDirectory and
+    are deleted as soon as the metadata probe returns.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("info"), dict):
+        return {"status": "skipped", "reason": "invalid-context"}
+    graphs = data["info"].get("graphs")
+    if not isinstance(graphs, list):
+        return {"status": "skipped", "reason": "no-graphs"}
+    options = []
+    for graph_index, graph in enumerate(graphs[:24]):
+        info = graph.get("info") if isinstance(graph, dict) else None
+        inputs = info.get("graphInputs") if isinstance(info, dict) else None
+        if not isinstance(inputs, list) or not 1 <= len(inputs) <= 40:
+            continue
+        sizes = [tensor_raw_bytes(t)[1] for t in inputs]
+        if any(size is None for size in sizes):
+            continue
+        total = sum(sizes)
+        if 0 < total <= 24 * 1024 * 1024:
+            options.append((total, graph_index, inputs))
+    if not options:
+        return {"status": "skipped", "reason": "no-small-complete-graph"}
+    total, graph_index, inputs = min(options, key=lambda item: item[0])
+    output_dir = base / "input-fixture"
+    output_dir.mkdir()
+    entries = []
+    for position, tensor in enumerate(inputs):
+        details = tensor["info"]
+        name = details.get("name")
+        if not isinstance(name, str) or not 1 <= len(name) <= 150:
+            return {"status": "skipped", "reason": "invalid-tensor-name"}
+        if any(c.isspace() or c == "=" for c in name):
+            return {"status": "skipped", "reason": "unsafe-tensor-name"}
+        byte_count = tensor_raw_bytes(tensor)[1]
+        if byte_count is None:
+            return {"status": "skipped", "reason": "unknown-input-size"}
+        target = output_dir / f"input-{position:02d}.raw"
+        with target.open("wb") as stream:
+            stream.truncate(byte_count)
+        if target.stat().st_size != byte_count:
+            return {"status": "inconclusive", "reason": "size-mismatch"}
+        entries.append(f"{name}:={target}")
+    manifest = output_dir / "input_list.txt"
+    manifest.write_text(" ".join(entries) + "\\n", encoding="utf-8")
+    if len(manifest.read_text().split()) != len(inputs):
+        return {"status": "inconclusive", "reason": "manifest-entry-count"}
+    return {
+        "status": "fixture-validated",
+        "graph_index": graph_index,
+        "input_count": len(inputs),
+        "native_input_mib": round(total / 1048576, 2),
+        "temporary_files": len(inputs) + 1,
+        "model_executed": False,
+    }
+
+
 def run_context_probe(path: Path, output_root: Path) -> dict[str, object]:
     binary = shutil.which("qnn-context-binary-utility")
     if not binary:
@@ -271,7 +331,11 @@ def run_context_probe(path: Path, output_root: Path) -> dict[str, object]:
             data = json.loads(metadata_file.read_text(errors="replace"))
         except (OSError, ValueError):
             return {"status": "inconclusive", "reason": "json-not-parsable"}
-        return {"status": "metadata-read", "summary": summarize_context_metadata(data)}
+        return {
+            "status": "metadata-read",
+            "summary": summarize_context_metadata(data),
+            "fixture": validate_temp_fixture(data, base),
+        }
 
 
 def main() -> int:
