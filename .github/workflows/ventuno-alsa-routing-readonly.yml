@@ -1,0 +1,68 @@
+name: Read-only VENTUNO ALSA capture routing audit
+
+on:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-alsa-routing-readonly.yml
+      - scripts/ventuno_alsa_capture_inventory.py
+      - tests/test_ventuno_alsa_capture_inventory.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-alsa-routing-readonly
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    name: ALSA -l/-L and /proc/asound only; NO recording
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-alsa-readonly"
+          cd "$RUNNER_TEMP/myai-alsa-readonly"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test listing-only guardrails
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-alsa-readonly"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q \
+            tests/test_ventuno_alsa_capture_inventory.py
+
+      - name: Inspect capture card and PCM alias metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$RUNNER_TEMP/myai-alsa-readonly"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_alsa_capture_inventory
+          echo 'This step never opens an ALSA capture stream and cannot record sound.'
+
+      - name: Confirm service health
+        if: always()
+        shell: bash
+        run: |
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo 'No audio captured, no system packages installed or service modified.'
