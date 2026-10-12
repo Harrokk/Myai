@@ -117,3 +117,15 @@ but real user-question ASR, actual microphone-to-GenieX routing,
 speaker playback of a real dynamic response, echo suppression,
 wake/stop handling, and handsfree production service behavior
 remain unverified and disabled.
+
+## Retry after low-memory guard
+
+The single manually authorized non-audio retry of run
+`38254151558` also reached **58 passing tests** and then stopped
+at the unchanged `MemAvailable >= 8 GiB` guard (job
+`114829346353`, `<stdin>` line 13). Its cleanup/service checks
+passed; no model was loaded and no real hardware audio was accessed.
+The resource gate correctly prevented stressing the production box.
+**Do not repeatedly rerun while memory remains under the threshold.**
+The previous clean integration run `38254119684` is the verified
+evidence for working real-public-transcript -> GenieX -> Swedish WAV.
