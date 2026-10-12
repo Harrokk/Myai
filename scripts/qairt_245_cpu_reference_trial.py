@@ -182,8 +182,10 @@ def trial(sdk: Path, dlc: Path, original_fixture: Path,
     except subprocess.TimeoutExpired:
         report["status"] = "cpu-net-run-timeout"
         return report
-    except OSError:
+    except OSError as error:
         report["status"] = "cpu-net-run-launch-error"
+        report["launch_errno"] = getattr(error, "errno", None)
+        report["runner_executable_permission"] = os.access(tool, os.X_OK)
         return report
     report["exit_code_zero"] = result.returncode == 0
     if result.returncode != 0:
