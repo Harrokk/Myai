@@ -1,4 +1,5 @@
 name: ONE-TIME VENTUNO physical microphone plughw 0 1 test
+# One-time authorization recorded 2026-10-12 for a single two-second in-memory diagnostic.
 
 on:
   push:
