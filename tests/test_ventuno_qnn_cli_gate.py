@@ -130,3 +130,21 @@ def test_build_plan_never_opens_files(tmp_path):
     output = build_single_graph_input_list_arg(2, 1, missing_path)
     assert output.endswith(missing_path)
     assert not (tmp_path / "nonexistent.raw").exists()
+
+
+def test_context_list_cli_flag_does_not_verify_geniex_compatibility():
+    text = ("--backend --retrieve_context --retrieve_context_list "
+            "--input_list --profiling_level")
+    report = assess_help(text)
+    assert report["context_list_cli_flag_present"] is True
+    assert "--retrieve_context_list" in report["relevant_flags"]
+    assert report["geniex_multicontext_execution_compatibility_proven"] is False
+    assert report["service_changes_allowed"] is False
+
+
+def test_context_list_flag_from_failed_help_does_not_count():
+    text = ("--backend --retrieve_context --retrieve_context_list "
+            "--input_list --profiling_level")
+    report = assess_help(text, exit_code=1)
+    assert report["context_list_cli_flag_present"] is False
+    assert report["direct_npu_profile_verified"] is False
