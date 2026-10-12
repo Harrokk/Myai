@@ -127,6 +127,85 @@ def manifest_reference_summary(data: object, binaries: list[Path]) -> dict[str, 
     }
 
 
+def context_order_from_genie_config(
+    config: object, config_dir: Path, binaries: list[Path]
+) -> dict[str, object]:
+    """Resolve ctx-bins declarations against exact relative cache paths.
+
+    This matches Qualcomm's documented modelConfigFromDirectory path, but
+    does not assert which loader version the running process actually used.
+    """
+    result: dict[str, object] = {
+        "status": "no-verified-context-order",
+        "declared_inventory_slots": [],
+        "complete_ctx_bin_reference_list": False,
+        "runtime_load_order_proven": False,
+    }
+    if not isinstance(config, dict):
+        return result
+    dialog = config.get("dialog")
+    if not isinstance(dialog, dict):
+        return result
+    engine = dialog.get("engine")
+    if isinstance(engine, list):
+        candidates = [item for item in engine if isinstance(item, dict)]
+        if not candidates:
+            return result
+        targets = [item for item in candidates if item.get("role") == "target"]
+        if len(targets) > 1:
+            return result
+        engine = targets[0] if targets else candidates[0]
+    if not isinstance(engine, dict):
+        return result
+    model = engine.get("model")
+    binary = model.get("binary") if isinstance(model, dict) else None
+    refs = binary.get("ctx-bins") if isinstance(binary, dict) else None
+    if not isinstance(refs, list) or not refs or len(refs) > MAX_CONTEXTS:
+        return result
+    resolved = []
+    for ref in refs:
+        if (not isinstance(ref, str) or not ref.endswith(".bin")
+                or len(ref) > 255 or ref.startswith(("/", "\\\\"))
+                or "\\" in ref or ".." in Path(ref).parts):
+            return result
+        matches = [
+            slot for slot, candidate in enumerate(binaries)
+            if candidate.is_relative_to(config_dir)
+            and candidate.relative_to(config_dir).as_posix() == ref
+        ]
+        if len(matches) != 1 or matches[0] in resolved:
+            return result
+        resolved.append(matches[0])
+    result.update({
+        "status": "complete-declared-order" if len(resolved) == len(binaries)
+                  else "partial-declared-order",
+        "declared_inventory_slots": resolved,
+        "complete_ctx_bin_reference_list": len(resolved) == len(binaries),
+    })
+    return result
+
+
+def inspect_genie_config(binaries: list[Path]) -> dict[str, object]:
+    parents = {p.parent for p in binaries}
+    if len(parents) != 1:
+        return {"status": "inconclusive-context-directories",
+                "runtime_load_order_proven": False}
+    config_dir = next(iter(parents))
+    config_path = config_dir / "genie_config.json"
+    if not config_path.is_file() or config_path.is_symlink():
+        return {"status": "no-genie-config-found",
+                "runtime_load_order_proven": False}
+    try:
+        if config_path.stat().st_size > 131072:
+            return {"status": "inconclusive-config-too-large",
+                    "runtime_load_order_proven": False}
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {"status": "inconclusive-config-unreadable",
+                "runtime_load_order_proven": False}
+    return context_order_from_genie_config(config, config_dir, binaries)
+
+
 def graph_info(graph: object, position: int) -> tuple[dict[str, object], set[tuple]]:
     data = graph.get("info") if isinstance(graph, dict) else None
     if not isinstance(data, dict):
@@ -265,6 +344,8 @@ def main() -> int:
         manifest_data = None
     print("Manifest references:", json.dumps(
         manifest_reference_summary(manifest_data, binaries), sort_keys=True))
+    print("Genie ctx-bin order declaration:", json.dumps(
+        inspect_genie_config(binaries), sort_keys=True))
     all_signatures = []
     completed = 0
     for slot, binary in enumerate(binaries):
