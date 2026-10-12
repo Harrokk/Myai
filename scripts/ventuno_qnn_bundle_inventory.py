@@ -130,7 +130,7 @@ def manifest_reference_summary(data: object, binaries: list[Path]) -> dict[str, 
 def graph_info(graph: object, position: int) -> tuple[dict[str, object], set[tuple]]:
     data = graph.get("info") if isinstance(graph, dict) else None
     if not isinstance(data, dict):
-        return {"metadata_index": position, "status": "invalid"}, set()
+        return {"metadata_index": position, "status": "invalid"}, (set(), set())
     name = data.get("graphName")
     # Hash is used only to correlate graph metadata; never log raw names.
     token = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12] if (
