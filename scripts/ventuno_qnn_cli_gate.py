@@ -19,6 +19,7 @@ REQUIRED_OPTIONS = frozenset({
 })
 RELEVANT_OPTIONS = REQUIRED_OPTIONS | GRAPH_SELECTORS | frozenset({
     "--config_file", "--output_dir", "--profiling_option",
+    "--retrieve_context_list",
     "--use_native_input_files", "--use_native_output_files", "--op_packages",
 })
 
@@ -94,6 +95,8 @@ def assess_help(help_text: str, exit_code: int = 0) -> dict[str, object]:
         "help_exit_code": exit_code,
         "graph_selectors": selectors,
         "input_list_skip_documented": documented_skip if exit_code == 0 else False,
+        "context_list_cli_flag_present": "--retrieve_context_list" in flags if exit_code == 0 else False,
+        "geniex_multicontext_execution_compatibility_proven": False,
         "required_missing": missing,
         "relevant_flags": sorted(flags & RELEVANT_OPTIONS),
         "direct_npu_profile_verified": False,
