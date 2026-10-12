@@ -19,7 +19,7 @@ def stage(tmp_path):
     model = root / "myai-whisper-tiny-model"
     model.mkdir()
     py = root / "myai-voice-staging/bin/python"
-    py.parent.mkdir()
+    py.parent.mkdir(parents=True)
     py.write_text("placeholder")
     return root, voice, model, py
 
