@@ -36,6 +36,7 @@ def valid_public_transcript(text: object) -> bool:
     return (
         1 <= len(normalized) <= MAX_TRANSCRIPT_CHARACTERS
         and re.fullmatch(r"[a-z0-9åäö .,!?'-]+", normalized) is not None
+        and "--" not in normalized
         and re.search(r"\bsvenska\b", normalized) is not None
         and len(normalized.split()) <= 12
         and classify_voice_risk(normalized)["level"] == "low"
