@@ -73,18 +73,6 @@ jobs:
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/context.bin"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/htp-profile.bin"
 
-      - name: Package ONLY synthetic validated host fixture
-        uses: actions/upload-artifact@v4
-        with:
-          name: tiny-qnn-host-onnx-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/tiny_qnn_fixture/tiny_qdq_conv.onnx
-            ${{ runner.temp }}/tiny_qnn_fixture/input.raw
-            ${{ runner.temp }}/tiny_qnn_fixture/input_list.txt
-            ${{ runner.temp }}/tiny_qnn_fixture/fixture_metadata.json
-          retention-days: 7
-          if-no-files-found: error
-
       - name: Print fail-closed scope
         shell: bash
         run: |
