@@ -16,6 +16,9 @@ import platform
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+from scripts.ventuno_alsa_capture_inventory import proc_pcm_inventory
 
 SAMPLE_RATE = 16000
 SECONDS = 2
@@ -54,7 +57,8 @@ def evaluate_pcm(raw: bytes) -> dict[str, object]:
 
 
 def microphone_capture(*, explicit_flag: bool, consent: bool,
-                       arm_only: bool = True) -> dict[str, object]:
+                       arm_only: bool = True, device: str | None = None,
+                       proc_pcm_path: Path = Path("/proc/asound/pcm")) -> dict[str, object]:
     tool = shutil.which("arecord")
     result: dict[str, object] = {
         "status": "read-only-capture-not-authorized",
@@ -71,12 +75,26 @@ def microphone_capture(*, explicit_flag: bool, consent: bool,
     if not tool:
         result["status"] = "no-go-alsa-utils-arecord-not-installed"
         return result
+    # An explicit nondefault device is permitted only for the single
+    # hardware capture pair actually seen on VENTUNO Q. This metadata
+    # gate never opens a stream and cannot bypass explicit consent.
+    if device is not None:
+        if device != "plughw:0,1":
+            result["status"] = "reject-unapproved-capture-target"
+            return result
+        pcm = proc_pcm_inventory(proc_pcm_path)
+        if (not pcm["proc_pcm_readable"] or
+                [0, 1] not in pcm["capture_pcm_hardware_pairs"]):
+            result["status"] = "no-go-explicit-capture-device-not-present"
+            return result
     # ALSA raw PCM to STDOUT only. Do not log audio samples or file paths.
     argv = [
         tool, "--quiet", "--format=S16_LE",
         "--rate=16000", "--channels=1", "--duration=2",
         "--type=raw", "-",
     ]
+    if device is not None:
+        argv[1:1] = ["--device=" + device]
     try:
         proc = subprocess.run(
             argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -105,9 +123,13 @@ def main() -> int:
                         help="Record a two-second in-memory microphone diagnostic")
     parser.add_argument("--consent-to-record", action="store_true",
                         help="Confirm permission to record microphone for two seconds")
+    parser.add_argument("--device", choices=("plughw:0,1",),
+                        default=None,
+                        help="Explicit VENTUNO card 0 capture device 1, NOT automatic")
     args = parser.parse_args()
     report = microphone_capture(
-        explicit_flag=args.record_2s, consent=args.consent_to_record
+        explicit_flag=args.record_2s, consent=args.consent_to_record,
+        device=args.device,
     )
     print("MyAI microphone smoke test:", json.dumps(report, sort_keys=True))
     print("No audio waveform or spoken content is saved or displayed.")
