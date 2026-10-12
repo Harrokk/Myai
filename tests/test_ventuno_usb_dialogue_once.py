@@ -310,3 +310,30 @@ def test_literal_aliases_never_permit_extra_or_commandlike_words(unapproved):
     assert "geniex" not in events
     assert "play" not in events
     assert unapproved not in str(result)
+
+
+def test_coarse_audio_signal_classifier_never_leaks_pcm():
+    assert mod.classify_pcm_quality(b"") == "invalid-pcm"
+    assert mod.classify_pcm_quality(bytes(mod.CAPTURE_BYTES)) == (
+        "silence-or-too-quiet"
+    )
+    assert mod.classify_pcm_quality(pcm(sample=100)) == "low-microphone-level"
+    assert mod.classify_pcm_quality(pcm(sample=1800)) == "bounded-audio-level"
+    assert mod.classify_pcm_quality(pcm(sample=16000)) == "very-loud-microphone-level"
+    assert mod.classify_pcm_quality(pcm(sample=32767)) == (
+        "possible-microphone-clipping"
+    )
+    for sample in (100, 1800, 16000, 32767):
+        classification=mod.classify_pcm_quality(pcm(sample=sample))
+        assert len(classification) <= 36
+        assert str(sample) not in classification
+
+
+def test_one_shot_synthetic_voice_report_exposes_only_coarse_level():
+    p, _ = ports()
+    outcome=mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True,
+    )
+    assert outcome["capture_signal_class"] == "bounded-audio-level"
+    assert "pcm" not in str(outcome).lower()
+    assert outcome["microphone_audio_saved"] is False
