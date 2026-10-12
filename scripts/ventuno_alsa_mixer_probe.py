@@ -35,7 +35,16 @@ def parse_capture_controls(raw: bytes) -> dict[str, int]:
             return (0, 0, 0, 0, 0)
         on = off = zero = nonzero = 0
         for item in section:
-            if not re.search(r":\s*Capture\b", item):
+            # Some ARM64 ALSA drivers omit the word "Capture" on their
+            # channel-value rows. Only inspect channel-shaped rows within
+            # a capture-capable control, and never count playback rows.
+            explicit_capture = bool(re.search(r":\s*Capture\b", item, re.I))
+            channel_row = bool(re.search(
+                r"^\s*(?:Mono|(?:Front|Rear|Side)\s+(?:Left|Right))\s*:",
+                item, re.I,
+            ))
+            playback_row = bool(re.search(r":\s*Playback\b", item, re.I))
+            if not explicit_capture and (not channel_row or playback_row):
                 continue
             states = re.findall(r"\[(on|off)\]", item, flags=re.IGNORECASE)
             on += sum(s.lower() == "on" for s in states)
