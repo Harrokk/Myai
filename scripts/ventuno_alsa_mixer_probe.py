@@ -71,6 +71,61 @@ def parse_capture_controls(raw: bytes) -> dict[str, int]:
     }
 
 
+
+def capture_format_diagnostics(raw: bytes) -> dict[str, int]:
+    """Count only ALSA output *shapes*; never return mixer labels or values.
+
+    A capture control may expose selector/enumeration rows instead of the
+    traditional ': Capture 42 [66%] [on]' rows. This diagnostic keeps
+    those cases distinguishable without recording audio or logging labels.
+    """
+    if not isinstance(raw, bytes) or len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError("invalid-mixer-output")
+    lines = raw.decode("utf-8", errors="replace").splitlines()
+    counters = {
+        "capture_blocks_with_percent_token": 0,
+        "capture_blocks_with_switch_token": 0,
+        "capture_blocks_with_channel_row": 0,
+        "capture_blocks_with_enumerated_item": 0,
+        "capture_blocks_with_capture_value_row": 0,
+    }
+    blocks = []
+    current = []
+    for line in lines:
+        if line.startswith("Simple mixer control "):
+            if current:
+                blocks.append(current)
+            current = [line]
+        elif current:
+            current.append(line)
+    if current:
+        blocks.append(current)
+    for block in blocks:
+        body = "\n".join(block[1:])
+        capabilities = re.search(
+            r"(?m)^\s*Capabilities:\s*[^\n]*\b(?:cswitch|cvolume|cswitch-joined)\b",
+            body,
+        )
+        channels = re.search(r"(?m)^\s*Capture channels:", body)
+        if not capabilities and not channels:
+            continue
+        rows = block[1:]
+        if any(re.search(r"\[(?:[0-9]{1,3})%\]", line) for line in rows):
+            counters["capture_blocks_with_percent_token"] += 1
+        if any(re.search(r"\[(?:on|off)\]", line, re.I) for line in rows):
+            counters["capture_blocks_with_switch_token"] += 1
+        if any(re.search(
+            r"^\s*(?:Mono|(?:Front|Rear|Side)\s+(?:Left|Right))\s*:", line,
+            re.I,
+        ) for line in rows):
+            counters["capture_blocks_with_channel_row"] += 1
+        if any(re.search(r"^\s*Item[0-9]+\s*:", line) for line in rows):
+            counters["capture_blocks_with_enumerated_item"] += 1
+        if any(re.search(r":\s*Capture\b", line) for line in rows):
+            counters["capture_blocks_with_capture_value_row"] += 1
+    return counters
+
+
 def inspect_mixer() -> dict[str, object]:
     result: dict[str, object] = {
         "status": "inconclusive-mixer-metadata",
@@ -106,11 +161,13 @@ def inspect_mixer() -> dict[str, object]:
         return result
     try:
         parsed = parse_capture_controls(process.stdout)
+        shapes = capture_format_diagnostics(process.stdout)
     except ValueError:
         result["status"] = "mixer-output-unavailable"
         return result
     result["mixer_query_completed"] = True
     result.update(parsed)
+    result.update(shapes)
     if not parsed["capture_controls"]:
         result["status"] = "no-capture-controls-exposed"
     elif not any((
