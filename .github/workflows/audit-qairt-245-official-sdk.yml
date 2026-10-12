@@ -1,0 +1,80 @@
+name: Inspect official QAIRT 2.45 SDK archive on isolated host
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/audit-qairt-245-official-sdk.yml
+      - scripts/fetch_qairt_245_official.py
+      - scripts/qairt_245_archive_audit.py
+      - tests/test_fetch_qairt_245_official.py
+      - tests/test_qairt_245_archive_audit.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qairt-245-official-archive-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Official QAIRT 2.45 ZIP structure only, no SDK execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - name: Fetch exact commit, no third-party actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          mkdir -p "$RUNNER_TEMP/qairt-245-checkout"
+          cd "$RUNNER_TEMP/qairt-245-checkout"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test ZIP and network safety gates without downloading SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/qairt-245-checkout"
+          python3 -m venv "$RUNNER_TEMP/qairt-audit-venv"
+          "$RUNNER_TEMP/qairt-audit-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+          "$RUNNER_TEMP/qairt-audit-venv/bin/python" -m pytest -q \
+            tests/test_fetch_qairt_245_official.py \
+            tests/test_qairt_245_archive_audit.py
+
+      - name: Download capped official QAIRT 2.45 archive to runner temporary storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/qairt-245-checkout"
+          "$RUNNER_TEMP/qairt-audit-venv/bin/python" \
+            -m scripts.fetch_qairt_245_official \
+            --output "$RUNNER_TEMP/QAIRT_2_45_OFFICIAL.zip"
+
+      - name: Audit ZIP metadata without extracting or running vendor programs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/qairt-245-checkout"
+          "$RUNNER_TEMP/qairt-audit-venv/bin/python" \
+            -m scripts.qairt_245_archive_audit \
+            --zip "$RUNNER_TEMP/QAIRT_2_45_OFFICIAL.zip"
+
+      - name: Remove temporary proprietary archive
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/QAIRT_2_45_OFFICIAL.zip"
+          echo 'No SDK contents published, installed or executed.'
+          echo 'No VENTUNO device, live model or service modified.'
