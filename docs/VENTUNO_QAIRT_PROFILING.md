@@ -504,3 +504,107 @@ elevate runner privileges, or claim that API token/s proves NPU cycles.
 
 Relevant native tensor I/O format:
 https://github.com/google-ai-edge/LiteRT/blob/main/litert/vendors/qualcomm/doc/LITERT_QNN_NATIVE_RUN.md
+
+## Independent tiny QAIRT profiling fixture: toolchain preflight (2026-10-12)
+
+A bounded, **read-only** probe now runs in the self-hosted diagnostics:
+`scripts/ventuno_qnn_microprofile_inventory.py` plus twelve focused
+safety/privacy regression tests. It searches only configured SDK example
+directories for files no larger than 32 MiB, following no symlinks; it
+does not open model payloads, download files, run a converter, start QNN
+inference, print discovered paths or alter production services.
+
+**Measured on VENTUNO Q:**
+
+| QAIRT component | Availability on VENTUNO |
+| --- | --- |
+| `qnn-net-run` | Available |
+| `qnn-profile-viewer` | Available |
+| `qnn-context-binary-utility` | Available |
+| `qnn-context-binary-generator` | Available |
+| `qnn-onnx-converter` | **Not on PATH** |
+| `qnn-model-lib-generator` | **Not on PATH** |
+| `qnn-dlc-quantizer` | **Not on PATH** |
+| Small independent SDK sample model (searched roots) | **None found** |
+
+One configured SDK root was present; 2 directories and 33 files were
+inspected without hitting traversal limits. Absence from **those roots**
+does **not** establish that no compatible small example exists anywhere
+else on disk. The active GenieX 4B cache was **not** considered a
+standalone test candidate.
+
+The inventory result is:
+`no-go-separate-prepared-sample-required` and
+`npu_profiling_go: false`. Device diagnostics:
+https://github.com/Harrokk/Myai/actions/runs/38217969530
+
+### Host-only preparation candidate
+
+`scripts/prepare_tiny_qnn_host_sample.py` defines a **small, fixed,
+deterministic ONNX graph** with 1 × 1 × 8 × 8 floating-point input,
+Q/DQ quantization nodes, a 3 × 3 convolution and ReLU. It is an
+**ONNX source fixture**, not a QNN serialized HTP binary.
+It writes an ONNX file, 256-byte floating-point input file,
+draft `input_list.txt` and a machine-readable manifest that sets every
+QNN conversion/runtime/profiling result to **false**.
+
+The creation step is intended **only for a separate development host**:
+
+```text
+# On a separate development PC with Python and the onnx package:
+python scripts/prepare_tiny_qnn_host_sample.py --output-dir ./tiny_qnn_fixture
+
+# It creates:
+#   tiny_qdq_conv.onnx
+#   input.raw
+#   input_list.txt
+#   fixture_metadata.json
+```
+
+The actual ONNX filename generated is **`tiny_qdq_conv.onnx`**
+(`QDQ`, quantize/dequantize). It is deliberately not a runnable
+HTP command. The generator refuses ARM device execution, refuses to
+overwrite an existing directory, and refuses model-cache/runtime
+destinations. All generated inputs are synthetic; no prompts or user
+data are used.
+
+**Important:** The on-device test environment has no Python `onnx`
+package, so CI validates only the generator's standard-library
+safety/data logic. The optional ONNX export-and-`onnx.checker` tests
+were **skipped**, not passed. The full test suite showed
+**964 passed, 2 skipped**; end-to-end ONNX graph validation awaits a
+separate host with the `onnx` package.
+
+After creating the ONNX file on a separate host with a **compatible
+QAIRT 2.45 toolchain**, the remaining controlled preparation stages are:
+
+1. Use the matching `qnn-onnx-converter` to convert the tiny ONNX/QDQ
+   graph to QNN-generated source and weights. Check that the installed
+   converter actually supports these ops and quantization; do not
+   assume a successful conversion or HTP placement.
+2. Use the matching `qnn-model-lib-generator` and target toolchain
+   to produce a model library; prepare a standalone **HTP v75**
+   context with compatible `qnn-context-binary-generator`.
+   Confirm architecture, hardware backend, stub/skel and backend
+   extension config rather than guessing flags.
+3. Inspect the resulting context with
+   `qnn-context-binary-utility`. Require an expected small, independent
+   single-graph model and exact native input tensor names, shapes,
+   datatypes and quantization; the generated ONNX float input file
+   **cannot automatically be assumed compatible** with the converted
+   QNN native input datatype.
+4. Only with a verified, independent context and valid input set:
+   review a bounded, isolated `qnn-net-run --profiling_level basic`
+   experiment. Protect memory, HTP resource contention, transient
+   storage and live GenieX responsiveness. A successful inference
+   alone is not proof of HTP execution; collect and inspect actual
+   QNN profiling logs and backend placement evidence.
+
+No QNN generation, NPU execution, profiler collection or production
+GenieX interruption was performed by this stage.
+
+Source guidance:
+- Qualcomm QAIRT HTP context generation and profiling:
+  https://docs.qualcomm.com/nav/home/htp_auto_tutorial_3_la_gvm.html?product=924033590759186372
+- Native QNN input dtypes and `qnn-net-run` usage:
+  https://github.com/google-ai-edge/LiteRT/blob/main/litert/vendors/qualcomm/doc/LITERT_QNN_NATIVE_RUN.md
