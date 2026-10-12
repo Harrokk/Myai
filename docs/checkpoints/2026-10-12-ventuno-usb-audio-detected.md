@@ -204,3 +204,45 @@ request. With hearing confirmed, build a separately validated
 USB input->Whisper STT->MyAI/GenieX->Swedish TTS->USB output
 integration with explicit per-stage resource bounds and rollback,
 without immediately enabling the production voice flags.
+
+
+## User-confirmed audible USB speaker test
+
+On 2026-10-12, immediately following successful isolated playback
+run `38250308186`, the user **personally confirmed hearing**
+the exact Swedish test phrase **"Hej. Jag heter My AI."**
+through the connected USB speaker on VENTUNO Q.
+
+This is direct user confirmation of **audible physical output**,
+in addition to the already recorded ALSA `aplay` exit-status
+success, and completes this narrow USB speaker hardware acceptance
+checkpoint. The earlier test's machine-readable
+`audible_sound_confirmed_by_person=false` remains historically
+correct for the test *at execution time*: it could not itself
+measure human hearing, and the user's subsequent confirmation
+supplies that missing external evidence.
+
+Current verified hardware:
+- USB microphone capture at ALSA card 1 PCM 0
+  (`plughw:1,0`): 2 s, 16 kHz mono, 64,000 bytes, non-silent
+  RMS 0.023983 (run `38249279855`).
+- USB speaker playback on ALSA card 1 PCM 0
+  (`plughw:1,0`): fixed Swedish TTS phrase, 2.09 s WAV,
+  digital peak limited to 0.039978 (run `38250308186`),
+  **audibly confirmed by the user**.
+- MyAI and GenieX services remained active, production voice
+  flags disabled, no microphone audio persisted and no extra
+  models or packages installed into production.
+
+**Next integration milestone, not yet verified:**
+a separately authorized, bounded real USB microphone utterance
+→ local Swedish Whisper transcription → MyAI/GenieX response
+→ temporary Swedish eSpeak synthesis → USB speaker output.
+First build and unit-test the multi-stage adapter without
+physical audio; preserve the existing production services and
+obtain a fresh opt-in before capturing real user speech or
+playing additional physical speaker audio. ALSA card indexes may
+change and must be revalidated before hardware access.
+
+This documentation change does NOT rerun physical audio or alter
+the active MyAI installation.
