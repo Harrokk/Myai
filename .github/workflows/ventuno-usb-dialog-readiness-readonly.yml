@@ -1,0 +1,142 @@
+name: VENTUNO USB voice dialogue readiness - NO AUDIO
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-usb-dialog-readiness-readonly.yml
+      - scripts/ventuno_usb_voice_dialog_readiness.py
+      - tests/test_ventuno_usb_voice_dialog_readiness.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-usb-dialog-readiness-no-audio
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Check 8GiB reserve and USB duplex without audio I/O
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact source into a fresh disposable workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-dialog-readiness-XXXXXXXX")"
+          echo "MYAI_DIALOG_CHECK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run fail-closed and privacy regression tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_CHECK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_ventuno_usb_audio_inventory.py
+      - name: Inspect actual VENTUNO RAM, disk, services and USB PCM
+        id: ready
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_CHECK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          report = inspect(disk_root=__import__("pathlib").Path(os.environ["MYAI_DIALOG_CHECK"]))
+          print("VENTUNO voice dialogue readiness (no audio):",
+                json.dumps(report, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("readiness=" + str(report["status"]) + "\n")
+          assert report["microphone_opened"] is False
+          assert report["speaker_opened"] is False
+          assert report["production_changed"] is False
+          PY
+      - name: Confirm services and remove isolated workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_DIALOG_CHECK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_DIALOG_CHECK" in
+              "$RUNNER_TEMP"/myai-dialog-readiness-*)
+                if [ -d "$MYAI_DIALOG_CHECK" ] && [ ! -L "$MYAI_DIALOG_CHECK" ]; then
+                  rm -rf -- "$MYAI_DIALOG_CHECK"
+                fi
+                ;;
+              *) echo "Refusing cleanup outside temporary directory" >&2; exit 1 ;;
+            esac
+          fi
+          echo "No recording, sound, model loading, production change or service restart."
+      - name: Publish bounded readiness category as source commit status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          READINESS: ${{ steps.ready.outputs.readiness }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          sha = os.environ.get("GITHUB_SHA", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)):
+              raise SystemExit(0)
+          allowed = {
+              "ready-for-separate-consented-dialogue-test",
+              "blocked-architecture",
+              "blocked-inactive-services",
+              "blocked-active-voice-or-invalid-config",
+              "blocked-usb-reenumerated-or-inaccessible",
+              "blocked-whisper-8gib-memory-reserve",
+              "blocked-temporary-staging-disk-reserve",
+          }
+          status = os.environ.get("READINESS", "")
+          status = status if status in allowed else "no-readiness-result"
+          job = os.environ.get("JOB_RESULT", "")
+          state = "success" if job == "success" else "failure"
+          payload = json.dumps({
+              "state": state,
+              "context": "myai/ventuno-usb-dialog-readiness",
+              "description": ("NO AUDIO; readiness=" + status)[:140],
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }).encode()
+          request = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=payload, method="POST",
+              headers={"Authorization": "Bearer " + token,
+                       "Accept": "application/vnd.github+json",
+                       "X-GitHub-Api-Version": "2022-11-28",
+                       "Content-Type": "application/json"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("Bounded readiness commit status reported:", response.status == 201)
+          except Exception as error:
+              print("Status publication unavailable:", type(error).__name__)
+          PY
