@@ -9,6 +9,8 @@ on:
       - .github/workflows/ventuno-voice-staging.yml
       - scripts/ventuno_voice_wheel_staging.py
       - tests/test_ventuno_voice_wheel_staging.py
+      - scripts/ventuno_portaudio_temp_stage.py
+      - tests/test_ventuno_portaudio_temp_stage.py
 
 permissions:
   contents: read
@@ -47,7 +49,8 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-voice-checkout"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q \
-            tests/test_ventuno_voice_wheel_staging.py
+            tests/test_ventuno_voice_wheel_staging.py \
+            tests/test_ventuno_portaudio_temp_stage.py
           /home/arduino/MyAI/.venv/bin/python \
             scripts/ventuno_voice_wheel_staging.py --runner-temp "$RUNNER_TEMP"
 
@@ -69,8 +72,20 @@ jobs:
           /home/arduino/MyAI/.venv/bin/python \
             scripts/ventuno_voice_wheel_staging.py \
             --stage-light \
+            --allow-missing-portaudio \
             --runner-temp "$RUNNER_TEMP" \
             --python "$SYSTEM_PY"
+
+      - name: Test temporary distro PortAudio without installing an OS package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-voice-checkout"
+          /home/arduino/MyAI/.venv/bin/python \
+            scripts/ventuno_portaudio_temp_stage.py \
+            --runner-temp "$RUNNER_TEMP" \
+            --staged-python "$RUNNER_TEMP/myai-voice-staging/bin/python"
+          echo 'PortAudio test is confined to the runner temporary directory.'
 
       - name: Check services unchanged and voice disabled
         shell: bash
@@ -95,7 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           # Fixed, narrow names inside GitHub RUNNER_TEMP; never production venv.
-          for name in myai-voice-staging myai-voice-wheel-report; do
+          for name in myai-voice-staging myai-voice-wheel-report myai-voice-portaudio; do
             case "$RUNNER_TEMP" in
               /home/arduino/MyAI/.venv*|""|"/") exit 2 ;;
             esac
