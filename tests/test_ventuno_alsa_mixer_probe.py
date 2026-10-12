@@ -162,3 +162,39 @@ def test_capture_format_diagnostics_detects_alternate_alsa_rows():
 def test_capture_format_diagnostics_rejects_oversize():
     with pytest.raises(ValueError):
         mod.capture_format_diagnostics(b"x" * (mod.MAX_RESPONSE_BYTES + 1))
+
+
+def test_capture_channel_levels_without_capture_word_are_counted():
+    raw = (
+        b"Simple mixer control 'private-input-control',0\n"
+        b"  Capabilities: cvolume cswitch\n"
+        b"  Capture channels: Front Left - Front Right\n"
+        b"  Front Left: 0 [0%] [off]\n"
+        b"  Front Right: 44 [73%] [on]\n"
+    )
+    report = mod.parse_capture_controls(raw)
+    assert report == {
+        "capture_controls": 1,
+        "capture_switch_on_reports": 1,
+        "capture_switch_off_reports": 1,
+        "capture_volume_zero_reports": 1,
+        "capture_volume_nonzero_reports": 1,
+    }
+    assert "private-input-control" not in str(report)
+
+
+def test_mixed_playback_row_is_not_counted_as_capture_volume():
+    raw = (
+        b"Simple mixer control 'private-mixed-control',0\n"
+        b"  Capabilities: pvolume cvolume pswitch cswitch\n"
+        b"  Playback channels: Mono\n"
+        b"  Capture channels: Mono\n"
+        b"  Mono: Playback 0 [0%] [off]\n"
+        b"  Mono: Capture 25 [25%] [on]\n"
+    )
+    report = mod.parse_capture_controls(raw)
+    assert report["capture_controls"] == 1
+    assert report["capture_volume_zero_reports"] == 0
+    assert report["capture_volume_nonzero_reports"] == 1
+    assert report["capture_switch_on_reports"] == 1
+    assert report["capture_switch_off_reports"] == 0
