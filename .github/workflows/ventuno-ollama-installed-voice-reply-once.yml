@@ -1,0 +1,190 @@
+name: ONE-TIME installed Ollama local Swedish MyAI voice reply test - no audio
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-ollama-installed-voice-reply-once.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-installed-ollama-voice-reply-2026-10-12
+  cancel-in-progress: false
+
+jobs:
+  local_reply:
+    name: Actual installed Ollama through MyAI LLM factory without audio
+    if: >-
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Verify installed Ollama replies through MyAI without audio' &&
+      github.run_attempt == 1 &&
+      github.repository == 'Harrokk/Myai'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 9
+    steps:
+      - name: Fetch exact test source into disposable checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$HOME" = "/home/arduino"
+          test -n "${RUNNER_TEMP:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-ollama-voice-XXXXXXXX")"
+          echo "MYAI_OLLAMA_VOICE_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test exact per-turn Ollama selector without model or audio
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_OLLAMA_VOICE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_voice_backend_selector.py \
+            tests/test_ollama_client.py \
+            tests/test_llm_factory.py
+
+      - name: Verify installed Ollama exists and both production services healthy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "/home/arduino/.local/opt/myai-ollama/v0.34.0/bin/ollama"
+          test -x "/home/arduino/.local/opt/myai-ollama/v0.34.0/start-local-only.sh"
+          test -d "/home/arduino/.local/opt/myai-ollama/v0.34.0/models"
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          python3 - <<'PY'
+          import socket
+          sock=socket.socket()
+          try:
+              sock.settimeout(0.8)
+              assert sock.connect_ex(("127.0.0.1",11434))!=0, "Local Ollama port already occupied"
+          finally: sock.close()
+          print("Installed Ollama available and loopback port free; active GenieX preserved.")
+          PY
+
+      - name: Start installed Ollama, answer through actual MyAI OllamaClient, stop
+        id: answer
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$MYAI_OLLAMA_VOICE_WORK"
+          launcher="/home/arduino/.local/opt/myai-ollama/v0.34.0/start-local-only.sh"
+          pid=""
+          stop_server() {
+            if [ -n "$pid" ]; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap stop_server EXIT
+          "$launcher" > "$dir/ollama-transient-private.log" 2>&1 &
+          pid=$!
+          ready=0
+          for attempt in $(seq 1 35); do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            if curl --noproxy "*" --silent --fail --max-time 2 \
+                http://127.0.0.1:11434/api/version -o "$dir/version.json"; then
+              ready=1; break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1 || { echo "Installed Ollama loopback API unavailable"; exit 2; }
+          cd "$dir/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, time
+          from pathlib import Path
+          from scripts.ventuno_voice_backend_selector import answer_one_short_voice_question
+          from core.config import DEFAULT_SETTINGS,_merge_settings
+          from core.llm_factory import build_llm_client
+          from core.geniex_client import GenieXClient
+          profile=json.loads(Path("config/profiles/ventuno_q.json").read_text())
+          assert profile["llm"]["provider"]=="geniex"
+          assert profile["llm"]["fallback"]["enabled"] is False
+          assert profile["voice"]["handsfree_enabled"] is False
+          assert isinstance(build_llm_client(_merge_settings(DEFAULT_SETTINGS,profile)),GenieXClient)
+          start=time.monotonic()
+          result=answer_one_short_voice_question(
+              "vad heter du",profile,provider="ollama",timeout=90)
+          elapsed=round(time.monotonic()-start,2)
+          assert isinstance(result,str) and 1<=len(result)<=120
+          print("Installed Ollama returned one bounded MyAI Swedish-question reply;",
+                "duration_s:",elapsed,"length:",len(result))
+          print("No reply content, user audio, transcript or other model data logged.")
+          PY
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo "outcome=installed-ollama-through-myai-verified" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm services and cleanup only temporary test checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_OLLAMA_VOICE_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_OLLAMA_VOICE_WORK" in
+              "$RUNNER_TEMP"/myai-ollama-voice-*)
+                if [ -d "$MYAI_OLLAMA_VOICE_WORK" ] && [ ! -L "$MYAI_OLLAMA_VOICE_WORK" ]; then
+                  rm -rf -- "$MYAI_OLLAMA_VOICE_WORK"
+                fi
+                ;;
+              *) echo "Unsafe temp path" >&2; exit 1 ;;
+            esac
+          fi
+          echo "Retained user-local Ollama and Qwen model; transient server stopped."
+          echo "MyAI, GenieX, microphones, speaker and production configuration unchanged."
+
+      - name: Publish sanitized local Ollama voice selection result
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          OUTCOME: ${{ steps.answer.outputs.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,urllib.request
+          repo=os.environ.get("GITHUB_REPOSITORY","")
+          sha=os.environ.get("GITHUB_SHA","")
+          token=os.environ.get("GH_TOKEN","")
+          if not (re.fullmatch(r"[a-f0-9]{40}",sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo)):
+              raise SystemExit(0)
+          success=(os.environ.get("JOB_RESULT")=="success"
+                   and os.environ.get("OUTCOME")=="installed-ollama-through-myai-verified")
+          body={
+              "state":"success" if success else "failure",
+              "context":"myai/ventuno-installed-ollama-voice-reply-once",
+              "description":("Real Ollama answer through MyAI - verified"
+                             if success else "Installed Ollama MyAI reply inconclusive"),
+              "target_url":"https://github.com/"+repo+"/actions/runs/"+
+                           os.environ.get("GITHUB_RUN_ID",""),
+          }
+          req=urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              data=json.dumps(body).encode(),method="POST",
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "X-GitHub-Api-Version":"2022-11-28",
+                       "Content-Type":"application/json"})
+          try:
+              with urllib.request.urlopen(req,timeout=10) as response:
+                  print("Installed Ollama MyAI status recorded:",response.status==201)
+          except Exception as error:
+              print("Status post unavailable:",type(error).__name__)
+          PY
