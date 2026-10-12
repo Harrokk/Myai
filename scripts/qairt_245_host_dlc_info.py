@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import platform
+import math
 import re
 import subprocess
 import sys
@@ -21,6 +22,69 @@ from scripts.qairt_245_host_conversion_trial import (
 
 SHA256 = "137ea7f4386d0e7a090bb3d2348432eb7f90da70edf04ea15afc523948dee3ba"
 DLC_SIZE = 16004
+
+
+def summarize_official_io_tables(stdout: str) -> dict[str, object]:
+    """Extract dimensions/declared types from Qualcomm's DLC-info tables.
+
+    Fail closed on unknown tool layouts. Never expose tensor names or paths.
+    This describes the DLC file, not a QNN backend's native tensor buffers.
+    """
+    outputs: dict[str, list[dict[str, object]]] = {"input": [], "output": []}
+    section: str | None = None
+    for raw in stdout[:131072].splitlines():
+        line = raw.strip()
+        lower = line.lower()
+        if "|" in lower and "dimensions" in lower:
+            if "input name" in lower:
+                section = "input"
+                continue
+            if "output name" in lower:
+                section = "output"
+                continue
+        if not line.startswith("|") or not line.endswith("|") or section is None:
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 3 or len(outputs[section]) >= 8:
+            continue
+        dim_text = parts[1]
+        if not re.fullmatch(r"[0-9]+(?:,[0-9]+){0,5}", dim_text):
+            continue
+        dims = [int(p) for p in dim_text.split(",")]
+        if not all(0 < d <= 8192 for d in dims):
+            continue
+        dtype = parts[2].lower()
+        if dtype not in {
+            "float_32", "float_16", "float_64", "int_8", "uint_8",
+            "int_16", "uint_16", "int_32", "uint_32", "bool_8",
+        }:
+            continue
+        encoding_text = parts[3].lower() if len(parts) >= 4 else ""
+        encoding: bool | None = None
+        if "no encoding info" in encoding_text or "no encoding" in encoding_text:
+            encoding = False
+        elif "encoding" in encoding_text or "scale" in encoding_text:
+            encoding = True
+        outputs[section].append({
+            "dimensions": dims,
+            "declared_dtype": dtype,
+            "elements": math.prod(dims),
+            "encoding_declared": encoding,
+        })
+    inputs = outputs["input"]
+    # Exact 256 bytes of float32 as declared in the ONNX source fixture.
+    input_matches = (
+        len(inputs) == 1 and
+        inputs[0]["declared_dtype"] == "float_32" and
+        inputs[0]["elements"] == 64
+    )
+    return {
+        "dlc_declared_inputs": inputs,
+        "dlc_declared_outputs": outputs["output"],
+        "dlc_io_tables_both_parsed": bool(inputs and outputs["output"]),
+        "synthetic_float32_input_byte_size_matches_dlc": input_matches,
+        "qnn_native_io_compatibility_verified": False,
+    }
 
 
 def inspect_with_qualcomm(sdk: Path, model: Path) -> dict[str, object]:
@@ -74,6 +138,7 @@ def inspect_with_qualcomm(sdk: Path, model: Path) -> dict[str, object]:
     info["mentions_input"] = "input" in lower
     info["mentions_output"] = "output" in lower
     info["mentions_layer"] = "layer" in lower
+    info.update(summarize_official_io_tables(stdout))
     if run.returncode != 0:
         info["status"] = "inconclusive-official-dlc-reader-error"
         info["error_hint"] = sanitized_converter_error(run.stderr + "\n" + run.stdout)
