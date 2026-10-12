@@ -1,0 +1,143 @@
+name: VENTUNO arecord CLI flags and USB capture safety no-recording check
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-arecord-options-readonly.yml
+      - scripts/ventuno_usb_microphone_smoke.py
+      - scripts/ventuno_microphone_smoke.py
+      - tests/test_ventuno_usb_microphone_smoke.py
+      - tests/test_ventuno_microphone_smoke.py
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-arecord-options-readonly
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Check arecord --help and unit tests, never open audio
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Clone tested commit to temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          source_dir="$(mktemp -d "$RUNNER_TEMP/myai-arecord-options-XXXXXXXX")"
+          echo "MYAI_ARECORD_SOURCE=$source_dir" >> "$GITHUB_ENV"
+          git init -q "$source_dir"
+          git -C "$source_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$source_dir" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$source_dir" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$source_dir" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify actual installed arecord option names without recording
+        shell: bash
+        run: |
+          set -euo pipefail
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import shutil
+          import subprocess
+          tool = shutil.which("arecord")
+          assert tool, "arecord not installed"
+          result = subprocess.run(
+              [tool, "--help"],
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+              timeout=6,
+              check=False,
+          )
+          # Usage text is not logged; only allowlisted option indicators.
+          raw = (result.stdout + result.stderr)[:65536].decode(
+              "utf-8", errors="replace").lower()
+          required = ("--file-type", "--format", "--rate",
+                      "--channels", "--duration", "--device")
+          found = {flag: flag in raw for flag in required}
+          print("Supported arecord command-line flags:", found)
+          assert all(found.values()), "Required arecord CLI option missing"
+          PY
+
+      - name: Verify consent gates and 2s command with mocked audio only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ARECORD_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_microphone_smoke.py \
+            tests/test_ventuno_microphone_smoke.py \
+            tests/test_ventuno_usb_audio_inventory.py
+          echo "All test audio was synthetic. No microphone opened."
+
+      - name: Confirm active services and clean test checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          if [ -n "${MYAI_ARECORD_SOURCE:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_ARECORD_SOURCE" in
+              "$RUNNER_TEMP"/myai-arecord-options-*)
+                if [ -d "$MYAI_ARECORD_SOURCE" ]; then
+                  rm -rf -- "$MYAI_ARECORD_SOURCE"
+                fi
+                ;;
+              *)
+                echo "Unsafe cleanup path" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+      - name: Publish CI status to source commit
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          sha = os.environ.get("GITHUB_SHA", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[0-9a-f]{40}", sha) and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) and token):
+              raise SystemExit(0)
+          body = {
+              "state": {"success": "success", "failure": "failure"}.get(
+                  os.environ.get("JOB_RESULT", ""), "error"),
+              "context": "myai/ventuno-arecord-options-readonly",
+              "description": "arecord --help options and mock-only tests; NO recording",
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }
+          request = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode("utf-8"), method="POST",
+              headers={"Authorization": "Bearer " + token,
+                       "Accept": "application/vnd.github+json",
+                       "X-GitHub-Api-Version": "2022-11-28",
+                       "Content-Type": "application/json"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("No-recording CLI validation status posted:", response.status == 201)
+          except Exception as error:
+              print("Commit-status update failed:", type(error).__name__)
+          PY
