@@ -180,3 +180,27 @@ def test_sanitized_unknown_table_shape_reports_no_tensor_name():
     assert report["io_candidate_row_counts"]["input"] == 1
     assert report["unrecognized_dimension_formats"] == ["unrecognized"]
     assert "super_private_name" not in str(report)
+
+def test_float32_dtype_alias_is_accepted_but_no_qnn_execution_claim():
+    sample = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | hidden-name | 1,1,8,8 | Float32 | No encoding info |
+    | Output Name | Dimensions | Type | Encoding Info |
+    | hidden-name-2 | 1,1,8,8 | FP32 | No encoding info |
+    """
+    r = mod.summarize_official_io_tables(sample)
+    assert r["dlc_io_tables_both_parsed"] is True
+    assert r["synthetic_float32_input_byte_size_matches_dlc"] is True
+    assert r["qnn_native_io_compatibility_verified"] is False
+
+
+def test_unknown_dtype_is_reported_without_names():
+    sample = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | private/name | 1,1,8,8 | UNKNOWN_QNN_DTYPE | Encoded |
+    """
+    r = mod.summarize_official_io_tables(sample)
+    assert r["io_candidate_row_counts"]["input"] == 1
+    assert r["io_unrecognized_declared_type_tokens"]["input"] == ["unknown_qnn_dtype"]
+    assert r["dlc_declared_inputs"] == []
+    assert "private/name" not in str(r)
