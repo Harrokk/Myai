@@ -1,0 +1,329 @@
+name: ONE-TIME authorized VENTUNO USB Whisper to Ollama Swedish voice dialogue
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-usb-ollama-voice-consent-once.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-usb-ollama-voice-consent-2026-10-12
+  cancel-in-progress: false
+
+jobs:
+  dialogue:
+    name: One 3s Swedish question through Whisper Ollama and capped TTS
+    if: >-
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Authorize exactly one 3s USB Whisper Ollama Swedish spoken exchange' &&
+      github.run_attempt == 1 &&
+      github.repository == 'Harrokk/Myai'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact authorized source into isolated runner temporary root
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          test -n "${GH_TOKEN:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-usb-dialog-XXXXXXXX")"
+          echo "MYAI_DIALOG_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run all one-shot dialog and USB driver regression tests with mocked audio
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_dialogue_once.py \
+            tests/test_ventuno_usb_dialogue_hardware.py \
+            tests/test_ventuno_voice_backend_selector.py \
+            tests/test_ollama_client.py \
+            tests/test_llm_factory.py \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_ventuno_usb_speaker_smoke.py \
+            tests/test_ventuno_usb_audio_inventory.py
+          echo "All safety tests use synthetic samples; no physical audio opened."
+
+      - name: Check actual USB audio identity, active services and 8GiB RAM reserve
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          import os
+          report = inspect(disk_root=Path(os.environ["MYAI_DIALOG_WORK"]))
+          print("Pre-staging local hardware readiness:", report["status"],
+                "memory mib:", report["ram_available_mib"],
+                "disk mib:", report["disk_available_mib"])
+          assert report["status"] == "ready-for-separate-consented-dialogue-test"
+          assert report["microphone_opened"] is False
+          assert report["speaker_opened"] is False
+          PY
+
+      - name: Stage only verified ARM64 Whisper libraries in new temporary environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          PY="$(readlink -f "$(command -v python3)")"
+          test -x "$PY"
+          "$PY" -m venv "$MYAI_DIALOG_WORK/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_DIALOG_WORK"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_DIALOG_WORK"
+
+      - name: Fetch and verify pinned publicly licensed Swedish speech fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$MYAI_DIALOG_WORK"
+
+      - name: Verify pinned Whisper Tiny CPU model before user audio is accessed
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          base = Path(os.environ["MYAI_DIALOG_WORK"])
+          result = smoke(base / "myai-voice-staging/bin/python", base)
+          allowed = result.get("status") == "tiny-sv-cpu-word-and-silence-verified"
+          print("Pinned offline Swedish Whisper CPU preflight:", allowed)
+          assert allowed
+          assert result["model_files_verified"] is True
+          assert result["cpu_inference_verified"] is True
+          assert result["microphone_used"] is False
+          PY
+
+      - name: Stage Swedish offline eSpeak and verify WAV without physical audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_tts_temp_stage import stage_sweden_tts
+          root = Path(os.environ["MYAI_DIALOG_WORK"])
+          report = stage_sweden_tts(root / "myai-tts-espeak-stage", root)
+          success = report.get("status") == "isolated-swedish-tts-signal-verified"
+          print("Offline temporary Swedish synthesis verified:", success)
+          assert success
+          assert report["physical_playback_verified"] is False
+          assert report["services_changed"] is False
+          PY
+
+      - name: Final checks before spoken cue - USB, model, RAM and services
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          from scripts.ventuno_usb_dialogue_hardware import _preflight
+          root = Path(os.environ["MYAI_DIALOG_WORK"])
+          report = inspect(disk_root=root)
+          print("Final live audio safety readiness:", report["status"])
+          assert report["status"] == "ready-for-separate-consented-dialogue-test"
+          _preflight(root)
+          print("Exactly one audible spoken cue then 3s recording allowed.")
+          PY
+
+      - name: Verify installed Ollama and unused localhost API without opening audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "/home/arduino/.local/opt/myai-ollama/v0.34.0/bin/ollama"
+          test -x "/home/arduino/.local/opt/myai-ollama/v0.34.0/start-local-only.sh"
+          test -d "/home/arduino/.local/opt/myai-ollama/v0.34.0/models"
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          python3 - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.settimeout(0.8)
+              assert sock.connect_ex(("127.0.0.1",11434)) != 0, "ollama-local-port-already-in-use"
+          print("Existing local Ollama installed; port 11434 free. GenieX active.")
+          PY
+
+      - name: ONE spoken cue, ONE 3s USB record, Whisper then Ollama then capped speaker reply
+        id: dialogue
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$MYAI_DIALOG_WORK"
+          launcher="/home/arduino/.local/opt/myai-ollama/v0.34.0/start-local-only.sh"
+          test -x "$launcher"
+          cd "$work/source"
+          # Loopback-only Ollama server; no automatic fallback to GenieX.
+          # The installed small Qwen3 0.6B is already locally cached.
+          pid=""
+          stop_server() {
+            if [ -n "$pid" ]; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap stop_server EXIT
+          "$launcher" > "$work/temporary-ollama-private.log" 2>&1 &
+          pid=$!
+          echo "MYAI_ONE_SHOT_OLLAMA_PID=$pid" >> "$GITHUB_ENV"
+          ready=0
+          for n in $(seq 1 35); do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            if curl --noproxy "*" --silent --fail --max-time 2 \
+                 "http://127.0.0.1:11434/api/version" \
+                 -o "$work/ollama-version-private.json"; then
+              ready=1; break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            echo "Ollama loopback start failed; no microphone touched."
+            exit 2
+          fi
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          from scripts.ventuno_usb_dialogue_hardware import (
+              run_one_authorized_hardware_dialog,
+          )
+          root=Path(os.environ["MYAI_DIALOG_WORK"])
+          ready=inspect(disk_root=root)
+          assert ready["status"]=="ready-for-separate-consented-dialogue-test", (
+              "live-resource-or-USB-readiness-no-go"
+          )
+          print("Post-server USB/Whisper/Ollama readiness checked; "
+                "exactly one spoken cue then 3s capture.")
+          report=run_one_authorized_hardware_dialog(
+              root,
+              consent_to_record=True,
+              consent_to_play=True,
+              response_backend="ollama",
+          )
+          # Only allowlisted booleans/statuses are printed; not spoken words,
+          # response text, audio bytes, model names, or user device labels.
+          print("ONE-TIME USB Whisper Ollama voice result:",
+                json.dumps(report, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+              out.write("dialogue_result="+str(report["status"])+"\n")
+          if report["status"]!="one-shot-usb-dialogue-alsa-playback-completed":
+              raise SystemExit(2)
+          PY
+          echo "Single authorized dialog finished; local Ollama server stopped by trap."
+
+      - name: Confirm MyAI and GenieX and securely remove only isolated workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A killed/cancelled audio step must not leave an Ollama daemon
+          # behind. Only stop the PID if its current command line is the
+          # exact pinned Ollama user-local executable (no PID reuse kill).
+          pid="${MYAI_ONE_SHOT_OLLAMA_PID:-}"
+          if [[ "$pid" =~ ^[0-9]+$ ]] && [ -r "/proc/$pid/cmdline" ]; then
+            if tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Fq \
+                 '/home/arduino/.local/opt/myai-ollama/v0.34.0/bin/ollama' ; then
+              kill "$pid" >/dev/null 2>&1 || true
+            fi
+          fi
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_DIALOG_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_DIALOG_WORK" in
+              "$RUNNER_TEMP"/myai-usb-dialog-*)
+                if [ -d "$MYAI_DIALOG_WORK" ] && [ ! -L "$MYAI_DIALOG_WORK" ]; then
+                  rm -rf -- "$MYAI_DIALOG_WORK"
+                fi
+                ;;
+              *) echo "Refusing unsafe temp cleanup" >&2; exit 1 ;;
+            esac
+          fi
+          echo "No WAV, user transcript, Whisper model or other speech data kept."
+          echo "No active MyAI or GenieX services/configuration changed. Transient Ollama was stopped."
+
+      - name: Publish only allowlisted result without audio or transcript
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          DIALOGUE_RESULT: ${{ steps.dialogue.outputs.dialogue_result }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          sha = os.environ.get("GITHUB_SHA", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) and token):
+              raise SystemExit(0)
+          approved = {
+              "one-shot-usb-dialogue-alsa-playback-completed",
+              "reject-audible-start-cue-failed",
+              "reject-unsafe-hardware-or-resource-readiness",
+              "reject-weak-or-invalid-3s-capture",
+              "reject-unapproved-or-unclear-test-utterance",
+              "reject-ram-after-whisper",
+              "reject-unsafe-local-model-reply",
+              "reject-unbounded-or-invalid-tts",
+              "reject-hardware-changed-before-playback",
+              "alsa-playback-not-confirmed",
+              "one-shot-dialogue-stage-failed",
+          }
+          text = os.environ.get("DIALOGUE_RESULT", "")
+          sanitized = text if text in approved else "not-executed-or-inconclusive"
+          state = "success" if os.environ.get("JOB_RESULT") == "success" else "failure"
+          body = {
+              "state": state,
+              "context": "myai/ventuno-usb-ollama-voice-consent-once",
+              "description": ("One-time 3s Whisper+Ollama: " + sanitized)[:140],
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }
+          request = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode("utf-8"), method="POST",
+              headers={"Authorization": "Bearer " + token,
+                       "Accept": "application/vnd.github+json",
+                       "X-GitHub-Api-Version": "2022-11-28",
+                       "Content-Type": "application/json"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("One-time physical voice status published:", response.status == 201)
+          except Exception as error:
+              print("Could not post sanitized status:", type(error).__name__)
+          PY
