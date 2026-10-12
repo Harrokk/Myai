@@ -83,6 +83,21 @@ jobs:
             tests/test_prepare_tiny_qnn_host_sample.py \
             tests/test_verify_tiny_qnn_host_sample.py
 
+      - name: Verify LLVM C++ runtime on disposable Ubuntu host
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! ldconfig -p | grep -Fq 'libc++.so.1'; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+              libc++1-18 libc++abi1-18
+          fi
+          ldconfig -p | grep -Fq 'libc++.so.1' || {
+            echo 'LLVM C++ runtime unavailable on isolated build host'
+            exit 2
+          }
+          echo 'Required libpython3.10 and libc++.so.1 libraries are present.'
+
       - name: Generate and verify fixed ONNX model with CPU reference
         shell: bash
         run: |
