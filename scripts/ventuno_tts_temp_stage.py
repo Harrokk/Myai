@@ -20,6 +20,7 @@ from pathlib import Path
 from scripts.ventuno_tts_synthesis_probe import (
     PHRASE, TIMEOUT_SECONDS, MAX_WAV_BYTES, validate_wav,
 )
+from scripts.ventuno_synthetic_voice_chain import run_synthetic_voice_chain
 
 PACKAGES = ("espeak-ng-data", "libespeak-ng1", "espeak-ng")
 MAX_PACKAGE_BYTES = 18 * 1024 * 1024
@@ -107,6 +108,7 @@ def stage_sweden_tts(folder: Path, runner_temp: Path,
         "packages_extracted_in_runner_temp": False,
         "synthesis_in_memory_attempted": False,
         "swedish_pcm_synthesis_verified": False,
+        "myai_voice_pipeline_synthetic_bridge_verified": False,
         "physical_playback_verified": False,
         "microphone_used": False,
         "audio_written_to_disk": False,
@@ -158,15 +160,43 @@ def stage_sweden_tts(folder: Path, runner_temp: Path,
     report["packages_extracted_in_runner_temp"] = True
     env["LD_LIBRARY_PATH"] = str(extracted / "usr" / "lib" / "aarch64-linux-gnu") + os.pathsep + env.get("LD_LIBRARY_PATH", "")
     # --path expects the directory that CONTAINS espeak-ng-data.
-    argv = [
-        str(exe), "--path=" + str(data.parent),
-        "-v", "sv", "--stdout", PHRASE,
-    ]
+    # Prove MyAI's real VoicePipeline forwards its synthetic assistant
+    # answer to the real eSpeak renderer. This TTS adapter is deliberately
+    # in-memory only and cannot open microphone or speaker devices.
+    calls = 0
+
+    def render_fixed_answer(text: str) -> bytes:
+        nonlocal calls
+        if text != PHRASE or calls:
+            raise ValueError("only-one-fixed-synthetic-answer")
+        calls += 1
+        argv = [
+            str(exe), "--path=" + str(data.parent),
+            "-v", "sv", "--stdout", text,
+        ]
+        result = run_command(argv, folder, timeout=TIMEOUT_SECONDS, env=env)
+        if not result["ok"]:
+            raise RuntimeError("espeak-synthetic-renderer-nonzero")
+        raw = result["stdout"]
+        if len(raw) > MAX_WAV_BYTES:
+            raise ValueError("espeak-synthetic-wav-size-cap")
+        return raw
+
     report["synthesis_in_memory_attempted"] = True
-    synth = run_command(argv, folder, timeout=TIMEOUT_SECONDS, env=env)
-    if not synth["ok"]:
-        report["status"] = "inconclusive-espeak-runtime"
-        return report
+    bridge = run_synthetic_voice_chain(
+        render_fixed_answer, explicitly_authorized=True,
+    )
+    report["myai_voice_pipeline_synthetic_bridge_verified"] = (
+        bridge["status"] == "synthetic-myai-reply-to-wav-verified"
+    )
+    report["swedish_pcm_synthesis_verified"] = bridge["tts_signal_verified"]
+    for key in ("sample_rate_hz", "duration_seconds", "rms_fraction_full_scale"):
+        report[key] = bridge.get(key)
+    report["status"] = (
+        "isolated-swedish-tts-signal-verified"
+        if bridge["tts_signal_verified"]
+        else "inconclusive-synthetic-myai-tts-bridge"
+    )
     raw = synth["stdout"]
     if len(raw) > MAX_WAV_BYTES:
         report["status"] = "no-go-espeak-output-over-limit"
