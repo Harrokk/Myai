@@ -1,0 +1,181 @@
+name: VENTUNO public Swedish STT to GenieX to TTS isolated chain
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-public-whisper-geniex-tts.yml
+      - scripts/ventuno_stt_gated_geniex_voice.py
+      - tests/test_ventuno_stt_gated_geniex_voice.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-public-whisper-geniex-tts
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Actual public fixture Whisper to existing local GenieX to RAM-only TTS
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact source into new isolated workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          test -n "${GH_TOKEN:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-e2e-XXXXXXXX")"
+          echo "MYAI_E2E_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run integration safety regression tests using mocks only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_E2E_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_stt_gated_geniex_voice.py \
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py \
+            tests/test_ventuno_swedish_reference_audio.py \
+            tests/test_ventuno_geniex_tts_bridge.py \
+            tests/test_ventuno_tts_temp_stage.py
+
+      - name: Verify active services, profile voice disabled and resource reserve
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_E2E_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import (
+              MIN_MEM_AVAILABLE_KIB, MIN_DISK_AVAILABLE_BYTES,
+          )
+          from scripts.ventuno_voice_wheel_staging import mem_available_kib, disk_free_bytes
+          import os
+          voice = json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text())["voice"]
+          assert isinstance(voice, dict)
+          assert all(voice.get(k) is not True for k in ("enabled", "tts_enabled", "handsfree_enabled"))
+          mem = mem_available_kib()
+          disk = disk_free_bytes(Path(os.environ["MYAI_E2E_WORK"]))
+          assert mem is not None and mem >= MIN_MEM_AVAILABLE_KIB
+          assert disk is not None and disk >= MIN_DISK_AVAILABLE_BYTES
+          print("Isolated voice-chain resource thresholds satisfied; production voice remains disabled.")
+          PY
+
+      - name: Stage only ARM64 Whisper wheels in temporary Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_E2E_WORK/source"
+          SYSTEM_PY="$(readlink -f "$(command -v python3)")"
+          test -x "$SYSTEM_PY"
+          "$SYSTEM_PY" -m venv "$MYAI_E2E_WORK/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_E2E_WORK"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_E2E_WORK"
+
+      - name: Download and SHA1-verify licensed public Swedish word sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_E2E_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$MYAI_E2E_WORK"
+          echo "Only Wikimedia licensed public pronunciation audio; not user audio."
+
+      - name: Prove real CPU Whisper result gates GenieX and Swedish RAM-only WAV
+        id: integrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_E2E_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_stt_gated_geniex_voice \
+            --runner-temp "$MYAI_E2E_WORK" \
+            --run-isolated-public-fixture-chain
+          echo "No microphone, speaker, user recording or additional live LLM loaded."
+
+      - name: Verify services remained healthy and cleanup ALL disposable files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_E2E_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_E2E_WORK" in
+              "$RUNNER_TEMP"/myai-e2e-*)
+                if [ -d "$MYAI_E2E_WORK" ] && [ ! -L "$MYAI_E2E_WORK" ]; then
+                  rm -rf -- "$MYAI_E2E_WORK"
+                fi
+                ;;
+              *) echo "Unsafe temporary directory; refusing cleanup" >&2; exit 1 ;;
+            esac
+          fi
+          echo "All STT and eSpeak artifacts removed; MyAI/GenieX unchanged."
+
+      - name: Publish limited commit status for diagnostic lookup
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          INTEGRATION_STATUS: ${{ steps.integrate.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          sha = os.environ.get("GITHUB_SHA", "")
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)):
+              raise SystemExit(0)
+          state = {"success": "success", "failure": "failure"}.get(
+              os.environ.get("JOB_RESULT", ""), "error")
+          outcome = os.environ.get("INTEGRATION_STATUS", "")
+          description = ("public Swedish fixture STT -> local GenieX -> RAM WAV; " +
+                         (outcome if outcome in {"success", "failure", "skipped"} else "unknown"))
+          body = {
+              "state": state,
+              "context": "myai/ventuno-public-stt-geniex-tts",
+              "description": description[:140],
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }
+          request = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode("utf-8"), method="POST",
+              headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("Voice-chain status published:", response.status == 201)
+          except Exception as error:
+              print("CI status unavailable:", type(error).__name__)
+          PY
