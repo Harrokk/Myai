@@ -31,7 +31,10 @@ LIGHT_WHEELS = (
     "webrtcvad-wheels>=2,<3",
     "pyttsx3>=2.90,<3",
 )
-STT_WHEELS = ("faster-whisper>=1,<2",)
+# faster-whisper 1.2.1 still passes metadata_errors to av.open().
+# PyAV 19 removed that argument. Until the next compatible release,
+# use an ARM64 PyAV 18.x wheel; see SYSTRAN/faster-whisper issue #1589.
+STT_WHEELS = ("faster-whisper>=1,<2", "av>=17,<19")
 IMPORTS = ("sounddevice", "webrtcvad", "pyttsx3")
 KNOWN_ACTIVE_VENV = Path("/home/arduino/MyAI/.venv")
 
