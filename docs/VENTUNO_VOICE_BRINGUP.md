@@ -491,3 +491,58 @@ regressionstestade med **simulerade** PCM-bytes.
 Ett nytt godkännande krävs för ett nytt verkligt
 tvåsekundersförsök med `plughw:0,1`. Ingen röstflagga
 eller produktionsinstallation har ändrats.
+
+## Andra godkända ALSA-mikrofonförsöket, plughw:0,1 (2026-10-12)
+
+Användaren godkände ett nytt, separat tvåsekunderstest med
+`--device=plughw:0,1`. Det genomfördes **exakt en gång** via
+`.github/workflows/ventuno-microphone-plughw-once.yml`, enbart
+på commit `4d508e5ae2a7ee6b707c3ed3d1a15588b7fc40b4`.
+Arbetsflödet kan inte startas om för ytterligare inspelning via
+en vanlig workflow-rerun, eftersom `github.run_attempt == 1` krävs.
+
+https://github.com/Harrokk/Myai/actions/runs/38242810988
+
+Alla skyddskontroller passerade: rätt VENTUNO ARM64, giltig
+ALSA capture-enhet kort 0/enhet 1, avstängt produktionsröstläge,
+och två aktiva tjänster. Inspelningskommandot startades men
+`arecord` avslutade **med icke-noll status**. Resultat:
+`alsa-capture-nonzero`. **Ingen giltig 64 000-byte
+PCM-inspelning har verifierats.**
+
+Inget mikrofonljud sparades, loggades, transkriberades
+eller skickades vidare. Både MyAI och GenieX var fortsatt
+aktiva vid efterkontrollen. Ingen extra inspelning gjordes.
+
+### Efterföljande kontroll utan mikrofonåtkomst
+
+`scripts/ventuno_capture_permissions_probe.py` granskar endast
+metadata från `/dev/snd/pcmC0D1c` och
+`/proc/asound/card0/pcm1c/sub0`. Det kör aldrig `arecord`
+eller andra mikrofonöppnande verktyg.
+
+https://github.com/Harrokk/Myai/actions/runs/38243160507
+
+Uppmätt: `pcmC0D1c` är ett verkligt teckenenhetsobjekt,
+GitHub-runnern har både läs- och skrivrättighet,
+och ALSA rapporterar `closed` för både substream
+och dess aktuella hårdvaruparametrar. Detta **talar emot**
+enkla filbehörighets- och upptagen-enhet-fel vid
+kontrolltillfället, men bevisar inte att enheten kan
+öppnas för inspelning.
+
+Kvarvarande hypoteser: ALSA PCM-routing, unsupported capture
+parameters, mixer/input-routing, audio-server/driver eller
+fysiskt mikrofonläge. Vi saknar ännu en säker klassificering av
+`arecord`-feltexten; tidigare tester loggade med avsikt
+inte den potentiellt privata stderr-texten.
+
+Full MyAI-testsvit efter metadataarbetet: **1 167 godkända,
+6 överhoppade**:
+https://github.com/Harrokk/Myai/actions/runs/38243160191
+
+**Ingen ytterligare inspelning är godkänd av detta steg.**
+Eventuella framtida inspelningstester kräver nytt uttryckligt
+godkännande, ska begränsas till två sekunder och bör kategorisera
+ALSA-fel utan att publicera privata device-namn/sökvägar.
+
