@@ -1,0 +1,162 @@
+name: VENTUNO Ollama ARM64 readiness read-only (no model load)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-ollama-readiness-readonly.yml
+      - scripts/ventuno_ollama_readiness.py
+      - tests/test_ventuno_ollama_readiness.py
+      - config/profiles/ventuno_q.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-ollama-readiness-readonly
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Check installed Ollama, loopback API and Qwen3 tiny model; no writes
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact source in disposable temp directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-ollama-ready-XXXXXXXX")"
+          echo "MYAI_OLLAMA_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Read-only mock regression tests and check selected profile
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_OLLAMA_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_ollama_readiness.py \
+            tests/test_ollama_client.py \
+            tests/test_llm_factory.py
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from core.config import DEFAULT_SETTINGS, _merge_settings
+          from core.config_validation import validate_settings
+          from core.llm_factory import build_llm_client
+          from core.ollama_client import OllamaClient
+          from core.geniex_client import GenieXClient
+          profile = json.loads(Path("config/profiles/ventuno_q.json").read_text())
+          cfg = _merge_settings(DEFAULT_SETTINGS, profile)
+          assert validate_settings(cfg, require_ventuno_profile=True)["valid"]
+          assert profile["llm"]["provider"] == "geniex"
+          assert profile["llm"]["fallback"]["enabled"] is False
+          assert profile["voice"]["enabled"] is False
+          assert profile["voice"]["handsfree_enabled"] is False
+          assert profile["ollama"]["url"] == "http://127.0.0.1:11434/api/chat"
+          assert profile["ollama"]["model"] == "qwen3:0.6b"
+          assert isinstance(build_llm_client(cfg), GenieXClient)
+          cfg["llm"]["provider"] = "ollama"
+          assert isinstance(build_llm_client(cfg), OllamaClient)
+          print("Config validates; GenieX remains primary and Ollama is selectable.")
+          PY
+
+      - name: Query current VENTUNO Ollama availability and memory without loading models
+        id: inspect
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          cd "$MYAI_OLLAMA_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, os
+          from scripts.ventuno_ollama_readiness import inspect_ollama
+          report = inspect_ollama()
+          print("VENTUNO Ollama inventory:", json.dumps(report, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("ollama_state=" + str(report["status"]) + "\n")
+          assert report["geniex_touched"] is False
+          assert report["model_loaded"] is False
+          PY
+
+      - name: Confirm production healthy and remove only temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          if [ -n "${MYAI_OLLAMA_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_OLLAMA_WORK" in
+              "$RUNNER_TEMP"/myai-ollama-ready-*)
+                if [ -d "$MYAI_OLLAMA_WORK" ] && [ ! -L "$MYAI_OLLAMA_WORK" ]; then
+                  rm -rf -- "$MYAI_OLLAMA_WORK"
+                fi
+                ;;
+              *) echo "Invalid cleanup path" >&2; exit 1 ;;
+            esac
+          fi
+          echo "No Ollama binary installed, model started or production changed."
+
+      - name: Publish only safe Ollama readiness classification
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          OLLAMA_STATE: ${{ steps.inspect.outputs.ollama_state }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          sha = os.environ.get("GITHUB_SHA", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) and token):
+              raise SystemExit(0)
+          allowed = {
+              "ready-for-separate-ollama-test",
+              "ollama-api-ready-no-small-model",
+              "ollama-binary-present-api-unavailable",
+              "ollama-not-installed",
+          }
+          state = os.environ.get("OLLAMA_STATE", "")
+          state = state if state in allowed else "inconclusive"
+          body = {
+              "state": "success" if os.environ.get("JOB_RESULT") == "success" else "failure",
+              "context": "myai/ventuno-ollama-readiness-readonly",
+              "description": ("Ollama: " + state)[:140],
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }
+          req = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode(), method="POST",
+              headers={"Authorization": "Bearer " + token,
+                       "Accept": "application/vnd.github+json",
+                       "X-GitHub-Api-Version": "2022-11-28",
+                       "Content-Type": "application/json"},
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=10) as response:
+                  print("Ollama readonly status posted:", response.status == 201)
+          except Exception as exc:
+              print("Status post unavailable:", type(exc).__name__)
+          PY
