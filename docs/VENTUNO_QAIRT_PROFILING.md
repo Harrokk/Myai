@@ -76,3 +76,68 @@ The presence of QNN profiling tools does **not** imply that those tools can atta
 - GenieX QAIRT is NPU-only: https://github.com/qualcomm/GenieX/blob/main/docs/en/get-started/platforms.mdx
 - QNN HTP profile definitions: https://docs.qualcomm.com/nav/home/api-rst_file_include_QNN_HTP_QnnHtpProfile_h.html?product=924033590759186372
 - QNN profiler tooling guidance: https://github.com/qualcomm/qai-appbuilder/blob/main/tools/skills/qai-runner-skill/references/profiling.md
+
+## Profiling-method verification and baseline (2026-10-12)
+
+The user authorized a controlled temporary pause of MyAI/GenieX **once the test
+method was verified**. We deliberately did **not** stop services during this
+stage: the preconditions needed for direct QNN profiling of the existing model
+are not yet met. The tests therefore ran safely against the live GenieX API.
+
+Read-only feasibility inspection:
+- `qnn-net-run --help` supports `--retrieve_context`, `--input_list`,
+  `--profiling_level` and `--profiling_option`.
+- `qnn-context-binary-utility --help` exposes `--context_binary`.
+- GenieX `infer --help` and `serve --help` exposed no direct QNN profile
+  capture option in their relevant flag inventories.
+- The installed model's cache contains `geniex.json`,
+  `htp_backend_ext_config.json`, and `config.json` alongside four large
+  `.bin` files; the probe printed only structural key names (never values).
+- These do **not** supply a verified `qnn-net-run` input-list, graph
+  selection, tensor shapes or a documented way to enable an in-process QNN
+  profile session for the live GenieX server.
+- See `scripts/ventuno_qnn_profile_feasibility.py`, with unit tests.
+
+### Existing server's measured throughput (not HTP occupancy)
+
+The OpenAI-compatible GenieX response includes numeric `usage` and `timings`
+fields, so `scripts/ventuno_geniex_benchmark.py` ran **three serial**
+128-token responses using the already-running server (no second model).
+A particular 2026-10-12 test yielded:
+
+| Run | Prompt token/s | Decode token/s | Wall time (s) |
+|---|---:|---:|---:|
+| 1 | 862.50 | 16.21 | 8.08 |
+| 2 | 459.00 | 16.38 | 7.99 |
+| 3 | 373.98 | 14.75 | 8.89 |
+| **Median** | **459.00** | **16.21** | — |
+
+All three generations reported 128 generated tokens. Load, context state,
+sampling overhead and warm-up can affect numbers. These are **end-to-end
+model timings**, not actual HTP cycles, NPU utilization or per-layer timing.
+All original MyAI/GenieX services remained active. **880 regression tests
+passed** for this code state.
+
+### Fail-closed go/no-go for a maintenance profiling window
+
+A temporary stop of the active services is **NO-GO** until:
+1. A QNN profiling command is demonstrated from an independent, compatible
+   context and valid input-list, or a supported GenieX in-process capture
+   method is found. The cached 4B model cannot be assumed runnable in
+   `qnn-net-run` with arbitrary text input.
+2. Additional memory/temporary disk requirements and executable timeouts
+   are measured without concurrent loading of the 4B model.
+3. An explicit rollback procedure is prepared: record unit states, stop
+   dependent `myai-geniex-watchdog` and `myai-ventuno` before
+   `myai-geniex`, carry out one bounded profiling test, then restart the
+   original services and verify both the GenieX `/v1/models` API and MyAI
+   heartbeat. Always restore services on failure/interruption; preserve
+   configs and model files unchanged.
+4. The operator has a safe, **authorized** way to control those systemd
+   services; do not grant GitHub runner broad sudo privileges.
+5. A recovery path exists if QNN blocks or the OS is rebooted.
+
+Neither a stop nor any change to the live model/service was attempted.
+Never interpret success of a preflight or throughput benchmark as a
+successful direct HTP profiling session.
+
