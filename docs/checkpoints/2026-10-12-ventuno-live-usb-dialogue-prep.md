@@ -110,3 +110,58 @@ human-coordinated physical test and ask the user to be physically
 at the device to speak `Vad heter du?` during its exact 3-second
 recording interval; the physical test must be opt-in for both recording
 and an audible low-volume answer.
+
+
+## First one-time real voice dialogue attempt (user present)
+
+User confirmed they were physically ready at VENTUNO Q and to say
+“Vad heter du?” after the audible cue. After the extra safety
+verification (89 tests passed) the exactly-once GitHub job was
+authorized:
+
+- Source authorization: `51875a2a7997fa118a09fe6687d3ba95b564ab2e`
+- Workflow: `.github/workflows/ventuno-usb-live-dialog-consent-once.yml`
+- Run: https://github.com/Harrokk/Myai/actions/runs/38261367044
+- Job: `114852411417`, **failure** at the dialogue step only
+  (not a service failure).
+- All **89** synthetic security tests passed. A read-only preflight
+  measured **12,856 MiB** free RAM, ~33,917 MiB free disk, and
+  available ALSA USB capture/playback. Live services remained active.
+- Pinned ARM64 Whisper Tiny model downloaded/verified, public Swedish
+  reference word recognized, and temporary Swedish eSpeak prepared.
+- Final preflight checked USB, memory and service state again.
+- The one-time dialogue controller issued the low-volume Swedish
+  spoken cue and attempted **one physical 3-second recording**. Its
+  result reached the transcription decision:
+  `recording_attempted=true`,
+  `transcription_verified=false`,
+  `status=reject-unapproved-or-unclear-test-utterance`.
+- No GenieX request or answer speaker playback was made:
+  `local_geniex_answer_verified=false`,
+  `playback_attempted=false`.
+- No waveform, recognized words, response, or audio file was saved
+  or uploaded; the temporary pinned Whisper/eSpeak packages were
+  removed after the job. Both production services remained running.
+- **The exact recognized speech was deliberately discarded**, so
+  it cannot be recovered from GitHub logs and the cause cannot be
+  identified more precisely from this one-time run. Possible causes
+  include an overlapping start cue, mistimed user speech, ASR
+  variation, or environmental noise. None is proven.
+
+Do **not** re-run this exact authorized audio job. Its scope was one
+attempt and the GitHub job has already executed it.
+
+### Privacy-safe follow-up (without a new recording)
+
+The controller now classifies any future rejected ASR result into
+only an allowlisted **category** (empty, spoken cue suspected,
+test-question with extra words, unsafe command, short unrelated
+utterance, other unmatched). It continues to refuse uncertain
+transcriptions and never logs recognized words. The change is
+for a separately authorized future test only, **not an excuse to
+automatically retry** the user's current recording.
+
+The next test requires a new explicit approval for one physical
+recording and optional low-volume spoken answer, ideally after
+confirming whether the user heard the cue and had time to ask the
+intended question. Preserve production voice disabled.
