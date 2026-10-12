@@ -116,7 +116,7 @@ def microphone_capture(*, explicit_flag: bool, consent: bool,
     argv = [
         tool, "--quiet", "--format=S16_LE",
         "--rate=16000", "--channels=1", "--duration=2",
-        "--type=raw", "-",
+        "--file-type=raw", "-",
     ]
     if device is not None:
         argv[1:1] = ["--device=" + device]
