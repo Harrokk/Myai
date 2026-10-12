@@ -19,6 +19,9 @@ on:
       - tests/test_ventuno_qnn_microprofile_inventory.py
       - scripts/ventuno_qairt_converter_inventory.py
       - tests/test_ventuno_qairt_converter_inventory.py
+      - fixtures/qairt_245/tiny_qdq_conv.dlc.b64
+      - scripts/qairt_245_dlc_static_audit.py
+      - tests/test_qairt_245_dlc_static_audit.py
 
 permissions:
   contents: read
@@ -498,6 +501,14 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_qairt_converter_inventory.py
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_qairt_converter_inventory.py
+
+      - name: Validate synthetic QNN DLC container without running SDK or HTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-checkout"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_qairt_245_dlc_static_audit.py
+          /home/arduino/MyAI/.venv/bin/python scripts/qairt_245_dlc_static_audit.py
 
       - name: Inventory independent small QAIRT samples without loading models
         shell: bash
