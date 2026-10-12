@@ -312,13 +312,13 @@ jobs:
               ("trace event systems", Path("/sys/kernel/tracing/events")),
               ("debug trace event systems", Path("/sys/kernel/debug/tracing/events")),
           ):
-              if not root.is_dir():
-                  print(f"{label}: unavailable")
-                  continue
               try:
+                  if not root.is_dir():
+                      print(f"{label}: unavailable")
+                      continue
                   entries = sorted(root.iterdir(), key=lambda p: p.name)
               except OSError:
-                  print(f"{label}: not readable")
+                  print(f"{label}: not readable (access restricted)")
                   continue
               if label in ("remoteproc", "devfreq"):
                   selected = entries[:40]
@@ -337,7 +337,10 @@ jobs:
                       if value is not None:
                           print(f"    {field}: {value}")
           for root in (Path("/sys/kernel/debug"), Path("/sys/kernel/tracing")):
-              print(f"{root}: exists={root.exists()}, readable={root.is_dir()}")
+              try:
+                  print(f"{root}: exists={root.exists()}, readable={root.is_dir()}")
+              except OSError:
+                  print(f"{root}: access restricted")
           print("Discovery does not enable tracing, change clocks, or modify services.")
           PY
 
