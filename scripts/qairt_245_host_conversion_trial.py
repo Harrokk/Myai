@@ -64,8 +64,8 @@ def sanitized_converter_error(text: str) -> str | None:
     chosen = candidates[-2:] if candidates else lines[-1:]
     output = []
     for line in chosen:
-        line = re.sub(r"/[^\\s:,;]+", "<path>", line)
-        line = re.sub(r"(?i)(bearer|api[_-]?key|token|password)\\s*[:=]\\s*\\S+",
+        line = re.sub(r"/[^ :;,]+", "<path>", line)
+        line = re.sub(r"(?i)(bearer|api[_-]?key|token|password)[ :=]+[^ ]+",
                       "<redacted>", line)
         line = re.sub(r"(?<![A-Za-z0-9])[A-Za-z0-9+/]{65,}={0,2}", "<long-value>", line)
         output.append(line[:200])
