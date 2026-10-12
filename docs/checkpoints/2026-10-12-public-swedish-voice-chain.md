@@ -1,0 +1,66 @@
+# VENTUNO Q – Swedish public-fixture STT -> GenieX -> WAV integration
+
+Date: 2026-10-12
+Branch: `dev/routing-boundary-followup`
+Status: **integration run initiated; result not yet verified in this checkpoint**
+
+## Physical USB audio: proven, but not accessed by this integration
+
+- Real 2 s USB microphone recording succeeded with `plughw:1,0`
+  (64,000 bytes, 16 kHz, status `microphone-signal-measured`).
+  GitHub run: https://github.com/Harrokk/Myai/actions/runs/38249279855
+- The USB speaker accepted 2.09 s of volume-limited Swedish eSpeak
+  WAV at `plughw:1,0` (successful `aplay` exit), and the user
+  separately **confirmed hearing** “Hej. Jag heter My AI.”
+  GitHub run: https://github.com/Harrokk/Myai/actions/runs/38250308186
+
+## New staged integration
+
+- `scripts/ventuno_stt_gated_geniex_voice.py` uses the pre-existing,
+  pinned `Systran/faster-whisper-tiny` multilingual CPU model,
+  through `scripts/ventuno_whisper_tiny_cpu_smoke.smoke`.
+- The input is **only** the publicly licensed, SHA1-pinned
+  `Sv-svenska.ogg` pronunciation sample (Peter Isotalo, Wikimedia
+  Commons; CC BY-SA 3.0 / GFDL), not user speech.
+- The Whisper inference process runs with its existing resource
+  limits and exits before GenieX or TTS are used. The gate refuses
+  to proceed unless that actual STT result confirms the Swedish
+  reference word and validated model weights.
+- After a minimum RAM check, the proven existing
+  `run_live_voice_bridge` submits one fixed safe prompt to the
+  **already running** local GenieX, sends its response through the
+  actual MyAI `VoicePipeline`, and renders Swedish WAV with a
+  temporarily staged eSpeak NG. The bridge deliberately injects
+  a **synthetic** STT trigger (not live microphone PCM).
+- It writes no microphone audio, reference transcript, generated
+  answer or synthesized WAV to logs or the repository. No
+  microphone or speaker device is opened.
+- The entire isolated ARM64 Python environment, Whisper model,
+  public fixture, package cache and temporary eSpeak files are
+  removed in an always-run step; production services and voice
+  flags are not changed.
+
+Workflow:
+`.github/workflows/ventuno-public-whisper-geniex-tts.yml`
+Source/CI trigger commit:
+`0a4d3f80706d2742c8154a5bb25cff7d12ab9977`
+
+**Important:** This is a real Whisper STT-success-gated,
+live-GenieX-to-Swedish-WAV **staged integration**, not a demonstration
+of actual microphone-to-LLM data flow, physical duplex audio,
+echo cancellation, full conversation recognition, or persistent
+handsfree mode. Those later stages require additional integration
+work, fresh user authorization for real audio I/O, and rollback
+planning.
+
+## Next acceptance gate
+
+1. Verify targeted regression suite and VENTUNO GitHub Actions result
+   from the source commit.
+2. Confirm the single local GenieX response and WAV synthesis succeeded,
+   with no production service restarts.
+3. Before live spoken conversation, build a staged interface that passes
+   verified *real* STT transcript into the full MyAI request path with
+   safe content filtering, microphone release and bounded TTS output.
+4. Do not switch on production `voice.enabled`, `tts_enabled`
+   or `handsfree_enabled` yet.
