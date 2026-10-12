@@ -1,0 +1,213 @@
+name: ONE-TIME corrected USB microphone two-second RAM-only test
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-usb-microphone-corrected-once.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-usb-microphone-corrected-consent-2026-10-12
+  cancel-in-progress: false
+
+jobs:
+  usb_microphone:
+    name: Explicitly consented USB plughw 1 0 two-second capture
+    if: >-
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Authorize corrected one-time 2s USB microphone capture on VENTUNO Q' &&
+      github.run_attempt == 1 &&
+      github.repository == 'Harrokk/Myai'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Fetch precise consented source into disposable checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          test -n "${GH_TOKEN:-}"
+          source_dir="$(mktemp -d "$RUNNER_TEMP/myai-usbmic-once-XXXXXXXX")"
+          echo "MYAI_USB_MIC_SOURCE=$source_dir" >> "$GITHUB_ENV"
+          git init -q "$source_dir"
+          git -C "$source_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$source_dir" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$source_dir" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$source_dir" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test consent flags, device re-enumeration and data protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_USB_MIC_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_audio_inventory.py \
+            tests/test_ventuno_usb_microphone_smoke.py \
+            tests/test_ventuno_microphone_smoke.py
+
+      - name: Verify corrected arecord raw flag with no audio access
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_USB_MIC_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import shutil
+          import subprocess
+          import inspect
+          from scripts.ventuno_usb_microphone_smoke import usb_microphone_capture
+          tool = shutil.which("arecord")
+          assert tool, "arecord unavailable"
+          result = subprocess.run(
+              [tool, "--help"],
+              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+              timeout=6, check=False,
+          )
+          help_text = (result.stdout + result.stderr)[:65536]
+          assert b"--file-type" in help_text, "installed arecord lacks raw file-type flag"
+          source = inspect.getsource(usb_microphone_capture)
+          assert '"--file-type=raw"' in source
+          assert '"--type=raw"' not in source
+          print("Corrected raw file-type option verified; no audio opened.")
+          PY
+
+      - name: Verify voice remains disabled and USB device still matches
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_USB_MIC_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.ventuno_usb_audio_inventory import inventory_usb_audio
+          profile = json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text(encoding="utf-8"))
+          voice = profile.get("voice", {})
+          assert isinstance(voice, dict)
+          assert all(voice.get(flag) is not True
+                     for flag in ("enabled", "tts_enabled", "handsfree_enabled"))
+          info = inventory_usb_audio()
+          assert 1 in info["usb_audio_cards"]
+          assert [1, 0] in info["usb_capture_pairs"]
+          assert any(n["pair"] == [1, 0] and n["character_device"] and n["accessible"]
+                     for n in info["capture_device_nodes"])
+          print("USB audio card 1 / PCM capture 0 is accessible; production voice remains disabled.")
+          PY
+
+      - name: ONE user-approved 2s USB mic capture – in-memory signal only
+        id: capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_USB_MIC_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from scripts.ventuno_usb_microphone_smoke import usb_microphone_capture
+          result = usb_microphone_capture(
+              record_2s=True,
+              consent=True,
+              device="plughw:1,0",
+          )
+          print("VENTUNO USB microphone 2s diagnostic:", json.dumps(result, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("capture_status=" + str(result["status"]) + "\n")
+              output.write("alsa_error_category=" + str(result.get("alsa_error_category", "none")) + "\n")
+          if result["status"] != "microphone-signal-measured":
+              raise SystemExit(2)
+          PY
+
+      - name: Confirm MyAI and GenieX services and remove test checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_USB_MIC_SOURCE:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_USB_MIC_SOURCE" in
+              "$RUNNER_TEMP"/myai-usbmic-once-*)
+                if [ -d "$MYAI_USB_MIC_SOURCE" ]; then
+                  rm -rf -- "$MYAI_USB_MIC_SOURCE"
+                fi
+                ;;
+              *)
+                echo "Unexpected checkout path; refusing cleanup." >&2
+                exit 1
+                ;;
+            esac
+          fi
+          echo "No audio kept, no models loaded, no MyAI profile or services changed."
+
+      - name: Publish only diagnostic category as commit status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          CAPTURE_STATUS: ${{ steps.capture.outputs.capture_status }}
+          ALSA_ERROR_CATEGORY: ${{ steps.capture.outputs.alsa_error_category }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+          sha = os.environ.get("GITHUB_SHA", "")
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not (re.fullmatch(r"[a-f0-9]{40}", sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)):
+              print("No diagnostic status: missing credentials.")
+              raise SystemExit(0)
+          allowed = {
+              "microphone-signal-measured",
+              "capture-completed-but-signal-too-low",
+              "capture-incomplete", "capture-over-size",
+              "alsa-capture-nonzero", "capture-timeout",
+              "capture-launch-error", "arecord-unavailable",
+              "reject-usb-device-changed-or-missing",
+              "reject-usb-capture-node-not-accessible",
+          }
+          raw = os.environ.get("CAPTURE_STATUS", "")
+          category = raw if raw in allowed else "no-capture-result"
+          state = {"success": "success", "failure": "failure"}.get(
+              os.environ.get("JOB_RESULT", ""), "error")
+          detail = os.environ.get("ALSA_ERROR_CATEGORY", "")
+          safe_detail = detail if detail in {
+              "access-denied", "device-busy", "pcm-not-found",
+              "unsupported-parameters", "io-failure", "unclassified",
+          } else "none"
+          body = {
+              "state": state,
+              "context": "myai/ventuno-usb-microphone-corrected-once",
+              "description": ("USB 2s in-RAM: " + category + "; ALSA=" + safe_detail)[:140],
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID", ""),
+          }
+          request = urllib.request.Request(
+              "https://api.github.com/repos/" + repo + "/statuses/" + sha,
+              data=json.dumps(body).encode("utf-8"), method="POST",
+              headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("Sanitized status published:", response.status == 201)
+          except Exception as exc:
+              print("Status publication failed:", type(exc).__name__)
+          PY
