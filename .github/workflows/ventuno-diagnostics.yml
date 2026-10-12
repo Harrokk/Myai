@@ -7,6 +7,8 @@ on:
       - dev/routing-boundary-followup
     paths:
       - .github/workflows/ventuno-diagnostics.yml
+      - scripts/ventuno_qnn_cli_gate.py
+      - tests/test_ventuno_qnn_cli_gate.py
 
 permissions:
   contents: read
