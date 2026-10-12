@@ -1,0 +1,98 @@
+name: VENTUNO USB one-turn voice mock tests NO AUDIO
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-usb-one-turn-code-preflight.yml
+      - scripts/ventuno_usb_dialog_once.py
+      - tests/test_ventuno_usb_dialog_once.py
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  verify:
+    name: Only mock one-turn speaker and mic code; no real audio
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact source in runner temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-dialog-mocks-XXXXXXXX")"
+          echo "MYAI_DIALOG_MOCKS=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Test one-turn logic with mocked audio and GenieX only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_MOCKS/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_dialog_once.py \
+            tests/test_ventuno_usb_voice_dialog_readiness.py
+          echo "Only synthetic audio and mocked model calls; no physical capture/playback."
+      - name: Confirm production and cleanup isolated files
+        shell: bash
+        if: always()
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          if [ -n "${MYAI_DIALOG_MOCKS:-}" ]; then
+            case "$MYAI_DIALOG_MOCKS" in
+              "$RUNNER_TEMP"/myai-dialog-mocks-*)
+                test ! -L "$MYAI_DIALOG_MOCKS"
+                rm -rf -- "$MYAI_DIALOG_MOCKS"
+                ;;
+              *) echo "Refusing unsafe cleanup" >&2; exit 1 ;;
+            esac
+          fi
+      - name: Post mock-only CI test status
+        shell: bash
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          repo = os.environ.get("GITHUB_REPOSITORY","")
+          sha = os.environ.get("GITHUB_SHA","")
+          token = os.environ.get("GH_TOKEN","")
+          if not re.fullmatch(r"[a-f0-9]{40}", sha) or not token:
+              raise SystemExit(0)
+          payload = json.dumps({
+              "state": "success" if os.environ.get("JOB_RESULT") == "success" else "failure",
+              "context": "myai/ventuno-usb-one-turn-mock-only",
+              "description": "No physical audio: mocked one-turn USB tests",
+              "target_url": "https://github.com/" + repo + "/actions/runs/" +
+                            os.environ.get("GITHUB_RUN_ID",""),
+          }).encode()
+          request = urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              data=payload,method="POST",
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "Content-Type":"application/json"},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  print("Test status posted:",response.status==201)
+          except Exception as error:
+              print("CI status not posted:",type(error).__name__)
+          PY
