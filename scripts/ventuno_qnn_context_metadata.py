@@ -99,6 +99,35 @@ def preview_schema(data: object, max_depth: int = 6, max_lines: int = 75) -> lis
 
 
 
+
+def tensor_raw_bytes(tensor: object) -> tuple[str, int | None]:
+    """Estimate native input bytes from QNN scalar dtype + static dimensions."""
+    if not isinstance(tensor, dict):
+        return "invalid", None
+    info = tensor.get("info")
+    if not isinstance(info, dict):
+        return "invalid", None
+    dtype = str(info.get("dataType", "unknown"))
+    dims = info.get("dimensions")
+    if not isinstance(dims, list) or not dims or len(dims) > 8:
+        return dtype, None
+    if any(not isinstance(d, int) or isinstance(d, bool) or d <= 0 for d in dims):
+        return dtype, None
+    bits = None
+    if dtype.startswith("QNN_DATATYPE_"):
+        suffix = dtype.rsplit("_", 1)[-1]
+        if suffix.isdigit() and int(suffix) in (8, 16, 32, 64):
+            bits = int(suffix)
+    if bits is None:
+        return dtype, None
+    total = bits // 8
+    for dim in dims:
+        if total > (512 * 1024 * 1024) // dim:
+            return dtype, None
+        total *= dim
+    return dtype, total
+
+
 def graph_io_summary(data: object) -> dict[str, object]:
     """Numbers and structural types only; never log graph/tensor names."""
     if not isinstance(data, dict):
@@ -120,6 +149,15 @@ def graph_io_summary(data: object) -> dict[str, object]:
             "inputs": len(inputs) if isinstance(inputs, list) else None,
             "outputs": len(outputs) if isinstance(outputs, list) else None,
         }
+        if isinstance(inputs, list):
+            shape_sizes = [tensor_raw_bytes(t) for t in inputs]
+            dtypes = Counter(dtype for dtype, _ in shape_sizes)
+            sizes = [n for _, n in shape_sizes if n is not None]
+            counts["input_dtype_counts"] = dict(sorted(dtypes.items()))
+            counts["native_input_bytes_estimate"] = (
+                sum(sizes) if len(sizes) == len(inputs) else None
+            )
+            counts["unresolved_input_sizes"] = len(inputs) - len(sizes)
         if isinstance(sizes, dict):
             counts["serialized_sizes_bytes"] = {
                 k: sizes[k] for k in (
