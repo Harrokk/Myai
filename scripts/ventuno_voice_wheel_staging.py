@@ -155,7 +155,8 @@ def import_probe(python: Path, module: str, folder: Path,
 
 def stage_light_voice(python: Path, folder: Path,
                       runner_temp: Path,
-                      *, check_stt_wheels: bool = False) -> dict[str, object]:
+                      *, check_stt_wheels: bool = False,
+                      allow_missing_portaudio: bool = False) -> dict[str, object]:
     availability = preflight(
         mem_available_kib(), disk_free_bytes(runner_temp),
         on_arm=platform.machine().lower() in {"aarch64", "arm64"},
@@ -223,6 +224,14 @@ def stage_light_voice(python: Path, folder: Path,
         result["importable"] for result in module_results.values()
     )
     if not report["light_imports_verified"]:
+        missing = {
+            name for name, outcome in module_results.items()
+            if not outcome["importable"]
+        }
+        if (allow_missing_portaudio and missing == {"sounddevice"}
+                and module_results["sounddevice"]["failure"] == "OSError"):
+            report["status"] = "light-packages-require-optional-PortAudio-runtime"
+            return report
         report["status"] = "light-import-check-failed"
         return report
     report["status"] = "light-voice-packages-import-in-isolation"
@@ -254,6 +263,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage-light", action="store_true",
                         help="Install small voice wheels only to a disposable separate venv")
+    parser.add_argument("--allow-missing-portaudio", action="store_true",
+                        help="Permit known PortAudio OSError for separate temp-only staging")
     parser.add_argument("--check-stt-wheels", action="store_true",
                         help="Dry-run faster-whisper wheel resolution only, no STT weights")
     parser.add_argument("--runner-temp", type=Path,
@@ -273,11 +284,17 @@ def main() -> int:
     outcome = stage_light_voice(
         args.python, folder, args.runner_temp,
         check_stt_wheels=args.check_stt_wheels,
+        allow_missing_portaudio=args.allow_missing_portaudio,
     )
     print("VENTUNO isolated voice wheel staging:",
           json.dumps(outcome, sort_keys=True))
     print("No microphone opened, Whisper weights downloaded, or production venv changed.")
-    return 0 if outcome["status"] == "light-voice-packages-import-in-isolation" else 2
+    successful = outcome["status"] == "light-voice-packages-import-in-isolation"
+    recognized_gap = (
+        args.allow_missing_portaudio and
+        outcome["status"] == "light-packages-require-optional-PortAudio-runtime"
+    )
+    return 0 if successful or recognized_gap else 2
 
 
 if __name__ == "__main__":
