@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from scripts.ventuno_qnn_bundle_inventory import (
-    find_bundle, graph_info, manifest_reference_summary, manifest_refs,
+    context_order_from_genie_config, find_bundle, graph_info,
+    inspect_genie_config, manifest_reference_summary, manifest_refs,
     overlap_counts, summarize_graphs,
 )
 
@@ -131,3 +132,75 @@ def test_invalid_graph_returns_safe_empty_signature_pair():
     report, signatures = graph_info({"bad": True}, 0)
     assert report["status"] == "invalid"
     assert signatures == (set(), set())
+
+
+def test_genie_ctx_binaries_config_maps_exact_order(tmp_path):
+    model = make_cache(tmp_path)
+    paths, _, _ = find_bundle((tmp_path,))
+    genie_config = {"dialog": {"engine": {"model": {"binary": {
+        "ctx-bins": ["context-3.bin", "context-2.bin",
+                     "context-0.bin", "context-1.bin"],
+    }}}}}
+    (model / "genie_config.json").write_text(json.dumps(genie_config))
+    report = inspect_genie_config(paths)
+    assert report["status"] == "complete-declared-order"
+    assert report["declared_inventory_slots"] == [3, 2, 0, 1]
+    assert report["complete_ctx_bin_reference_list"] is True
+    assert report["runtime_load_order_proven"] is False
+
+
+def test_multi_engine_prefers_target(tmp_path):
+    model = make_cache(tmp_path)
+    paths, _, _ = find_bundle((tmp_path,))
+    config = {"dialog": {"engine": [
+        {"role": "draft", "model": {"binary": {"ctx-bins": ["context-1.bin"]}}},
+        {"role": "target", "model": {"binary": {"ctx-bins": ["context-2.bin", "context-3.bin"]}}},
+    ]}}
+    result = context_order_from_genie_config(config, model, paths)
+    assert result["status"] == "partial-declared-order"
+    assert result["declared_inventory_slots"] == [2, 3]
+
+
+def test_genie_config_missing_is_not_manifest_fallback(tmp_path):
+    make_cache(tmp_path)
+    paths, _, _ = find_bundle((tmp_path,))
+    result = inspect_genie_config(paths)
+    assert result["status"] == "no-genie-config-found"
+    assert result["runtime_load_order_proven"] is False
+
+
+def test_ctx_bins_require_exact_unique_relative_matches(tmp_path):
+    model = make_cache(tmp_path)
+    paths, _, _ = find_bundle((tmp_path,))
+    for entries in (
+        ["../context-2.bin"],
+        ["/tmp/context-0.bin"],
+        ["missing.bin"],
+        ["context-0.bin", "context-0.bin"],
+        ["context-0.bin", "secret\\\\path.bin"],
+    ):
+        obj = {"dialog": {"engine": {"model": {"binary": {"ctx-bins": entries}}}}}
+        assert context_order_from_genie_config(obj, model, paths)["status"] == "no-verified-context-order"
+
+
+def test_non_target_multiple_roles_does_not_guess(tmp_path):
+    model = make_cache(tmp_path)
+    paths, _, _ = find_bundle((tmp_path,))
+    cfg = {"dialog": {"engine": [
+        {"role": "target", "model": {"binary": {"ctx-bins": ["context-0.bin"]}}},
+        {"role": "target", "model": {"binary": {"ctx-bins": ["context-1.bin"]}}},
+    ]}}
+    assert context_order_from_genie_config(cfg, model, paths)["status"] == "no-verified-context-order"
+
+
+def test_genie_order_report_never_prints_model_paths(tmp_path):
+    model = make_cache(tmp_path)
+    paths, _, _ = find_bundle((tmp_path,))
+    cfg = {"dialog": {"engine": {"model": {"binary": {
+        "ctx-bins": ["context-0.bin", "context-1.bin"],
+    }}}}}
+    report = context_order_from_genie_config(cfg, model, paths)
+    text = json.dumps(report)
+    assert "context-0.bin" not in text
+    assert "context-1.bin" not in text
+    assert str(tmp_path) not in text
