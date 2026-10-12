@@ -109,6 +109,30 @@ def pcm_signal_ok(raw: object) -> bool:
     return math.isfinite(rms) and rms >= MIN_CAPTURE_RMS
 
 
+def classify_pcm_quality(raw: object) -> str:
+    """Coarse PCM-only diagnostics: no waveform, timestamps, or speech text."""
+    if not isinstance(raw, bytes) or len(raw) != CAPTURE_BYTES:
+        return "invalid-pcm"
+    values = array.array("h")
+    values.frombytes(raw)
+    if sys.byteorder != "little":
+        values.byteswap()
+    if len(values) != 48000:
+        return "invalid-pcm"
+    power = sum(int(s) ** 2 for s in values) / len(values)
+    rms = math.sqrt(power) / 32768
+    if not math.isfinite(rms) or rms < MIN_CAPTURE_RMS:
+        return "silence-or-too-quiet"
+    clipped = sum(abs(int(s)) >= 32000 for s in values)
+    if clipped > len(values) // 50:
+        return "possible-microphone-clipping"
+    if rms < 0.01:
+        return "low-microphone-level"
+    if rms > 0.35:
+        return "very-loud-microphone-level"
+    return "bounded-audio-level"
+
+
 def clean_reply(reply: object) -> str | None:
     if not isinstance(reply, str):
         return None
@@ -178,6 +202,7 @@ class OneShotUsbDialog:
                     return result
             result["recording_attempted"] = True
             pcm = self._ports.capture()
+            result["capture_signal_class"] = classify_pcm_quality(pcm)
             if not pcm_signal_ok(pcm):
                 result["status"] = "reject-weak-or-invalid-3s-capture"
                 return result
