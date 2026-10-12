@@ -128,6 +128,8 @@ def test_official_io_table_shape_type_and_bytes_are_safely_reported():
         "declared_dtype": "float_32",
         "elements": 64,
         "encoding_declared": False,
+        "encoding_numeric_tokens": [],
+        "declared_byte_width": 4,
     }]
     assert result["qnn_native_io_compatibility_verified"] is False
     assert "private" not in str(result)
@@ -204,3 +206,34 @@ def test_unknown_dtype_is_reported_without_names():
     assert r["io_unrecognized_declared_type_tokens"]["input"] == ["unknown_qnn_dtype"]
     assert r["dlc_declared_inputs"] == []
     assert "private/name" not in str(r)
+
+def test_qualcomm_ufxp8_shape_and_encoding_are_reported_without_interpreting_scale():
+    snippet = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | synthetic_private_input | 1,8,8,1 | UFXP_8 | scale 0.03125, offset -128 |
+    | Output Name | Dimensions | Type | Encoding Info |
+    | output | 1,8,8,1 | UFXP_8 | scale 0.001953125, offset 0 |
+    """
+    result = mod.summarize_official_io_tables(snippet)
+    assert result["dlc_io_tables_both_parsed"] is True
+    assert result["dlc_declared_single_input_bytes"] == 64
+    assert result["synthetic_float32_input_byte_size_matches_dlc"] is False
+    assert result["dlc_declared_inputs"][0]["declared_dtype"] == "ufxp_8"
+    assert result["dlc_declared_inputs"][0]["encoding_numeric_tokens"] == [
+        "0.03125", "-128"
+    ]
+    assert result["dlc_declared_inputs"][0]["declared_byte_width"] == 1
+    assert result["qnn_native_io_compatibility_verified"] is False
+    assert "synthetic_private_input" not in str(result)
+
+
+def test_float_input_declared_width_is_256_bytes():
+    sample = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | in | 1,1,8,8 | Float32 | No encoding info |
+    | Output Name | Dimensions | Type | Encoding Info |
+    | out | 1,1,8,8 | Float_32 | No encoding info |
+    """
+    result = mod.summarize_official_io_tables(sample)
+    assert result["dlc_declared_single_input_bytes"] == 256
+    assert result["synthetic_float32_input_byte_size_matches_dlc"] is True
