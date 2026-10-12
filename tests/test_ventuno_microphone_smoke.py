@@ -89,3 +89,76 @@ def test_timeout_report_cannot_leak_microphone_content(monkeypatch):
     r = mod.microphone_capture(explicit_flag=True, consent=True)
     assert r["status"] == "capture-timeout"
     assert "private_audio_bytes" not in str(r)
+
+def test_explicit_capture_device_without_fresh_dual_flags_does_not_record(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mod.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/bin/arecord")
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **kw:
+                        pytest.fail("microphone must not open"))
+    for enabled, consent in ((False, False), (True, False), (False, True)):
+        report = mod.microphone_capture(
+            explicit_flag=enabled, consent=consent,
+            device="plughw:0,1", proc_pcm_path=tmp_path / "missing",
+        )
+        assert report["capture_executed"] is False
+
+
+def test_reject_other_capture_target_even_when_recording_authorized(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mod.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/bin/arecord")
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **kw:
+                        pytest.fail("unapproved target must not execute"))
+    report = mod.microphone_capture(
+        explicit_flag=True, consent=True,
+        device="plughw:0,0", proc_pcm_path=tmp_path / "missing",
+    )
+    assert report["status"] == "reject-unapproved-capture-target"
+    assert report["capture_executed"] is False
+
+
+def test_refuse_explicit_device_without_metadata(monkeypatch, tmp_path):
+    monkeypatch.setattr(mod.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/bin/arecord")
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **kw:
+                        pytest.fail("no hardware capture pair"))
+    report = mod.microphone_capture(
+        explicit_flag=True, consent=True, device="plughw:0,1",
+        proc_pcm_path=tmp_path / "missing",
+    )
+    assert report["status"] == "no-go-explicit-capture-device-not-present"
+
+
+def test_explicit_device_invokes_only_two_seconds_when_authorized(
+    monkeypatch, tmp_path
+):
+    pcm = tmp_path / "pcm"
+    pcm.write_text("00-01: ALSA capture device : capture 1\n")
+    monkeypatch.setattr(mod.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/bin/arecord")
+    samples = array.array("h", [1200] * (mod.SAMPLE_RATE * mod.SECONDS))
+    invoked = []
+    def fake(argv, **kwargs):
+        invoked.append(argv)
+        assert "--device=plughw:0,1" in argv
+        assert "--duration=2" in argv
+        assert "--rate=16000" in argv
+        assert "--type=raw" in argv
+        assert argv[-1] == "-"
+        assert kwargs["timeout"] <= 6
+        return SimpleNamespace(
+            returncode=0, stdout=samples.tobytes(), stderr=b"",
+        )
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+    report = mod.microphone_capture(
+        explicit_flag=True, consent=True, device="plughw:0,1",
+        proc_pcm_path=pcm,
+    )
+    assert len(invoked) == 1
+    assert report["status"] == "microphone-signal-measured"
+    assert report["bytes_received"] == 64000
+    assert report["audio_saved_to_disk"] is False
+    assert report["service_changed"] is False
