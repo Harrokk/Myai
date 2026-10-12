@@ -133,3 +133,21 @@ It will only become useful on a **new explicitly authorized** test.
 Next user-level question: did the user hear the spoken cue and say
 "Vad heter du?" during the three-second window? Do not attribute
 the mismatch to missing user speech without confirmation.
+
+
+## Verified audio-level diagnostic regression
+
+The post-failure **synthetic-only** diagnostic change was verified
+on the actual VENTUNO Q ARM64 runner:
+
+- Run: https://github.com/Harrokk/Myai/actions/runs/38273357014
+- Job: `114892957682`, conclusion **success**
+- **119/119 regression tests passed**.
+- Validates safe coarse signal categories and consent gating,
+  with no real microphone recording or playback.
+- MyAI and GenieX services continued running unchanged.
+
+Do not interpret these tests as a successful real spoken Ollama
+conversation. The previous one-shot physical test was stopped by
+unmatched Whisper recognition, and no further physical recording
+has been performed.
