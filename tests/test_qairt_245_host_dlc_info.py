@@ -112,3 +112,46 @@ def test_reader_failures_keep_backend_and_graph_claims_false(tmp_path, monkeypat
     assert result["reader_structure_claim_proven"] is False
     assert result["htp_compatibility_verified"] is False
     assert "/tmp/private" not in str(result)
+
+def test_official_io_table_shape_type_and_bytes_are_safely_reported():
+    snippet = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | private/user/path | 1,8,8,1 | Float_32 | No encoding info for this tensor |
+    | Output Name | Dimensions | Type | Encoding Info |
+    | private/output | 1,8,8,1 | Float_32 | No encoding info for this tensor |
+    """
+    result = mod.summarize_official_io_tables(snippet)
+    assert result["dlc_io_tables_both_parsed"] is True
+    assert result["synthetic_float32_input_byte_size_matches_dlc"] is True
+    assert result["dlc_declared_inputs"] == [{
+        "dimensions": [1, 8, 8, 1],
+        "declared_dtype": "float_32",
+        "elements": 64,
+        "encoding_declared": False,
+    }]
+    assert result["qnn_native_io_compatibility_verified"] is False
+    assert "private" not in str(result)
+
+
+def test_incompatible_input_dtype_is_not_accepted():
+    text = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | input | 1,1,8,8 | UFix_8 | Encoded |
+    | Output Name | Dimensions | Type | Encoding Info |
+    | out | 1,1,8,8 | Float_32 | No encoding info |
+    """
+    report = mod.summarize_official_io_tables(text)
+    assert report["synthetic_float32_input_byte_size_matches_dlc"] is False
+    assert report["dlc_io_tables_both_parsed"] is False
+
+
+def test_malformed_dlc_tables_cannot_claim_input_layout():
+    text = """
+    | Input Name | Dimensions | Type | Encoding Info |
+    | test | 1,0,8,8 | Float_32 | No encoding info |
+    | Output Name | Dimensions | Type | Encoding Info |
+    | test | 1,1,8,8 | Float_32 | No encoding info |
+    """
+    report = mod.summarize_official_io_tables(text)
+    assert report["synthetic_float32_input_byte_size_matches_dlc"] is False
+    assert report["dlc_declared_inputs"] == []
