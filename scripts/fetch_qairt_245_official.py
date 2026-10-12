@@ -26,6 +26,7 @@ MAX_SECONDS = 270
 ALLOWED_DOMAINS = (
     "softwarecenter.qualcomm.com",
     "download.qualcomm.com",
+    "apigwx-aws.qualcomm.com",
 )
 
 
