@@ -283,3 +283,61 @@ ordfelsmätning och flera ljudförhållanden, därefter separat
 samtyckesstyrt mikrofon-/högtalartest. Först efter test av
 RAM-reserv, latens, lokal ljudrouting och rollback ska röstfunktionen
 aktiveras i produktionsprofilen.
+
+## Svensk talsyntes verifierad isolerat på VENTUNO Q (2026-10-12)
+
+Den aktiva VENTUNO-konfigurationen är fortfarande
+`voice.enabled=false`, `tts_enabled=false` och
+`handsfree_enabled=false`. En ny skrivskyddad preflight
+(`scripts/ventuno_tts_synthesis_probe.py`) visade att varken
+`espeak-ng` eller `espeak` hittades i aktivt `PATH`. Det är
+**inte** bevis för att svensk talsyntes inte fungerar på kortet.
+
+Med `scripts/ventuno_tts_temp_stage.py` och
+`.github/workflows/ventuno-tts-isolated.yml` har vi därefter
+**verifierat faktisk syntes på VENTUNO Q ARM64**, utan att
+installera distroprogram eller öppna en fysisk ljudenhet.
+
+Det isolerade testet:
+
+- hämtade endast allowlistade officiella ARM64-distributionspaket
+  `espeak-ng-data`, `libespeak-ng1` och `espeak-ng` med
+  `apt download`
+- packade upp dem enbart under GitHub-runners temporära katalog
+  med `dpkg-deb --extract`
+- fann röstdata i den distribuerade multiarch-katalogen
+  `usr/lib/aarch64-linux-gnu/espeak-ng-data`
+- genererade den fasta svenska testfrasen
+  **”Hej. Jag heter My AI.”** till ett *in-memory* WAV via
+  `espeak-ng -v sv --stdout` och angiven röstdata-sökväg
+- verifierade att WAV var mono PCM16 med en faktisk icke-tyst
+  ljudsignal och en rimlig varaktighet
+- slängde ljudbufferten utan att skapa en ljudfil eller
+  sända något till högtalare, nätverk, mikrofon, STT eller GenieX
+- rensade alla tillfälligt uppackade paket i `if: always()`,
+  med MyAI-/GenieX-tjänsterna aktiva före och efter.
+
+**Uppmätt resultat på VENTUNO Q:** 2,09 sekunders WAV,
+22 050 Hz, normaliserad RMS-signal **0,089433**.
+Det isolerade testets **14/14 säkerhetstester** passerade.
+
+Källa: https://github.com/Harrokk/Myai/actions/runs/38238743086
+
+**Verifikationsgräns:** Detta bevisar syntes med eSpeak NG CLI,
+**inte** funktion hos MyAI:s nuvarande `pyttsx3`-provider,
+ljudkortets faktiska uppspelning, ljudkvalitet genom en
+högtalare, hörlurar eller att AI:n kan avbrytas i full-duplex.
+Inget OS-paket installerades permanent eller röstflagga ändrades.
+
+Nästa lämpliga steg inför en första samtalsbar MyAI:
+1. verifiera en tydligt isolerad MyAI→TTS-adapter och vald
+   uppspelningsbackend mot syntetiskt ljud utan högtalaraccess
+2. fastställa revisionslåst ljudpaketsinstallation med rollback
+   för faktisk produktionsdrift
+3. med användarens **uttryckliga tillåtelse**, genomföra det
+   redan förberedda tvåsekunders mikrofontestet och separat
+   fysisk högtalarverifiering
+4. först därefter koppla ihop VAD→Whisper Tiny→MyAI/GenieX→TTS
+   och validera handsfree/avbrott vid normalt samtal.
+
+Aktiv MyAI- och GenieX-installation har inte ändrats.
