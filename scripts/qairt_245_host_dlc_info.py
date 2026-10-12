@@ -35,6 +35,7 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
     headers_seen: set[str] = set()
     candidate_rows: dict[str, int] = {"input": 0, "output": 0}
     rejected_dimension_formats: set[str] = set()
+    unknown_declared_types: dict[str, set[str]] = {"input": set(), "output": set()}
     for raw in stdout[:131072].splitlines():
         line = raw.strip()
         lower = line.lower()
@@ -72,11 +73,25 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
         dims = [int(p) for p in dim_parts]
         if not all(0 < d <= 8192 for d in dims):
             continue
-        dtype = parts[2].lower()
+        dtype = parts[2].strip().lower().replace(" ", "")
+        dtype_aliases = {
+            "float32": "float_32", "fp32": "float_32",
+            "float16": "float_16", "fp16": "float_16",
+            "uint8": "uint_8", "int8": "int_8",
+            "uint16": "uint_16", "int16": "int_16",
+            "uint32": "uint_32", "int32": "int_32",
+        }
+        dtype = dtype_aliases.get(dtype, dtype)
         if dtype not in {
             "float_32", "float_16", "float_64", "int_8", "uint_8",
             "int_16", "uint_16", "int_32", "uint_32", "bool_8",
         }:
+            # Only emit the short, allowlisted datatype column token.
+            # Never emit the tensor name, SDK/model path or raw log lines.
+            if re.fullmatch("[a-z0-9_]{1,32}", dtype):
+                unknown_declared_types[section].add(dtype)
+            else:
+                unknown_declared_types[section].add("noncanonical-type-token")
             continue
         encoding_text = parts[3].lower() if len(parts) >= 4 else ""
         encoding: bool | None = None
@@ -99,6 +114,10 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
     )
     return {
         "io_table_headers_detected": sorted(headers_seen),
+        "io_unrecognized_declared_type_tokens": {
+            key: sorted(values)
+            for key, values in unknown_declared_types.items()
+        },
         "io_candidate_row_counts": candidate_rows,
         "unrecognized_dimension_formats": sorted(rejected_dimension_formats),
         "dlc_declared_inputs": inputs,
