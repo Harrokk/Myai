@@ -1,0 +1,75 @@
+name: VENTUNO ALSA mixer capture controls read-only
+
+on:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-alsa-mixer-readonly.yml
+      - scripts/ventuno_alsa_mixer_probe.py
+      - tests/test_ventuno_alsa_mixer_probe.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-alsa-mixer-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Read ALSA mixer state without opening microphone
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact source into disposable checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          source_dir="$(mktemp -d "$RUNNER_TEMP/myai-alsa-mixer-XXXXXXXX")"
+          echo "MYAI_MIXER_SOURCE=$source_dir" >> "$GITHUB_ENV"
+          git init -q "$source_dir"
+          git -C "$source_dir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$source_dir" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$source_dir" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$source_dir" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run no-recording regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_MIXER_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q tests/test_ventuno_alsa_mixer_probe.py
+      - name: Inspect capture mixer controls without recording
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_MIXER_SOURCE"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_alsa_mixer_probe
+          echo "No ALSA recording, speaker playback, mixer change or service restart attempted."
+      - name: Check services and remove only this temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_MIXER_SOURCE:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_MIXER_SOURCE" in
+              "$RUNNER_TEMP"/myai-alsa-mixer-*)
+                if [ -d "$MYAI_MIXER_SOURCE" ]; then rm -rf -- "$MYAI_MIXER_SOURCE"; fi
+                ;;
+              *)
+                echo "Unexpected checkout path; refusing cleanup" >&2
+                exit 1
+                ;;
+            esac
+          fi
