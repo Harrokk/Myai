@@ -93,9 +93,12 @@ def test_disposable_install_command_binary_wheels_only(monkeypatch, tmp_path):
         return {"completed": True, "exit_zero": True, "exit_code": 0}
 
     monkeypatch.setattr(voice, "result_of_command", fake_command)
+    monkeypatch.setattr(voice, "import_probe", lambda *args: {
+        "importable": True, "failure": None
+    })
     out = voice.stage_light_voice(python, stage, runner)
     assert out["light_imports_verified"] is True
-    assert len(observed) == 3
+    assert len(observed) == 2
     installed = observed[1][0]
     assert "--only-binary=:all:" in installed
     assert "--no-cache-dir" in installed
@@ -126,13 +129,16 @@ def test_optional_stt_wheel_resolution_dryrun_only(monkeypatch, tmp_path):
         return {"completed": True, "exit_zero": True, "exit_code": 0}
 
     monkeypatch.setattr(voice, "result_of_command", fake)
+    monkeypatch.setattr(voice, "import_probe", lambda *args: {
+        "importable": True, "failure": None
+    })
     report = voice.stage_light_voice(python, stage, runner, check_stt_wheels=True)
     assert report["stt_wheel_resolution_verified"] is True
-    assert len(commands) == 4
-    assert "--dry-run" in commands[3]
-    assert "--ignore-installed" in commands[3]
-    assert "--only-binary=:all:" in commands[3]
-    assert voice.STT_WHEELS[0] in commands[3]
+    assert len(commands) == 3
+    assert "--dry-run" in commands[2]
+    assert "--ignore-installed" in commands[2]
+    assert "--only-binary=:all:" in commands[2]
+    assert voice.STT_WHEELS[0] in commands[2]
     assert report["stt_model_loaded"] is False
     assert report["whisper_model_downloaded"] is False
 
@@ -147,3 +153,35 @@ def test_pip_diagnostics_never_return_text_or_credentials(monkeypatch):
     report = voice.result_of_command(["python", "-m", "pip"], timeout=3)
     assert report == {"completed": True, "exit_zero": False, "exit_code": 7}
     assert "secret" not in str(report)
+
+
+def test_import_probe_reports_only_error_category_and_library(monkeypatch, tmp_path):
+    class Result:
+        returncode = 1
+        stderr = (
+            "Traceback: /home/arduino/private/dir\n"
+            "OSError: libportaudio.so.2: cannot open shared object file\n"
+        )
+        stdout = "secret_token=abcde"
+
+    monkeypatch.setattr(voice.subprocess, "run", lambda *a, **kw: Result())
+    report = voice.import_probe(
+        tmp_path / "python", "sounddevice", tmp_path, {},
+    )
+    assert report["importable"] is False
+    assert report["failure"] == "OSError"
+    assert report["missing_library"] == "libportaudio.so.2"
+    assert "private" not in str(report)
+    assert "secret_token" not in str(report)
+
+
+def test_import_probe_disallows_arbitrary_code(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        voice.subprocess, "run", lambda *a, **kw:
+        pytest.fail("unsafe module requested")
+    )
+    with pytest.raises(ValueError, match="invalid-optional-module"):
+        voice.import_probe(
+            tmp_path / "python", "__import__('os').system('whoami')",
+            tmp_path, {},
+        )
