@@ -49,11 +49,20 @@ def sdk_tool_status(sdk_root: Path, host: str) -> dict[str, object]:
         return {"sdk_root_present": False, "host": host,
                 "converter_found": False, "model_lib_generator_found": False}
     tool_root = sdk_root / "bin" / host_tag
+    # Some Windows QAIRT SDKs place the model-library generator in an
+    # aarch64-windows-msvc directory, even though the converter is under
+    # x86_64-windows-msvc. Presence is NOT proof of execution/ABI support.
+    model_lib_dirs = [tool_root]
+    if host == "windows":
+        model_lib_dirs.append(sdk_root / "bin" / "aarch64-windows-msvc")
     return {
         "sdk_root_present": True,
         "host": host,
         "converter_found": inspect_files(tool_root, CONVERTER_NAMES),
-        "model_lib_generator_found": inspect_files(tool_root, LIB_GENERATOR_NAMES),
+        "model_lib_generator_found": any(
+            inspect_files(directory, LIB_GENERATOR_NAMES)
+            for directory in model_lib_dirs
+        ),
     }
 
 
