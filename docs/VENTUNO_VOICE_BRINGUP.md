@@ -205,3 +205,81 @@ https://github.com/Harrokk/Myai/actions/runs/38233884839
 liten svensk STT-modell i staging, separat från Qwen3-processen
 och utan parallell laddning, följt av *samtyckesstyrd* mikrofoninspelning.
 Inget automatiskt produktionspåslag är tillåtet.
+
+## Verifierad Whisper Tiny-inferens på svenska (2026-10-12)
+
+**Milstolpe:** En riktig `faster-whisper`-modell har nu laddats och
+använts för taligenkänning på Arduino VENTUNO Q:s **ARM64-CPU** medan
+den befintliga MyAI/GenieX-installationen förblev aktiv, utan
+systempaketinstallation eller ändringar i dess röstkonfiguration.
+
+Modelldetaljer:
+
+- Flerspråkig, svenskkompatibel modell:
+  `Systran/faster-whisper-tiny` (MIT).
+- Låst modellrevision:
+  `d90ca5fe260221311c53c58e660288d3deb8d356`.
+- Verifierad `model.bin`: 75 538 270 byte, SHA-256
+  `dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1`.
+- Totalt modellunderlag: 78 203 619 byte.
+- `device="cpu"`, `compute_type="int8"`, två CPU-trådar,
+  en worker, `language="sv"`, beam size 1.
+- Provkörningens ramgräns: minst 8 GiB `MemAvailable`,
+  minst 3 GiB fritt diskutrymme; högst 5 GiB virtuellt
+  adressutrymme och 115 CPU-sekunder i inferensprocessen.
+
+**Verifierade mätvärden från svensk talprovskörning:**
+
+| Mätpunkt | Resultat |
+| --- | --- |
+| Modelladdning | **0,558 s** |
+| Inferens av 2 s syntetisk tystnad | **1,021 s**, 0 segment |
+| Inferens av autentiskt inspelat svenskt ord (1,88 s) | **0,859 s** |
+| Svenska referensordet `svenska` identifierat | **Ja** (1 segment) |
+| Peak RSS för testprocessen med modellen och ljudet | **239,2 MiB** |
+| NPU/HTP använd | **Nej**, CPU-körning |
+| Aktiv MyAI/GenieX omstartad eller ändrad | **Nej** |
+
+Testkälla: det offentliga uttalsprovet
+[`Sv-svenska.ogg`](https://commons.wikimedia.org/wiki/File:Sv-svenska.ogg),
+**Peter Isotalo**, Wikimedia Commons, licenser **CC BY-SA 3.0/GFDL**.
+Upphovspersonen anges här och inget ljud materialiseras i projektets
+Git-repository; 22 879 byte hämtas endast till en temporär
+GitHub-runnerkatalog och verifieras med SHA-1
+`817c8f149e5f3b53c0e8200de5a38bfa42756b5a` innan användning.
+Ingen användarmikrofon öppnades och inga privata ljuddata hanterades.
+
+Godkänd faktisk VENTUNO-körning:
+https://github.com/Harrokk/Myai/actions/runs/38236765378
+
+### PyAV-versionskonflikt upptäckt och löst
+
+Initialt lyckades modelladdning och inläsning av syntetisk tystnad,
+men Ogg-inspelningen gav `TypeError`. Problemet var inte
+ARM64-modellkompatibiliteten utan kombinationen
+`faster-whisper==1.2.1` / `av==19.0.1`:
+den äldre Whisper-versionen anropar `av.open` med parametern
+`metadata_errors`, som PyAV 19 tagit bort.
+
+Uppströms är detta dokumenterat i
+[SYSTRAN/faster-whisper issue #1589](https://github.com/SYSTRAN/faster-whisper/issues/1589).
+
+Vi har därför infört begränsningen **`av>=17,<19`** i
+`scripts/ventuno_voice_wheel_staging.py`. På VENTUNO valdes
+**`av==18.1.0`**, dess import verifierades och inspelningen
+avkodades och transkriberades framgångsrikt.
+Versionsbegränsningen ska ses över när en kompatibel
+`faster-whisper`-release har testats.
+
+### Vad talprovet INTE verifierar
+
+Ett kort enordsprov är **inte** bevis på konversationsnoggrannhet,
+ordfelsprocent (WER), robust bullertålighet, handsfree, mikrofoninput,
+högtalare, VAD-baserad upptagning eller samtidighet under hög
+Qwen3-4B-inferens. Det ger inte heller något mått på NPU-prestanda.
+
+Lämplig fortsättning: licensierat **längre svenskt talprov** med
+ordfelsmätning och flera ljudförhållanden, därefter separat
+samtyckesstyrt mikrofon-/högtalartest. Först efter test av
+RAM-reserv, latens, lokal ljudrouting och rollback ska röstfunktionen
+aktiveras i produktionsprofilen.
