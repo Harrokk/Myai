@@ -9,6 +9,8 @@ on:
       - .github/workflows/ventuno-whisper-tiny-smoke.yml
       - scripts/ventuno_whisper_tiny_cpu_smoke.py
       - tests/test_ventuno_whisper_tiny_cpu_smoke.py
+      - scripts/ventuno_swedish_reference_audio.py
+      - tests/test_ventuno_swedish_reference_audio.py
 
 permissions:
   contents: read
@@ -47,7 +49,8 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-tiny-whisper-checkout"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q \
-            tests/test_ventuno_whisper_tiny_cpu_smoke.py
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py \
+            tests/test_ventuno_swedish_reference_audio.py
           /home/arduino/MyAI/.venv/bin/python - <<'PY'
           from pathlib import Path
           from scripts.ventuno_voice_wheel_staging import mem_available_kib, disk_free_bytes
@@ -91,6 +94,16 @@ jobs:
             -m scripts.ventuno_stt_import_staging \
             --runner-temp "$RUNNER_TEMP"
 
+      - name: Download SHA1-pinned public Swedish pronunciation audio only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tiny-whisper-checkout"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$RUNNER_TEMP"
+          echo 'Only a licensed public Swedish word, never user or microphone audio.'
+
       - name: Run pinned 78 MB multilingual Whisper Tiny on 2 sec digital silence
         shell: bash
         run: |
@@ -119,7 +132,8 @@ jobs:
             ""|"/"|/home/arduino/MyAI/.venv*) exit 2 ;;
           esac
           for name in myai-voice-staging myai-voice-wheel-report \
-                      myai-whisper-tiny-model myai-whisper-hf-cache; do
+                      myai-whisper-tiny-model myai-whisper-hf-cache \
+            myai-whisper-swedish-word.ogg; do
             path="$RUNNER_TEMP/$name"
             if test -e "$path" && ! test -L "$path"; then
               rm -rf -- "$path"
