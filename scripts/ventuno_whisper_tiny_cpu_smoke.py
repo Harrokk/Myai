@@ -219,15 +219,21 @@ def run_restricted(python: Path, program: str,
         return {"succeeded": False, "reason": "launch-error"}
     if completed.returncode:
         # Do not expose arbitrary stderr, paths, tokens or generated text.
+        # Only share exception class/signal and exit code, never traceback,
+        # audio content, absolute paths or executable arguments.
         classification = re.findall(
-            r"(?m)^(OSError|RuntimeError|ValueError|MemoryError|"
-            r"ImportError|ModuleNotFoundError):",
-            completed.stderr[-2000:],
+            r"(?m)^\\s*([a-zA-Z_][a-zA-Z_0-9.]*(?:Error|Exception)):",
+            completed.stderr[-3500:],
         )
+        exception = classification[-1] if classification else None
+        if exception and (len(exception) > 80 or
+                          not re.fullmatch(r"[a-zA-Z_0-9.]+", exception)):
+            exception = None
         return {
             "succeeded": False,
-            "reason": classification[-1] if classification else "nonzero-exit",
+            "reason": exception or "nonzero-exit",
             "exit_code": completed.returncode,
+            "signal_number": -completed.returncode if completed.returncode < 0 else None,
         }
     try:
         result = json.loads(completed.stdout.strip())
@@ -311,6 +317,8 @@ def smoke(sandbox_python: Path, root: Path,
     if not result["succeeded"]:
         report["status"] = "stt-cpu-inference-failed"
         report["inference_error"] = result.get("reason")
+        report["inference_exit_code"] = result.get("exit_code")
+        report["inference_signal"] = result.get("signal_number")
         return report
     measurements = result["result"]
     if not (
