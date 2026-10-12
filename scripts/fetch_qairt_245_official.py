@@ -46,6 +46,7 @@ def fetch_known_sdk(target: Path) -> dict[str, object]:
         "downloaded_bytes": 0,
         "archive_written": False,
         "source_host_allowed": False,
+        "redirect_host": None,
         "sdk_executed": False,
         "sdk_extracted": False,
         "production_services_changed": False,
@@ -69,6 +70,7 @@ def fetch_known_sdk(target: Path) -> dict[str, object]:
             "User-Agent": "MyAI-QAIRT-245-Archive-Audit/1.0",
         })
         with urlopen(req, timeout=15) as response:
+            base["redirect_host"] = urlparse(response.geturl()).hostname
             base["source_host_allowed"] = allowed_redirect(response.geturl())
             header = response.headers.get("Content-Length")
             if not base["source_host_allowed"]:
