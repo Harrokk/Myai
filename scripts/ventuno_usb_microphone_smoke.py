@@ -66,7 +66,7 @@ def usb_microphone_capture(*, record_2s: bool = False,
     argv = [
         arecord, "--quiet", "--device=" + APPROVED_DEVICE,
         "--format=S16_LE", "--rate=16000", "--channels=1",
-        "--duration=2", "--type=raw", "-",
+        "--duration=2", "--file-type=raw", "-",
     ]
     try:
         process = subprocess.run(
