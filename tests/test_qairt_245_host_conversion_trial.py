@@ -87,3 +87,17 @@ def test_missing_converter_is_not_success(tmp_path):
                        tmp_path / "out.dlc", {})
     assert result["status"] == "tool-not-present"
     assert result["output_created"] is False
+
+def test_sanitized_converter_error_hides_local_paths_and_credentials():
+    result = m.sanitized_converter_error(
+        "ERROR: path /home/runner/private/model.onnx not found\n"
+        "ERROR: api_key=verysecret token=anothersecret"
+    )
+    assert result is not None
+    assert "/home/runner" not in result
+    assert "verysecret" not in result
+    assert "anothersecret" not in result
+
+
+def test_sanitized_converter_error_handles_empty_output():
+    assert m.sanitized_converter_error("") is None
