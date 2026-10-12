@@ -47,6 +47,31 @@ def sanitized_missing_dependency(text: str) -> str | None:
     return found.group(1) if found else None
 
 
+def sanitized_converter_error(text: str) -> str | None:
+    """Small diagnostic fragment for synthetic-only ephemeral host executions.
+
+    Mask absolute POSIX paths, credentials and long tokens; never emit raw
+    process environment or original arbitrary converter stdout/stderr.
+    """
+    lines = [line.strip() for line in text[-5000:].splitlines() if line.strip()]
+    if not lines:
+        return None
+    candidates = [line for line in lines if
+                  any(term in line.lower() for term in (
+                      "error", "failed", "exception", "no module", "traceback",
+                      "usage:", "missing", "not found", "invalid", "unsupported",
+                  ))]
+    chosen = candidates[-2:] if candidates else lines[-1:]
+    output = []
+    for line in chosen:
+        line = re.sub(r"/[^\\s:,;\\]\[\]\\(\\)\\{\\}]+", "<path>", line)
+        line = re.sub(r"(?i)(bearer|api[_-]?key|token|password)\\s*[:=]\\s*\\S+",
+                      "<redacted>", line)
+        line = re.sub(r"(?<![A-Za-z0-9])[A-Za-z0-9+/]{65,}={0,2}", "<long-value>", line)
+        output.append(line[:200])
+    return " | ".join(output)[:420]
+
+
 def sdk_env(root: Path) -> dict[str, str]:
     lib = root / "lib" / "x86_64-linux-clang"
     env = os.environ.copy()
@@ -88,6 +113,10 @@ def run_one(tool: Path, source: Path, output: Path, env: dict) -> dict[str, obje
             capture_output=True, text=True, errors="replace", check=False,
         )
         result["return_code_zero"] = run.returncode == 0
+        result["exit_code"] = run.returncode
+        result["error_hint"] = sanitized_converter_error(
+            run.stderr + "\\n" + run.stdout
+        ) if run.returncode else None
         result["missing_python_dependency"] = sanitized_missing_dependency(
             (run.stderr + "\n" + run.stdout)[-4096:]
         )
