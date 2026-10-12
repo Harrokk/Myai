@@ -109,3 +109,24 @@ def test_readable_mixer_does_not_prove_microphone(monkeypatch):
     report = mod.inspect_mixer()
     assert report["status"] == "capture-control-metadata-readable"
     assert report["physical_microphone_verified"] is False
+
+
+def test_capture_control_without_readings_is_inconclusive(monkeypatch):
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/bin/amixer")
+    monkeypatch.setattr(
+        mod.subprocess, "run",
+        lambda *a, **kw: SimpleNamespace(
+            returncode=0,
+            stdout=(
+                b"Simple mixer control 'Capture',0\\n"
+                b"  Capabilities: cvolume cswitch\\n"
+                b"  Capture channels: Mono\\n"
+                b"  Limits: Capture 0 - 63\\n"
+            ).replace(b"\\n", b"\n"),
+            stderr=b"",
+        ),
+    )
+    result = mod.inspect_mixer()
+    assert result["capture_controls"] == 1
+    assert result["status"] == "capture-controls-without-level-readings"
+    assert result["physical_microphone_verified"] is False
