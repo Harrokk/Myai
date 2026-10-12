@@ -389,3 +389,49 @@ MyAI/GenieX-textrespons som syntetiseras till minnet utan uppspelning,
 och därefter de separat godkända fysiska mikrofon- och
 högtalartesterna. Syntetisk röstintegrering får inte rapporteras
 som en färdig handsfree-assistent.
+
+## Lokal GenieX → MyAI:s röstkedja → svensk WAV verifierad (2026-10-12)
+
+Nästa nivå i den kontrollerade integreringen är nu **hårdvaruverifierad**
+på Arduino VENTUNO Q. Den nya modulen
+`scripts/ventuno_geniex_tts_bridge.py` använder:
+
+1. Ett fast syntetiskt transkript (inget mikrofonljud eller Whisper).
+2. MyAI:s verkliga `core.voice_pipeline.VoicePipeline`.
+3. Den **redan körande GenieX-servern** på
+   `http://127.0.0.1:18181/v1`, med ett kort förutbestämt,
+   lågrisk svenskt prompt och högst 40 svarstoken.
+4. Ett temporärt unpackat officiellt `espeak-ng` med svensk röst.
+5. `espeak-ng --stdin --stdout`, som tar modellens text via
+   standardindata, aldrig som kommandoradsflaggor.
+6. Endast numerisk validering av PCM16 mono WAV i processminnet.
+
+Resultat: **ett verkligt lokalt GenieX-genererat textsvar
+omvandlades till en 1,26 s svensk WAV**, 22 050 Hz,
+normaliserad RMS **0,077133**. Testet loggade varken den
+genererade texten eller ljudinnehållet; det spelade inte upp
+ljud och sparade ingen ljudfil.
+
+Godkänd isolerad hårdvarukörning:
+https://github.com/Harrokk/Myai/actions/runs/38240468721
+
+Säkerhetsgränserna är fortfarande aktiva: testet kräver
+`--allow-local-geniex-inference` i den explicita
+GitHub-testkedjan; standardanrop ger `no-go`.
+Det nyttjar endast det model-ID som den levande GenieX-servern
+redovisar, läser endast sin localhost-API, och laddar inte en
+andra 4B-modell.
+
+**Detta är en testadapter med syntetisk STT och den verkliga
+GenieX text-API:n, inte att MyAI:s hela produktionsröststack
+har aktiverats.** Varken SQLite-minne, verktyg, VAD,
+mikrofon, högtalare, verklig strömmande dialog,
+avbrott/eko eller full fysisk duplex har testats genom den
+här kedjan. MyAI och GenieX har lämnats igång, och
+produktionsprofilens röstflaggor förblev `false`.
+
+Prioriterat kvar: uttryckligt godkänt fysiskt
+2-sekunders mikrofontest och därefter separat
+högtalarverifiering; sedan transkriberad svensk
+fråga genom MyAI:s verkliga minne/verktyg och
+talat svar med avbrott, allt med säker rollback.
