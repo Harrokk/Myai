@@ -28,6 +28,30 @@ def parse_flags(text: str) -> frozenset[str]:
     return frozenset(re.findall(r"(?<![\w-])--[a-zA-Z][a-zA-Z0-9_-]*", text))
 
 
+def build_single_graph_input_list_arg(
+    graph_count: int, selected_index: int, input_list: str
+) -> str:
+    """Build the documented "__" skip-list for *one* graph, without running QNN.
+
+    Positions are based on candidate metadata ordering. This is NOT proof
+    that qnn-net-run maps those positions to the same graphs in a serialized
+    multi-graph/multi-context GenieX bundle.
+    """
+    if (type(graph_count) is not int or not 1 <= graph_count <= 24
+            or type(selected_index) is not int
+            or not 0 <= selected_index < graph_count):
+        raise ValueError("invalid-graph-selection")
+    if (not isinstance(input_list, str) or not 1 <= len(input_list) <= 255
+            or input_list == "__"
+            or input_list.startswith("-")
+            or re.fullmatch(r"[A-Za-z0-9_./-]+", input_list) is None):
+        raise ValueError("unsafe-input-list-path")
+    return ",".join(
+        input_list if index == selected_index else "__"
+        for index in range(graph_count)
+    )
+
+
 def help_documents_graph_skip(help_text: str) -> bool:
     """Check whether the *installed* CLI documents multi-graph skip markers.
 
@@ -96,7 +120,19 @@ def inspect_installed_cli() -> dict[str, object]:
 
 def main() -> int:
     print("QNN net-run graph-selection capability preflight (read-only)")
-    print(json.dumps(inspect_installed_cli(), sort_keys=True))
+    report = inspect_installed_cli()
+    print(json.dumps(report, sort_keys=True))
+    if report.get("input_list_skip_documented"):
+        # Structural example only; the graph-to-slot mapping is still unverified.
+        planned = build_single_graph_input_list_arg(
+            10, 5, "SYNTHETIC_INPUT_LIST"
+        )
+        print("Synthetic input-list plan:", json.dumps({
+            "graph_count": len(planned.split(",")),
+            "selected_index": 5,
+            "skip_slots": planned.split(",").count("__"),
+            "model_executed": False,
+        }, sort_keys=True))
     print("CLI help alone cannot verify graph order, shared-weight loading or valid model inputs.")
     print("No QNN context loaded; do not pause MyAI/GenieX based on this check.")
     return 0
