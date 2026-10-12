@@ -1,0 +1,112 @@
+name: ONE-TIME save paused MyAI state on VENTUNO Q
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-save-pause-checkpoint-once.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-myai-pause-checkpoint-2026-10-12
+  cancel-in-progress: false
+
+jobs:
+  save:
+    name: Save one plain user-owned checkpoint; no service changes
+    if: >-
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Authorize one-time VENTUNO checkpoint save without service changes' &&
+      github.run_attempt == 1 &&
+      github.repository == 'Harrokk/Myai'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the exact committed checkpoint
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Copy plain checkpoint to a separate private folder
+        id: saved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$HOME" = "/home/arduino"
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          source="docs/checkpoints/2026-10-12-my-ai-pause-github-ventuno.md"
+          test -f "$source" && test ! -L "$source"
+          test "$(wc -c < "$source")" -ge 1000
+          test "$(wc -c < "$source")" -le 16000
+          parent="/home/arduino/.local/share/myai"
+          directory="$parent/checkpoints"
+          target="$directory/2026-10-12-my-ai-pause-github-ventuno.md"
+          for item in /home/arduino/.local /home/arduino/.local/share "$parent" "$directory"; do
+            test ! -L "$item"
+          done
+          mkdir -p -m 700 -- "$directory"
+          test -d "$directory" && test ! -L "$directory"
+          chmod 700 "$directory"
+          if [ -e "$target" ] || [ -L "$target" ]; then
+            test -f "$target" && test ! -L "$target"
+            cmp -s "$source" "$target"
+            echo "Identical checkpoint previously saved."
+          else
+            staging="$(mktemp "$directory/.myai-paused-XXXXXXXX")"
+            chmod 600 "$staging"
+            cp -- "$source" "$staging"
+            cmp -s "$source" "$staging"
+            mv -n -- "$staging" "$target"
+            test ! -e "$staging"
+          fi
+          cmp -s "$source" "$target"
+          test "$(stat -c '%a' "$target")" = 600
+          echo "Verified identical checkpoint on GitHub and VENTUNO."
+          echo "Stored at /home/arduino/.local/share/myai/checkpoints/2026-10-12-my-ai-pause-github-ventuno.md"
+          echo "result=verified" >> "$GITHUB_OUTPUT"
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          echo "MyAI/GenieX remain active. No model, microphone or speaker opened."
+
+      - name: Publish sanitized saved status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+          RESULT: \${{ steps.saved.outputs.result }}
+          JOB_STATUS: \${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,urllib.request
+          repo=os.getenv("GITHUB_REPOSITORY","")
+          sha=os.getenv("GITHUB_SHA","")
+          token=os.getenv("GH_TOKEN","")
+          if not (re.fullmatch(r"[a-f0-9]{40}",sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo)):
+              raise SystemExit(0)
+          passed=(os.getenv("RESULT")=="verified" and os.getenv("JOB_STATUS")=="success")
+          payload={
+              "state":"success" if passed else "failure",
+              "context":"myai/ventuno-pause-checkpoint",
+              "description":"VENTUNO pause checkpoint saved" if passed else "VENTUNO pause checkpoint incomplete",
+              "target_url":"https://github.com/"+repo+"/actions/runs/"+os.getenv("GITHUB_RUN_ID",""),
+          }
+          req=urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              method="POST",data=json.dumps(payload).encode(),
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "Content-Type":"application/json"})
+          try:
+              with urllib.request.urlopen(req,timeout=10) as r:
+                  print("Checkpoint status recorded:",r.status==201)
+          except Exception as err:
+              print("Could not publish sanitized checkpoint status:",type(err).__name__)
+          PY
