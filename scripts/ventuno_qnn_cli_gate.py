@@ -28,22 +28,47 @@ def parse_flags(text: str) -> frozenset[str]:
     return frozenset(re.findall(r"(?<![\w-])--[a-zA-Z][a-zA-Z0-9_-]*", text))
 
 
+def help_documents_graph_skip(help_text: str) -> bool:
+    """Check whether the *installed* CLI documents multi-graph skip markers.
+
+    The documented qnn-net-run multi-graph input-list accepts "__" in the
+    comma-separated list to skip a graph. This detects help text only; it
+    must not be interpreted as compatibility with cached GenieX binaries.
+    """
+    normalized = " ".join(help_text.casefold().split())
+    sentinel = (
+        "double underscore" in normalized
+        or re.search(r'(?<![a-z0-9_])["\x27`]?__["\x27`]?(?![a-z0-9_])', normalized)
+        is not None
+    )
+    skip_statement = (
+        "skip execution of a graph" in normalized
+        or "skip executing a graph" in normalized
+        or "skip execution of graphs" in normalized
+    )
+    return bool(sentinel and skip_statement and "--input_list" in normalized)
+
+
 def assess_help(help_text: str, exit_code: int = 0) -> dict[str, object]:
     flags = parse_flags(help_text)
     selectors = sorted(flags & GRAPH_SELECTORS)
     missing = sorted(REQUIRED_OPTIONS - flags)
+    documented_skip = help_documents_graph_skip(help_text)
     if exit_code != 0:
         status = "inconclusive-help-error"
     elif missing:
         status = "no-go-missing-required-options"
     elif selectors:
         status = "review-graph-selection-semantics"
+    elif documented_skip:
+        status = "review-input-list-skip-semantics"
     else:
         status = "no-go-no-explicit-graph-selector"
     return {
         "status": status,
         "help_exit_code": exit_code,
         "graph_selectors": selectors,
+        "input_list_skip_documented": documented_skip if exit_code == 0 else False,
         "required_missing": missing,
         "relevant_flags": sorted(flags & RELEVANT_OPTIONS),
         "direct_npu_profile_verified": False,
@@ -72,7 +97,7 @@ def inspect_installed_cli() -> dict[str, object]:
 def main() -> int:
     print("QNN net-run graph-selection capability preflight (read-only)")
     print(json.dumps(inspect_installed_cli(), sort_keys=True))
-    print("A CLI flag is not proof of multi-context compatibility or valid model inputs.")
+    print("CLI help alone cannot verify graph order, shared-weight loading or valid model inputs.")
     print("No QNN context loaded; do not pause MyAI/GenieX based on this check.")
     return 0
 
