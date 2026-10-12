@@ -13,6 +13,7 @@ passed to the inference model as an initial prompt.
 """
 from __future__ import annotations
 
+import argparse
 import array
 import hashlib
 import json
