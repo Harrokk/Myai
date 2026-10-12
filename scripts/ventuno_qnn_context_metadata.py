@@ -74,6 +74,30 @@ def read_available_kib(path: Path = Path("/proc/meminfo")) -> int:
     return 0
 
 
+
+def preview_schema(data: object, max_depth: int = 6, max_lines: int = 75) -> list[str]:
+    """Key names and value types only. Never include values or model paths."""
+    result: list[str] = []
+    pending: deque[tuple[str, object, int]] = deque([("$", data, 0)])
+    while pending and len(result) < max_lines:
+        path, node, depth = pending.popleft()
+        if isinstance(node, dict):
+            result.append(f"{path}: object({len(node)} keys)")
+            if depth < max_depth:
+                for key in sorted(node, key=str)[:24]:
+                    safe_key = str(key)
+                    # Vendor structure keys only, never arbitrary user-defined fields.
+                    if len(safe_key) <= 60 and safe_key.replace("_", "").isalnum():
+                        pending.append((path + "." + safe_key, node[key], depth + 1))
+        elif isinstance(node, list):
+            result.append(f"{path}: list({len(node)} items)")
+            if depth < max_depth and node:
+                pending.append((path + "[]", node[0], depth + 1))
+        else:
+            result.append(f"{path}: {type(node).__name__}")
+    return result
+
+
 def summarize_context_metadata(data: object) -> dict[str, object]:
     """Report counts and first shapes; never expose arbitrary tensor names/data."""
     if not isinstance(data, dict):
@@ -107,6 +131,7 @@ def summarize_context_metadata(data: object) -> dict[str, object]:
         "tensor_related_fields": counts["tensor_related_fields"],
         "tensor_shapes_sample": shapes,
         "visited_nodes": visited,
+        "schema_preview": preview_schema(data),
         "traversal_capped": bool(stack),
     }
 
