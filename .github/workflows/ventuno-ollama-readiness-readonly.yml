@@ -8,6 +8,8 @@ on:
       - scripts/ventuno_ollama_readiness.py
       - tests/test_ventuno_ollama_readiness.py
       - config/profiles/ventuno_q.json
+      - scripts/ventuno_voice_backend_selector.py
+      - tests/test_ventuno_voice_backend_selector.py
   workflow_dispatch:
 
 permissions:
@@ -51,6 +53,7 @@ jobs:
           cd "$MYAI_OLLAMA_WORK/source"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
             tests/test_ventuno_ollama_readiness.py \
+            tests/test_ventuno_voice_backend_selector.py \
             tests/test_ollama_client.py \
             tests/test_llm_factory.py
           /home/arduino/MyAI/.venv/bin/python - <<'PY'
