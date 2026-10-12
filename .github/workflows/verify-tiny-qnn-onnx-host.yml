@@ -48,9 +48,9 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/tiny-qnn-venv"
           "$RUNNER_TEMP/tiny-qnn-venv/bin/python" -m pip install \
             --disable-pip-version-check --only-binary=:all: \
-            numpy==1.26.4 onnx==1.17.0 pytest==8.3.5
+            numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1 pytest==8.3.5
 
-      - name: Execute real ONNX checker and numeric reference tests
+      - name: Execute ONNX checker and independent CPU numerical tests
         shell: bash
         run: |
           set -euo pipefail
