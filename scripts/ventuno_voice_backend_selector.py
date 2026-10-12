@@ -49,9 +49,14 @@ def select_isolated_voice_client(profile: object, *, provider: str):
         ):
             raise ValueError("geniex-must-be-local-loopback")
 
-    # Validate the in-memory selected configuration; do NOT write it back.
-    settings["llm"]["provider"] = provider
+    # The persistent VENTUNO profile must always validate as GenieX
+    # primary. Its strict validation intentionally rejects Ollama as the
+    # production primary. The copied per-turn Ollama configuration is
+    # *not* a VENTUNO production profile: validate it separately.
     if not validate_settings(settings, require_ventuno_profile=True)["valid"]:
+        raise ValueError("invalid-original-ventuno-profile")
+    settings["llm"]["provider"] = provider
+    if not validate_settings(settings, require_ventuno_profile=False)["valid"]:
         raise ValueError("invalid-selected-voice-backend-config")
     client = build_llm_client(settings)
     if getattr(client, "provider_name", "") != provider:
