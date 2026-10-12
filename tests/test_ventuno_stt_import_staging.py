@@ -60,7 +60,8 @@ def test_import_only_with_strict_flags_and_success_rss(monkeypatch, tmp_path):
         assert "--only-binary=:all:" in args
         assert "--no-cache-dir" in args
         assert "--dry-run" not in args
-        assert args[-1] == "faster-whisper>=1,<2"
+        assert "faster-whisper>=1,<2" in args
+        assert "av>=17,<19" in args
         assert kwargs["env"]["HF_HUB_OFFLINE"] == "1"
         assert kwargs["timeout"] <= 200
         return {"completed": True, "exit_zero": True, "exit_code": 0}
