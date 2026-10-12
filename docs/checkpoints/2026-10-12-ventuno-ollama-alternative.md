@@ -163,3 +163,43 @@ A separate one-time test is prepared to start the newly installed
 Ollama launcher, ask exactly one safe text question through the
 actual MyAI `OllamaClient`/LLM factory, and shut the launcher down
 again; that test's own result must be checked separately.
+
+
+## Installed Ollama real MyAI response verified
+
+The installed Ollama runtime was started briefly via its persisted,
+loopback-only launcher and the **actual existing MyAI OllamaClient**
+was selected by `scripts/ventuno_voice_backend_selector.py`.
+No model was downloaded for this test.
+
+- One-time source commit:
+  `7a289222976e98b5e7a608594c8dc642ddb45664`
+- Successful VENTUNO Q run:
+  https://github.com/Harrokk/Myai/actions/runs/38267233100
+- Job `114872342246`; all steps **success**.
+- **33/33** targeted regression tests passed.
+- MyAI's original VENTUNO profile remained `llm.provider=geniex`,
+  fallback **disabled**, voice/handsfree **disabled**.
+- The per-turn Ollama option selected the installed
+  `qwen3:0.6b` model through MyAI's `core.llm_factory` and
+  actual `core.ollama_client.OllamaClient.chat`.
+- Question was a fixed harmless Swedish text test
+  (`vad heter du`), **not** a microphone recording.
+- A bounded nonempty text reply (**49 characters**) was returned
+  through the existing MyAI path. End-to-end request duration
+  **8.53 s**, including any cold model load; no reply content was
+  saved or logged. This is separate from the earlier warm
+  inference measurement of 2.74 seconds.
+- The locally started Ollama server was stopped, temporary
+  logs removed, and GenieX/MyAI production services verified
+  active. The installed Ollama binary and model were retained.
+
+**Now verified:** GenieX and Ollama are selectable through MyAI's
+LLM machinery, and Ollama works on physical VENTUNO Q ARM64 hardware.
+Whisper speech-to-text and eSpeak text-to-speech remain separate
+components. An actual microphone -> Whisper -> Ollama -> USB
+speaker end-to-end voice exchange has **not** been authorized or
+executed. No production provider switch or continuous Ollama
+background service was enabled; those are separate acceptance gates.
+The *entire* MyAI test suite was not rerun as part of these
+targeted Ollama tests.
