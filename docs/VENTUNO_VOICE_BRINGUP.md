@@ -113,7 +113,7 @@ avstängda.
 
 Resursmätning före staging:
 
-- Tillgängligt RAM, \`MemAvailable\`: cirka **13,2 GB**.
+- Tillgängligt RAM, `MemAvailable`: cirka **13,2 GB**.
 - Tillgänglig lagring: cirka **34 GB**.
 - Begränsningar: minst 1,5 GB RAM- och lagringsmarginal krävs för staging.
 - Detta är ett **ögonblicksvärde**, inte ett långtidstest av
@@ -123,11 +123,11 @@ Faktiska tester av *installerbara ARM64-wheels*:
 
 | Komponent | Separat venv | Importstatus |
 | --- | --- | --- |
-| \`webrtcvad-wheels\` / \`webrtcvad\` | Installerat | **Godkänd** |
-| \`pyttsx3\` | Installerat | **Godkänd** |
-| \`sounddevice\` | Installerat | Kräver PortAudio på denna Linux-installation |
-| Distributionens \`libportaudio2\` | Endast nedladdat och uppackat i tmp | Ytterligare \`libjack.so.0\` saknades |
-| Distributionens \`libjack-jackd2-0\` | Endast nedladdat och uppackat i tmp | **Godkänd \`sounddevice\`-import** med båda lokala biblioteken |
+| `webrtcvad-wheels` / `webrtcvad` | Installerat | **Godkänd** |
+| `pyttsx3` | Installerat | **Godkänd** |
+| `sounddevice` | Installerat | Kräver PortAudio på denna Linux-installation |
+| Distributionens `libportaudio2` | Endast nedladdat och uppackat i tmp | Ytterligare `libjack.so.0` saknades |
+| Distributionens `libjack-jackd2-0` | Endast nedladdat och uppackat i tmp | **Godkänd `sounddevice`-import** med båda lokala biblioteken |
 
 **Alla tre lätta rösters Python-importer har därmed verifierats i en
 frikopplad ARM64-testmiljö.** Det är inte ett fungerande STT/TTS-
@@ -135,9 +135,9 @@ end-to-end-test eller bevis på mikrofon/högtalarfunktion.
 
 - Godkänd staged-körning med PortAudio/JACK:
   https://github.com/Harrokk/Myai/actions/runs/38232932949
-- Skript: \`scripts/ventuno_voice_wheel_staging.py\` och
-  \`scripts/ventuno_portaudio_temp_stage.py\`.
-- Inga \`sudo\`, \`apt install\`, \`dpkg --install\`, modellvikter,
+- Skript: `scripts/ventuno_voice_wheel_staging.py` och
+  `scripts/ventuno_portaudio_temp_stage.py`.
+- Inga `sudo`, `apt install`, `dpkg --install`, modellvikter,
   mikrofonupptagningar, systemd-ändringar eller återstarter användes.
 
 För faktisk röstdrift behöver PortAudio och JACK göras tillgängliga
@@ -145,43 +145,43 @@ på ett **stödd och återställningsbart sätt** i produktionsmiljön,
 med lämpliga paket, versionskontroller och en rollback-plan.
 Detta beslut är **inte** fattat eller automatiskt verkställt.
 
-### Whisper-dependencies: endast wheel-resolution
+### Whisper-dependencies: wheel-resolution och senare importtest
 
-\`scripts/ventuno_stt_wheel_preflight.py\` kan på samma temporära
-ARM64-venv göra en begränsad \`pip install --dry-run
---ignore-installed --only-binary=:all:\` för \`faster-whisper\`
+`scripts/ventuno_stt_wheel_preflight.py` kan på samma temporära
+ARM64-venv göra en begränsad `pip install --dry-run
+--ignore-installed --only-binary=:all:` för `faster-whisper`
 och dess Python-beroenden. Detta verifierar *paketresolution*,
 **inte** att STT-beräkning eller Whisper-modellvikter fungerar.
 Det krävs separat minnes-, latens- och modellhanteringstest,
-inklusive kontroll av \`ctranslate2\` och eventuell ARM64-exekvering.
+inklusive kontroll av `ctranslate2` och eventuell ARM64-exekvering.
 
-Mikrofontestet \`scripts/ventuno_microphone_smoke.py\` är fortsatt
+Mikrofontestet `scripts/ventuno_microphone_smoke.py` är fortsatt
 **avstängt som standard** och får aldrig köras med inspelning av CI.
 
 ## Fullständig ARM64-röstpaketstaging: verifierad utan talmodell (2026-10-12)
 
 Den separata staging-kedjan i
-\`.github/workflows/ventuno-voice-staging.yml\` är nu **godkänd hela vägen**:
+`.github/workflows/ventuno-voice-staging.yml` är nu **godkänd hela vägen**:
 
 1. Kontroll av 13,2 GB tillgängligt RAM och cirka 34 GB ledigt utrymme
    vid start (momentant värde, inte belastningsreserv).
-2. Installering av \`sounddevice\`, \`webrtcvad-wheels\` och \`pyttsx3\`
+2. Installering av `sounddevice`, `webrtcvad-wheels` och `pyttsx3`
    i en ny tillfällig ARM64-venv. WebRTC VAD och pyttsx3 gick att importera.
-3. Temporär hämtning/uppackning av \`libportaudio2\` och
-   \`libjack-jackd2-0\` från distributionens befintliga apt-källor.
-   \`sounddevice\` kunde då importeras utan systeminstallation.
-4. \`pip --dry-run --ignore-installed --only-binary=:all:\` hittade
+3. Temporär hämtning/uppackning av `libportaudio2` och
+   `libjack-jackd2-0` från distributionens befintliga apt-källor.
+   `sounddevice` kunde då importeras utan systeminstallation.
+4. `pip --dry-run --ignore-installed --only-binary=:all:` hittade
    en ARM64-wheel-kedja med **23 paket**, inklusive
-   \`faster-whisper==1.2.1\`, \`ctranslate2==4.8.2\`,
-   \`av==19.0.1\`, \`tokenizers==0.23.3\` och
-   \`onnxruntime==1.31.0\`.
-5. Faktisk installation av \`faster-whisper\`-wheels **enbart i
-   staging-venv**; \`faster_whisper\`, \`ctranslate2\` och \`av\`
+   `faster-whisper==1.2.1`, `ctranslate2==4.8.2`,
+   `av==19.0.1`, `tokenizers==0.23.3` och
+   `onnxruntime==1.31.0`.
+5. Faktisk installation av `faster-whisper`-wheels **enbart i
+   staging-venv**; `faster_whisper`, `ctranslate2` och `av`
    kunde importeras på VENTUNO ARM64.
 6. **Uppmätt peak RSS för separat importprocess: 57,1 MiB**.
-   Mätningen använder Linux \`resource.ru_maxrss\`; processen hade
+   Mätningen använder Linux `resource.ru_maxrss`; processen hade
    en skyddsgräns på 4 GiB virtuellt adressutrymme och 35 CPU-sekunder.
-7. Röstflaggorna i aktiv MyAI-profil var fortsatt \`false\`,
+7. Röstflaggorna i aktiv MyAI-profil var fortsatt `false`,
    GenieX/MyAI-tjänsterna aktiva och alla tillfälliga bibliotek
    samt temporära venv-filer borttagna.
 
@@ -195,7 +195,7 @@ https://github.com/Harrokk/Myai/actions/runs/38233884839
 - 57,1 MiB är **endast bibliotekens importminne**. Modellvikter,
   transkribering, CPU-belastning, latenser och samtidighet med Qwen3-4B
   är fortfarande obevisade.
-- Inget \`WhisperModel(...)\`, ingen nedladdning av talmodellvikter,
+- Inget `WhisperModel(...)`, ingen nedladdning av talmodellvikter,
   ingen mikrofoninspelning och ingen TTS-ljuduppspelning har gjorts.
 - PortAudio/JACK-paketen installerades **inte** i det verkliga OS:et.
   Ett framtida permanent installerat röstsystem kräver separat
