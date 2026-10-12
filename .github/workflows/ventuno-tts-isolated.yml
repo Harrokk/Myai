@@ -11,6 +11,8 @@ on:
       - scripts/ventuno_tts_temp_stage.py
       - scripts/ventuno_synthetic_voice_chain.py
       - tests/test_ventuno_synthetic_voice_chain.py
+      - scripts/ventuno_geniex_tts_bridge.py
+      - tests/test_ventuno_geniex_tts_bridge.py
       - tests/test_ventuno_tts_synthesis_probe.py
       - tests/test_ventuno_tts_temp_stage.py
 
@@ -53,7 +55,8 @@ jobs:
           /home/arduino/MyAI/.venv/bin/python -m pytest -q \
             tests/test_ventuno_tts_temp_stage.py \
             tests/test_ventuno_tts_synthesis_probe.py \
-            tests/test_ventuno_synthetic_voice_chain.py
+            tests/test_ventuno_synthetic_voice_chain.py \
+            tests/test_ventuno_geniex_tts_bridge.py
 
       - name: Confirm live services and voice disabled
         shell: bash
@@ -81,6 +84,17 @@ jobs:
             -m scripts.ventuno_tts_temp_stage --runner-temp "$RUNNER_TEMP"
           echo 'Fixed synthetic MyAI VoicePipeline reply rendered by eSpeak to memory only.'
           echo 'No production assistant, real STT, microphone or loudspeaker used.'
+
+      - name: Convert one existing GenieX model response into in-memory Swedish WAV
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tts-checkout"
+          /home/arduino/MyAI/.venv/bin/python \
+            -m scripts.ventuno_geniex_tts_bridge \
+            --runner-temp "$RUNNER_TEMP" \
+            --allow-local-geniex-inference
+          echo 'Existing GenieX request only, no second model or device audio.'
 
       - name: Confirm production services still active
         if: always()
