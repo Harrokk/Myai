@@ -160,6 +160,28 @@ jobs:
           print("Verified QAIRT 2.45 SDK extracted in isolated runner temp only.")
           PY
 
+      - name: Restore executable mode for verified SDK CPU runner only
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/qairt-host-venv/bin/python" - <<'PY'
+          import os
+          import stat
+          from pathlib import Path
+          base = Path(os.environ["RUNNER_TEMP"]) / "qairt-extracted" / "qairt" / "2.45.0.260326"
+          runner = base / "bin" / "x86_64-linux-clang" / "qnn-net-run"
+          if runner.is_symlink() or not runner.is_file():
+              raise RuntimeError("official QNN CPU runner missing or symlinked")
+          with runner.open("rb") as stream:
+              if stream.read(4) != bytes.fromhex("7f454c46"):
+                  raise RuntimeError("official QNN runner is not ELF")
+          original = stat.S_IMODE(runner.stat().st_mode)
+          runner.chmod(original | stat.S_IXUSR)
+          if not os.access(runner, os.X_OK):
+              raise RuntimeError("official QNN runner execute permission unavailable")
+          print("Isolated official x86_64 QNN runner ELF/mode verified.")
+          PY
+
       - name: Try QNN source and DLC conversion on host only
         shell: bash
         run: |
