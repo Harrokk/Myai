@@ -118,7 +118,7 @@ def test_invalid_graph_indexes_fail_closed():
 
 def test_reject_unsafe_input_paths():
     import pytest
-    invalid = ("__", "a,b", "a b", "-option", "../tmp/${HOME}",
+    invalid = ("__", "a,b", "a b", "-option", "../safe", "../tmp/${HOME}",
                "foo\nbar", "", "a" * 256)
     for path in invalid:
         with pytest.raises(ValueError, match="unsafe-input-list-path"):
