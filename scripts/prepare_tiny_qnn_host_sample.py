@@ -63,7 +63,7 @@ def build_onnx_model():
                [0, 1, 0, 1, 4, 1, 0, 1, 0]),
         tensor("w_scale", TensorProto.FLOAT, [], [1.0 / 64.0]),
         tensor("w_zero", TensorProto.INT8, [], [0]),
-        tensor("y_scale", TensorProto.FLOAT, [], [1.0 / 32.0]),
+        tensor("y_scale", TensorProto.FLOAT, [], [1.0 / 512.0]),
         tensor("y_zero", TensorProto.UINT8, [], [0]),
     ]
     ops = [
@@ -89,7 +89,7 @@ def build_onnx_model():
     )
     model = helper.make_model(graph, opset_imports=[helper.make_operatorsetid("", 13)],
                               producer_name="MyAI isolated QAIRT microprofile fixture")
-    model.ir_version = 8
+    # Fine-grained output scale preserves nonzero results for the tiny weights.\n    model.ir_version = 8
     onnx.checker.check_model(model)
     return model
 
