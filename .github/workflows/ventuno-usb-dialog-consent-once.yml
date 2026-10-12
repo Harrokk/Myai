@@ -1,0 +1,246 @@
+name: ONE-TIME consented USB voice dialogue on VENTUNO Q
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-usb-dialog-consent-once.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ventuno-usb-dialog-consent-2026-10-12
+  cancel-in-progress: false
+
+jobs:
+  one_turn:
+    name: ONE user-approved 4s microphone question and low-volume reply
+    if: >-
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'Authorize one-time 4s USB voice dialogue on VENTUNO Q' &&
+      github.run_attempt == 1 &&
+      github.repository == 'Harrokk/Myai'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact source into disposable isolated workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          test -n "${GH_TOKEN:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-dialog-once-XXXXXXXX")"
+          echo "MYAI_VOICE_ONCE_WORK=$work" >> "$GITHUB_ENV"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$work/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run mock-only safety and USB audio inventory tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_dialog_once.py \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_ventuno_usb_audio_inventory.py \
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py \
+            tests/test_ventuno_tts_temp_stage.py
+
+      - name: Check live services, 8GiB RAM, 3GiB disk and unchanged voice flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          report = inspect(disk_root=Path(os.environ["MYAI_VOICE_ONCE_WORK"]))
+          print("Live dialogue preflight:", json.dumps(report, sort_keys=True))
+          assert report["status"] == "ready-for-separate-consented-dialogue-test"
+          PY
+
+      - name: Stage only temporary ARM64 Whisper dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          SYSTEM_PY="$(readlink -f "$(command -v python3)")"
+          test -x "$SYSTEM_PY"
+          "$SYSTEM_PY" -m venv "$MYAI_VOICE_ONCE_WORK/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_VOICE_ONCE_WORK"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_VOICE_ONCE_WORK"
+
+      - name: Download pinned Whisper Tiny and run synthetic CPU-only sanity check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          work = Path(os.environ["MYAI_VOICE_ONCE_WORK"])
+          result = smoke(work / "myai-voice-staging/bin/python", work)
+          print("Pinned Whisper CPU sanity check:", json.dumps({
+              "cpu_inference_verified": result.get("cpu_inference_verified"),
+              "model_files_verified": result.get("model_files_verified"),
+              "microphone_used": result.get("microphone_used"),
+              "status": result.get("status"),
+          }, sort_keys=True))
+          assert result["cpu_inference_verified"] is True
+          assert result["model_files_verified"] is True
+          assert result["microphone_used"] is False
+          PY
+
+      - name: Stage temporary Swedish eSpeak and verify RAM-only synthesis
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.ventuno_tts_temp_stage import stage_sweden_tts
+          work = Path(os.environ["MYAI_VOICE_ONCE_WORK"])
+          report = stage_sweden_tts(work / "myai-tts-espeak-stage", work)
+          print("Swedish temporary TTS preflight:", json.dumps({
+              "status": report.get("status"),
+              "swedish_pcm_synthesis_verified": report.get("swedish_pcm_synthesis_verified"),
+              "physical_playback_verified": report.get("physical_playback_verified"),
+          }, sort_keys=True))
+          assert report["status"] == "isolated-swedish-tts-signal-verified"
+          PY
+
+      - name: Verify safe resource threshold and USB identity before physical audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          report = inspect(disk_root=Path(os.environ["MYAI_VOICE_ONCE_WORK"]))
+          print("Immediate physical audio gate:", report["status"],
+                "MemAvailable_MiB:", report["ram_available_mib"])
+          assert report["status"] == "ready-for-separate-consented-dialogue-test"
+          PY
+
+      - name: ONE prompt, 4s in-memory mic, Whisper, GenieX and limited speaker response
+        id: dialog
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_ONCE_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.ventuno_usb_dialog_once import once
+          work = Path(os.environ["MYAI_VOICE_ONCE_WORK"])
+          result = once(
+              authorized=True,
+              root=work,
+              stage=work / "myai-tts-espeak-stage",
+              model=work / "myai-whisper-tiny-model",
+              python_exe=work / "myai-voice-staging/bin/python",
+              machine="aarch64",
+          )
+          print("One-turn USB dialogue safe status:", json.dumps(result, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("dialog_status=" + str(result["status"]) + "\n")
+          assert result["microphone_recordings"] <= 1
+          assert result["speaker_playbacks"] <= 2
+          assert result["audio_saved"] is False
+          assert result["transcript_logged"] is False
+          assert result["production_modified"] is False
+          if result["status"] != "one-turn-usb-dialogue-playback-completed":
+              raise SystemExit(2)
+          PY
+
+      - name: Confirm services and remove all temporary STT/TTS and captured data
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_VOICE_ONCE_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_VOICE_ONCE_WORK" in
+              "$RUNNER_TEMP"/myai-dialog-once-*)
+                if [ -d "$MYAI_VOICE_ONCE_WORK" ] && [ ! -L "$MYAI_VOICE_ONCE_WORK" ]; then
+                  rm -rf -- "$MYAI_VOICE_ONCE_WORK"
+                fi
+                ;;
+              *) echo "Unexpected workspace; refusing cleanup." >&2; exit 1 ;;
+            esac
+          fi
+          echo "Disposed isolated Whisper and eSpeak; no voice service/profile change."
+
+      - name: Publish only allowlisted dialogue outcome as commit status
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+          DIALOG_STATUS: ${{ steps.dialog.outputs.dialog_status }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          sha=os.environ.get("GITHUB_SHA","")
+          repo=os.environ.get("GITHUB_REPOSITORY","")
+          token=os.environ.get("GH_TOKEN","")
+          if not (re.fullmatch(r"[a-f0-9]{40}",sha) and token and
+                  re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo)):
+              raise SystemExit(0)
+          allowed={
+              "one-turn-usb-dialogue-playback-completed",
+              "reject-architecture","reject-isolation-or-usb-device",
+              "reject-memory-budget","reject-unverified-model",
+              "reject-cue-render","cue-playback-failed",
+              "no-valid-four-second-usb-capture",
+              "no-accepted-swedish-question",
+              "reject-resources-or-usb-before-reply",
+              "inconclusive-local-answer-or-tts","inconclusive-one-turn-dialogue",
+          }
+          category=os.environ.get("DIALOG_STATUS","")
+          category=category if category in allowed else "not-run-or-preflight-blocked"
+          state="success" if os.environ.get("JOB_RESULT")=="success" else "failure"
+          body={
+              "state":state,
+              "context":"myai/ventuno-usb-dialog-once",
+              "description":("one-turn voice: "+category)[:140],
+              "target_url":"https://github.com/"+repo+"/actions/runs/"+
+                           os.environ.get("GITHUB_RUN_ID",""),
+          }
+          request=urllib.request.Request(
+              "https://api.github.com/repos/"+repo+"/statuses/"+sha,
+              data=json.dumps(body).encode(),method="POST",
+              headers={"Authorization":"Bearer "+token,
+                       "Accept":"application/vnd.github+json",
+                       "X-GitHub-Api-Version":"2022-11-28",
+                       "Content-Type":"application/json"},
+          )
+          try:
+              with urllib.request.urlopen(request,timeout=10) as result:
+                  print("Sanitized dialogue status published:",result.status==201)
+          except Exception as error:
+              print("Dialogue status not published:",type(error).__name__)
+          PY
