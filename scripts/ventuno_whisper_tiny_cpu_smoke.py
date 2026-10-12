@@ -82,6 +82,7 @@ results=list(segments)
 finish=time.monotonic()
 speech_attempted=False
 speech_word_match=False
+public_reference_transcript=None
 speech_decode_seconds=None
 speech_segment_count=None
 speech_error_type=None
@@ -102,6 +103,9 @@ if source:
         # Public fixture content only; recognized words are not logged.
         normalized=" ".join(seg.text for seg in words).lower()
         speech_word_match="svenska" in normalized
+        if speech_word_match:
+            # IPC only: caller removes this BEFORE creating any public report.
+            public_reference_transcript=normalized
     except Exception as error:
         # Only exception type, never file paths or speech contents.
         speech_error_type=type(error).__name__
@@ -116,6 +120,7 @@ print(json.dumps({
     "speech_accuracy_tested": False,
     "swedish_public_word_attempted": speech_attempted,
     "swedish_public_word_recognized": speech_word_match,
+    "private_public_reference_transcript": public_reference_transcript,
     "swedish_public_word_inference_seconds": speech_decode_seconds,
     "swedish_public_word_segments": speech_segment_count,
     "swedish_public_word_error_type": speech_error_type,
@@ -252,7 +257,8 @@ def run_restricted(python: Path, program: str,
 
 
 def smoke(sandbox_python: Path, root: Path,
-          *, machine: str | None = None) -> dict[str, object]:
+          *, machine: str | None = None,
+          public_transcript_sink=None) -> dict[str, object]:
     arm = (machine or platform.machine()).lower() in ("aarch64", "arm64")
     memory = mem_available_kib()
     disk = disk_free_bytes(root)
@@ -328,6 +334,9 @@ def smoke(sandbox_python: Path, root: Path,
         report["inference_signal"] = result.get("signal_number")
         return report
     measurements = result["result"]
+    # This field exists only in the child IPC JSON: never include it in
+    # a returned report, log, exception, or a persistent file.
+    private_reference_text = measurements.pop("private_public_reference_transcript", None)
     if not (
         measurements.get("model_created_on_cpu") is True
         and measurements.get("language_requested") == "sv"
@@ -362,6 +371,16 @@ def smoke(sandbox_python: Path, root: Path,
         if report["swedish_public_word_attempted"]
         else "tiny-sv-cpu-silence-inference-verified"
     )
+    if (public_transcript_sink is not None
+            and report["status"] == "tiny-sv-cpu-word-and-silence-verified"
+            and callable(public_transcript_sink)
+            and isinstance(private_reference_text, str)
+            and 1 <= len(private_reference_text) <= 96
+            and "\\n" not in private_reference_text
+            and "\\r" not in private_reference_text
+            and all(ord(ch) >= 32 for ch in private_reference_text)
+            and "svenska" in private_reference_text.split()):
+        public_transcript_sink(private_reference_text)
     return report
 
 
