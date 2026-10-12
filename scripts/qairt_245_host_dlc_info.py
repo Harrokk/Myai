@@ -56,7 +56,7 @@ def summarize_official_io_tables(stdout: str) -> dict[str, object]:
             continue
         candidate_rows[section] += 1
         dim_text = parts[1].strip().strip("[]()").strip()
-        dim_parts = re.split(r"\\s*[,xX]\\s*", dim_text)
+        dim_parts = re.split("[,xX]", "".join(dim_text.split()))
         if not 1 <= len(dim_parts) <= 6 or any(
             not re.fullmatch(r"[0-9]{1,5}", item) for item in dim_parts
         ):
