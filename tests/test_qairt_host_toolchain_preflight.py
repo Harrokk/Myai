@@ -37,6 +37,21 @@ def test_known_sdk_windows_tool_locations_are_metadata_only(tmp_path):
     assert result["model_lib_generator_found"]
 
 
+def test_windows_sdk_model_generator_can_be_in_target_tool_dir(tmp_path):
+    sdk_root = tmp_path / "sdk"
+    converter_dir = sdk_root / "bin" / "x86_64-windows-msvc"
+    compiler_dir = sdk_root / "bin" / "aarch64-windows-msvc"
+    converter_dir.mkdir(parents=True)
+    compiler_dir.mkdir(parents=True)
+    (converter_dir / "qnn-onnx-converter").write_text("synthetic")
+    (compiler_dir / "qnn-model-lib-generator").write_text("synthetic")
+    report = mod.sdk_tool_status(sdk_root, "windows")
+    assert report["converter_found"] is True
+    assert report["model_lib_generator_found"] is True
+    # Tools detected is not a verified SDK/ABI, conversion or HTP profile.
+    assert mod.readiness(report, True)["qairt_sdk_version_245_verified"] is False
+
+
 def test_converter_is_not_alone_enough(tmp_path):
     bin_dir = tmp_path / "sdk" / "bin" / "x86_64-linux-clang"
     bin_dir.mkdir(parents=True)
