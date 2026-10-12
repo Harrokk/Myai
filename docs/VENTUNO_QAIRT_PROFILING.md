@@ -18,6 +18,45 @@ Last verified: 2026-10-12. Development branch: `dev/routing-boundary-followup`.
 Supporting workflow: `.github/workflows/ventuno-diagnostics.yml`.
 Checks above ran without changing the installed GenieX service or changing clocks/driver parameters.
 
+## Profiling preflight (2026-10-12)
+
+Implemented in `scripts/ventuno_qairt_profile_preflight.py` and run on VENTUNO
+by the diagnostic workflow; pure functions have regression tests.
+
+Observed from the live device:
+
+- API model: `qualcomm/Qwen3-4B-Instruct-2507:W4A16`.
+- Physical usable memory exposed to Linux: 15,285 MiB total, **6,516.7 MiB available**
+  at the moment of sampling. These numbers vary with system load.
+- GenieX process count: one; its **host RSS: 447.5 MiB**. This is **not**
+  the total memory footprint of the HTP/NPU graphs or shared allocations.
+- The known GenieX cache root contains **four `.bin` files**; sizes of the
+  largest files: 1,013.7, 742.1, 632.2 and 632.2 MiB. No cached GGUF was found
+  in that checked root. The inspection reads metadata only, not binary contents.
+- The QNN viewer, net-run and context utility are present.
+- The `geniex serve --help` command did not expose a QNN profile-session flag.
+- Full regression suite: **874 passed**. Preflight and services checks also passed.
+
+### Decision / safety gate
+
+**Do not** start another instance of the installed 4B QAIRT model while live
+GenieX remains active merely to measure NPU utilization. Linux host RSS does not
+bound the additional memory used by NPU graph loading; the available-memory
+number alone does not establish safe concurrent capacity.
+
+The existing model cache's context binaries are not by themselves a reproducible
+`qnn-net-run` profiling scenario. Such a run also needs compatible graph
+selection, tensor shapes and input-list files. For **optrace/per-layer** profiling
+of a serialized QNN context, Qualcomm's profiling guide additionally requires
+generating an optrace-instrumented context binary. No attempt was made to rewrite
+or load the cached binaries.
+
+A direct NPU timing profile of **this model** therefore remains pending. Next
+allowed progress without a maintenance window is read-only identification of
+the graph/input metadata and an exact, reproducible profile procedure. A model
+restart or temporary service pause must be separately agreed and must include
+a health-check and rollback plan.
+
 ## Assessment
 
 The NPU route is strongly supported by the running QAIRT model and the HTP/FastRPC process evidence. Qualcomm documents that **GenieX QAIRT models run on the NPU only**. This is a runtime-path conclusion, **not** a direct measurement of HTP execution cycles, utilization percentage or per-layer timing.
