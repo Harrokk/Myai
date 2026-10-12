@@ -678,3 +678,101 @@ verified SDK version and target ABI, verified HTP v75 graph support,
 correct output tensor quantization/input mapping, an independent small
 context, memory budget, and a bounded profiling/recovery plan. No automatic
 service interruptions or second 4B model loads.
+
+## QAIRT 2.45 converter and direct-DLC route validation (2026-10-12)
+
+An additional bounded metadata-only probe runs on the real VENTUNO Q:
+`scripts/ventuno_qairt_converter_inventory.py`, with
+`tests/test_ventuno_qairt_converter_inventory.py`. It explicitly
+tests the installed `qnn-context-binary-generator --help` and
+`qnn-net-run --help`, and scans allowlisted SDK directories
+without reading model files or displaying private paths.
+
+**Measured device results:**
+
+- Two SDK-related roots inspected, three directories and 34 files;
+  scan finished without limits or read errors.
+- SDK/backend library names visible:
+  `libQnnHtp.so`, `libQnnHtpV75Skel.so`,
+  `libQnnHtpV75Stub.so`, `libQnnSystem.so`.
+- `qnn-onnx-converter` and `qnn-model-lib-generator`
+  **not found on PATH or in these bounded roots**.
+- `qnn-context-binary-generator --help` supports
+  **`--dlc_path`**, `--model`, `--backend`,
+  `--binary_file`, `--config_file` and profiling flags.
+  `qnn-net-run --help` also contains `--dlc_path`.
+- Status: **`dlc-loading-option-present-but-dlc-creation-unverified`**,
+  not a positive executable NPU profile.
+
+Qualcomm documentation describes two relevant host preparation approaches:
+1. ONNX → `qnn-onnx-converter` → model source/weights →
+   `qnn-model-lib-generator` → HTP context generator.
+2. An independently prepared, compatible QNN DLC →
+   `qnn-context-binary-generator --dlc_path` → context.
+
+Neither method is executable at present with the accessible files:
+**there is no verified small QNN model library, standalone converted
+DLC, nor locally available ONNX/DLC conversion toolchain.** The
+presence of the `--dlc_path` flag alone is not evidence that the
+ONNX file is a DLC or that the HTP supports its operators. The live
+Qwen3 context files must **not** be re-used.
+
+Source references:
+- Qualcomm QNN development workflow / Windows native and WSL host
+  toolchain: https://docs.qualcomm.com/nav/home/QNN_general_overview.html?product=924033590759186372
+- Qualcomm HTP context generator examples:
+  https://docs.qualcomm.com/nav/home/htp_auto_optimization.html?product=924033590759186372
+- Qualcomm multi-stage HTP context generation and `--dlc_path` support:
+  https://docs.qualcomm.com/nav/home/lora_v3_overview.html?product=924033590759186372
+
+VENTUNO Q successful device diagnostic:
+https://github.com/Harrokk/Myai/actions/runs/38220630410
+
+### Ready-to-check SDK acquisition gate for a separate development host
+
+`scripts/qairt_host_toolchain_preflight.py` provides a **read-only**
+toolchain/fixture identity check for a separately installed, authorized
+QAIRT SDK. It supports x86_64 Linux and Windows SDK file layouts;
+some Windows distributions place `qnn-model-lib-generator` under
+`aarch64-windows-msvc` rather than
+`x86_64-windows-msvc`. It checks filenames only, never executes
+SDK tools.
+
+Example on a development Windows PC after legitimately installing
+the matching QAIRT SDK and placing the verified synthetic ONNX fixture
+in its own nonproduction directory:
+
+```powershell
+python -m scripts.qairt_host_toolchain_preflight --host windows `
+    --sdk-root 'C:\Path\To\Authorized\QAIRT\SDK' `
+    --fixture-dir 'C:\Path\To\tiny_qnn_fixture'
+```
+
+Example for x86_64 Linux / WSL:
+
+```bash
+python3 -m scripts.qairt_host_toolchain_preflight \
+  --host linux \
+  --sdk-root /path/to/authorized/qairt-sdk \
+  --fixture-dir /path/to/tiny_qnn_fixture
+```
+
+Before a conversion can be approved, confirm the SDK is genuinely
+compatible with the device's **QAIRT 2.45** runtime, verify target ABI,
+QNN HTP v75 backend and matching DSP skeleton, validate operator and
+quantization support, then run a separately bounded conversion and
+inspect the resulting graph. No SDK binaries are bundled in MyAI.
+
+The same preflight ran on GitHub's isolated x86_64 runner and confirmed
+the **source ONNX SHA-256 matches the previously verified fixture**,
+while the QAIRT host converter SDK is **absent**. It correctly returned
+`sdk-not-supplied` and left conversion/profile claims false:
+
+https://github.com/Harrokk/Myai/actions/runs/38220986724
+
+**Next hard dependency:** acquire/access a supported QAIRT 2.45
+host-side ONNX or DLC conversion toolchain from an authorized Qualcomm
+distribution. Without that, neither a valid independent QNN context
+nor a truthful direct HTP profile can be produced. No automatic
+installation, production service pause or new model loading is
+authorized by this preflight.
