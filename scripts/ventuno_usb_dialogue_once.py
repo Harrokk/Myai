@@ -43,6 +43,7 @@ class DialogPorts:
     play_usb: Callable[[bytes], bool]
     fresh_readiness: Callable[[], dict[str, object]]
     available_ram_kib: Callable[[], int | None]
+    audible_start_cue: Callable[[], bool] | None = None
 
 
 def approved_short_question(text: object) -> str | None:
@@ -131,6 +132,13 @@ class OneShotUsbDialog:
             result["status"] = "reject-unsafe-hardware-or-resource-readiness"
             return result
         try:
+            if self._ports.audible_start_cue is not None:
+                # A short, capped audible Swedish cue marks the EXACT
+                # beginning of the otherwise silent three-second capture.
+                # The cue must finish before the microphone is opened.
+                if self._ports.audible_start_cue() is not True:
+                    result["status"] = "reject-audible-start-cue-failed"
+                    return result
             result["recording_attempted"] = True
             pcm = self._ports.capture()
             if not pcm_signal_ok(pcm):
