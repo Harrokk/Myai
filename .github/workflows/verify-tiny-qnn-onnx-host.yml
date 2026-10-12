@@ -13,6 +13,9 @@ on:
       - tests/test_verify_tiny_qnn_host_sample.py
       - scripts/qairt_host_toolchain_preflight.py
       - tests/test_qairt_host_toolchain_preflight.py
+      - scripts/prepare_qairt245_native_fixture.py
+      - tests/test_prepare_qairt245_native_fixture.py
+      - fixtures/qairt_245/tiny_qdq_conv.dlc.b64
 
 permissions:
   contents: read
@@ -60,7 +63,8 @@ jobs:
           "$RUNNER_TEMP/tiny-qnn-venv/bin/python" -m pytest -q \
             tests/test_prepare_tiny_qnn_host_sample.py \
             tests/test_verify_tiny_qnn_host_sample.py \
-            tests/test_qairt_host_toolchain_preflight.py
+            tests/test_qairt_host_toolchain_preflight.py \
+            tests/test_prepare_qairt245_native_fixture.py
 
       - name: Generate and independently validate test model
         shell: bash
@@ -75,6 +79,18 @@ jobs:
             --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/context.bin"
           test ! -e "$RUNNER_TEMP/tiny_qnn_fixture/htp-profile.bin"
+
+      - name: Prepare exact 64-byte quantized UFXP8 input without executing QNN
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/tiny-qnn-checkout"
+          "$RUNNER_TEMP/tiny-qnn-venv/bin/python" \
+            -m scripts.prepare_qairt245_native_fixture \
+            --fixture-dir "$RUNNER_TEMP/tiny_qnn_fixture" \
+            --output-dir "$RUNNER_TEMP/tiny_qnn_native"
+          test "$(stat -c%s "$RUNNER_TEMP/tiny_qnn_native/input_native_u8.raw")" -eq 64
+          echo 'UFXP8 raw bytes prepared for potential isolated CPU verification only.'
 
       - name: Test QAIRT host SDK readiness without installing SDK
         shell: bash
