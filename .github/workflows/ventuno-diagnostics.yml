@@ -463,7 +463,7 @@ jobs:
           cd "$RUNNER_TEMP/myai-checkout"
           /home/arduino/MyAI/.venv/bin/python scripts/ventuno_geniex_benchmark.py
 
-      - name: Extract bounded QNN context metadata without loading another model
+      - name: Inspect QNN graph and tensor schema without loading another model
         shell: bash
         run: |
           set -euo pipefail
