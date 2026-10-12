@@ -100,7 +100,7 @@ def test_import_fail_is_no_go_even_if_wheels_installed(monkeypatch, tmp_path):
     result = s.stage_stt_import(py, runner, arm=True)
     assert result["status"] == "stt-optional-import-dependency-unavailable"
     assert result["stt_python_imports_verified"] is False
-    assert result["htp_npu_used"] is False if "htp_npu_used" in result else True
+    assert result["geniex_service_modified"] is False
 
 
 def test_import_script_never_contains_whisper_model_instantiation():
