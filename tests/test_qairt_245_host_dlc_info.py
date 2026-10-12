@@ -155,3 +155,28 @@ def test_malformed_dlc_tables_cannot_claim_input_layout():
     report = mod.summarize_official_io_tables(text)
     assert report["synthetic_float32_input_byte_size_matches_dlc"] is False
     assert report["dlc_declared_inputs"] == []
+
+def test_spaced_bracketed_dimension_format_is_supported():
+    snippet = """
+    Input Name | Dimensions | Type | Encoding Info
+    | synthetic_input | [1, 1, 8, 8] | Float_32 | No encoding info |
+    Output Name | Dimensions | Type | Encoding Info
+    | output | (1 x 1 x 8 x 8) | Float_32 | No encoding info |
+    """
+    report = mod.summarize_official_io_tables(snippet)
+    assert report["io_table_headers_detected"] == ["input", "output"]
+    assert report["dlc_io_tables_both_parsed"] is True
+    assert report["synthetic_float32_input_byte_size_matches_dlc"] is True
+    assert report["dlc_declared_outputs"][0]["elements"] == 64
+    assert "synthetic_input" not in str(report)
+
+
+def test_sanitized_unknown_table_shape_reports_no_tensor_name():
+    report = mod.summarize_official_io_tables(
+        "Input Name | Dimensions | Type | Encoding Info\n"
+        "| super_private_name | unknown-shape | Float_32 | unknown |\n"
+    )
+    assert report["dlc_declared_inputs"] == []
+    assert report["io_candidate_row_counts"]["input"] == 1
+    assert report["unrecognized_dimension_formats"] == ["unrecognized"]
+    assert "super_private_name" not in str(report)
