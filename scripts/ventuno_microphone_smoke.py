@@ -26,6 +26,31 @@ BYTES_EXPECTED = SAMPLE_RATE * SECONDS * 2
 MAX_OUTPUT_BYTES = 96_000
 TIMEOUT_SECONDS = 6
 
+def classify_alsa_error(stderr: bytes | None) -> str:
+    """Classify arecord failures without ever returning raw stderr.
+
+    Categories are diagnostic hints, not proven root causes. Never include
+    user audio, device names, or command output in reports/CI logs.
+    """
+    if not isinstance(stderr, (bytes, bytearray)):
+        return "unclassified"
+    description = bytes(stderr[:8192]).decode("utf-8", errors="replace").casefold()
+    categories = (
+        ("access-denied", ("permission denied", "operation not permitted")),
+        ("device-busy", ("device or resource busy", "resource busy")),
+        ("pcm-not-found", ("unknown pcm", "cannot find card", "no such device",
+                           "no such file or directory")),
+        ("unsupported-parameters", ("invalid argument", "sample format non available",
+                                     "channels count non available",
+                                     "unable to set hw params", "rate not available")),
+        ("io-failure", ("input/output error", "i/o error", "broken pipe")),
+    )
+    for category, phrases in categories:
+        if any(phrase in description for phrase in phrases):
+            return category
+    return "unclassified"
+
+
 
 def evaluate_pcm(raw: bytes) -> dict[str, object]:
     if len(raw) != BYTES_EXPECTED:
@@ -109,6 +134,7 @@ def microphone_capture(*, explicit_flag: bool, consent: bool,
     result["capture_executed"] = True
     if proc.returncode != 0:
         result["status"] = "alsa-capture-nonzero"
+        result["alsa_error_category"] = classify_alsa_error(proc.stderr)
         return result
     if len(proc.stdout) > MAX_OUTPUT_BYTES:
         result["status"] = "capture-exceeded-bounded-sample-budget"
