@@ -143,7 +143,7 @@ def graph_io_summary(data: object) -> dict[str, object]:
             continue
         inputs = graph_info.get("graphInputs")
         outputs = graph_info.get("graphOutputs")
-        sizes = graph_info.get("graphBlobInfoV2")
+        graph_blob_sizes = graph_info.get("graphBlobInfoV2")
         counts = {
             "index": index,
             "inputs": len(inputs) if isinstance(inputs, list) else None,
@@ -152,17 +152,17 @@ def graph_io_summary(data: object) -> dict[str, object]:
         if isinstance(inputs, list):
             shape_sizes = [tensor_raw_bytes(t) for t in inputs]
             dtypes = Counter(dtype for dtype, _ in shape_sizes)
-            sizes = [n for _, n in shape_sizes if n is not None]
+            input_sizes = [n for _, n in shape_sizes if n is not None]
             counts["input_dtype_counts"] = dict(sorted(dtypes.items()))
             counts["native_input_bytes_estimate"] = (
-                sum(sizes) if len(sizes) == len(inputs) else None
+                sum(input_sizes) if len(input_sizes) == len(inputs) else None
             )
-            counts["unresolved_input_sizes"] = len(inputs) - len(sizes)
-        if isinstance(sizes, dict):
+            counts["unresolved_input_sizes"] = len(inputs) - len(input_sizes)
+        if isinstance(graph_blob_sizes, dict):
             counts["serialized_sizes_bytes"] = {
-                k: sizes[k] for k in (
+                k: graph_blob_sizes[k] for k in (
                     "constSize", "sharedWeightsSize", "ioTensorSize", "ddrTensorSize", "opDataSize",
-                ) if isinstance(sizes.get(k), int) and 0 <= sizes[k] < 10**12
+                ) if isinstance(graph_blob_sizes.get(k), int) and 0 <= graph_blob_sizes[k] < 10**12
             }
         output.append(counts)
     first_info = next(
