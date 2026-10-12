@@ -65,10 +65,79 @@ assert Path(p).resolve() == root.resolve()
 print(json.dumps({"downloaded":True}))
 """
 
+# Pure helper shared verbatim with the isolated worker. No decoded
+# text crosses the subprocess boundary, even for PUBLIC synthetic audio.
+_METRIC_SOURCE = r"""
+import re
+
+def _distance_limited(first, second, cap=11):
+    if abs(len(first)-len(second)) >= cap:
+        return cap
+    previous = list(range(len(second)+1))
+    for i, left in enumerate(first, 1):
+        current = [i]
+        for j, right in enumerate(second, 1):
+            current.append(min(
+                previous[j]+1,
+                current[j-1]+1,
+                previous[j-1]+(left != right),
+            ))
+        previous = current
+    return min(previous[-1], cap)
+
+def private_phrase_metrics(decoded):
+    normalized = re.sub(
+        r"\s+", " ",
+        re.sub(r"[^0-9a-zåäö ]+", " ", decoded.lower())
+    ).strip()[:128]
+    target = ("vad", "heter", "du")
+    words = normalized.split()
+    distance = _distance_limited(normalized, "vad heter du")
+    if distance == 0:
+        band = "0"
+    elif distance <= 2:
+        band = "1-2"
+    elif distance <= 5:
+        band = "3-5"
+    elif distance <= 10:
+        band = "6-10"
+    else:
+        band = "11+"
+    if not words:
+        tokens = "0"
+    elif len(words) <= 2:
+        tokens = "1-2"
+    elif len(words) == 3:
+        tokens = "3"
+    elif len(words) <= 6:
+        tokens = "4-6"
+    else:
+        tokens = "7+"
+    overlap = sum(word in words for word in target)
+    aligned = sum(
+        idx < len(words) and words[idx] == word
+        for idx, word in enumerate(target)
+    )
+    ordered = iter(words)
+    in_order = all(any(x == t for x in ordered) for t in target)
+    contiguous = any(
+        words[i:i+3] == list(target)
+        for i in range(max(0,len(words)-2))
+    )
+    return {
+        "distance_band":band,
+        "word_count_band":tokens,
+        "target_words_present":overlap,
+        "target_words_aligned":aligned,
+        "target_words_in_order":in_order,
+        "exact_phrase_contained":contiguous,
+    }
+"""
+
 # The worker never emits or persists transcriptions, even of synthetic
 # audio. It receives exactly two case PCM buffers and exits before
 # loading another model, preventing simultaneous Tiny+Base RAM use.
-_INFERENCE = r"""
+_INFERENCE = _METRIC_SOURCE + r"""
 import json,os,re,resource,sys,time
 import numpy as np
 from faster_whisper import WhisperModel
@@ -99,20 +168,21 @@ for speech in audio:
             no_speech_threshold=0.6,
         )
         transcript=" ".join(segment.text for segment in segments)
-        norm=re.sub(r"\s+"," ",re.sub(r"[^0-9a-zåäö ]+"," ",transcript.lower())).strip()
-        valid=norm == "vad heter du"
+        metrics=private_phrase_metrics(transcript)
+        valid=metrics["distance_band"]=="0"
         if valid: category="approved"
-        elif not norm: category="empty"
-        elif len(norm.split())<=2: category="short-unmatched"
+        elif metrics["word_count_band"]=="0": category="empty"
+        elif metrics["word_count_band"]=="1-2": category="short-unmatched"
         else: category="other-unmatched"
         out.append({
             "beam":beam,
             "matched":valid,
             "category":category,
             "seconds":round(time.monotonic()-start,3),
+            "proximity":metrics,
         })
-        # Delete the only references to decoded words before next case.
-        del transcript,norm,segments,info
+        # Delete decoded words before the next case.
+        del transcript,metrics,segments,info
 print(json.dumps({
     "local_cpu_model_loaded":True,
     "load_seconds":load_seconds,
@@ -310,7 +380,24 @@ def compare_swedish_question(root: Path, *, authorized: bool = False,
             return report
         validated=[]
         for idx,entry in enumerate(values):
-            if (not isinstance(entry,dict)
+            proximity=entry.get("proximity") if isinstance(entry,dict) else None
+            proximity_valid=(
+                isinstance(proximity,dict)
+                and set(proximity)=={
+                    "distance_band","word_count_band","target_words_present",
+                    "target_words_aligned","target_words_in_order",
+                    "exact_phrase_contained",
+                }
+                and proximity["distance_band"] in ("0","1-2","3-5","6-10","11+")
+                and proximity["word_count_band"] in ("0","1-2","3","4-6","7+")
+                and type(proximity["target_words_present"]) is int
+                and 0 <= proximity["target_words_present"] <= 3
+                and type(proximity["target_words_aligned"]) is int
+                and 0 <= proximity["target_words_aligned"] <= 3
+                and type(proximity["target_words_in_order"]) is bool
+                and type(proximity["exact_phrase_contained"]) is bool
+            )
+            if (not proximity_valid
                     or entry.get("beam")!=BEAMS[idx%2]
                     or type(entry.get("matched")) is not bool
                     or entry.get("category") not in (
@@ -326,6 +413,11 @@ def compare_swedish_question(root: Path, *, authorized: bool = False,
                 "matched":entry["matched"],
                 "category":entry["category"],
                 "seconds":entry["seconds"],
+                "proximity":{key:proximity[key] for key in (
+                    "distance_band","word_count_band","target_words_present",
+                    "target_words_aligned","target_words_in_order",
+                    "exact_phrase_contained",
+                )},
             })
         report[model_name+"_results"]=validated
         report[model_name+"_beam1_matches"]=sum(
