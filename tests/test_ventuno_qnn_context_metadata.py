@@ -56,3 +56,13 @@ def test_utility_missing_is_skipped(tmp_path: Path, monkeypatch):
     assert run_context_probe(tmp_path / "model.bin", tmp_path) == {
         "status": "skipped", "reason": "utility-not-installed",
     }
+
+
+def test_schema_preview_reports_types_without_values():
+    from scripts.ventuno_qnn_context_metadata import preview_schema
+
+    data = {"info": {"graphs": [{"tensors": [{"dims": [1, 2, 3], "name": "secret-name"}]}]}}
+    summary = preview_schema(data)
+    assert "$.info.graphs: list(1 items)" in summary
+    assert "$.info.graphs[].tensors: list(1 items)" in summary
+    assert not any("secret-name" in entry for entry in summary)
