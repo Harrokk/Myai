@@ -1,0 +1,66 @@
+name: VENTUNO pause checkpoint recovery (one-time, no audio or service changes)
+
+on:
+  push:
+    branches:
+      - dev/routing-boundary-followup
+    paths:
+      - .github/workflows/ventuno-pause-checkpoint-recovery.yml
+
+permissions:
+  contents: read
+
+jobs:
+  save-pause-file:
+    name: Verify and save pause document on VENTUNO Q
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Copy pinned GitHub file to separate private checkpoint folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$HOME" = "/home/arduino"
+          test -n "${RUNNER_TEMP:-}"
+          source_url="https://raw.githubusercontent.com/Harrokk/Myai/e524c2e6f87988188385ab7ccbe641c43b9d7749/docs/checkpoints/2026-10-12-my-ai-pause-github-ventuno.md"
+          expected_blob="c87fe65eb9cec5db7c3dc902a6c80b111a770621"
+          tmpdir="$(mktemp -d "$RUNNER_TEMP/myai-pause-save-XXXXXXXX")"
+          trap 'rm -rf -- "$tmpdir"' EXIT
+          curl --fail --location --silent --show-error --max-time 30 \
+            "$source_url" --output "$tmpdir/pause.md"
+          test "$(wc -c < "$tmpdir/pause.md")" -ge 1000
+          test "$(wc -c < "$tmpdir/pause.md")" -le 16000
+          test "$(git hash-object "$tmpdir/pause.md")" = "$expected_blob"
+          destination_dir="/home/arduino/.local/share/myai/checkpoints"
+          destination="$destination_dir/2026-10-12-my-ai-pause-github-ventuno.md"
+          for entry in /home/arduino/.local /home/arduino/.local/share \
+            /home/arduino/.local/share/myai "$destination_dir"; do
+            test ! -L "$entry"
+          done
+          mkdir -p -m 700 -- "$destination_dir"
+          test ! -L "$destination_dir"
+          chmod 700 "$destination_dir"
+          if test -e "$destination" || test -L "$destination"; then
+            test -f "$destination" && test ! -L "$destination"
+            cmp --silent "$tmpdir/pause.md" "$destination"
+            echo "An identical existing pause checkpoint was verified."
+          else
+            temp_file="$(mktemp "$destination_dir/.pause-save-XXXXXXXX")"
+            chmod 600 "$temp_file"
+            cp -- "$tmpdir/pause.md" "$temp_file"
+            cmp --silent "$tmpdir/pause.md" "$temp_file"
+            mv -n -- "$temp_file" "$destination"
+            test ! -e "$temp_file"
+          fi
+          test -f "$destination" && test ! -L "$destination"
+          cmp --silent "$tmpdir/pause.md" "$destination"
+          test "$(stat -c '%a' "$destination")" = "600"
+          echo "SUCCESS: Pause checkpoint stored and verified on VENTUNO Q."
+          echo "File: $destination"
+          echo "Source Git blob: $expected_blob"
+          echo "MyAI service (read only): $(systemctl is-active myai-ventuno.service || true)"
+          echo "GenieX service (read only): $(systemctl is-active myai-geniex.service || true)"
+          echo "No microphone, speaker, LLM invocation or production configuration was changed."
