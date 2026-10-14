@@ -1,0 +1,142 @@
+name: VENTUNO human Swedish recording to pinned Whisper Tiny (privacy-safe)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-natural-swedish-stt.yml
+      - scripts/ventuno_natural_swedish_stt.py
+      - tests/test_ventuno_natural_swedish_stt.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-natural-swedish-stt
+  cancel-in-progress: false
+
+jobs:
+  human-voice:
+    name: Real human Swedish licensed reference STT; no microphones, speakers or services
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 22
+    steps:
+      - name: Checkout exact repo commit in temporary workspace
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "\${RUNNER_TEMP:-}"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-natural-sv-XXXXXXXX")"
+          echo "MYAI_NATURAL_SV_ROOT=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch/source"
+          git -C "$scratch/source" remote add origin "https://x-access-token:\${GH_TOKEN}@github.com/\${GITHUB_REPOSITORY}.git"
+          git -C "$scratch/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$scratch/source" remote set-url origin "https://github.com/\${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$scratch/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run privacy and safety mock tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_natural_swedish_stt.py \
+            tests/test_ventuno_whisper_tiny_cpu_smoke.py \
+            tests/test_ventuno_swedish_reference_audio.py \
+            tests/test_ventuno_whisper_base_swedish_comparison.py
+
+      - name: Confirm production services and voice remain unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json,os
+          from pathlib import Path
+          from scripts.ventuno_voice_wheel_staging import mem_available_kib,disk_free_bytes
+          from scripts.ventuno_whisper_tiny_cpu_smoke import MIN_MEM_AVAILABLE_KIB,MIN_DISK_AVAILABLE_BYTES
+          state=json.loads(Path("/home/arduino/MyAI/config/profiles/ventuno_q.json").read_text())
+          voice=state.get("voice")
+          assert isinstance(voice,dict)
+          assert all(voice.get(k) is False for k in ("enabled","tts_enabled","handsfree_enabled"))
+          assert (mem_available_kib() or 0)>=MIN_MEM_AVAILABLE_KIB
+          assert (disk_free_bytes(Path(os.environ["MYAI_NATURAL_SV_ROOT"])) or 0)>=MIN_DISK_AVAILABLE_BYTES
+          print("Production voice disabled; services healthy; reserve available.")
+          PY
+
+      - name: Stage pinned ARM64 Whisper Tiny dependencies only in temporary venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          PY="$(readlink -f "$(command -v python3)")"
+          test -x "$PY"
+          "$PY" -m venv "$MYAI_NATURAL_SV_ROOT/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_NATURAL_SV_ROOT"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_NATURAL_SV_ROOT"
+
+      - name: SHA1-check the previously validated separate public Swedish word baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$MYAI_NATURAL_SV_ROOT"
+
+      - name: Download/verify pinned multilingual Tiny and exercise word baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          root=Path(os.environ["MYAI_NATURAL_SV_ROOT"])
+          baseline=smoke(root/"myai-voice-staging/bin/python",root)
+          assert baseline["status"]=="tiny-sv-cpu-word-and-silence-verified"
+          print("Exact Tiny reference model integrity and Swedish word baseline verified.")
+          PY
+
+      - name: Compare two variants of the pinned public human Swedish utterance
+        id: natural
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_natural_swedish_stt \
+            --runner-temp "$MYAI_NATURAL_SV_ROOT" \
+            --allow-public-human-reference-only
+          echo "No user speech, transcripts, audio files or model replies were retained."
+
+      - name: Verify services and remove disposable source, models and sample
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "\${MYAI_NATURAL_SV_ROOT:-}" ] && [ -n "\${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_NATURAL_SV_ROOT" in
+              "$RUNNER_TEMP"/myai-natural-sv-*)
+                if [ -d "$MYAI_NATURAL_SV_ROOT" ] && [ ! -L "$MYAI_NATURAL_SV_ROOT" ]; then
+                  rm -rf -- "$MYAI_NATURAL_SV_ROOT"
+                fi
+                ;;
+              *) echo "Unsafe workspace; cannot clean." >&2; exit 2 ;;
+            esac
+          fi
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          echo "Temporary fixture, Whisper wheels, model and source removed."
+          echo "Production MyAI, GenieX and runner systemd settings unchanged."
