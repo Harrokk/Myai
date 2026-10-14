@@ -205,6 +205,26 @@ class SelfDevPromotionManager:
             )
         )
 
+    def _private_selfdev_directory(self, *, create=False):
+        """Reject redirection and shared-writable metadata directories."""
+        runtime = self.workspace.project_root / "runtime"
+        directory = runtime / "selfdev"
+        if runtime.is_symlink() or directory.is_symlink():
+            raise PermissionError("Selfdev-katalogen får inte vara symlink.")
+        if create:
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for item in (runtime, directory):
+            if not item.is_dir() or item.is_symlink():
+                raise PermissionError("Selfdev-katalogen är ogiltig.")
+            info = item.lstat()
+            if os.name == "posix" and (
+                info.st_uid != os.geteuid() or (info.st_mode & 0o022)
+            ):
+                raise PermissionError(
+                    "Selfdev-katalogen har osäkra behörigheter."
+                )
+        return directory
+
     @contextmanager
     def _project_mutation_lock(self):
         """Nonblocking OS lock shared by all selfdev sessions for a project.
@@ -212,19 +232,28 @@ class SelfDevPromotionManager:
         The kernel releases advisory locks if the process crashes. Other
         non-cooperating filesystem writers are outside this protection.
         """
-        lock_dir = self.workspace.project_root / "runtime" / "selfdev"
-        if lock_dir.is_symlink():
-            raise PermissionError("Selfdev-låskatalogen får inte vara symlink.")
-        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_dir = self._private_selfdev_directory(create=True)
         lock_path = lock_dir / ".promotion.lock"
         flags = os.O_CREAT | os.O_RDWR
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
         if hasattr(os, "O_BINARY"):
             flags |= os.O_BINARY
         descriptor = os.open(str(lock_path), flags, 0o600)
         acquired = False
         try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or (os.name == "posix" and (
+                    metadata.st_uid != os.geteuid()
+                    or (metadata.st_mode & 0o077)
+                ))
+            ):
+                raise PermissionError("Osäker selfdev-projektlåsfil.")
             if fcntl is not None:
                 try:
                     fcntl.flock(
@@ -259,11 +288,7 @@ class SelfDevPromotionManager:
 
     def _journal_integrity_key(self, *, create=False):
         """Detect altered journal data using a local private project key."""
-        directory = self.workspace.project_root / "runtime" / "selfdev"
-        if directory.is_symlink():
-            raise RuntimeError("Selfdev-nyckelkatalogen är en symlink.")
-        if create:
-            directory.mkdir(parents=True, exist_ok=True)
+        directory = self._private_selfdev_directory(create=create)
         path = directory / ".journal-integrity-key"
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         if hasattr(os, "O_NOFOLLOW"):
@@ -720,7 +745,8 @@ class SelfDevPromotionManager:
         )
         if rollback_root.exists():
             raise FileExistsError("Promotion-ID finns redan.")
-        rollback_root.mkdir(parents=True, exist_ok=False)
+        # Private backup metadata, including originally world-readable code.
+        rollback_root.mkdir(parents=True, exist_ok=False, mode=0o700)
 
         # Make parent directory entries durable before relying on a
         # journal stored under this newly created promotion directory.
