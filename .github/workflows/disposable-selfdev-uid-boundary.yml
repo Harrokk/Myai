@@ -1,0 +1,33 @@
+name: Disposable Linux multi-UID boundary simulation
+on:
+  push:
+    branches: [dev/selfdev-disposable-uid-boundary-ci-20261014]
+    paths:
+      - scripts/test_disposable_updater_uid_boundary.py
+      - .github/workflows/disposable-selfdev-uid-boundary.yml
+      - docs/security/disposable-uid-test-scope.md
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  disposable-uid-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out test sources without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run two simulated Unix identities only inside disposable container
+        shell: bash
+        env:
+          DOCKER_CONTENT_TRUST: "0"
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-slim-bookworm
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --mount "type=bind,src=$PWD/scripts/test_disposable_updater_uid_boundary.py,dst=/opt/myai-test.py,readonly" \
+            -e MYAI_DISPOSABLE_UID_TEST=yes \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.12-slim-bookworm python /opt/myai-test.py
