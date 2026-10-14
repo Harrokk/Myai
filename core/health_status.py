@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -21,6 +22,19 @@ def _safe_dict(value):
     )
 
 
+def _valid_health_counter(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        if not math.isfinite(number) or not number.is_integer():
+            return None
+        number = int(number)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return number if 0 <= number <= 1_000_000 else None
+
+
 def classify_health(
     llm_runtime,
     geniex_state=None,
@@ -35,47 +49,35 @@ def classify_health(
     geniex_state = _safe_dict(
         geniex_state
     )
-    now = (
-        time.time()
-        if now is None
-        else float(now)
-    )
-    stale_after_seconds = max(
-        0.0,
-        float(
-            stale_after_seconds
-        ),
-    )
-    written_time = geniex_state.get(
-        "written_unix_time"
-    )
+    now = time.time() if now is None else now
+    written_time = geniex_state.get("written_unix_time")
     state_age_seconds = None
-    state_stale = False
+    state_stale = bool(supervisor_expected and written_time is None)
 
-    if written_time is not None:
-        try:
-            state_age_seconds = max(
-                0.0,
-                now
-                - float(
-                    written_time
-                ),
-            )
-            state_stale = (
-                stale_after_seconds > 0
-                and state_age_seconds
-                > stale_after_seconds
-            )
-        except (
-            TypeError,
-            ValueError,
+    try:
+        now_value = float(now)
+        stale_after_seconds = float(stale_after_seconds)
+        if (
+            not math.isfinite(now_value)
+            or not math.isfinite(stale_after_seconds)
+            or stale_after_seconds < 0
         ):
-            state_stale = True
+            raise ValueError("invalid health clock/expiry")
 
-    if (
-        supervisor_expected
-        and not geniex_state
-    ):
+        if written_time is not None:
+            stamp = float(written_time)
+            if not math.isfinite(stamp) or stamp > now_value + 5.0:
+                raise ValueError("invalid/future watchdog timestamp")
+            state_age_seconds = max(0.0, now_value - stamp)
+            state_stale = bool(
+                stale_after_seconds > 0
+                and state_age_seconds > stale_after_seconds
+            )
+    except (TypeError, ValueError, OverflowError):
+        state_age_seconds = None
+        state_stale = True
+
+    if supervisor_expected and not geniex_state:
         state_stale = True
 
     active_backend = str(
@@ -89,37 +91,29 @@ def classify_health(
         == "fallback"
     )
 
-    check = _safe_dict(
-        geniex_state.get(
-            "check",
-        )
+    raw_check = geniex_state.get("check")
+    check = _safe_dict(raw_check)
+    geniex_healthy = check.get("healthy")
+    failures_value = _valid_health_counter(
+        check.get("consecutive_failures", 0)
     )
+    successes_value = _valid_health_counter(
+        check.get("consecutive_successes", 0)
+    )
+    if supervisor_expected and (
+        not isinstance(raw_check, dict)
+        or not isinstance(geniex_healthy, bool)
+        or failures_value is None
+        or successes_value is None
+    ):
+        state_stale = True
+
+    failures = failures_value if failures_value is not None else 0
+    successes = successes_value if successes_value is not None else 0
     supervisor_enabled = (
-        check.get(
-            "enabled"
-        )
-        is not False
-        and bool(
-            geniex_state
-        )
+        check.get("enabled") is not False
+        and bool(geniex_state)
         and not state_stale
-    )
-    geniex_healthy = check.get(
-        "healthy"
-    )
-    failures = int(
-        check.get(
-            "consecutive_failures",
-            0,
-        )
-        or 0
-    )
-    successes = int(
-        check.get(
-            "consecutive_successes",
-            0,
-        )
-        or 0
     )
 
     if (
