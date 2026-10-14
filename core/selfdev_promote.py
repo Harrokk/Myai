@@ -105,6 +105,34 @@ def _atomic_copy(
         raise
 
 
+def _atomic_write_record(path, record):
+    """Durably stage the recovery record before replacing source files."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(record, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        if hasattr(os, "O_DIRECTORY"):
+            directory_fd = os.open(str(path.parent), os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 class SelfDevPromotionManager:
     def __init__(
         self,
@@ -268,6 +296,37 @@ class SelfDevPromotionManager:
 
         return target
 
+    def _require_no_interrupted_promotion(self):
+        # Never layer a new patch on top of an incompletely updated tree.
+        root = self.workspace.session_root / "rollbacks"
+        if not root.exists():
+            return
+        for candidate in root.iterdir():
+            if not candidate.is_dir():
+                continue
+            record_path = candidate / "promotion.json"
+            if not record_path.is_file():
+                raise RuntimeError(
+                    "Ofullständig selfdev-promotion saknar återställningsjournal."
+                )
+            try:
+                record = _read_json(record_path)
+            except (OSError, ValueError, TypeError) as error:
+                raise RuntimeError(
+                    "Selfdev-promotion har en skadad återställningsjournal."
+                ) from error
+            if not isinstance(record, dict):
+                raise RuntimeError("Ogiltig återställningsjournal.")
+            status = record.get("state")
+            if status in {"completed", "recovered", "reverted"}:
+                continue
+            if status is None and record.get("promoted_unix_time"):
+                # Legacy completed records from before transactional journaling.
+                continue
+            raise RuntimeError(
+                "Ofullständig selfdev-promotion måste återställas manuellt."
+            )
+
     def _preflight_promotion(
         self,
     ):
@@ -405,172 +464,89 @@ class SelfDevPromotionManager:
         )
         return record
 
-    def _promote_impl(
-        self,
-        approval_phrase,
-    ):
+    def _promote_impl(self, approval_phrase):
         self._require_promotion_enabled()
-        expected = (
-            "PROMOTE "
-            + self.workspace.session_id
-        )
+        expected = "PROMOTE " + self.workspace.session_id
+        if str(approval_phrase) != expected:
+            raise PermissionError("Fel manuell promotion-frase.")
 
-        if str(
-            approval_phrase
-        ) != expected:
-            raise PermissionError(
-                "Fel manuell promotion-frase."
-            )
-
-        (
-            verification,
-            changes,
-            paths,
-        ) = (
-            self._preflight_promotion()
-        )
-
-        promotion_id = _safe_identifier(
-            self.promotion_id_factory()
-        )
-
+        self._require_no_interrupted_promotion()
+        verification, changes, paths = self._preflight_promotion()
+        promotion_id = _safe_identifier(self.promotion_id_factory())
         rollback_root = (
-            self.workspace
-            .session_root
-            / "rollbacks"
-            / promotion_id
+            self.workspace.session_root / "rollbacks" / promotion_id
         )
-
         if rollback_root.exists():
-            raise FileExistsError(
-                "Promotion-ID finns redan."
-            )
+            raise FileExistsError("Promotion-ID finns redan.")
+        rollback_root.mkdir(parents=True, exist_ok=False)
 
-        rollback_root.mkdir(
-            parents=True,
-            exist_ok=False,
-        )
         backups = {}
-        after_hashes = {}
-
+        planned_hashes = {}
         for relative in paths:
-            target = (
-                self._safe_project_target(
-                    relative
-                )
-            )
-
+            source = self.workspace.workspace_root / relative
+            target = self._safe_project_target(relative)
+            planned_hashes[relative] = _sha256(source)
             if target.exists():
-                backup = self._safe_backup_path(
-                    rollback_root,
-                    relative,
-                )
-                backup.parent.mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
-                shutil.copy2(
-                    target,
-                    backup,
-                )
-                backups[
-                    relative
-                ] = {
+                backup = self._safe_backup_path(rollback_root, relative)
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup)
+                backups[relative] = {
                     "existed": True,
-                    "sha256": (
-                        _sha256(
-                            target
-                        )
-                    ),
+                    "sha256": _sha256(target),
                 }
             else:
-                backups[
-                    relative
-                ] = {
-                    "existed": False,
-                    "sha256": None,
-                }
+                backups[relative] = {"existed": False, "sha256": None}
 
-        applied = []
-
-        try:
-            for relative in paths:
-                source = (
-                    self.workspace
-                    .workspace_root
-                    / relative
-                )
-                target = (
-                    self._safe_project_target(
-                        relative
-                    )
-                )
-                _atomic_copy(
-                    source,
-                    target,
-                )
-                applied.append(
-                    relative
-                )
-                after_hashes[
-                    relative
-                ] = (
-                    _sha256(
-                        target
-                    )
-                )
-        except Exception:
-            self._restore_from_backup(
-                rollback_root,
-                backups,
-                applied,
-            )
-            raise
-
-        record = {
-            "session_id": (
-                self.workspace
-                .session_id
-            ),
-            "promotion_id": (
-                promotion_id
-            ),
-            "promoted_unix_time": (
-                time.time()
-            ),
-            "verification_manifest_digest": (
-                verification[
-                    "workspace_manifest_digest"
-                ]
-            ),
-            "changed": (
-                changes[
-                    "changed"
-                ]
-            ),
-            "added": (
-                changes[
-                    "added"
-                ]
-            ),
+        journal = {
+            "session_id": self.workspace.session_id,
+            "promotion_id": promotion_id,
+            "state": "prepared",
+            "verification_manifest_digest": verification[
+                "workspace_manifest_digest"
+            ],
+            "changed": changes["changed"],
+            "added": changes["added"],
             "backups": backups,
-            "after_hashes": (
-                after_hashes
-            ),
+            "planned_hashes": planned_hashes,
+            "after_hashes": {},
             "rolled_back": False,
         }
-        (
-            rollback_root
-            / "promotion.json"
-        ).write_text(
-            json.dumps(
-                record,
-                ensure_ascii=False,
-                indent=2,
+        record_path = rollback_root / "promotion.json"
+        # Power loss after this write can be recovered via the backups and
+        # intended content hashes. No active file is touched before this.
+        _atomic_write_record(record_path, journal)
+
+        applied = []
+        after_hashes = {}
+        try:
+            for relative in paths:
+                source = self.workspace.workspace_root / relative
+                target = self._safe_project_target(relative)
+                _atomic_copy(source, target)
+                applied.append(relative)
+                after_hashes[relative] = _sha256(target)
+
+            record = {
+                **journal,
+                "state": "completed",
+                "promoted_unix_time": time.time(),
+                "after_hashes": after_hashes,
+            }
+            _atomic_write_record(record_path, record)
+        except Exception:
+            # Ordinary errors are repaired immediately. SystemExit, kill,
+            # power loss and partial recovery leave the PREPARED journal.
+            self._restore_from_backup(rollback_root, backups, applied)
+            _atomic_write_record(
+                record_path,
+                {
+                    **journal,
+                    "state": "reverted",
+                    "rolled_back": True,
+                    "reverted_unix_time": time.time(),
+                },
             )
-            + "\n",
-            encoding="utf-8",
-        )
+            raise
 
         return record
 
@@ -641,6 +617,120 @@ class SelfDevPromotionManager:
                     target.unlink()
                 except FileNotFoundError:
                     pass
+
+    def recover_interrupted(self, promotion_id, approval_phrase):
+        """Explicit, idempotent recovery; never triggered automatically."""
+        identifier = _safe_identifier(promotion_id)
+        expected = (
+            "RECOVER " + self.workspace.session_id + " " + identifier
+        )
+        target_label = "selfdev/" + self.workspace.session_id
+        self.audit_logger.write_attempt(
+            action="selfdev_recover",
+            component="selfdev",
+            target=target_label,
+            details={"promotion_id": identifier},
+        )
+        try:
+            if str(approval_phrase) != expected:
+                raise PermissionError("Fel manuell recovery-frase.")
+            record = self._recover_interrupted_impl(identifier)
+        except Exception as error:
+            self.audit_logger.write_result(
+                action="selfdev_recover",
+                component="selfdev",
+                outcome=audit_outcome_for_exception(error),
+                target=target_label,
+                details={
+                    "promotion_id": identifier,
+                    "error_type": type(error).__name__,
+                },
+            )
+            raise
+        self.audit_logger.write_result(
+            action="selfdev_recover",
+            component="selfdev",
+            outcome="success",
+            target=target_label,
+            details={"promotion_id": identifier},
+        )
+        return record
+
+    def _recover_interrupted_impl(self, identifier):
+        rollback_root = self.workspace.session_root / "rollbacks" / identifier
+        record_path = rollback_root / "promotion.json"
+        record = _read_json(record_path)
+        if not isinstance(record, dict) or record.get("state") != "prepared":
+            raise RuntimeError(
+                "Återställning kräver en ofullständig prepared-journal."
+            )
+        if (
+            record.get("promotion_id") != identifier
+            or record.get("session_id") != self.workspace.session_id
+        ):
+            raise PermissionError("Återställningsjournalen gäller fel session.")
+
+        backups = record.get("backups")
+        planned = record.get("planned_hashes")
+        if (
+            not isinstance(backups, dict)
+            or not isinstance(planned, dict)
+            or not backups
+            or set(backups) != set(planned)
+        ):
+            raise RuntimeError("Ofullständiga återställningsuppgifter.")
+
+        # Complete validation before the first write, so a later, unrelated
+        # change to one file cannot cause a partially restored project.
+        need_restore = []
+        for relative, before in backups.items():
+            if not isinstance(relative, str) or not isinstance(before, dict):
+                raise RuntimeError("Ogiltiga återställningsuppgifter.")
+            if (
+                not relative
+                or Path(relative).is_absolute()
+                or ".." in Path(relative).parts
+            ):
+                raise PermissionError("Otillåten återställningssökväg.")
+            target = self._safe_project_target(relative)
+            after_sha = planned[relative]
+            if not isinstance(after_sha, str) or len(after_sha) != 64:
+                raise RuntimeError("Ogiltigt SHA256 i journalen.")
+            existed = before.get("existed")
+            if type(existed) is not bool:
+                raise RuntimeError("Ogiltigt backupstatus i journalen.")
+            expected_original = before.get("sha256")
+            if existed:
+                backup = self._safe_backup_path(rollback_root, relative)
+                if not backup.is_file() or _sha256(backup) != expected_original:
+                    raise RuntimeError("Backup är skadad eller saknas.")
+                if not target.is_file():
+                    raise RuntimeError(
+                        "Aktiv fil saknas eller har ändrats efter avbrottet."
+                    )
+                current_sha = _sha256(target)
+                if current_sha not in {expected_original, after_sha}:
+                    raise RuntimeError(
+                        "Aktiv källkod har nyare arbete; återställning stoppades."
+                    )
+                if current_sha != expected_original:
+                    need_restore.append(relative)
+            else:
+                if expected_original is not None:
+                    raise RuntimeError("Ogiltig backupmetadata.")
+                if target.exists():
+                    if not target.is_file() or _sha256(target) != after_sha:
+                        raise RuntimeError(
+                            "Aktiv källkod har nyare arbete; återställning stoppades."
+                        )
+                    need_restore.append(relative)
+
+        self._restore_from_backup(rollback_root, backups, need_restore)
+        record["state"] = "recovered"
+        record["rolled_back"] = True
+        record["recovered_unix_time"] = time.time()
+        _atomic_write_record(record_path, record)
+        return record
 
     def rollback(
         self,
@@ -806,14 +896,6 @@ class SelfDevPromotionManager:
         record[
             "rolled_back_unix_time"
         ] = time.time()
-        record_path.write_text(
-            json.dumps(
-                record,
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        _atomic_write_record(record_path, record)
 
         return record

@@ -527,3 +527,115 @@ def test_selfdev_rollback_is_audited(
     assert "selfdev_rollback" in audit_text
     assert '"outcome":"success"' in audit_text
     assert "ROLLBACK session1 promo1" not in audit_text
+
+
+def test_interrupted_promotion_writes_recovery_journal_before_source_change(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_copy = module._atomic_copy
+    calls = [0]
+
+    def interrupt_on_second_copy(source, target):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise SystemExit("synthetic power loss")
+        return original_copy(source, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", interrupt_on_second_copy)
+        with pytest.raises(SystemExit, match="synthetic power loss"):
+            active.promote("PROMOTE session1")
+
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    saved = json.loads(journal.read_text(encoding="utf-8"))
+    assert saved["state"] == "prepared"
+    assert saved["backups"]
+    assert saved["planned_hashes"]
+    assert (project / "core" / "example.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert not (project / "tests" / "test_new.py").exists()
+
+    with pytest.raises(RuntimeError, match="Ofullständig"):
+        active.promote("PROMOTE session1")
+
+    with pytest.raises(PermissionError, match="recovery-frase"):
+        active.recover_interrupted("promo1", "yes")
+
+    record = active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )
+    assert record["state"] == "recovered"
+    assert record["rolled_back"] is True
+    assert (project / "core" / "example.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert not (project / "tests" / "test_new.py").exists()
+
+
+def test_recovery_refuses_to_overwrite_external_change_without_partial_restore(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_copy = module._atomic_copy
+    calls = [0]
+
+    def interrupt_after_first(source, target):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise SystemExit("synthetic interruption")
+        return original_copy(source, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", interrupt_after_first)
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    (project / "tests" / "test_new.py").write_text(
+        "unrelated user change", encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="nyare arbete"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert (project / "tests" / "test_new.py").read_text(encoding="utf-8") == "unrelated user change"
+
+
+def test_successful_promotion_has_complete_record_and_disallows_recovery(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    record = active.promote("PROMOTE session1")
+    assert record["state"] == "completed"
+    assert record["planned_hashes"]
+    assert record["after_hashes"]
+    with pytest.raises(RuntimeError, match="ofullständig prepared-journal"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert (project / "core" / "example.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_recovery_is_idempotent_and_refuses_second_restore(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_copy = module._atomic_copy
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            module,
+            "_atomic_copy",
+            lambda *args: (_ for _ in ()).throw(SystemExit("interrupted")),
+        )
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    saved = active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert saved["state"] == "recovered"
+    with pytest.raises(RuntimeError, match="ofullständig prepared-journal"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
