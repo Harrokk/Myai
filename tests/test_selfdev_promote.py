@@ -1809,12 +1809,12 @@ def test_swap_backup_to_external_symlink_after_first_validation(
     external = tmp_path / "external-backup.py"
     external.write_bytes(backup.read_bytes())
     original_check = active._verified_backup
-    swapped = [False]
+    calls = [0]
 
     def swap_after_validation(root, relative, expected):
         verified = original_check(root, relative, expected)
-        if not swapped[0]:
-            swapped[0] = True
+        calls[0] += 1
+        if calls[0] == 2:
             verified.unlink()
             verified.symlink_to(external)
         return verified
@@ -1841,12 +1841,12 @@ def test_backup_mutates_inside_snapshot_read_and_never_restores(
         / "files" / "core" / "example.py"
     )
     original = active._verified_backup
-    altered = [False]
+    calls = [0]
 
     def mutate_after_first_verification(root, relative, expected):
         verified = original(root, relative, expected)
-        if not altered[0]:
-            altered[0] = True
+        calls[0] += 1
+        if calls[0] == 2:
             verified.write_text("CORRUPT\n", encoding="utf-8")
         return verified
 
