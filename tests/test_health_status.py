@@ -169,3 +169,48 @@ def test_health_state_write_is_atomic_and_readable(tmp_path):
         )
     )
     assert parsed["level"] == "healthy"
+
+
+def test_nonfinite_or_future_watchdog_date_is_unknown():
+    for written in (float("nan"), float("inf"), float("-inf"), 10000.0):
+        report = classify_health(
+            runtime(), geniex_state(written=written),
+            supervisor_expected=True, stale_after_seconds=30, now=100,
+        )
+        assert report["level"] == "unknown"
+        assert report["geniex_state_stale"] is True
+
+
+def test_corrupt_watchdog_counters_cannot_crash_health_status():
+    for value in ("bad", None, float("nan"), float("inf"), -5, True, [], {}):
+        data = geniex_state()
+        data["check"]["consecutive_failures"] = value
+        report = classify_health(
+            runtime(), data,
+            supervisor_expected=True, stale_after_seconds=30, now=110,
+        )
+        assert report["level"] == "unknown", repr(value)
+        assert report["geniex_state_stale"] is True, repr(value)
+
+
+def test_missing_health_timestamp_is_unknown_when_expected():
+    data = geniex_state()
+    data.pop("written_unix_time")
+    report = classify_health(
+        runtime(), data,
+        supervisor_expected=True, stale_after_seconds=30, now=110,
+    )
+    assert report["level"] == "unknown"
+    assert report["geniex_state_stale"] is True
+
+
+def test_corrupt_watchdog_check_is_unknown_when_expected():
+    for invalid in (None, [], 12, "broken"):
+        data = geniex_state()
+        data["check"] = invalid
+        report = classify_health(
+            runtime(), data,
+            supervisor_expected=True, stale_after_seconds=30, now=110,
+        )
+        assert report["level"] == "unknown", repr(invalid)
+        assert report["geniex_state_stale"] is True
