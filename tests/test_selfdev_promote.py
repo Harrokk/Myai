@@ -979,15 +979,15 @@ def test_backup_copy_failure_happens_before_any_active_code_change(
     project, workspace = make_workspace(tmp_path)
     approve_verification(workspace)
     active = manager(workspace, settings())
-    original = module._atomic_copy
+    original = module.shutil.copy2
 
-    def refuse_backup(source, destination, **kwargs):
+    def refuse_backup(source, destination, *args, **kwargs):
         if "rollbacks" in str(destination):
             raise OSError("synthetic backup storage failure")
-        return original(source, destination, **kwargs)
+        return original(source, destination, *args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(module, "_atomic_copy", refuse_backup)
+        patch.setattr(module.shutil, "copy2", refuse_backup)
         with pytest.raises(OSError, match="backup storage failure"):
             active.promote("PROMOTE session1")
 

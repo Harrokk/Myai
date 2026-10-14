@@ -581,7 +581,13 @@ class SelfDevPromotionManager:
                     old_digest = _sha256(target)
                     backup = self._safe_backup_path(rollback_root, relative)
                     backup.parent.mkdir(parents=True, exist_ok=True)
-                    _atomic_copy(target, backup)
+                    # Backups are not source promotions; copy and sync them
+                    # separately so source-replace fault injection remains
+                    # precise and backups stay durable before PREPARED.
+                    shutil.copy2(target, backup)
+                    with backup.open("rb") as handle:
+                        os.fsync(handle.fileno())
+                    _sync_directory(backup.parent)
                     # The source may have changed while backup was copied.
                     if (
                         _sha256(backup) != old_digest
