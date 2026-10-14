@@ -120,6 +120,8 @@ def test_group_writable_parent_rejected(tmp_path):
 def test_database_corruption_does_not_silently_recreate_ledger(tmp_path):
     path = tmp_path / "replay.db"
     path.write_bytes(b"not a sqlite file")
+    if os.name == "posix":
+        os.chmod(path, 0o600)
     with pytest.raises(sqlite3.DatabaseError):
         InspectionReplayLedger(path).claim(_request(), now_unix=NOW)
     assert path.read_bytes() == b"not a sqlite file"
