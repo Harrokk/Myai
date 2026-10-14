@@ -769,74 +769,77 @@ class VoicePipeline:
 
         if normalized in confirm_phrases:
             confidence = primary.get("confidence")
-            threshold = float(
-                config.get(
-                    "high_risk_confirmation_min_confidence",
-                    0.80,
-                )
-            )
-            confirmation_transcripts = [
-                primary
-            ]
-            confirmed = (
-                confidence is not None
-                and confidence >= threshold
-            )
-
-            if not confirmed:
-                desired = max(
-                    2,
-                    int(
-                        config.get(
-                            "high_risk_confirmation_transcript_count",
-                            3,
-                        )
-                    ),
-                )
-
-                # Confirmation votes must also represent separate
-                # recognizer instances; duplicates cannot vote twice.
-                confirmation_seen = {id(self.primary_stt)}
-                for provider in self.backup_stt:
-                    if len(
-                        confirmation_transcripts
-                    ) >= desired:
-                        break
-                    if id(provider) in confirmation_seen:
-                        continue
-                    confirmation_seen.add(id(provider))
-
+            # A high confidence from one recognizer is still just one
+            # observation. Destructive confirmation requires 2 of 3
+            # *independent* STT instances, not a single confident guess.
+            confirmation_transcripts = [primary]
+            confirmation_seen = {id(self.primary_stt)}
+            for provider in self.backup_stt:
+                if len(confirmation_transcripts) >= 3:
+                    break
+                if id(provider) in confirmation_seen:
+                    continue
+                confirmation_seen.add(id(provider))
+                try:
                     confirmation_transcripts.append(
-                        self._transcribe(
-                            provider,
-                            audio,
-                        )
+                        self._transcribe(provider, audio)
                     )
+                except Exception:
+                    # No raw exception, audio or backend details exposed.
+                    # An unreadable vote cannot authorize the command.
+                    break
 
-                normalized_confirmations = [
-                    normalize_transcript(
-                        item["text"]
-                    )
-                    for item in confirmation_transcripts
-                ]
-                support = sum(
-                    1
-                    for value in normalized_confirmations
-                    if value in confirm_phrases
+            normalized_confirmations = [
+                normalize_transcript(item["text"])
+                for item in confirmation_transcripts
+            ]
+            support = sum(
+                1 for phrase in normalized_confirmations
+                if phrase in confirm_phrases
+            )
+            observed_cancel = any(
+                phrase in cancel_phrases
+                for phrase in normalized_confirmations
+            )
+            observed_negation = any(
+                _command_is_negated(phrase)
+                for phrase in normalized_confirmations
+            )
+
+            if observed_cancel:
+                # Cancellation is safe to honor even when only one
+                # recognizer heard it; never let other yes votes win.
+                self.pending_confirmation = None
+                message = "Kommandot avbröts."
+                self._speak_control_message(message)
+                return {
+                    "status": "confirmation_cancelled",
+                    "message": message,
+                    "transcript": pending["transcript"],
+                }
+
+            # STT may be slow; expiration must be checked AGAIN before
+            # any assistant/tool action, not just before transcription.
+            final_age = self.clock() - pending["created_at"]
+            if final_age < 0 or final_age > window:
+                self.pending_confirmation = None
+                message = (
+                    "Bekräftelsetiden gick ut. "
+                    "Säg högriskkommandot igen om det fortfarande ska köras."
                 )
-                majority = (
-                    len(
-                        confirmation_transcripts
-                    ) // 2 + 1
-                )
-                confirmed = (
-                    len(
-                        confirmation_transcripts
-                    ) >= desired
-                    and support >= majority
-                )
-            else:
-                support = 1
+                self._speak_control_message(message)
+                return {
+                    "status": "confirmation_expired",
+                    "message": message,
+                    "transcript": primary["text"],
+                    "pending_transcript": pending["transcript"],
+                }
+
+            confirmed = (
+                len(confirmation_transcripts) == 3
+                and support >= 2
+                and not observed_negation
+            )
 
             if not confirmed:
                 message = (
