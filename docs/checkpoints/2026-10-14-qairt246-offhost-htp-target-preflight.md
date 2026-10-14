@@ -21,7 +21,7 @@ Datum: 2026-10-14. Gren: `dev/ventuno-qairt246-host-htp-preflight-20261014`. All
 - Den redan incheckade lilla DLC:n verifieras med sin exakta SHA-256 och filstorlek, men detta är **inte** HTP-kompatibilitetsbevis.
 - Om alla syntetiska hostfiler ser giltiga ut returneras ändå endast `no_go_manual_vendor_sdk_and_soc_attestation_required`: SDK:s äkthet och **numeriskt Qualcomm soc_model/soc_id** har **inte** verifierats via VENTUNO/Arduinos och QAIRT-versionens offentliga hårdvarutabelldokumentation. Inga värden gissas; varken `V75` ensamt eller liknande Qualcomm-proxychip räcker.
 - Tio syntetiska tester omfattar ARM-avslag, frånvarande SDK, giltig/felaktig host ELF, fel SDK-version, symlänkar, korrupt DLC och avsaknad av falska HTP- eller licens-/vendorproveniensanspråk.
-- GitHub Actions-jobbet använder **GitHub-hosted x86/Ubuntu**, exakt SHA och temporär checkout. Det installerar/downloadar **inte QAIRT eller andra verktyg**, exekverar **inga** HTP-, DSP-, modell- eller firmwarefunktioner och har inga action secrets utöver begränsad token för källkodshämtning.
+- GitHub Actions-jobbet använder **GitHub-hosted x86/Ubuntu**, exakt SHA och temporär checkout. Det installerar bara **pytest 8.3.5 i en temporär venv på GitHub-host** för regressionstester, men hämtar eller installerar **inte QAIRT eller Qualcomm-komponenter**, och exekverar **inga** HTP-, DSP-, modell- eller firmwarefunktioner och har inga action secrets utöver begränsad token för källkodshämtning.
 
 ## Stoppvillkor före någon framtida fysisk NPU-körning
 
