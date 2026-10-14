@@ -19,6 +19,14 @@ HOST_LIBS = {
 }
 ALLOWED_PACKAGES = frozenset(("qairt-dsp-binaries", "qairt-libs"))
 MAX_OUTPUT = 8192
+TRUSTED_VENDOR_ROOTS = {
+    "usr_lib": Path("/usr/lib"),
+    "usr_local_lib": Path("/usr/local/lib"),
+    "usr_lib_firmware": Path("/usr/lib/firmware"),
+    "lib_firmware": Path("/lib/firmware"),
+    "opt_qcom": Path("/opt/qcom"),
+    "opt_qualcomm": Path("/opt/qualcomm"),
+}
 
 
 def inspect_path(path, trusted_root):
@@ -56,6 +64,24 @@ def inspect_path(path, trusted_root):
     except (OSError, RuntimeError):
         result["kind"] = "symlink_dangling_or_unavailable"
     return result
+
+
+def classify_resolved_location(link, roots=TRUSTED_VENDOR_ROOTS):
+    """Reveal only a known broad vendor root, never the real link target."""
+    try:
+        target = link.resolve(strict=True)
+        if not stat.S_ISREG(target.lstat().st_mode):
+            return "not_regular", None
+    except (OSError, RuntimeError):
+        return "unavailable", None
+    for name, root in roots.items():
+        try:
+            real_root = root.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if target.is_relative_to(real_root):
+            return name, target
+    return "outside_sampled_system_roots", None
 
 
 def package_owner(path):
@@ -98,13 +124,19 @@ def report():
         key: inspect_path(path, Path("/usr/lib"))
         for key, path in HOST_LIBS.items()
     }
+    target_region, resolved_target = classify_resolved_location(SKEL)
     owners = {
         "v75_skel_symlink": package_owner(SKEL),
+        "v75_skel_resolved_file": (
+            package_owner(resolved_target) if resolved_target is not None
+            else "not_queried_outside_allowlist"
+        ),
         **{key: package_owner(path) for key, path in HOST_LIBS.items()},
     }
     return {
         "probe": "ventuno_htp_v75_skel_symlink_package_identity_only",
         "v75_skel": dsp,
+        "v75_skel_resolved_target_region": target_region,
         "host_libraries": host,
         "dpkg_owners": owners,
         "v75_skel_regular_file_in_vendor_dsp_tree": (
