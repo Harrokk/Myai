@@ -1,4 +1,5 @@
 import json
+import errno
 import hmac
 import hashlib
 import stat
@@ -267,17 +268,26 @@ class SelfDevPromotionManager:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        if create:
+        if create and not os.path.lexists(path):
+            # Stage all 32 key bytes durably before publishing the name.
+            # Exclusive hardlink publication will not replace an existing key.
+            fd, temporary = tempfile.mkstemp(
+                prefix=".journal-key.", dir=str(directory)
+            )
             try:
-                fd = os.open(str(path), flags, 0o600)
-            except FileExistsError:
-                pass
-            else:
                 with os.fdopen(fd, "wb") as handle:
                     handle.write(secrets.token_bytes(32))
                     handle.flush()
                     os.fsync(handle.fileno())
-                _sync_directory(directory)
+                try:
+                    os.link(temporary, path, follow_symlinks=False)
+                except FileExistsError:
+                    pass
+                else:
+                    _sync_directory(directory)
+            finally:
+                os.unlink(temporary)
+            _sync_directory(directory)
         if path.is_symlink():
             raise RuntimeError("Selfdev-integritetsnyckeln är en symlink.")
         read_flags = os.O_RDONLY
@@ -318,10 +328,58 @@ class SelfDevPromotionManager:
         ).hexdigest()
         _atomic_write_record(path, copy)
 
+    @staticmethod
+    def _read_recovery_json(path, *, include_raw=False):
+        """Bounded, single-inode, strictly decoded read of recovery records."""
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
+
+        try:
+            descriptor = os.open(str(path), flags)
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise RuntimeError(
+                    "Återställningsjournalen är en symlink."
+                ) from error
+            raise RuntimeError("Återställningsjournalen kan inte läsas.") from error
+        with os.fdopen(descriptor, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_size > 1024 * 1024
+            ):
+                raise RuntimeError("Osäker eller för stor återställningsjournal.")
+            content = handle.read(1024 * 1024 + 1)
+        if len(content) > 1024 * 1024:
+            raise RuntimeError("Återställningsjournalen är för stor.")
+
+        def unique_pairs(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("Dubbla fältnamn i journalen.")
+                result[key] = value
+            return result
+
+        def invalid_constant(value):
+            raise ValueError("Ej ändligt numeriskt värde i journalen.")
+
+        try:
+            parsed = json.loads(
+                content.decode("utf-8"),
+                object_pairs_hook=unique_pairs,
+                parse_constant=invalid_constant,
+            )
+            return (parsed, content) if include_raw else parsed
+        except (UnicodeError, ValueError, RecursionError) as error:
+            raise RuntimeError("Återställningsjournalens JSON är ogiltig.") from error
+
     def _read_journal(self, path):
-        if Path(path).is_symlink():
-            raise RuntimeError("Återställningsjournalen är en symlink.")
-        record = _read_json(path)
+        record = self._read_recovery_json(path)
         if not isinstance(record, dict) or record.get("journal_version") != 1:
             raise RuntimeError("Återställningsjournal saknar integritetsskydd.")
         signature = record.get("journal_hmac")
@@ -1063,16 +1121,9 @@ class SelfDevPromotionManager:
             raise PermissionError("Migrering av journal-symlink nekad.")
         if not source.is_file():
             raise FileNotFoundError("Legacy-journal saknas.")
-        metadata = source.lstat()
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-            raise RuntimeError("Legacy-journalen är inte en vanlig ensam fil.")
-        if metadata.st_size > 1024 * 1024:
-            raise RuntimeError("Legacy-journalen är för stor.")
-        raw = source.read_bytes()
-        try:
-            record = json.loads(raw.decode("utf-8"))
-        except (UnicodeError, ValueError) as error:
-            raise RuntimeError("Legacy-journalen är skadad.") from error
+        # Strict read also prevents duplicate JSON keys from selecting an
+        # unexpected session, state or backup file during legacy migration.
+        record, raw = self._read_recovery_json(source, include_raw=True)
         if not isinstance(record, dict):
             raise RuntimeError("Legacy-journalen är ogiltig.")
         if "journal_hmac" in record or "journal_version" in record:
