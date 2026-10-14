@@ -85,6 +85,24 @@ def classify_resolved_location(link, roots=TRUSTED_VENDOR_ROOTS):
     return "outside_sampled_system_roots", None
 
 
+def broad_resolved_target_zone(link):
+    """Return one coarse known filesystem zone; never expose components."""
+    try:
+        target = link.resolve(strict=True)
+        if not stat.S_ISREG(target.lstat().st_mode):
+            return "not_regular"
+    except (OSError, RuntimeError):
+        return "unavailable"
+    # POSIX absolute paths have ('/', 'usr', ...). No other segments escape.
+    parts = target.parts
+    if len(parts) < 2 or parts[0] != "/":
+        return "unexpected_path"
+    return parts[1] if parts[1] in {
+        "usr", "lib", "lib64", "opt", "var", "home",
+        "etc", "run", "snap", "tmp", "mnt",
+    } else "other"
+
+
 def package_owner(path):
     """Only categorize installed dpkg package ownership for the known path."""
     executable = shutil.which("dpkg-query")
@@ -138,6 +156,7 @@ def report():
         "probe": "ventuno_htp_v75_skel_symlink_package_identity_only",
         "v75_skel": dsp,
         "v75_skel_resolved_target_region": target_region,
+        "v75_skel_broad_filesystem_zone": broad_resolved_target_zone(SKEL),
         "host_libraries": host,
         "dpkg_owners": owners,
         "v75_skel_regular_file_in_vendor_dsp_tree": (
