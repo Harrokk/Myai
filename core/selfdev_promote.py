@@ -949,6 +949,99 @@ class SelfDevPromotionManager:
                 except FileNotFoundError:
                     pass
 
+    def inspect_recovery(self, promotion_id):
+        """Read-only advisory preflight; NEVER writes audit, locks or source.
+
+        Reports consistency at the instant of inspection, not authorization
+        to bypass explicit recovery approval or concurrent-writer protection.
+        """
+        identifier = _safe_identifier(promotion_id)
+        path = (
+            self.workspace.session_root / "rollbacks"
+            / identifier / "promotion.json"
+        )
+        result = {
+            "promotion_id": identifier,
+            "status": "blocked",
+            "journal_state": None,
+            "file_count": 0,
+            "would_restore": 0,
+            "read_only": True,
+        }
+        try:
+            record = self._read_journal(path)
+            if (
+                not isinstance(record, dict)
+                or record.get("promotion_id") != identifier
+                or record.get("session_id") != self.workspace.session_id
+            ):
+                raise RuntimeError("Journalen gäller fel session.")
+            state = record.get("state")
+            result["journal_state"] = state
+            if state in {"completed", "recovered", "reverted"}:
+                result["status"] = "completed_or_resolved"
+                return result
+            if state not in {"prepared", "rollback_prepared"}:
+                raise RuntimeError("Journalen har okänt eller osäkert tillstånd.")
+            backups = record.get("backups")
+            planned = record.get("planned_hashes")
+            if (
+                not isinstance(backups, dict)
+                or not isinstance(planned, dict)
+                or not backups
+                or set(backups) != set(planned)
+            ):
+                raise RuntimeError("Journalen har ofullständiga filuppgifter.")
+            needed = 0
+            for relative, item in backups.items():
+                if not isinstance(relative, str) or not isinstance(item, dict):
+                    raise RuntimeError("Journalen har ogiltiga filuppgifter.")
+                expected = planned[relative]
+                if (
+                    not isinstance(expected, str)
+                    or len(expected) != 64
+                    or any(ch not in "0123456789abcdef" for ch in expected)
+                ):
+                    raise RuntimeError("Ogiltig planerad filhash.")
+                target = self._safe_project_target(relative)
+                existed = item.get("existed")
+                if type(existed) is not bool:
+                    raise RuntimeError("Ogiltiga uppgifter om ursprungsfil.")
+                original = item.get("sha256")
+                if existed:
+                    if (
+                        not isinstance(original, str)
+                        or len(original) != 64
+                        or any(ch not in "0123456789abcdef" for ch in original)
+                    ):
+                        raise RuntimeError("Ogiltig ursprungshash.")
+                    self._verified_backup(
+                        self.workspace.session_root / "rollbacks" / identifier,
+                        relative,
+                        original,
+                    )
+                    if not target.is_file():
+                        raise RuntimeError("Ursprungsfil saknas eller har ändrats.")
+                    current = _sha256(target)
+                    if current not in {original, expected}:
+                        raise RuntimeError("Extern kodändring blockerar återställning.")
+                    if current != original:
+                        needed += 1
+                else:
+                    if original is not None:
+                        raise RuntimeError("Felaktigt original för ny fil.")
+                    if os.path.lexists(target):
+                        if not target.is_file() or _sha256(target) != expected:
+                            raise RuntimeError("Extern kodändring blockerar återställning.")
+                        needed += 1
+            result["file_count"] = len(backups)
+            result["would_restore"] = needed
+            result["status"] = "preflight_ok_requires_manual_approval"
+        except (OSError, TypeError, ValueError, RuntimeError) as error:
+            result["status"] = "blocked"
+            result["reason"] = str(error)
+        return result
+
     def recover_interrupted(self, promotion_id, approval_phrase):
         """Explicit, idempotent recovery; never triggered automatically."""
         identifier = _safe_identifier(promotion_id)
