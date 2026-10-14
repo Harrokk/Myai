@@ -3,7 +3,7 @@
 Without --confirm-readonly-api this module neither imports qai_hub nor
 touches credentials, network or any external service. When explicitly
 enabled on x86, the only permitted client calls are get_frameworks()
-and get_devices(name="Arduino VENTUNO Q"). It cannot upload a model,
+and get_devices(name="Arduino VENTUNO Q", os="24.04"). It cannot upload a model,
 submit a job, create a context, download SDKs or run QNN/HTP.
 
 SDK authenticity, SSL trust and local token configuration must be
@@ -21,10 +21,21 @@ import platform
 import re
 
 TARGET = "Arduino VENTUNO Q"
+TARGET_OS = "24.04"
 MINOR = "2.46"
 MAX_FRAMEWORKS = 256
 MAX_DEVICES = 32
 VERSION_RE = re.compile(r"^[0-9]{1,3}(?:\.[0-9]{1,12}){2,4}$")
+
+
+class _DiscardText(io.TextIOBase):
+    """Discard SDK diagnostic messages without retaining tokens in RAM."""
+
+    def write(self, value):
+        return len(value)
+
+    def flush(self):
+        pass
 
 
 def blank_result():
@@ -35,6 +46,7 @@ def blank_result():
         "query_completed": False,
         "get_frameworks_returned": False,
         "exact_arduino_ventuno_q_in_device_list": None,
+        "exact_ubuntu_2404_target_verified": False,
         "qairt_246_in_returned_frameworks": None,
         "qairt_246_version_record_consistent": None,
         "live_qairt_246_catalog_reported": False,
@@ -74,15 +86,24 @@ def classify_frameworks(frameworks):
 
 
 def classify_devices(devices):
+    """Require one unique named Ubuntu 24.04 device, not a proxy or family."""
     try:
         if type(devices) not in (list, tuple) or len(devices) > MAX_DEVICES:
             return None
-        names = [getattr(item, "name", None) for item in devices]
-        if any(type(name) is not str for name in names):
+        if not devices:
+            return False
+        names_and_os = [
+            (getattr(item, "name", None), getattr(item, "os", None))
+            for item in devices
+        ]
+        if any(type(name) is not str or type(os_version) is not str
+               for name, os_version in names_and_os):
             return None
-        # Qualcomms client GET was already filtered by exact target name,
-        # but check returned names again, never accept a QCS8275 Proxy.
-        return TARGET in names
+        # The client request filters by both fields; reject unexpected
+        # broader results or duplicate names instead of silently accepting.
+        if len(names_and_os) > 1:
+            return None
+        return names_and_os[0] == (TARGET, TARGET_OS)
     except (AttributeError, TypeError, ValueError, RuntimeError):
         return None
 
@@ -100,13 +121,13 @@ def run_readonly_query(*, confirm: bool = False, client_factory=None,
     try:
         # Even API diagnostics can contain service/account details. Never
         # print client output, even if a dependency unexpectedly logs.
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        with redirect_stdout(_DiscardText()), redirect_stderr(_DiscardText()):
             if client_factory is None:
                 hub = importlib.import_module("qai_hub")
                 client_factory = hub.Client
             client = client_factory()
             frameworks = client.get_frameworks()
-            devices = client.get_devices(name=TARGET)
+            devices = client.get_devices(name=TARGET, os=TARGET_OS)
     except Exception:
         out["status"] = "no_go_readonly_api_query_failed"
         return out
@@ -115,6 +136,7 @@ def run_readonly_query(*, confirm: bool = False, client_factory=None,
     state, listed, consistent = classify_frameworks(frameworks)
     board = classify_devices(devices)
     out["exact_arduino_ventuno_q_in_device_list"] = board
+    out["exact_ubuntu_2404_target_verified"] = board is True
     out["qairt_246_in_returned_frameworks"] = listed
     out["qairt_246_version_record_consistent"] = consistent
     if state != "valid" or board is None:
