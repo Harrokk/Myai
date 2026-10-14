@@ -45,6 +45,15 @@ jobs:
           cd "$RUNNER_TEMP/myai-ci-source"
           /home/arduino/MyAI/.venv/bin/python -m compileall -q core modules scripts mail.py
 
+      - name: Audit tracked source and privacy configuration (read-only)
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-ci-source"
+          /home/arduino/MyAI/.venv/bin/python -B scripts/static_repository_audit.py
+
       - name: Run full test suite without modifying live installation
         shell: bash
         run: |
