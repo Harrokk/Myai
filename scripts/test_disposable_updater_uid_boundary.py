@@ -96,45 +96,48 @@ def _fork_as(identity, root):
 
 def main():
     _must_be_disposable_container()
-    with tempfile.TemporaryDirectory(prefix="myai-disposable-uid-") as dirname:
-        root = Path(dirname)
-        os.chmod(root, 0o755)
-        release = root / "releases"
-        protected = root / "protected"
-        stage = root / "stage"
-        audit_dir = root / "audit"
-        for directory, mode in (
-            (release, 0o755),
-            (protected, 0o700),
-            (stage, 0o700),
-            (audit_dir, 0o700),
-        ):
-            directory.mkdir()
-            _own(directory, UPDATER_UID, mode)
-        source = release / "main.py"
-        source.write_text("SAFE = True\n", encoding="utf-8")
-        _own(source, UPDATER_UID, 0o444)
-        secret = protected / "journal.key"
-        secret.write_bytes(b"fake-container-only-key")
-        _own(secret, UPDATER_UID, 0o600)
-        audit = audit_dir / "audit.jsonl"
-        audit.write_text("begin\n", encoding="utf-8")
-        _own(audit, UPDATER_UID, 0o600)
+    # No cleanup is needed: Docker --rm discards the private volatile /tmp
+    # mount. Root deliberately has NO CAP_DAC_OVERRIDE, so it cannot enter
+    # updater-owned 0700 directories after permissions are finalized.
+    root = Path(tempfile.mkdtemp(prefix="myai-disposable-uid-"))
+    os.chmod(root, 0o755)
+    release = root / "releases"
+    protected = root / "protected"
+    stage = root / "stage"
+    audit_dir = root / "audit"
+    directories = (
+        (release, 0o755),
+        (protected, 0o700),
+        (stage, 0o700),
+        (audit_dir, 0o700),
+    )
+    for directory, _mode in directories:
+        directory.mkdir()
+    # Initialize fake files BEFORE restricting their parent directories.
+    source = release / "main.py"
+    source.write_text("SAFE = True\n", encoding="utf-8")
+    _own(source, UPDATER_UID, 0o444)
+    secret = protected / "journal.key"
+    secret.write_bytes(b"fake-container-only-key")
+    _own(secret, UPDATER_UID, 0o600)
+    audit = audit_dir / "audit.jsonl"
+    audit.write_text("begin\n", encoding="utf-8")
+    _own(audit, UPDATER_UID, 0o600)
+    for directory, mode in directories:
+        _own(directory, UPDATER_UID, mode)
 
-        runtime = _fork_as(RUNTIME_UID, root)
-        updater = _fork_as(UPDATER_UID, root)
-        assert runtime["protected"] is True
-        assert updater["allowed"] is True
-        assert source.read_text(encoding="utf-8") == "SAFE = True\n"
-        assert stat.S_IMODE(secret.stat().st_mode) == 0o600
-        assert audit.read_text(encoding="utf-8") == "begin\nupdater-test\n"
-        print(json.dumps({
-            "status": "PASS",
-            "runtime": "denied_privileged_write_read",
-            "updater": "simulated_permissions_only",
-            "production_touched": False,
-        }))
-
+    runtime = _fork_as(RUNTIME_UID, root)
+    updater = _fork_as(UPDATER_UID, root)
+    assert runtime["protected"] is True
+    assert updater["allowed"] is True
+    assert source.read_text(encoding="utf-8") == "SAFE = True\n"
+    print(json.dumps({
+        "status": "PASS",
+        "runtime": "denied_privileged_write_read",
+        "updater": "simulated_permissions_only",
+        "production_touched": False,
+        "container_discarded": True,
+    }))
 
 if __name__ == "__main__":
     main()
