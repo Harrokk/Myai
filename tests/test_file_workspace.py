@@ -256,3 +256,46 @@ def test_workspace_write_disabled_is_audited_as_denied(
         / "workspace"
         / "note.txt"
     ).exists()
+
+
+def test_preexisting_predictable_tmp_symlink_does_not_escape_workspace(tmp_path):
+    import pytest
+
+    cfg = settings(tmp_path, write_enabled=True)
+    root = tmp_path / "workspace"
+    root.mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("SAFE", encoding="utf-8")
+    decoy = root / "note.txt.tmp"
+    try:
+        decoy.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("Systemet tillåter inte symboliska länkar")
+
+    written = workspace.write_workspace_text("note.txt", "MYAI", cfg)
+
+    assert written["chars_written"] == 4
+    assert outside.read_text(encoding="utf-8") == "SAFE"
+    assert decoy.is_symlink()
+    assert (root / "note.txt").read_text(encoding="utf-8") == "MYAI"
+
+
+def test_failed_workspace_replace_preserves_original_and_cleans_temp(
+    tmp_path, monkeypatch
+):
+    import pytest
+
+    cfg = settings(tmp_path, write_enabled=True)
+    path = tmp_path / "workspace" / "note.txt"
+    workspace.write_workspace_text("note.txt", "original", cfg)
+
+    def reject_replace(source, destination):
+        assert str(destination) == str(path)
+        raise OSError("simulerat avbrott vid filbyte")
+
+    monkeypatch.setattr(workspace.os, "replace", reject_replace)
+    with pytest.raises(OSError, match="simulerat avbrott"):
+        workspace.write_workspace_text("note.txt", "ny text", cfg)
+
+    assert path.read_text(encoding="utf-8") == "original"
+    assert not list(path.parent.glob("note.txt.*.tmp"))

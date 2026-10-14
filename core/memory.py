@@ -162,11 +162,36 @@ class MemoryStore:
         if not value:
             raise ValueError("Minnesinnehållet får inte vara tomt.")
 
-        if self.contains(category, value):
-            return False
+        # Keep duplicate detection and insertion in one write transaction.
+        # Otherwise concurrent MyAI requests can both observe no existing
+        # record and persist the same active memory twice.
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """
+                SELECT 1
+                FROM memories
+                WHERE lower(category) = lower(?)
+                  AND lower(trim(content)) = lower(trim(?))
+                  AND COALESCE(status, 'active') = 'active'
+                LIMIT 1
+                """,
+                (category, value),
+            ).fetchone()
 
-        self.save(category, value)
-        return True
+            if existing is not None:
+                return False
+
+            timestamp = self._now()
+            conn.execute(
+                """
+                INSERT INTO memories
+                (category, content, created_at, status, updated_at)
+                VALUES (?, ?, ?, 'active', ?)
+                """,
+                (category, value, timestamp, timestamp),
+            )
+            return True
 
     def get_all(self, include_inactive=False):
         where = (

@@ -1,4 +1,5 @@
 import os
+import tempfile
 import re
 from pathlib import Path
 
@@ -219,9 +220,25 @@ def write_workspace_text(user_path, content, settings=None):
         raise ValueError("Tomt filinnehåll skrivs inte utan uttrycklig text.")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
-    os.replace(temporary, path)
+    # A predictable <name>.tmp can already be a symlink. Opening it with
+    # write_text() would follow that link and write outside the workspace.
+    # mkstemp creates an exclusive random file in the destination directory.
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
 
     return {
         "path": path.relative_to(workspace_root(settings)).as_posix(),
