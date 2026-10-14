@@ -4,6 +4,8 @@ on:
     branches: [dev/ventuno-voice-highrisk-exact-vote-20261014]
     paths:
       - .github/workflows/ventuno-highrisk-voice-stt-consensus-safety.yml
+      - core/voice_pipeline.py
+      - tests/test_voice_pipeline.py
 permissions:
   contents: read
 concurrency:
