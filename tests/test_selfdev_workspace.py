@@ -181,3 +181,62 @@ def test_invalid_session_id_is_rejected(tmp_path):
             project,
             "../bad",
         )
+
+
+def test_staging_rejects_dangling_final_symlink(tmp_path):
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "danglinglink")
+    outside = tmp_path / "outside.py"
+    target = workspace.workspace_root / "core" / "unsafe.py"
+    target.symlink_to(outside)
+
+    with pytest.raises(PermissionError, match="Symlänkar"):
+        workspace.write_text("core/unsafe.py", "DANGEROUS = True\n")
+
+    assert not outside.exists()
+    assert target.is_symlink()
+
+
+def test_staging_rechecks_target_if_symlink_appears_during_write(tmp_path, monkeypatch):
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "simulatedrace")
+    external = tmp_path / "secret.py"
+    external.write_text("PROTECTED = True\n", encoding="utf-8")
+    target = workspace.workspace_root / "core" / "example.py"
+    original = workspace._candidate_path
+    calls = [0]
+
+    def swap_after_initial_check(relative):
+        resolved = original(relative)
+        calls[0] += 1
+        if calls[0] == 1:
+            resolved.unlink()
+            resolved.symlink_to(external)
+        return resolved
+
+    monkeypatch.setattr(workspace, "_candidate_path", swap_after_initial_check)
+    with pytest.raises(PermissionError, match="Symlänkar"):
+        workspace.write_text("core/example.py", "BAD = True\n")
+
+    assert external.read_text(encoding="utf-8") == "PROTECTED = True\n"
+    assert target.is_symlink()
+    assert sorted(p.name for p in target.parent.iterdir() if p.name.endswith(".tmp")) == []
+
+
+def test_staging_replace_failure_preserves_original(tmp_path, monkeypatch):
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "replacefail")
+    original = (workspace.workspace_root / "core" / "example.py").read_text(
+        encoding="utf-8"
+    )
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr("core.selfdev_workspace.os.replace", fail_replace)
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        workspace.write_text("core/example.py", "VALUE = 20\n")
+    assert (workspace.workspace_root / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == original
+    assert not list((workspace.workspace_root / "core").glob(".example.py.*.tmp"))
