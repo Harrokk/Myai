@@ -1266,3 +1266,16 @@ def test_highrisk_semantic_switch_cannot_overrule_nonmatching_targets():
     assert result["status"] == "clarify"
     assert semantic.calls == []
     assert assistant.messages == []
+
+
+
+def test_safe_majority_remains_possible_with_unrelated_dangerous_outlier():
+    r = choose_consensus([
+        {"text": "Hur mycket RAM använder datorn?", "confidence": 0.80},
+        {"text": "Hur mycket ram använder min dator?", "confidence": 0.81},
+        {"text": "Stäng av lampan", "confidence": 0.99},
+    ])
+    assert r["accepted"] is True
+    assert r["support"] == 2
+    assert "ram" in r["text"].lower()
+    assert "Stäng av" not in r["text"]
