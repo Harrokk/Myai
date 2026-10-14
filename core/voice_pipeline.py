@@ -341,14 +341,14 @@ def choose_consensus(
     # terminal, device, or numeric target. Token overlap/Jaccard does
     # not attest that the recognizers heard the SAME instruction.
     # Preserve tolerant fuzzy matching only for low-risk questions.
-    high_risk = any(
+    risky = [
         classify_voice_risk(item["text"])["level"] == "high"
         for item in normalized
-    )
-    strict_phrases = (
-        [normalize_transcript(item["text"]) for item in normalized]
-        if high_risk else None
-    )
+    ]
+    high_risk = any(risky)
+    strict_phrases = [
+        normalize_transcript(item["text"]) for item in normalized
+    ]
     support = [1] * len(normalized)
 
     for left_index in range(len(normalized)):
@@ -356,7 +356,10 @@ def choose_consensus(
             left_index + 1,
             len(normalized),
         ):
-            if high_risk:
+            if risky[left_index] or risky[right_index]:
+                # High-risk candidates can only earn an exact vote.
+                # A stray dangerous outlier must not invalidate two
+                # genuinely matching low-risk questions.
                 agreeing = (
                     strict_phrases[left_index] == strict_phrases[right_index]
                 )
