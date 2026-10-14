@@ -1,0 +1,40 @@
+name: Hosted inspection signer rotation and revocation verification
+on:
+  push:
+    branches: [dev/offline-preview-key-rotation-20261014]
+    paths:
+      - core/selfdev_preview_trust_policy.py
+      - core/selfdev_signed_manifest.py
+      - tests/test_selfdev_preview_trust_policy.py
+      - .github/workflows/hosted-preview-key-rotation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preview-key-rotation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact commit in disposable workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" init -q
+          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$GITHUB_WORKSPACE" fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$GITHUB_WORKSPACE" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install test-only pinned packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-preview-keyring"
+          "$RUNNER_TEMP/myai-preview-keyring/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: "cryptography==45.0.7" "pytest==8.3.5"
+      - name: Test real Ed25519 key rotation, revocation and pinning
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/myai-preview-keyring/bin/python" -B -m pytest -q -rs tests/test_selfdev_preview_trust_policy.py tests/test_selfdev_signed_manifest.py
