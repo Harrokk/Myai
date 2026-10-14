@@ -1,0 +1,41 @@
+name: Hosted disposable accepted Unix peer security tests
+on:
+  push:
+    branches: [dev/offline-accepted-unix-peer-20261014]
+    paths:
+      - tests/test_selfdev_ephemeral_accept.py
+      - tests/test_selfdev_offline_preview_transport.py
+      - core/selfdev_peer_identity.py
+      - core/selfdev_offline_preview_transport.py
+      - .github/workflows/hosted-accepted-unix-peer.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  accepted-peer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact revision into temporary hosted workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" init -q
+          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$GITHUB_WORKSPACE" fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$GITHUB_WORKSPACE" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install pinned test-only dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-accept-only"
+          "$RUNNER_TEMP/myai-accept-only/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: "cryptography==45.0.7" "pytest==8.3.5"
+      - name: Exercise post-fork accepted peer and slow fragment deadlines
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/myai-accept-only/bin/python" -B -m pytest -q -rs tests/test_selfdev_ephemeral_accept.py tests/test_selfdev_offline_preview_transport.py tests/test_selfdev_offline_preview_pipeline.py tests/test_selfdev_peer_identity.py
