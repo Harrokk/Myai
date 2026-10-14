@@ -1,0 +1,59 @@
+name: Qualcomm catalog injected client provenance safety tests
+on:
+  push:
+    branches: [dev/ventuno-qai-client-provenance-failclosed-20261014]
+    paths:
+      - .github/workflows/ventuno-qai-client-provenance-safety.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-qai-client-provenance-20261014
+  cancel-in-progress: false
+jobs:
+  offline-fake-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Exact commit isolated x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-qai-provenance.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_QAI_PROVENANCE_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install pinned pytest into disposable host venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-qai-provenance-venv"
+          "$RUNNER_TEMP/myai-qai-provenance-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+      - name: Prove injected client never counts as authenticated Qualcomm
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_QAI_PROVENANCE_SCRATCH"
+          "$RUNNER_TEMP/myai-qai-provenance-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_qai_hub_live_catalog_readonly.py
+          "$RUNNER_TEMP/myai-qai-provenance-venv/bin/python" -B \
+            -m scripts.ventuno_qai_hub_live_catalog_readonly
+          echo 'Fake clients only. No qai_hub SDK, Qualcomm API token, real read call, model, HTP or deployment.'
+      - name: Cleanup disposable host test files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_QAI_PROVENANCE_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_QAI_PROVENANCE_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-qai-provenance-venv"
