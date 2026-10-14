@@ -534,9 +534,13 @@ class MemoryStore:
         with sqlite3.connect(
             self.database_path
         ) as conn:
+            # Avoid duplicate pending reviews across simultaneous workers.
+            # Later conflict discoveries must also strengthen an existing
+            # review, never silently downgrade it to "no conflicts".
+            conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
                 """
-                SELECT id
+                SELECT id, conflicts_json
                 FROM memory_reviews
                 WHERE status = 'pending'
                   AND lower(category) = lower(?)
@@ -544,21 +548,21 @@ class MemoryStore:
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (
-                    category_value,
-                    value,
-                ),
+                (category_value, value),
             ).fetchone()
 
             if existing is not None:
-                return {
-                    "review_id": int(
-                        existing[
-                            0
-                        ]
-                    ),
-                    "created": False,
-                }
+                current_ids = self._validated_review_conflicts(existing[1])
+                merged_ids = list(dict.fromkeys(current_ids + conflicts))[:20]
+                if merged_ids != current_ids:
+                    conn.execute(
+                        """
+                        UPDATE memory_reviews SET conflicts_json = ?
+                        WHERE id = ? AND status = 'pending'
+                        """,
+                        (json.dumps(merged_ids, separators=(",", ":")), existing[0]),
+                    )
+                return {"review_id": int(existing[0]), "created": False}
 
             cursor = conn.execute(
                 """

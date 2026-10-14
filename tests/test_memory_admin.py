@@ -646,3 +646,85 @@ def test_registered_review_conflict_still_permits_explicit_replacement(tmp_path)
     replacement_id = store.replace_from_review(review_id, target_id)
     assert replacement_id != target_id
     assert store.get_review(review_id)["status"] == "replaced"
+
+
+def test_concurrent_review_enqueue_keeps_one_pending_record(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    store = make_store(tmp_path)
+    workers = 8
+    gate = Barrier(workers)
+
+    def queue(index):
+        gate.wait(timeout=10)
+        return store.enqueue_review(
+            "PREFERENCE" if index % 2 else "preference",
+            "  Samma minnesgranskning  ",
+            reason="concurrent",
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(queue, range(workers)))
+
+    assert sum(x["created"] for x in results) == 1
+    assert len({x["review_id"] for x in results}) == 1
+    assert len(store.list_reviews()) == 1
+
+
+def test_existing_pending_review_escalates_to_newly_found_conflicts(tmp_path):
+    store = make_store(tmp_path)
+    old_id = store.save("preference", "Gammal relevant uppgift.")
+    first = store.enqueue_review("preference", "Ny viktig uppgift.")
+    second = store.enqueue_review(
+        "PREFERENCE", " Ny viktig uppgift. ", conflict_ids=[old_id],
+    )
+
+    assert second["created"] is False
+    assert second["review_id"] == first["review_id"]
+    assert store.get_review(first["review_id"])["conflict_ids"] == [old_id]
+    with pytest.raises(PermissionError, match="måste ersätta"):
+        store.approve_review(first["review_id"])
+
+
+def test_concurrent_review_conflict_union_is_preserved(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    store = make_store(tmp_path)
+    old_ids = [
+        store.save("preference", "Äldre inställning nummer " + str(i))
+        for i in range(6)
+    ]
+    gate = Barrier(len(old_ids))
+
+    def queue(old_id):
+        gate.wait(timeout=10)
+        return store.enqueue_review(
+            "preference",
+            "Ny inställning med flera kända konflikter",
+            conflict_ids=[old_id],
+        )
+
+    with ThreadPoolExecutor(max_workers=len(old_ids)) as pool:
+        results = list(pool.map(queue, old_ids))
+
+    assert len({x["review_id"] for x in results}) == 1
+    assert set(store.get_review(results[0]["review_id"])["conflict_ids"]) == set(old_ids)
+
+
+def test_corrupt_pending_review_blocks_conflict_escalation(tmp_path):
+    import sqlite3
+
+    store = make_store(tmp_path)
+    review_id = store.enqueue_review("preference", "Testvärde")["review_id"]
+    with sqlite3.connect(store.database_path) as conn:
+        conn.execute(
+            "UPDATE memory_reviews SET conflicts_json = ? WHERE id = ?",
+            ("not-json", review_id),
+        )
+    with pytest.raises(ValueError, match="konfliktinformation"):
+        store.enqueue_review(
+            "preference", "Testvärde", conflict_ids=[123]
+        )
+    assert len(store.list_reviews()) == 1
