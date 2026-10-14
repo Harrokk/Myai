@@ -5,6 +5,17 @@ import secrets
 import shutil
 import tempfile
 import time
+from contextlib import contextmanager
+
+try:
+    import fcntl
+except ImportError:  # Windows development can still use msvcrt byte locks.
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 from core.audit_log import (
     AuditLogger,
@@ -179,6 +190,58 @@ class SelfDevPromotionManager:
             )
         )
 
+    @contextmanager
+    def _project_mutation_lock(self):
+        """Nonblocking OS lock shared by all selfdev sessions for a project.
+
+        The kernel releases advisory locks if the process crashes. Other
+        non-cooperating filesystem writers are outside this protection.
+        """
+        lock_dir = self.workspace.project_root / "runtime" / "selfdev"
+        if lock_dir.is_symlink():
+            raise PermissionError("Selfdev-låskatalogen får inte vara symlink.")
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / ".promotion.lock"
+        flags = os.O_CREAT | os.O_RDWR
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        descriptor = os.open(str(lock_path), flags, 0o600)
+        acquired = False
+        try:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(
+                        descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB
+                    )
+                except BlockingIOError as error:
+                    raise RuntimeError(
+                        "En annan selfdev-uppdatering pågår i projektet."
+                    ) from error
+            elif msvcrt is not None:
+                try:
+                    if os.fstat(descriptor).st_size == 0:
+                        os.write(descriptor, b"0")
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                except OSError as error:
+                    raise RuntimeError(
+                        "En annan selfdev-uppdatering pågår i projektet."
+                    ) from error
+            else:
+                raise RuntimeError("Operativsystemet saknar säkert selfdev-lås.")
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                if fcntl is not None:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                else:
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            os.close(descriptor)
+
     def _require_promotion_enabled(self):
         if not self.config.get(
             "enabled",
@@ -291,35 +354,53 @@ class SelfDevPromotionManager:
         return target
 
     def _require_no_interrupted_promotion(self):
-        # Never layer a new patch on top of an incompletely updated tree.
-        root = self.workspace.session_root / "rollbacks"
-        if not root.exists():
-            return
-        for candidate in root.iterdir():
-            if not candidate.is_dir():
+        # An interrupted update in *any* known session cannot be covered
+        # by a new update in another session.
+        sources = {
+            self.workspace.project_root / "runtime" / "selfdev",
+            self.workspace.session_root.parent,
+        }
+        for sessions_root in sources:
+            if not sessions_root.exists():
                 continue
-            record_path = candidate / "promotion.json"
-            if not record_path.is_file():
-                raise RuntimeError(
-                    "Ofullständig selfdev-promotion saknar återställningsjournal."
-                )
-            try:
-                record = _read_json(record_path)
-            except (OSError, ValueError, TypeError) as error:
-                raise RuntimeError(
-                    "Selfdev-promotion har en skadad återställningsjournal."
-                ) from error
-            if not isinstance(record, dict):
-                raise RuntimeError("Ogiltig återställningsjournal.")
-            status = record.get("state")
-            if status in {"completed", "recovered", "reverted"}:
-                continue
-            if status is None and record.get("promoted_unix_time"):
-                # Legacy completed records from before transactional journaling.
-                continue
-            raise RuntimeError(
-                "Ofullständig selfdev-promotion måste återställas manuellt."
-            )
+            if sessions_root.is_symlink():
+                raise RuntimeError("Selfdev-sessionkatalogen är en symlink.")
+            for session_root in sessions_root.iterdir():
+                if session_root.is_symlink():
+                    raise RuntimeError("Otillåten selfdev-sessionsymlink.")
+                if not session_root.is_dir():
+                    continue
+                journal_dir = session_root / "rollbacks"
+                if journal_dir.is_symlink():
+                    raise RuntimeError("Otillåten selfdev-rollbacksymlink.")
+                if not journal_dir.exists():
+                    continue
+                for candidate in journal_dir.iterdir():
+                    if candidate.is_symlink():
+                        raise RuntimeError("Otillåten selfdev-journalsymlink.")
+                    if not candidate.is_dir():
+                        continue
+                    record_path = candidate / "promotion.json"
+                    if not record_path.is_file() or record_path.is_symlink():
+                        raise RuntimeError(
+                            "Ofullständig selfdev-promotion saknar återställningsjournal."
+                        )
+                    try:
+                        record = _read_json(record_path)
+                    except (OSError, ValueError, TypeError) as error:
+                        raise RuntimeError(
+                            "Selfdev-promotion har en skadad återställningsjournal."
+                        ) from error
+                    if not isinstance(record, dict):
+                        raise RuntimeError("Ogiltig återställningsjournal.")
+                    status = record.get("state")
+                    if status in {"completed", "recovered", "reverted"}:
+                        continue
+                    if status is None and record.get("promoted_unix_time"):
+                        continue
+                    raise RuntimeError(
+                        "Ofullständig selfdev-promotion måste återställas manuellt."
+                    )
 
     def _preflight_promotion(
         self,
@@ -406,9 +487,10 @@ class SelfDevPromotionManager:
         )
 
         try:
-            record = self._promote_impl(
-                approval_phrase
-            )
+            with self._project_mutation_lock():
+                record = self._promote_impl(
+                    approval_phrase
+                )
         except Exception as error:
             self.audit_logger.write_result(
                 action="selfdev_promote",
@@ -628,7 +710,8 @@ class SelfDevPromotionManager:
         try:
             if str(approval_phrase) != expected:
                 raise PermissionError("Fel manuell recovery-frase.")
-            record = self._recover_interrupted_impl(identifier)
+            with self._project_mutation_lock():
+                record = self._recover_interrupted_impl(identifier)
         except Exception as error:
             self.audit_logger.write_result(
                 action="selfdev_recover",
@@ -750,10 +833,11 @@ class SelfDevPromotionManager:
         )
 
         try:
-            record = self._rollback_impl(
-                promotion_id,
-                approval_phrase,
-            )
+            with self._project_mutation_lock():
+                record = self._rollback_impl(
+                    promotion_id,
+                    approval_phrase,
+                )
         except Exception as error:
             self.audit_logger.write_result(
                 action="selfdev_rollback",

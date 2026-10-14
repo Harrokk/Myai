@@ -749,3 +749,111 @@ def test_corrupt_backup_blocks_recovery_before_any_source_mutation(
         encoding="utf-8"
     ) == "VALUE = 2\n"
     assert not (project / "tests" / "test_new.py").exists()
+
+
+def _second_workspace(project):
+    workspace = SelfDevWorkspace.create(project, "session2")
+    workspace.write_text("core/example.py", "VALUE = 99\n")
+    approve_verification(workspace)
+    return workspace
+
+
+def test_global_lock_blocks_a_concurrent_promotion_in_second_session(tmp_path):
+    project, first = make_workspace(tmp_path)
+    second = _second_workspace(project)
+    active1 = manager(first, settings())
+    active2 = manager(second, settings())
+
+    with active1._project_mutation_lock():
+        with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
+            active2.promote("PROMOTE session2")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (
+        second.session_root / "rollbacks" / "promo1"
+    ).exists()
+
+
+def test_global_lock_blocks_a_concurrent_rollback_in_second_session(tmp_path):
+    project, first = make_workspace(tmp_path)
+    active = manager(first, settings())
+    approve_verification(first)
+    active.promote("PROMOTE session1")
+    other_session = _second_workspace(project)
+    other = manager(other_session, settings())
+
+    with other._project_mutation_lock():
+        with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
+            active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_global_lock_released_after_simulated_critical_interruption(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, first = make_workspace(tmp_path)
+    approve_verification(first)
+    active = manager(first, settings())
+    real_copy = module._atomic_copy
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            module,
+            "_atomic_copy",
+            lambda *args: (_ for _ in ()).throw(SystemExit("crash")),
+        )
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    # Lock is released on SystemExit, but the durable prepared journal
+    # prevents a second session from modifying an inconsistent tree.
+    second = _second_workspace(project)
+    other = manager(second, settings())
+    with pytest.raises(RuntimeError, match="Ofullständig selfdev-promotion"):
+        other.promote("PROMOTE session2")
+
+    record = active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )
+    assert record["state"] == "recovered"
+    # The other session has not drifted and can now promote safely.
+    changed = other.promote("PROMOTE session2")
+    assert changed["state"] == "completed"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 99\n"
+
+
+def test_global_lock_blocks_recovery_during_other_session_operation(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, first = make_workspace(tmp_path)
+    approve_verification(first)
+    active = manager(first, settings())
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            module,
+            "_atomic_copy",
+            lambda *args: (_ for _ in ()).throw(SystemExit("crash")),
+        )
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    other = manager(_second_workspace(project), settings())
+    with other._project_mutation_lock():
+        with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
+            active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )["state"] == "recovered"
