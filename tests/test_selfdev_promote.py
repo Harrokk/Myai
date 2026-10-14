@@ -639,3 +639,46 @@ def test_recovery_is_idempotent_and_refuses_second_restore(tmp_path, monkeypatch
     assert saved["state"] == "recovered"
     with pytest.raises(RuntimeError, match="ofullständig prepared-journal"):
         active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+
+def test_incomplete_promotion_cannot_bypass_recovery_using_rollback(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            module, "_atomic_copy",
+            lambda *args: (_ for _ in ()).throw(SystemExit("power loss")),
+        )
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    with pytest.raises(RuntimeError, match="kräver RECOVER"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_modified_backup_refuses_rollback_without_mutating_sources(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+
+    backup = (
+        workspace.session_root / "rollbacks" / "promo1"
+        / "files" / "core" / "example.py"
+    )
+    backup.write_text("MALICIOUS = True\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="backup har ändrats"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"

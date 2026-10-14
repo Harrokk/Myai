@@ -278,18 +278,12 @@ class SelfDevPromotionManager:
                 / part
             )
 
-            if (
-                current.exists()
-                and current.is_symlink()
-            ):
+            if current.is_symlink():
                 raise PermissionError(
                     "Promotion genom symlink är inte tillåten."
                 )
 
-        if (
-            target.exists()
-            and target.is_symlink()
-        ):
+        if target.is_symlink():
             raise PermissionError(
                 "Promotion till symlink är inte tillåten."
             )
@@ -838,9 +832,20 @@ class SelfDevPromotionManager:
                 "Promotion-record saknas."
             )
 
-        record = _read_json(
-            record_path
-        )
+        record = _read_json(record_path)
+        if not isinstance(record, dict):
+            raise RuntimeError("Ogiltig återställningsjournal.")
+        state = record.get("state")
+        if state == "prepared":
+            raise RuntimeError(
+                "Ofullständig promotion kräver RECOVER, inte vanlig ROLLBACK."
+            )
+        if state in {"reverted", "recovered"}:
+            raise RuntimeError("Promotionen är redan återställd.")
+        if state not in {"completed", None}:
+            raise RuntimeError("Okänt promotion-läge; rollback avböjs.")
+        if state is None and not record.get("promoted_unix_time"):
+            raise RuntimeError("Äldre rollback-record saknar slutförd promotion.")
 
         if record.get(
             "rolled_back",
@@ -877,13 +882,20 @@ class SelfDevPromotionManager:
                     + relative
                 )
 
-        backups = record.get(
-            "backups",
-            {},
-        )
-        paths = sorted(
-            backups
-        )
+        backups = record.get("backups", {})
+        if not isinstance(backups, dict) or set(backups) != set(after_hashes):
+            raise RuntimeError("Ofullständig rollback-metadata.")
+        paths = sorted(backups)
+        for relative, information in backups.items():
+            if not isinstance(information, dict):
+                raise RuntimeError("Ogiltig rollback-backup.")
+            if information.get("existed"):
+                backup = self._safe_backup_path(rollback_root, relative)
+                if (
+                    not backup.is_file()
+                    or _sha256(backup) != information.get("sha256")
+                ):
+                    raise RuntimeError("Rollback-backup har ändrats eller saknas.")
         self._restore_from_backup(
             rollback_root,
             backups,
