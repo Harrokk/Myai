@@ -104,3 +104,14 @@ def test_report_emits_no_private_identity_paths_or_raw_rule_lines(monkeypatch, t
     assert result["node_or_service_modified"] is False
     assert result["qnn_htp_backend_attempted"] is False
     assert result["actual_device_open_verified"] is False
+
+
+def test_symlinked_rules_directory_is_reported_as_partial(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "valid.rules").write_text('GROUP="fastrpc"', encoding="ascii")
+    alias = tmp_path / "alias"
+    alias.symlink_to(source, target_is_directory=True)
+    report = policy.bounded_rules_inventory((alias,))
+    assert report["scan_complete"] is False
+    assert report["scanned_rule_files"] == 0
