@@ -27,6 +27,7 @@ from scripts.ventuno_geniex_runtime_attestation import (
 from scripts.ventuno_qnn_cli_gate import parse_flags
 from scripts.ventuno_qnn_error_categories import classify_qnn_output, MAX_CAPTURE_READ
 from scripts.ventuno_v75_elf_fastrpc_readonly import inspect_resolved_skel
+from scripts.ventuno_qnn_native_result_attestation import attest_native_output
 
 
 MIN_AVAILABLE_KIB = 8 * 1048576
@@ -136,6 +137,8 @@ def run_once():
         "second_large_model_loaded": False,
         "htp_attempted": False,
         "htp_inference_verified": False,
+        "htp_operator_placement_verified": False,
+        "cpu_reference_output_match": None,
         "qnn_cli_exit_zero": None,
         "dsp_library_path_configured": False,
         "native_output_status": None,
@@ -247,11 +250,18 @@ def run_once():
                 if completed.returncode == 0 else "qnn_htp_cli_nonzero"
             )
             if completed.returncode == 0:
-                check = _output_summary(root)
-                result["native_output_status"] = check
-                if check == "native_64_byte_result_nonempty":
-                    result["status"] = "tiny_qnn_htp_native_inference_succeeded"
-                    result["htp_inference_verified"] = True
+                # Nonzero native bytes do NOT prove a correct graph output,
+                # and even exact CPU-reference parity cannot attest that
+                # the HTP executed (rather than a CPU fallback).
+                attested = attest_native_output(root)
+                result["native_output_status"] = attested["status"]
+                result["cpu_reference_output_match"] = (
+                    attested["output_matches_verified_cpu_reference"]
+                )
+                if result["cpu_reference_output_match"] is True:
+                    result["status"] = "htp_output_cpu_parity_placement_unverified"
+                elif result["cpu_reference_output_match"] is False:
+                    result["status"] = "htp_output_differs_or_is_invalid"
                 else:
                     result["status"] = "htp_result_unverified"
         except subprocess.TimeoutExpired:
