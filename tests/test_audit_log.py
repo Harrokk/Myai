@@ -236,3 +236,43 @@ def test_read_recent_audit_ignores_symlinked_log_and_backups(tmp_path):
     result = read_recent_audit(log, backups=1)
     assert result["records"] == []
     assert external.is_file()
+
+
+def test_required_audit_refuses_to_authorize_action_if_fsync_fails(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import jsonl_log
+
+    logger = AuditLogger(settings(), tmp_path)
+    real_fsync = jsonl_log.os.fsync
+
+    def fail_fsync(fd):
+        if os.fstat(fd):
+            raise OSError("simulated durability failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(jsonl_log.os, "fsync", fail_fsync)
+    with pytest.raises(RuntimeError, match="blockeras"):
+        logger.write_attempt(
+            action="selfdev_promote",
+            component="selfdev",
+            target="session1",
+        )
+
+
+def test_optional_result_audit_does_not_require_durable_fsync(
+    tmp_path, monkeypatch,
+):
+    from core import jsonl_log
+
+    logger = AuditLogger(settings(), tmp_path)
+    def fail_if_called(fd):
+        raise AssertionError("Optional logging should not fsync")
+    monkeypatch.setattr(jsonl_log.os, "fsync", fail_if_called)
+    assert logger.write_result(
+        action="selfdev_status",
+        component="selfdev",
+        outcome="success",
+        target="session1",
+    )

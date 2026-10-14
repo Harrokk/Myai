@@ -460,3 +460,81 @@ def test_direct_rotation_uses_same_process_lock_as_append(tmp_path):
     assert read_lines(tmp_path / "rotate.jsonl.1") == [{"old": True}]
     append_jsonl(path, {"new": True}, backups=2)
     assert read_lines(path) == [{"new": True}]
+
+
+def test_leaf_swap_before_append_is_detected_and_never_writes_replacement(
+    tmp_path, monkeypatch,
+):
+    import os
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX anchored audit required")
+    path = tmp_path / "audit.jsonl"
+    path.write_text("OLD", encoding="utf-8")
+    replacement = tmp_path / "replacement.txt"
+    replacement.write_text("PRIVATE", encoding="utf-8")
+    real_same = module._same_leaf
+    swapped = [False]
+
+    def swap_before_check(fd, name, info):
+        if not swapped[0]:
+            swapped[0] = True
+            os.replace(replacement, path)
+        return real_same(fd, name, info)
+
+    monkeypatch.setattr(module, "_same_leaf", swap_before_check)
+    with pytest.raises(PermissionError, match="byttes ut"):
+        append_jsonl(path, {"record": "must-not-touch-replacement"})
+    assert path.read_text(encoding="utf-8") == "PRIVATE"
+
+
+def test_leaf_swap_after_write_causes_fail_closed_result(tmp_path, monkeypatch):
+    import os
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX anchored audit required")
+    path = tmp_path / "audit.jsonl"
+    path.write_text("OLD", encoding="utf-8")
+    replacement = tmp_path / "replacement.txt"
+    replacement.write_text("EXTERNAL", encoding="utf-8")
+    original = module._same_leaf
+    seen = [0]
+
+    def replace_on_second_check(fd, name, info):
+        seen[0] += 1
+        if seen[0] == 2:
+            os.replace(replacement, path)
+        return original(fd, name, info)
+
+    monkeypatch.setattr(module, "_same_leaf", replace_on_second_check)
+    with pytest.raises(PermissionError, match="byttes ut"):
+        append_jsonl(path, {"record": "must-fail"})
+    assert seen[0] == 2
+    assert path.read_text(encoding="utf-8") == "EXTERNAL"
+
+
+def test_durable_append_fsyncs_data_and_directory(tmp_path, monkeypatch):
+    from core import jsonl_log as module
+    if not module._ANCHORED:
+        import pytest
+        pytest.skip("POSIX anchored audit required")
+
+    path = tmp_path / "audit.jsonl"
+    real_fsync = module.os.fsync
+    modes = []
+
+    def observe_fsync(fd):
+        info = module.os.fstat(fd)
+        modes.append(info.st_mode)
+        return real_fsync(fd)
+
+    monkeypatch.setattr(module.os, "fsync", observe_fsync)
+    append_jsonl(path, {"important": True}, durable=True)
+    import stat
+    assert any(stat.S_ISREG(mode) for mode in modes)
+    assert any(stat.S_ISDIR(mode) for mode in modes)
+    assert read_lines(path) == [{"important": True}]
