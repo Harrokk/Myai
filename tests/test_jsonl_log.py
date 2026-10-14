@@ -228,3 +228,130 @@ def test_log_append_refuses_symlinked_parent_directory(tmp_path):
     with pytest.raises(PermissionError):
         append_jsonl(link / "events.jsonl", {"event": "no"})
     assert not (outside / "events.jsonl").exists()
+
+
+def test_append_uses_original_directory_fd_after_parent_swap(tmp_path, monkeypatch):
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX directory descriptors required")
+
+    folder = tmp_path / "audit"
+    folder.mkdir()
+    (folder / "events.jsonl").write_text("OLD" * 30, encoding="utf-8")
+    moved = tmp_path / "original"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "events.jsonl").write_text("EXTERNAL", encoding="utf-8")
+    real_rotate = module._rotate_fd
+
+    def swap_while_rotating(fd, name, count):
+        folder.rename(moved)
+        folder.symlink_to(outside, target_is_directory=True)
+        return real_rotate(fd, name, count)
+
+    monkeypatch.setattr(module, "_rotate_fd", swap_while_rotating)
+    with pytest.raises(PermissionError, match="byttes ut"):
+        append_jsonl(
+            folder / "events.jsonl",
+            {"event": "after-swap"},
+            max_bytes=20,
+            backups=2,
+        )
+    assert (outside / "events.jsonl").read_text(
+        encoding="utf-8"
+    ) == "EXTERNAL"
+    assert not (outside / "events.jsonl.1").exists()
+    assert (moved / "events.jsonl.1").is_file()
+
+
+def test_append_detects_parent_swap_without_rotation(tmp_path, monkeypatch):
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX directory descriptors required")
+
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    moved = tmp_path / "displaced"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "audit.jsonl").write_text("KEEP", encoding="utf-8")
+    real_append = module.os.fdopen
+
+    def swap_before_fd_write(fd, *args, **kwargs):
+        if not moved.exists():
+            folder.rename(moved)
+            folder.symlink_to(outside, target_is_directory=True)
+        return real_append(fd, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "fdopen", swap_before_fd_write)
+    with pytest.raises(PermissionError, match="byttes ut"):
+        append_jsonl(folder / "audit.jsonl", {"event": "safe"})
+    assert (outside / "audit.jsonl").read_text(
+        encoding="utf-8"
+    ) == "KEEP"
+    assert (moved / "audit.jsonl").is_file()
+
+
+def test_reader_stays_anchored_after_parent_swap(tmp_path, monkeypatch):
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX directory descriptors required")
+
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    (folder / "audit.jsonl").write_text("KNOWN", encoding="utf-8")
+    moved = tmp_path / "moved"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "audit.jsonl").write_text("PRIVATE", encoding="utf-8")
+    original = module._slot
+
+    def swap_during_stat(fd, name):
+        if name == "audit.jsonl" and not moved.exists():
+            folder.rename(moved)
+            folder.symlink_to(outside, target_is_directory=True)
+        return original(fd, name)
+
+    monkeypatch.setattr(module, "_slot", swap_during_stat)
+    with pytest.raises(PermissionError, match="byttes ut"):
+        module.read_log_text(folder / "audit.jsonl")
+    assert (outside / "audit.jsonl").read_text(encoding="utf-8") == "PRIVATE"
+
+
+def test_direct_rotate_file_rejects_swapped_parent_directory(
+    tmp_path, monkeypatch,
+):
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX directory descriptors required")
+
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    (folder / "audit.jsonl").write_text("OLD", encoding="utf-8")
+    moved = tmp_path / "moved"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "audit.jsonl").write_text("EXTERNAL", encoding="utf-8")
+    real_rotate = module._rotate_fd
+
+    def swap_during_rotate(fd, name, count):
+        folder.rename(moved)
+        folder.symlink_to(outside, target_is_directory=True)
+        return real_rotate(fd, name, count)
+
+    monkeypatch.setattr(module, "_rotate_fd", swap_during_rotate)
+    with pytest.raises(PermissionError, match="byttes ut"):
+        rotate_file(folder / "audit.jsonl", backups=1)
+    assert (outside / "audit.jsonl").read_text(
+        encoding="utf-8"
+    ) == "EXTERNAL"
+    assert not (outside / "audit.jsonl.1").exists()
+    assert (moved / "audit.jsonl.1").is_file()

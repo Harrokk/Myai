@@ -140,6 +140,29 @@ def _open_append_regular(target):
 def read_log_text(path):
     """Read a log using no-follow and inode validation, without mutations."""
     target = Path(path)
+    if _ANCHORED:
+        with _parent_fd(target) as (fd, name):
+            if _slot(fd, name) is None:
+                raise FileNotFoundError(str(target))
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            if hasattr(os, "O_NONBLOCK"):
+                flags |= os.O_NONBLOCK
+            descriptor = os.open(name, flags, dir_fd=fd)
+            try:
+                info = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1
+                ):
+                    raise PermissionError("Osäker loggfil vid läsning.")
+                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                    descriptor = None
+                    content = handle.read()
+                _parent_unchanged(fd, target)
+                return content
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
     _check_parent_path(target)
     _check_existing_regular(target)
     flags = os.O_RDONLY
