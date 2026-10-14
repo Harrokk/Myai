@@ -23,36 +23,32 @@ from scripts.qairt_245_dlc_static_audit import (
 from scripts.prepare_qairt245_native_fixture import native_input
 from scripts.ventuno_live_qairt_synthetic_once import available_memory_kib
 from scripts.ventuno_tiny_qnn_htp_once import (
-    INPUT_SHA, _find_libraries, _help_flags, _output_summary, NEEDED,
+    INPUT_SHA, _find_libraries, _help_flags, NEEDED,
 )
-from scripts.ventuno_tiny_qnn_htp_readiness import ROOTS
+from scripts.ventuno_v75_elf_fastrpc_readonly import inspect_resolved_skel
+from scripts.ventuno_qnn_native_result_attestation import attest_native_output
 
 EXPECTED_X86_CPU_RAW_SHA = "9f776aec98d9e12d5a33bb91fadcb8d6560293cc3e0d816445be6e9d05928174"
 
 
 def locate_cpu_backend():
-    """Search only known vendor install roots, without following symlinks."""
-    queue = [(root, 0) for root in ROOTS if root.is_dir() and not root.is_symlink()]
-    seen = 0
-    while queue and seen < 500:
-        folder, depth = queue.pop(0)
-        seen += 1
-        try:
-            entries = list(folder.iterdir())[:120]
-        except OSError:
-            continue
-        for entry in entries:
-            try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_file() and entry.name == "libQnnCpu.so":
-                    return entry
-                if entry.is_dir() and depth < 6:
-                    queue.append((entry, depth + 1))
-            except OSError:
-                pass
-    return None
+    """Use only the installed QAIRT AArch64 CPU library, never an SDK copy.
 
+    Previous recursive ROOTS traversal could select an alternate inode
+    from an old SDK; host HTP libraries already have a strict distro gate.
+    This preflight reads bounded ELF header/package metadata only.
+    """
+    candidate = Path("/usr/lib") / "libQnnCpu.so"
+    info = inspect_resolved_skel(candidate, Path("/usr"))
+    if (
+        info["path_inside_usr"] is True
+        and info["file_regular"] is True
+        and info["header_class"] == "aarch64_elf_header"
+        and info["package_owner"] == "qairt-libs"
+        and info["library_file_header_read"] is True
+    ):
+        return candidate
+    return None
 
 def _limits():
     resource.setrlimit(resource.RLIMIT_AS, (3 * 1024**3, 3 * 1024**3))
@@ -143,19 +139,19 @@ def cpu_once():
             if proc.returncode != 0:
                 result["status"] = "qnn_cpu_cli_nonzero"
             else:
-                output = _output_summary(folder)
-                result["cpu_native_output_status"] = output
-                if output != "native_64_byte_result_nonempty":
-                    result["status"] = "qnn_cpu_output_unverified"
+                # Use the same bounded, symlink-rejecting parity check
+                # as the HTP diagnostic. Never trust an arbitrary .raw file,
+                # multiple outputs, nonzero bytes, or a different digest.
+                attested = attest_native_output(folder)
+                result["cpu_native_output_status"] = attested["status"]
+                match = attested["output_matches_verified_cpu_reference"]
+                result["raw_output_matches_previously_verified_x86_cpu"] = match
+                if match is True:
+                    result["status"] = "tiny_qnn_cpu_reference_matches_x86"
+                elif match is False:
+                    result["status"] = "cpu_output_present_differs_from_x86_digest"
                 else:
-                    files = list((folder / "results" / "Result_0").glob("*.raw"))
-                    digest = hashlib.sha256(files[0].read_bytes()).hexdigest()
-                    match = digest == EXPECTED_X86_CPU_RAW_SHA
-                    result["raw_output_matches_previously_verified_x86_cpu"] = match
-                    result["status"] = (
-                        "tiny_qnn_cpu_reference_matches_x86"
-                        if match else "cpu_output_present_differs_from_x86_digest"
-                    )
+                    result["status"] = "qnn_cpu_output_unverified"
         except subprocess.TimeoutExpired:
             result["status"] = "qnn_cpu_timeout"
         except OSError:
