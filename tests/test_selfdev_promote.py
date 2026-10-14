@@ -1723,3 +1723,73 @@ def test_inspect_recovery_does_not_create_missing_key_or_journal(tmp_path):
     assert result["status"] == "blocked"
     assert not (project / "runtime" / "selfdev" / ".journal-integrity-key").exists()
     assert _read_only_project_snapshot(project) == before
+
+
+def test_private_project_lock_rejects_world_writable_lock_file(tmp_path):
+    import os
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    lock_dir = project / "runtime" / "selfdev"
+    lock = lock_dir / ".promotion.lock"
+    with active._project_mutation_lock():
+        assert lock.exists()
+    os.chmod(lock, 0o666)
+    with pytest.raises(PermissionError, match="låsfil"):
+        with active._project_mutation_lock():
+            pass
+    os.chmod(lock, 0o600)
+    with active._project_mutation_lock():
+        pass
+
+
+def test_private_project_lock_rejects_hardlinked_lock(tmp_path):
+    import os
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    with active._project_mutation_lock():
+        pass
+    lock = project / "runtime" / "selfdev" / ".promotion.lock"
+    os.link(lock, tmp_path / "alias-lock")
+    with pytest.raises(PermissionError, match="låsfil"):
+        with active._project_mutation_lock():
+            pass
+
+
+def test_private_selfdev_directory_refuses_symlinked_runtime_parent(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    old_runtime = project / "runtime"
+    # A workspace fixture creates this directory; replace it with a link.
+    outside = tmp_path / "runtime-outside"
+    old_runtime.rename(outside)
+    old_runtime.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(PermissionError, match="symlink"):
+        active.promote("PROMOTE session1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_new_rollback_backup_directory_is_private(tmp_path):
+    import stat
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    folder = workspace.session_root / "rollbacks" / "promo1"
+    assert stat.S_IMODE(folder.stat().st_mode) & 0o077 == 0
+    assert (folder / "promotion.json").is_file()
+
+
+def test_private_selfdev_directory_rejects_group_writable_metadata(tmp_path):
+    import os
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    with active._project_mutation_lock():
+        pass
+    directory = project / "runtime" / "selfdev"
+    os.chmod(directory, 0o775)
+    with pytest.raises(PermissionError, match="osäkra behörigheter"):
+        with active._project_mutation_lock():
+            pass
