@@ -329,6 +329,18 @@ def choose_consensus(
             "transcripts": normalized,
         }
 
+    # High-risk actions may contain one decisive token: a file name,
+    # terminal, device, or numeric target. Token overlap/Jaccard does
+    # not attest that the recognizers heard the SAME instruction.
+    # Preserve tolerant fuzzy matching only for low-risk questions.
+    high_risk = any(
+        classify_voice_risk(item["text"])["level"] == "high"
+        for item in normalized
+    )
+    strict_phrases = (
+        [normalize_transcript(item["text"]) for item in normalized]
+        if high_risk else None
+    )
     support = [1] * len(normalized)
 
     for left_index in range(len(normalized)):
@@ -336,12 +348,18 @@ def choose_consensus(
             left_index + 1,
             len(normalized),
         ):
-            similarity = transcript_similarity(
-                normalized[left_index]["text"],
-                normalized[right_index]["text"],
-            )
+            if high_risk:
+                agreeing = (
+                    strict_phrases[left_index] == strict_phrases[right_index]
+                )
+            else:
+                similarity = transcript_similarity(
+                    normalized[left_index]["text"],
+                    normalized[right_index]["text"],
+                )
+                agreeing = similarity >= similarity_threshold
 
-            if similarity >= similarity_threshold:
+            if agreeing:
                 support[left_index] += 1
                 support[right_index] += 1
 
@@ -363,6 +381,9 @@ def choose_consensus(
         return {
             "accepted": False,
             "reason": (
+                "Högriskkommandot saknar två exakt överensstämmande "
+                "STT-tolkningar."
+                if high_risk else
                 "STT-tolkningarna saknar tydlig majoritetskonsensus."
             ),
             "text": None,
@@ -762,11 +783,17 @@ class VoicePipeline:
                     ),
                 )
 
+                # Confirmation votes must also represent separate
+                # recognizer instances; duplicates cannot vote twice.
+                confirmation_seen = {id(self.primary_stt)}
                 for provider in self.backup_stt:
                     if len(
                         confirmation_transcripts
                     ) >= desired:
                         break
+                    if id(provider) in confirmation_seen:
+                        continue
+                    confirmation_seen.add(id(provider))
 
                     confirmation_transcripts.append(
                         self._transcribe(
@@ -971,9 +998,15 @@ class VoicePipeline:
                 ),
             )
 
+            # The majority must be independent STT *instances*.
+            # Repeating one recognizer twice is not extra evidence.
+            seen_providers = {id(self.primary_stt)}
             for provider in self.backup_stt:
                 if len(transcripts) >= desired:
                     break
+                if id(provider) in seen_providers:
+                    continue
+                seen_providers.add(id(provider))
 
                 transcripts.append(
                     self._transcribe(
