@@ -132,3 +132,20 @@ def test_unresolvable_target_is_unknown_not_negative(tmp_path):
     })
     assert category == "unavailable"
     assert target is None
+
+
+def test_broad_target_zone_never_exports_path(tmp_path):
+    target = tmp_path / "SECRET-FILENAME.so"
+    target.write_bytes(b"NOTLOADED")
+    link = tmp_path / "skel-link.so"
+    link.symlink_to(target)
+    zone = probe.broad_resolved_target_zone(link)
+    assert zone == "tmp"
+    assert "SECRET" not in zone
+    assert str(tmp_path) not in zone
+
+
+def test_broad_zone_fails_closed_on_missing_target(tmp_path):
+    link = tmp_path / "skel-link.so"
+    link.symlink_to("missing")
+    assert probe.broad_resolved_target_zone(link) == "unavailable"
