@@ -133,6 +133,15 @@ def _output_summary(root):
     return "native_64_byte_result_nonempty"
 
 
+def _classify_private_capture(root):
+    """Classify at most 16 KiB per stream, with one lookahead for truncation."""
+    with (root / "stdout.private").open("rb") as output:
+        raw_stdout = output.read(MAX_CAPTURE_READ + 1)
+    with (root / "stderr.private").open("rb") as error_stream:
+        raw_stderr = error_stream.read(MAX_CAPTURE_READ + 1)
+    return classify_qnn_output(raw_stdout, raw_stderr)
+
+
 def run_once():
     result = {
         "status": "no_go",
@@ -237,13 +246,11 @@ def run_once():
                         stderr=error_stream, check=False, timeout=30,
                         preexec_fn=_child_limits,
                     )
-                # Read only the first 16 KiB of each private file.
-                # TemporaryDirectory deletes the raw diagnostic streams.
-                raw_stdout = (root / "stdout.private").open("rb").read(MAX_CAPTURE_READ)
-                raw_stderr = (root / "stderr.private").open("rb").read(MAX_CAPTURE_READ)
-                # Output may have been truncated by RLIMIT_FSIZE; cannot
-                # establish that the entire vendor diagnostic is captured.
-                result["error_categories"] = classify_qnn_output(raw_stdout, raw_stderr)
+                # One extra byte distinguishes exact-size output from
+                # output clipped at our 16 KiB inspection boundary. No raw
+                # diagnostic content is ever exported; private files are
+                # deleted with TemporaryDirectory.
+                result["error_categories"] = _classify_private_capture(root)
             else:
                 completed = subprocess.run(
                     arguments, cwd=root, env=env,
