@@ -95,3 +95,33 @@ def test_report_never_claims_pd_or_firmware_compatibility(monkeypatch):
     assert result["backend_initialization_verified"] is False
     assert result["model_or_npu_run"] is False
     assert result["device_node_opened"] is False
+
+
+def test_dt_compatible_identifies_cdsp_when_name_is_opaque(tmp_path):
+    node = tmp_path / "remoteproc0"
+    of = node / "device" / "of_node"
+    of.mkdir(parents=True)
+    (node / "name").write_text("32300000.remoteproc\n", encoding="ascii")
+    (node / "state").write_text("running\n", encoding="ascii")
+    (of / "compatible").write_bytes(b"qcom,monaco-cdsp-pas\0qcom,pas\0")
+    (node / "firmware").write_text("qcom/cdsp.mbn", encoding="ascii")
+    result = probe.remoteprocs(tmp_path)
+    assert result["cdsp_count"] == 1
+    assert result["cdsp_state"] == "running"
+    assert result["cdsp_identification_method"] == "dt_compatible"
+    assert result["remoteproc_running_count"] == 1
+    assert "32300000" not in json.dumps(result)
+    assert "monaco" not in json.dumps(result)
+
+
+def test_opaque_names_without_dt_cannot_be_assigned_to_cdsp(tmp_path):
+    for i in range(2):
+        node = tmp_path / f"remoteproc{i}"
+        node.mkdir()
+        (node / "name").write_text("opaque"+str(i), encoding="ascii")
+        (node / "state").write_text("running", encoding="ascii")
+    result = probe.remoteprocs(tmp_path)
+    assert result["cdsp_count"] == 0
+    assert result["cdsp_identification_method"] == "not_identified"
+    assert result["remoteproc_running_count"] == 2
+    assert result["cdsp_state"] == "unknown"
