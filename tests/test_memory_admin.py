@@ -595,3 +595,32 @@ def test_memory_admin_tool_surface_has_separate_read_and_write_actions():
     ][
         "pass_user_input"
     ] is True
+
+
+def test_concurrent_identical_memory_reviews_share_one_pending_record(
+    tmp_path,
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from core.memory import MemoryStore
+
+    store = MemoryStore(tmp_path / "parallel-reviews.db")
+    store.init()
+    gate = Barrier(6)
+
+    def enqueue(_):
+        gate.wait(timeout=5)
+        return store.enqueue_review(
+            "preference",
+            "Föredrar offline-läge på Ventuno",
+            reason="test",
+            conflict_ids=[1],
+        )
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        outcomes = list(executor.map(enqueue, range(6)))
+
+    assert len({item["review_id"] for item in outcomes}) == 1
+    assert sum(item["created"] for item in outcomes) == 1
+    assert len(store.list_reviews()) == 1

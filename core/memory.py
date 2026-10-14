@@ -537,6 +537,10 @@ class MemoryStore:
         with sqlite3.connect(
             self.database_path
         ) as conn:
+            # Serialize dedupe and INSERT just as save_if_new does.
+            # Otherwise multiple requests can create the same pending
+            # review with different IDs.
+            conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
                 """
                 SELECT id
