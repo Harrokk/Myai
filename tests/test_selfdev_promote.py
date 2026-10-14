@@ -676,7 +676,7 @@ def test_modified_backup_refuses_rollback_without_mutating_sources(tmp_path):
         / "files" / "core" / "example.py"
     )
     backup.write_text("MALICIOUS = True\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="backup har ändrats"):
+    with pytest.raises(RuntimeError, match="Backup är skadad"):
         active.rollback("promo1", "ROLLBACK session1 promo1")
 
     assert (project / "core" / "example.py").read_text(
@@ -1273,3 +1273,214 @@ def test_interrupted_rollback_journal_blocks_new_promotion_across_sessions(
     assert active.recover_interrupted(
         "promo1", "RECOVER session1 promo1"
     )["state"] == "recovered"
+
+
+def _legacy_completed_record(tmp_path):
+    import json
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    legacy = json.loads(path.read_text(encoding="utf-8"))
+    legacy.pop("journal_hmac")
+    legacy.pop("journal_version")
+    original = json.dumps(legacy, indent=2).encode("utf-8")
+    path.write_bytes(original)
+    return project, workspace, active, path, original
+
+
+def test_unsigned_legacy_completed_requires_manual_migration(tmp_path):
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    with pytest.raises(RuntimeError, match="saknar integritetsskydd"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+    with pytest.raises(PermissionError, match="migreringsfras"):
+        active.migrate_legacy_completed("promo1", "yes")
+    assert path.read_bytes() == original
+    assert not (path.parent / "promotion.legacy-unsigned.json").exists()
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+    result = active.migrate_legacy_completed(
+        "promo1", "MIGRATE LEGACY session1 promo1"
+    )
+    assert result["journal_version"] == 1
+    assert len(result["journal_hmac"]) == 64
+    assert (path.parent / "promotion.legacy-unsigned.json").read_bytes() == original
+    assert active.rollback("promo1", "ROLLBACK session1 promo1")[
+        "rolled_back"
+    ]
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_manual_migration_refuses_unsigned_interrupted_update(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    journal = json.loads(path.read_text(encoding="utf-8"))
+    journal.pop("journal_hmac")
+    journal.pop("journal_version")
+    path.write_text(json.dumps(journal), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(RuntimeError, match="Endast slutförda"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert path.read_bytes() == before
+    assert not (path.parent / "promotion.legacy-unsigned.json").exists()
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_migration_refuses_forged_source_hashes_and_newer_user_edits(tmp_path):
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    raw = json.loads(original)
+    raw["after_hashes"]["core/example.py"] = "0" * 64
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Aktiv kod skiljer"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    path.write_bytes(original)
+    (project / "core" / "example.py").write_text(
+        "USER = 123\n", encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="Aktiv kod skiljer"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "USER = 123\n"
+
+
+def test_migration_refuses_backup_symlink_and_hardlink(tmp_path):
+    import os
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    backup = workspace.session_root / "rollbacks" / "promo1" / "files" / "core" / "example.py"
+    safe_content = backup.read_bytes()
+    outside = tmp_path / "separate-backup.py"
+    outside.write_bytes(safe_content)
+    backup.unlink()
+    backup.symlink_to(outside)
+    with pytest.raises(PermissionError, match="symlink"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    backup.unlink()
+    os.link(outside, backup)
+    with pytest.raises(RuntimeError, match="hårdlänk"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert path.read_bytes() == original
+
+
+def test_signed_normal_rollback_refuses_linked_backup_before_any_write(tmp_path):
+    import os
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    backup = workspace.session_root / "rollbacks" / "promo1" / "files" / "core" / "example.py"
+    external = tmp_path / "shared-backup.py"
+    external.write_bytes(backup.read_bytes())
+    backup.unlink()
+    os.link(external, backup)
+
+    with pytest.raises(RuntimeError, match="hårdlänk"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_manual_migration_can_retry_after_signature_write_is_interrupted(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    real = module._atomic_write_record
+    calls = [0]
+
+    def failed_signature_write(filename, record):
+        calls[0] += 1
+        if calls[0] == 1:
+            raise SystemExit("crash before signing")
+        return real(filename, record)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_write_record", failed_signature_write)
+        with pytest.raises(SystemExit, match="before signing"):
+            active.migrate_legacy_completed(
+                "promo1", "MIGRATE LEGACY session1 promo1"
+            )
+    archive = path.parent / "promotion.legacy-unsigned.json"
+    assert archive.read_bytes() == original
+    assert path.read_bytes() == original
+
+    result = active.migrate_legacy_completed(
+        "promo1", "MIGRATE LEGACY session1 promo1"
+    )
+    assert result["journal_version"] == 1
+    assert archive.read_bytes() == original
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_repeat_recovery_after_second_process_interruption(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+    project, workspace = make_workspace(tmp_path)
+    workspace.write_text(
+        "tests/test_existing.py", "def test_old():\n    assert 2 == 2\n"
+    )
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    real_write = module._atomic_write_record
+
+    def crash_before_completion(path, record):
+        if record.get("state") == "completed":
+            raise SystemExit("power cut before completion")
+        return real_write(path, record)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_write_record", crash_before_completion)
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    original_copy = module._atomic_copy
+    calls = [0]
+
+    def crash_during_recovery(source, destination, **kwargs):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise SystemExit("second power cut")
+        return original_copy(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", crash_during_recovery)
+        with pytest.raises(SystemExit, match="second power cut"):
+            active.recover_interrupted(
+                "promo1", "RECOVER session1 promo1"
+            )
+
+    record = active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )
+    assert record["state"] == "recovered"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert (project / "tests" / "test_existing.py").read_text(
+        encoding="utf-8"
+    ) == "def test_ok():\n    assert True\n"
+    assert not (project / "tests" / "test_new.py").exists()

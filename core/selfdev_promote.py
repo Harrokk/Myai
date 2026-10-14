@@ -816,20 +816,19 @@ class SelfDevPromotionManager:
     ):
         if not _allowed_relative_path(relative):
             raise PermissionError("Otillåten backup-sökväg.")
-        base = (
-            Path(
-                rollback_root
-            )
-            / "files"
-        ).resolve(
-            strict=False
-        )
-        candidate = (
-            base
-            / relative
-        ).resolve(
-            strict=False
-        )
+        root = Path(rollback_root)
+        if root.is_symlink():
+            raise PermissionError("Rollback-roten får inte vara symlink.")
+        base = root / "files"
+        if base.is_symlink():
+            raise PermissionError("Backup-roten får inte vara symlink.")
+        current = base
+        for part in Path(relative).parts:
+            current = current / part
+            if current.is_symlink():
+                raise PermissionError("Backup genom symlink är inte tillåten.")
+        base = base.resolve(strict=False)
+        candidate = current.resolve(strict=False)
 
         try:
             candidate.relative_to(
@@ -841,6 +840,19 @@ class SelfDevPromotionManager:
             ) from error
 
         return candidate
+
+    def _verified_backup(self, rollback_root, relative, expected_hash):
+        """Do not follow backup symlinks or accept multiply-linked backups."""
+        backup = self._safe_backup_path(rollback_root, relative)
+        try:
+            attributes = backup.lstat()
+        except OSError as error:
+            raise RuntimeError("Backup saknas eller går inte att läsa.") from error
+        if not stat.S_ISREG(attributes.st_mode) or attributes.st_nlink != 1:
+            raise RuntimeError("Osäker backupfil (symlink eller hårdlänk).")
+        if _sha256(backup) != expected_hash:
+            raise RuntimeError("Backup är skadad eller saknas.")
+        return backup
 
     def _restore_from_backup(
         self,
@@ -865,9 +877,8 @@ class SelfDevPromotionManager:
             if info[
                 "existed"
             ]:
-                backup = self._safe_backup_path(
-                    rollback_root,
-                    relative,
+                backup = self._verified_backup(
+                    rollback_root, relative, info["sha256"]
                 )
                 _atomic_copy(
                     backup,
@@ -967,9 +978,9 @@ class SelfDevPromotionManager:
                 raise RuntimeError("Ogiltigt backupstatus i journalen.")
             expected_original = before.get("sha256")
             if existed:
-                backup = self._safe_backup_path(rollback_root, relative)
-                if not backup.is_file() or _sha256(backup) != expected_original:
-                    raise RuntimeError("Backup är skadad eller saknas.")
+                self._verified_backup(
+                    rollback_root, relative, expected_original
+                )
                 if not target.is_file():
                     raise RuntimeError(
                         "Aktiv fil saknas eller har ändrats efter avbrottet."
@@ -997,6 +1008,154 @@ class SelfDevPromotionManager:
         record["recovered_unix_time"] = time.time()
         self._write_journal(record_path, record)
         return record
+
+    def migrate_legacy_completed(self, promotion_id, approval_phrase):
+        """Explicit metadata-only migration of a VERIFIED completed legacy journal.
+
+        Unsigned interrupted journals are deliberately not recoverable here.
+        This provides consistency checking, not cryptographic provenance
+        of historic unsigned files.
+        """
+        identifier = _safe_identifier(promotion_id)
+        expected = (
+            "MIGRATE LEGACY " + self.workspace.session_id + " " + identifier
+        )
+        label = "selfdev/" + self.workspace.session_id
+        self.audit_logger.write_attempt(
+            action="selfdev_migrate_legacy",
+            component="selfdev",
+            target=label,
+            details={"promotion_id": identifier},
+        )
+        try:
+            if str(approval_phrase) != expected:
+                raise PermissionError("Fel manuell migreringsfras.")
+            with self._project_mutation_lock():
+                self._require_promotion_enabled()
+                result = self._migrate_legacy_completed_impl(identifier)
+        except Exception as error:
+            self.audit_logger.write_result(
+                action="selfdev_migrate_legacy",
+                component="selfdev",
+                outcome=audit_outcome_for_exception(error),
+                target=label,
+                details={
+                    "promotion_id": identifier,
+                    "error_type": type(error).__name__,
+                },
+            )
+            raise
+        self.audit_logger.write_result(
+            action="selfdev_migrate_legacy",
+            component="selfdev",
+            outcome="success",
+            target=label,
+            details={"promotion_id": identifier},
+        )
+        return result
+
+    def _migrate_legacy_completed_impl(self, identifier):
+        root = self.workspace.session_root / "rollbacks" / identifier
+        if root.is_symlink():
+            raise PermissionError("Migrering genom symlink är inte tillåten.")
+        source = root / "promotion.json"
+        if source.is_symlink():
+            raise PermissionError("Migrering av journal-symlink nekad.")
+        if not source.is_file():
+            raise FileNotFoundError("Legacy-journal saknas.")
+        metadata = source.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise RuntimeError("Legacy-journalen är inte en vanlig ensam fil.")
+        if metadata.st_size > 1024 * 1024:
+            raise RuntimeError("Legacy-journalen är för stor.")
+        raw = source.read_bytes()
+        try:
+            record = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, ValueError) as error:
+            raise RuntimeError("Legacy-journalen är skadad.") from error
+        if not isinstance(record, dict):
+            raise RuntimeError("Legacy-journalen är ogiltig.")
+        if "journal_hmac" in record or "journal_version" in record:
+            raise RuntimeError("Journalen är inte en osignerad legacy-journal.")
+        if (
+            record.get("session_id") != self.workspace.session_id
+            or record.get("promotion_id") != identifier
+        ):
+            raise PermissionError("Legacy-journalen gäller annan session.")
+        if (
+            record.get("state") not in (None, "completed")
+            or record.get("rolled_back") is not False
+            or not isinstance(record.get("promoted_unix_time"), (int, float))
+            or isinstance(record.get("promoted_unix_time"), bool)
+            or record["promoted_unix_time"] <= 0
+        ):
+            raise RuntimeError(
+                "Endast slutförda legacy-journaler får migreras."
+            )
+        backups = record.get("backups")
+        after = record.get("after_hashes")
+        changed = record.get("changed")
+        added = record.get("added")
+        if (
+            not isinstance(backups, dict)
+            or not isinstance(after, dict)
+            or not isinstance(changed, list)
+            or not isinstance(added, list)
+            or not backups
+            or not all(isinstance(p, str) for p in changed + added)
+            or len(set(changed + added)) != len(changed + added)
+            or set(backups) != set(after)
+            or set(backups) != set(changed + added)
+        ):
+            raise RuntimeError("Ofullständiga legacy-journaluppgifter.")
+        def is_sha(value):
+            return (
+                isinstance(value, str) and len(value) == 64
+                and all(char in "0123456789abcdef" for char in value)
+            )
+        for relative, expected_after in after.items():
+            if not isinstance(relative, str) or not is_sha(expected_after):
+                raise RuntimeError("Ogiltiga legacy-journalhashar.")
+            target = self._safe_project_target(relative)
+            if not target.is_file() or _sha256(target) != expected_after:
+                raise RuntimeError(
+                    "Aktiv kod skiljer sig från legacy-journalen."
+                )
+            item = backups[relative]
+            if not isinstance(item, dict) or type(item.get("existed")) is not bool:
+                raise RuntimeError("Ogiltig legacy-backupmetadata.")
+            if relative in changed:
+                if not item["existed"] or not is_sha(item.get("sha256")):
+                    raise RuntimeError("Legacy-backup är ogiltig.")
+                self._verified_backup(root, relative, item["sha256"])
+            else:
+                if item["existed"] or item.get("sha256") is not None:
+                    raise RuntimeError("Legacy-added har felaktig backup.")
+
+        archive = root / "promotion.legacy-unsigned.json"
+        if archive.is_symlink():
+            raise PermissionError("Legacy-arkivet är en symlink.")
+        if os.path.lexists(archive):
+            attributes = archive.lstat()
+            if (
+                not stat.S_ISREG(attributes.st_mode)
+                or attributes.st_nlink != 1
+                or (os.name == "posix" and attributes.st_mode & 0o077)
+                or archive.read_bytes() != raw
+            ):
+                raise RuntimeError("Legacy-arkivet matchar inte originaljournalen.")
+        else:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            fd = os.open(str(archive), flags, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            _sync_directory(root)
+        self._write_journal(source, record)
+        return self._read_journal(source)
 
     def rollback(
         self,
@@ -1163,12 +1322,9 @@ class SelfDevPromotionManager:
             if not isinstance(information, dict):
                 raise RuntimeError("Ogiltig rollback-backup.")
             if information.get("existed"):
-                backup = self._safe_backup_path(rollback_root, relative)
-                if (
-                    not backup.is_file()
-                    or _sha256(backup) != information.get("sha256")
-                ):
-                    raise RuntimeError("Rollback-backup har ändrats eller saknas.")
+                self._verified_backup(
+                    rollback_root, relative, information.get("sha256")
+                )
         # A crash in the middle of a normal rollback otherwise leaves
         # mixed old/new files and a misleading "completed" journal.
         record["state"] = "rollback_prepared"
