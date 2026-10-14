@@ -1,0 +1,37 @@
+name: VENTUNO HTP host library and QAIRT fixture provenance metadata
+on:
+  push:
+    branches: [dev/ventuno-htp-hostlib-qairstack-parity-20261014]
+    paths:
+      - .github/workflows/ventuno-htp-hostlib-qairstack-parity-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-htp-hostlib-parity-20261014
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Compare library file identity and installed QAIRT package metadata only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-htp-hostlib-qairstack-parity-20261014"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-htp-libparity.XXXXXX")"
+          chmod 700 "$scratch"
+          trap 'cd "$RUNNER_TEMP" && rm -rf -- "$scratch"' EXIT
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          timeout --signal=TERM --kill-after=3s 40s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_htp_hostlib_qairstack_parity_readonly
+          echo 'Metadata only: no QNN/HTP, library load, DSP device-open, live service or package changes.'
