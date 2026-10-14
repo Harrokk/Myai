@@ -682,3 +682,70 @@ def test_modified_backup_refuses_rollback_without_mutating_sources(tmp_path):
     assert (project / "core" / "example.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 2\n"
+
+
+def test_full_file_application_without_final_journal_is_recoverable(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    real_write_record = module._atomic_write_record
+
+    def crash_at_final_journal(path, record):
+        if record.get("state") == "completed":
+            raise SystemExit("crashed just before commit record")
+        return real_write_record(path, record)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_write_record", crash_at_final_journal)
+        with pytest.raises(SystemExit, match="commit record"):
+            active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    assert (project / "tests" / "test_new.py").is_file()
+
+    state = active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert state["state"] == "recovered"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (project / "tests" / "test_new.py").exists()
+
+
+def test_corrupt_backup_blocks_recovery_before_any_source_mutation(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_copy = module._atomic_copy
+    copies = [0]
+
+    def interrupt_second_copy(source, target):
+        copies[0] += 1
+        if copies[0] == 2:
+            raise SystemExit("simulated crash")
+        return original_copy(source, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", interrupt_second_copy)
+        with pytest.raises(SystemExit):
+            active.promote("PROMOTE session1")
+
+    backup = workspace.session_root / "rollbacks" / "promo1" / "files" / "core" / "example.py"
+    backup.write_text("CORRUPTED = True\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Backup är skadad"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    assert not (project / "tests" / "test_new.py").exists()
