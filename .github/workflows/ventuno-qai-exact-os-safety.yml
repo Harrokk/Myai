@@ -1,0 +1,61 @@
+name: VENTUNO exact Ubuntu 24.04 Qualcomm catalog client safety
+on:
+  push:
+    branches: [dev/ventuno-qai-catalog-exact-os-failclosed-20261014]
+    paths:
+      - .github/workflows/ventuno-qai-exact-os-safety.yml
+      - scripts/ventuno_qai_hub_live_catalog_readonly.py
+      - tests/test_ventuno_qai_hub_live_catalog_readonly.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-qai-catalog-exact-os-20261014
+  cancel-in-progress: false
+jobs:
+  synthetic-client-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Exact commit isolated GitHub-hosted x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-qai-exact-os.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_QAI_EXACT_OS_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Pinned pytest in disposable host-only environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-qai-exact-os-venv"
+          "$RUNNER_TEMP/myai-qai-exact-os-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+      - name: Test fake Qualcomm clients and prove default NO-GO
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_QAI_EXACT_OS_SCRATCH"
+          "$RUNNER_TEMP/myai-qai-exact-os-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_qai_hub_live_catalog_readonly.py
+          "$RUNNER_TEMP/myai-qai-exact-os-venv/bin/python" -B \
+            -m scripts.ventuno_qai_hub_live_catalog_readonly
+          echo 'No real qai_hub client, SDK import, token, network catalog call, model upload, or NPU action.'
+      - name: Clean disposable test directory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_QAI_EXACT_OS_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_QAI_EXACT_OS_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-qai-exact-os-venv"

@@ -8,8 +8,8 @@ def f(version="2.46", full="2.46.0.260800", name="QAIRT"):
     return SimpleNamespace(name=name, api_version=version, full_version=full)
 
 
-def device(name="Arduino VENTUNO Q"):
-    return SimpleNamespace(name=name)
+def device(name="Arduino VENTUNO Q", os="24.04"):
+    return SimpleNamespace(name=name, os=os)
 
 
 class Client:
@@ -28,8 +28,8 @@ class Client:
             raise RuntimeError("SECRET_TOKEN_FROM_API_ERROR")
         return self.frameworks
 
-    def get_devices(self, *, name):
-        self.calls.append(("get_devices", name))
+    def get_devices(self, *, name, os):
+        self.calls.append(("get_devices", name, os))
         return self.devices
 
     def submit_compile_job(self, *args, **kwargs):
@@ -65,10 +65,11 @@ def test_only_two_allowlisted_read_calls_with_explicit_consent():
     result = api.run_readonly_query(
         confirm=True, machine="x86_64", client_factory=lambda: client)
     assert client.calls == [
-        ("get_frameworks",), ("get_devices", "Arduino VENTUNO Q")
+        ("get_frameworks",), ("get_devices", "Arduino VENTUNO Q", "24.04")
     ]
     assert result["status"] == "read_only_catalog_and_target_listed_htp_unverified"
     assert result["query_completed"] is True
+    assert result["exact_ubuntu_2404_target_verified"] is True
     assert result["live_qairt_246_catalog_reported"] is True
     assert result["exact_target_qairt_246_compile_link_eligibility_verified"] is False
     assert result["htp_operator_support_verified"] is False
@@ -94,6 +95,7 @@ def test_proxy_device_never_accepted():
     )
     assert result["status"] == "no_go_exact_arduino_ventuno_q_not_listed"
     assert result["exact_arduino_ventuno_q_in_device_list"] is False
+    assert result["exact_ubuntu_2404_target_verified"] is False
 
 
 def test_bad_246_full_version_fails_closed():
@@ -168,3 +170,50 @@ def test_reports_do_not_include_other_catalog_devices_or_versions():
     assert "Private Device Name" not in str(result)
     assert "2.50.0" not in str(result)
     assert result["raw_responses_errors_or_credentials_exported"] is False
+
+
+def test_wrong_os_is_never_accepted_as_ubuntu_2404():
+    result = api.run_readonly_query(
+        confirm=True, machine="x86_64",
+        client_factory=lambda: Client(devices=[device(os="14")]),
+    )
+    assert result["status"] == "no_go_exact_arduino_ventuno_q_not_listed"
+    assert result["exact_ubuntu_2404_target_verified"] is False
+    assert result["live_qairt_246_catalog_reported"] is False
+
+
+def test_empty_devices_list_is_no_go_but_not_malformed():
+    result = api.run_readonly_query(
+        confirm=True, machine="x86_64",
+        client_factory=lambda: Client(devices=[]),
+    )
+    assert result["exact_arduino_ventuno_q_in_device_list"] is False
+    assert result["status"] == "no_go_exact_arduino_ventuno_q_not_listed"
+
+
+def test_duplicate_exact_devices_are_ambiguous():
+    result = api.run_readonly_query(
+        confirm=True, machine="x86_64",
+        client_factory=lambda: Client(devices=[device(), device()]),
+    )
+    assert result["status"] == "no_go_untrusted_or_ambiguous_service_response"
+    assert result["exact_arduino_ventuno_q_in_device_list"] is None
+    assert result["exact_ubuntu_2404_target_verified"] is False
+
+
+def test_discarding_sdk_output_does_not_buffer_confidential_text():
+    sink = api._DiscardText()
+    assert sink.write("SECRET_TOKEN" * 100) == len("SECRET_TOKEN" * 100)
+    sink.flush()
+    assert not hasattr(sink, "getvalue")
+
+
+def test_device_with_missing_os_is_rejected():
+    result = api.run_readonly_query(
+        confirm=True, machine="x86_64",
+        client_factory=lambda: Client(
+            devices=[SimpleNamespace(name="Arduino VENTUNO Q")],
+        ),
+    )
+    assert result["status"] == "no_go_untrusted_or_ambiguous_service_response"
+    assert result["exact_ubuntu_2404_target_verified"] is False
