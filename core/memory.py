@@ -162,10 +162,32 @@ class MemoryStore:
         if not value:
             raise ValueError("Minnesinnehållet får inte vara tomt.")
 
-        if self.contains(category, value):
-            return False
+        # Check and write under one SQLite writer lock. A separate
+        # contains()/save() pair races with concurrent memory workers.
+        timestamp = self._now()
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            duplicate = conn.execute(
+                """
+                SELECT 1 FROM memories
+                WHERE lower(category) = lower(?)
+                  AND lower(trim(content)) = lower(trim(?))
+                  AND COALESCE(status, 'active') = 'active'
+                LIMIT 1
+                """,
+                (category, value),
+            ).fetchone()
+            if duplicate is not None:
+                return False
 
-        self.save(category, value)
+            conn.execute(
+                """
+                INSERT INTO memories
+                (category, content, created_at, status, updated_at)
+                VALUES (?, ?, ?, 'active', ?)
+                """,
+                (category, value, timestamp, timestamp),
+            )
         return True
 
     def get_all(self, include_inactive=False):
@@ -776,6 +798,32 @@ class MemoryStore:
 
         return True
 
+    @staticmethod
+    def _validated_review_conflicts(raw):
+        # Corrupted conflict metadata must never grant permission to
+        # approve or replace a memory. Empty [] is only valid as such.
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(
+                "Minnesgranskningens konfliktinformation är ogiltig."
+            ) from error
+
+        if (
+            not isinstance(parsed, list)
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, int)
+                or item <= 0
+                for item in parsed
+            )
+        ):
+            raise ValueError(
+                "Minnesgranskningens konfliktinformation är ogiltig."
+            )
+
+        return parsed
+
     def approve_review(
         self,
         review_id,
@@ -818,18 +866,7 @@ class MemoryStore:
                     "Minnesgranskningen är redan avslutad."
                 )
 
-            try:
-                conflicts = json.loads(
-                    row[
-                        2
-                    ]
-                    or "[]"
-                )
-            except (
-                TypeError,
-                json.JSONDecodeError,
-            ):
-                conflicts = []
+            conflicts = self._validated_review_conflicts(row[2])
 
             if conflicts:
                 raise PermissionError(
@@ -988,28 +1025,11 @@ class MemoryStore:
                     "Målminnet är inte aktivt."
                 )
 
-            try:
-                conflicts = json.loads(
-                    review[
-                        2
-                    ]
-                    or "[]"
-                )
-            except (
-                TypeError,
-                json.JSONDecodeError,
-            ):
-                conflicts = []
-
-            normalized_conflicts = self._normalize_conflict_ids(
-                conflicts
+            normalized_conflicts = self._validated_review_conflicts(
+                review[2]
             )
 
-            if (
-                normalized_conflicts
-                and target_identifier
-                not in normalized_conflicts
-            ):
+            if target_identifier not in normalized_conflicts:
                 raise PermissionError(
                     (
                         "Målminnet finns inte bland granskningens "

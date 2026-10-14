@@ -104,3 +104,26 @@ def test_memory_search_deduplicates_query_keywords(
     )
 
     assert repeated == once
+
+
+def test_concurrent_save_if_new_is_transactionally_deduplicated(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    store = MemoryStore(tmp_path / "concurrent.db")
+    store.init()
+    workers = 8
+    gate = Barrier(workers)
+
+    def write(index):
+        gate.wait(timeout=10)
+        return store.save_if_new(
+            "PREFERENCE" if index % 2 else "preference",
+            "  Ett unikt nytt minne.  ",
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        answers = list(executor.map(write, range(workers)))
+
+    assert sum(answers) == 1
+    assert len(store.get_all()) == 1
