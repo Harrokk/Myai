@@ -13,6 +13,8 @@ import re
 import shutil
 import subprocess
 
+from scripts.ventuno_elf64_dynamic_reader import inspect_elf64_dynamic
+
 from scripts.ventuno_tiny_qnn_htp_once import (
     _find_libraries, _find_v75_skel_directory,
 )
@@ -56,8 +58,10 @@ def parse_dynamic(text):
 def readelf_needed(binary):
     """Get ELF dependencies, never ld(d), dlopen or running QNN."""
     executable = shutil.which("readelf")
-    if not executable or not binary or not Path(binary).is_file():
+    if not binary or not Path(binary).is_file():
         return {"status": "unavailable", "needed": [], "has_runpath": False}
+    if not executable:
+        return inspect_elf64_dynamic(binary)
     try:
         result = subprocess.run(
             [executable, "--wide", "--dynamic", str(binary)],
