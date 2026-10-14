@@ -1,0 +1,42 @@
+name: Ventuno privacy-filtered hardware inventory
+on:
+  push:
+    branches: [dev/ventuno-readonly-hardware-20261014]
+    paths:
+      - scripts/ventuno_readonly_probe.py
+      - .github/workflows/ventuno-readonly-hardware.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ventuno-privacy-inventory
+  cancel-in-progress: false
+jobs:
+  read-only-hardware:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 6
+    steps:
+      - name: Fetch exact commit to runner temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-hw-inspect"
+          cd "$RUNNER_TEMP/myai-hw-inspect"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --force --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Read allowlisted hardware counters only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-hw-inspect"
+          /home/arduino/MyAI/.venv/bin/python -B scripts/ventuno_readonly_probe.py
