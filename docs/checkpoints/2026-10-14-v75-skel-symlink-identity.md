@@ -31,3 +31,19 @@ https://www.qualcomm.com/developer/blog/2026/10/how-ai-models-reach-hexagon-npu-
 Denna kontroll kan verifiera att länken leder till en vanlig fil men inte att Skel är rätt binärformat för DSP, att firmware och bibliotek är kompatibla, att signed/unsigned PD stämmer eller att faktisk FastRPC/NPU-exekvering fungerar.
 
 Inget sudo, chmod/chown, paketinstallation, symlinkändring, udev/gruppändring, omstart, QNN-run, USB-ljudtest, produktionsmerge eller deployment. PR #110:s historikpurge är separat releaseblockerare.
+
+
+## Första verifierade Skel-resultatet (föregående versions körning)
+
+[GitHub run 38595467594](https://github.com/Harrokk/Myai/actions/runs/38595467594) körde på riktiga VENTUNO och verifierade:
+- V75-Skel är en symlink som **leder till en vanlig fil**.
+- Slutmålet ligger **utanför** den snävt samplade katalogen /usr/lib/dsp. Detta betyder inte automatiskt att länken är fel; firmware-/paketfiler kan använda andra systemkataloger.
+- V75-Stub och host `libQnnHtp.so` är vanliga filer och ägs av `qairt-libs`.
+- `dpkg-query -S` gav **unverified** för symlinkens källnamn, vilket inte avgör paketägaren för själva målfilen.
+- Inga bibliotek, enheter eller modeller öppnades/kördes; HTP-kompatibilitet förblir okänd.
+
+### Fortsatt avgränsning
+
+Kontrollen har nu utökats för att klassificera var *den lösta målfilen* finns i en strikt allowlist av kända system-/firmwarekataloger, och fråga efter pakettillhörighet för just målfilen om den ligger under en sådan katalog. Endast kategori och godkänt paketnamn eller neutral status får exporteras – inga riktiga paths eller länktexter.
+
+En ny *metadata-only* workflow körning på senaste commit behövs innan tolkning; gammal Skel-körning bekräftar inte de nya fälten. Ingen privilege escalation, paketskrivning eller HTP-körning.
