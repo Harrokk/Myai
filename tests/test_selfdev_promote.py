@@ -857,3 +857,141 @@ def test_global_lock_blocks_recovery_during_other_session_operation(
     assert active.recover_interrupted(
         "promo1", "RECOVER session1 promo1"
     )["state"] == "recovered"
+
+
+def test_noncooperating_writer_changes_target_before_replace(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original = module._atomic_copy
+    edited = [False]
+
+    def externally_edit_before_copy(source, destination, **kwargs):
+        if (
+            destination == project / "core" / "example.py"
+            and not edited[0]
+        ):
+            edited[0] = True
+            destination.write_text("EXTERNAL = True\n", encoding="utf-8")
+        return original(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", externally_edit_before_copy)
+        with pytest.raises(RuntimeError, match="Extern"):
+            active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "EXTERNAL = True\n"
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert json.loads(journal.read_text(encoding="utf-8"))["state"] == "prepared"
+
+
+def test_external_change_to_second_target_never_rolls_back_first(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original = module._atomic_copy
+
+    def external_edit_second(source, destination, **kwargs):
+        if destination == project / "tests" / "test_new.py":
+            destination.write_text("EXTERNAL = 1\n", encoding="utf-8")
+        return original(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", external_edit_second)
+        with pytest.raises(RuntimeError, match="Extern"):
+            active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    assert (project / "tests" / "test_new.py").read_text(
+        encoding="utf-8"
+    ) == "EXTERNAL = 1\n"
+    assert json.loads((
+        workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    ).read_text(encoding="utf-8"))["state"] == "prepared"
+
+
+def test_external_modification_of_applied_file_not_overwritten_on_failure(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original = module._atomic_copy
+
+    def change_first_then_fail(source, destination, **kwargs):
+        if destination == project / "tests" / "test_new.py":
+            (project / "core" / "example.py").write_text(
+                "EXTERNAL = 2\n", encoding="utf-8"
+            )
+            raise OSError("synthetic failure after external write")
+        return original(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", change_first_then_fail)
+        with pytest.raises(RuntimeError, match="Extern"):
+            active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "EXTERNAL = 2\n"
+    assert json.loads((
+        workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    ).read_text(encoding="utf-8"))["state"] == "prepared"
+
+
+def test_atomic_source_copy_flushes_file_and_parent_directory(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+
+    source = tmp_path / "source.txt"
+    destination = tmp_path / "dest.txt"
+    source.write_text("new text", encoding="utf-8")
+    destination.write_text("old text", encoding="utf-8")
+    fsync_calls = []
+    original_fsync = module.os.fsync
+
+    def track_fsync(fd):
+        fsync_calls.append(fd)
+        return original_fsync(fd)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module.os, "fsync", track_fsync)
+        module._atomic_copy(source, destination)
+
+    assert len(fsync_calls) >= (2 if hasattr(module.os, "O_DIRECTORY") else 1)
+    assert destination.read_text(encoding="utf-8") == "new text"
+
+
+def test_backup_copy_failure_happens_before_any_active_code_change(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original = module._atomic_copy
+
+    def refuse_backup(source, destination, **kwargs):
+        if "rollbacks" in str(destination):
+            raise OSError("synthetic backup storage failure")
+        return original(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", refuse_backup)
+        with pytest.raises(OSError, match="backup storage failure"):
+            active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (workspace.session_root / "rollbacks" / "promo1").exists()
