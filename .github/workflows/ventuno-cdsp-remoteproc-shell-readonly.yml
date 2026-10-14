@@ -34,4 +34,4 @@ jobs:
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           timeout --signal=TERM --kill-after=3s 30s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_cdsp_remoteproc_shell_readonly
-          echo 'Bounded metadata only; no DSP context, QNN inference, package or service changes.'
+          echo 'Bounded remoteproc name/DT classification and shell header only; no DSP context, QNN inference or system changes.'
