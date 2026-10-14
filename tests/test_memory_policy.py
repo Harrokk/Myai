@@ -96,3 +96,29 @@ def test_empty_text_is_ignored():
 
     assert result["action"] == "ignore"
     assert result["score"] == 0
+
+
+def test_unlabelled_token_shaped_secrets_are_never_autosaved():
+    synthetic_tokens = (
+        "ghp_" + "A" * 20,
+        "github_pat_" + "a" * 30,
+        "sk-" + "z" * 36,
+        "AKIA" + "A" * 16,
+        "xoxb-" + "1" * 22,
+        "Bearer " + "T" * 32,
+    )
+    for secret in synthetic_tokens:
+        message = "Kom ihåg att " + secret
+        result = memory_policy.assess_memory_candidate(message, settings=settings())
+        assert result["action"] == "ignore", secret[:6]
+        assert result["sensitive"] is True
+        assert result["content"] == ""
+
+
+def test_memory_safe_text_still_persists_when_requested():
+    result = memory_policy.assess_memory_candidate(
+        "Kom ihåg att jag föredrar små och modulära verktyg.",
+        settings=settings(),
+    )
+    assert result["action"] == "save"
+    assert result["sensitive"] is False

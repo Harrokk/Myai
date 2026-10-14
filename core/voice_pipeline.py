@@ -1,4 +1,5 @@
 from difflib import SequenceMatcher
+import math
 
 from core.voice_streaming import StreamingTTSCoordinator
 import re
@@ -174,6 +175,16 @@ def classify_voice_risk(text):
     }
 
 
+def _command_is_negated(text):
+    """Conservative safety cue, never a replacement for linguistic parsing."""
+    words = normalize_transcript(text).split()
+    if any(word in {"inte", "ej", "aldrig", "icke", "not", "never", "no"} for word in words):
+        return True
+
+    normalized = " ".join(words)
+    return "don t" in normalized or "do not" in normalized
+
+
 def classify_tool_plan_risk(plan, tools):
     reasons = []
     tool_names = []
@@ -248,11 +259,18 @@ def normalize_stt_result(result):
     confidence = result.get("confidence")
 
     if confidence is not None:
-        confidence = float(confidence)
-        confidence = max(
-            0.0,
-            min(confidence, 1.0),
-        )
+        # A malformed confidence value must not become high-confidence
+        # authorization for a voice command (notably infinity).
+        try:
+            if isinstance(confidence, bool):
+                raise ValueError("Boolean is not an STT confidence")
+            confidence = float(confidence)
+            if not math.isfinite(confidence):
+                confidence = None
+            else:
+                confidence = max(0.0, min(confidence, 1.0))
+        except (TypeError, ValueError, OverflowError):
+            confidence = None
 
     return {
         "text": text,
@@ -291,6 +309,23 @@ def choose_consensus(
             "reason": "Endast en transkription användes.",
             "text": normalized[0]["text"],
             "support": 1,
+            "transcripts": normalized,
+        }
+
+    # Transcript overlap is not semantic agreement: "radera filen"
+    # and "radera inte filen" can score almost identically. When any
+    # candidate implies a high-risk action, disagreement about explicit
+    # negation requires clarification, regardless of majority/confidence.
+    if (
+        any(classify_voice_risk(item["text"])["level"] == "high"
+            for item in normalized)
+        and len({_command_is_negated(item["text"]) for item in normalized}) > 1
+    ):
+        return {
+            "accepted": False,
+            "reason": "Motstridiga nekande ord i högriskkommando.",
+            "text": None,
+            "support": 0,
             "transcripts": normalized,
         }
 

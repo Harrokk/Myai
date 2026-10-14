@@ -1023,3 +1023,59 @@ def test_selected_write_tool_requires_confirmation_even_without_risk_words():
     assert assistant.messages == [
         "Skapa filen notes txt med innehållet hej"
     ]
+
+
+def test_high_risk_negation_disagreement_blocks_stt_consensus():
+    cases = (
+        ["Radera filen rapport.txt",
+         "Radera inte filen rapport.txt",
+         "Radera inte filen rapport.txt"],
+        ["Radera inte filen rapport.txt",
+         "Radera filen rapport.txt",
+         "Radera filen rapport.txt"],
+        ["Do not delete the file",
+         "Delete the file",
+         "Delete the file"],
+    )
+    for utterances in cases:
+        result = choose_consensus([
+            {"text": text, "confidence": 0.99}
+            for text in utterances
+        ])
+        assert result["accepted"] is False
+        assert result["text"] is None
+        assert result["support"] == 0
+
+
+def test_high_risk_negation_mismatch_never_calls_assistant():
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT({"text": "Radera filen rapport.txt", "confidence": 0.99}),
+        backup_stt=[
+            FakeSTT({"text": "Radera inte filen rapport.txt", "confidence": 0.99}),
+            FakeSTT({"text": "Radera inte filen rapport.txt", "confidence": 0.99}),
+        ],
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"synthetic-fake-audio")
+    assert result["status"] == "clarify"
+    assert assistant.messages == []
+
+
+def test_unanimous_nonnegated_high_risk_still_reaches_existing_confirmation_logic():
+    result = choose_consensus([
+        "Radera filen rapport.txt",
+        "Radera filen rapport.txt",
+        "Radera filen rapport.txt",
+    ])
+    assert result["accepted"] is True
+    assert result["support"] == 3
+
+
+def test_malformed_or_nonfinite_stt_confidence_never_becomes_high():
+    from core.voice_pipeline import normalize_stt_result
+    for bad in (float("nan"), float("inf"), float("-inf"), "invalid", True, {}, []):
+        normalized = normalize_stt_result({"text": "bekräfta", "confidence": bad})
+        assert normalized["confidence"] is None, repr(bad)
+    assert normalize_stt_result({"text": "ok", "confidence": "0.95"})["confidence"] == 0.95
