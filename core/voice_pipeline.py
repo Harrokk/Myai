@@ -304,10 +304,18 @@ def choose_consensus(
         }
 
     if len(normalized) == 1:
+        # A single high-risk ASR opinion is never 2-of-3 consensus.
+        high_risk_single = (
+            classify_voice_risk(normalized[0]["text"])["level"] == "high"
+        )
         return {
-            "accepted": True,
-            "reason": "Endast en transkription användes.",
-            "text": normalized[0]["text"],
+            "accepted": not high_risk_single,
+            "reason": (
+                "Högriskkommandot kräver oberoende STT-majoritet."
+                if high_risk_single else
+                "Endast en transkription användes."
+            ),
+            "text": None if high_risk_single else normalized[0]["text"],
             "support": 1,
             "transcripts": normalized,
         }
@@ -919,14 +927,16 @@ class VoicePipeline:
     ):
         config = self.voice_settings
 
+        # High-risk commands must never bypass redundancy merely
+        # because a user-level performance toggle disables it.
+        if risk["level"] == "high":
+            return True
+
         if not config.get(
             "redundancy_enabled",
             True,
         ):
             return False
-
-        if risk["level"] == "high":
-            return True
 
         confidence = primary.get("confidence")
 
@@ -989,7 +999,7 @@ class VoicePipeline:
             risk,
         ):
             desired = max(
-                2,
+                3 if risk["level"] == "high" else 2,
                 int(
                     config.get(
                         "redundant_transcript_count",
@@ -1043,13 +1053,11 @@ class VoicePipeline:
                         False,
                     )
                     and self.semantic_resolver is not None
-                    and (
-                        risk["level"] != "high"
-                        or config.get(
-                            "semantic_consensus_for_high_risk",
-                            False,
-                        )
-                    )
+                    # A semantic paraphrase is not independent
+                    # word-for-word agreement for dangerous commands.
+                    # This safety requirement cannot be disabled through
+                    # semantic_consensus_for_high_risk.
+                    and risk["level"] != "high"
                 )
 
                 if semantic_allowed:
