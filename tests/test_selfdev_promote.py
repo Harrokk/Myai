@@ -1630,3 +1630,96 @@ def test_key_publication_failure_does_not_leave_partial_private_key(
     assert (project / "core" / "example.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 1\n"
+
+
+def _read_only_project_snapshot(project):
+    return sorted(
+        (str(path.relative_to(project)), path.read_bytes())
+        for path in project.rglob("*")
+        if path.is_file()
+    )
+
+
+def test_inspect_recovery_is_readonly_and_shows_preflight_status(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery("promo1")
+    after = _read_only_project_snapshot(project)
+    assert before == after
+    assert result["read_only"] is True
+    assert result["status"] == "preflight_ok_requires_manual_approval"
+    assert result["journal_state"] == "prepared"
+    assert result["file_count"] == 2
+    assert result["would_restore"] == 1
+
+
+def test_inspect_recovery_blocks_newer_user_code_without_writes(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    (project / "core" / "example.py").write_text(
+        "NEWER_USER_WORK = True\n", encoding="utf-8"
+    )
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery("promo1")
+    assert result["status"] == "blocked"
+    assert "Extern kodändring" in result["reason"]
+    assert _read_only_project_snapshot(project) == before
+
+
+def test_inspect_recovery_blocks_tampered_journal_readonly(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    record = json.loads(journal.read_text(encoding="utf-8"))
+    record["state"] = "completed"
+    journal.write_text(json.dumps(record), encoding="utf-8")
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery("promo1")
+    assert result["status"] == "blocked"
+    assert "integritet" in result["reason"]
+    assert _read_only_project_snapshot(project) == before
+
+
+def test_inspect_recovery_blocks_corrupted_backup_readonly(tmp_path, monkeypatch):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    backup = workspace.session_root / "rollbacks" / "promo1" / "files" / "core" / "example.py"
+    backup.write_text("BROKEN_BACKUP\n", encoding="utf-8")
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery("promo1")
+    assert result["status"] == "blocked"
+    assert "Backup" in result["reason"]
+    assert _read_only_project_snapshot(project) == before
+
+
+def test_inspect_recovery_reports_completed_without_mutations(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery("promo1")
+    assert result["status"] == "completed_or_resolved"
+    assert result["journal_state"] == "completed"
+    assert _read_only_project_snapshot(project) == before
+
+
+def test_inspect_recovery_does_not_create_missing_key_or_journal(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery("missing-promotion")
+    assert result["status"] == "blocked"
+    assert not (project / "runtime" / "selfdev" / ".journal-integrity-key").exists()
+    assert _read_only_project_snapshot(project) == before
