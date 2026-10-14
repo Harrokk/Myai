@@ -1578,3 +1578,55 @@ def test_corrupt_existing_integrity_key_is_never_regenerated(tmp_path):
     assert (project / "core" / "example.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 1\n"
+
+
+def test_legacy_migration_uses_exact_examined_journal_snapshot(
+    tmp_path, monkeypatch,
+):
+    from pathlib import Path
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    existing_read = Path.read_bytes
+
+    def reject_second_journal_read(self):
+        if self == path:
+            raise AssertionError("Legacy journal must not be reread after validation")
+        return existing_read(self)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_bytes", reject_second_journal_read)
+        signed = active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert signed["journal_version"] == 1
+    assert (path.parent / "promotion.legacy-unsigned.json").read_bytes() == original
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_key_publication_failure_does_not_leave_partial_private_key(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    old_link = module.os.link
+
+    def fail_key_publication(source, target, **kwargs):
+        if str(target).endswith(".journal-integrity-key"):
+            raise OSError("synthetic key publish failure")
+        return old_link(source, target, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module.os, "link", fail_key_publication)
+        with pytest.raises(OSError, match="key publish failure"):
+            active.promote("PROMOTE session1")
+
+    folder = project / "runtime" / "selfdev"
+    assert not (folder / ".journal-integrity-key").exists()
+    assert not list(folder.glob(".journal-key.*"))
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"

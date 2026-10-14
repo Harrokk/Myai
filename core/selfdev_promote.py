@@ -1,4 +1,5 @@
 import json
+import errno
 import hmac
 import hashlib
 import stat
@@ -328,7 +329,7 @@ class SelfDevPromotionManager:
         _atomic_write_record(path, copy)
 
     @staticmethod
-    def _read_recovery_json(path):
+    def _read_recovery_json(path, *, include_raw=False):
         """Bounded, single-inode, strictly decoded read of recovery records."""
         flags = os.O_RDONLY
         if hasattr(os, "O_NOFOLLOW"):
@@ -339,6 +340,10 @@ class SelfDevPromotionManager:
         try:
             descriptor = os.open(str(path), flags)
         except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise RuntimeError(
+                    "Återställningsjournalen är en symlink."
+                ) from error
             raise RuntimeError("Återställningsjournalen kan inte läsas.") from error
         with os.fdopen(descriptor, "rb") as handle:
             info = os.fstat(handle.fileno())
@@ -364,11 +369,12 @@ class SelfDevPromotionManager:
             raise ValueError("Ej ändligt numeriskt värde i journalen.")
 
         try:
-            return json.loads(
+            parsed = json.loads(
                 content.decode("utf-8"),
                 object_pairs_hook=unique_pairs,
                 parse_constant=invalid_constant,
             )
+            return (parsed, content) if include_raw else parsed
         except (UnicodeError, ValueError, RecursionError) as error:
             raise RuntimeError("Återställningsjournalens JSON är ogiltig.") from error
 
@@ -1117,8 +1123,7 @@ class SelfDevPromotionManager:
             raise FileNotFoundError("Legacy-journal saknas.")
         # Strict read also prevents duplicate JSON keys from selecting an
         # unexpected session, state or backup file during legacy migration.
-        record = self._read_recovery_json(source)
-        raw = source.read_bytes()
+        record, raw = self._read_recovery_json(source, include_raw=True)
         if not isinstance(record, dict):
             raise RuntimeError("Legacy-journalen är ogiltig.")
         if "journal_hmac" in record or "journal_version" in record:
