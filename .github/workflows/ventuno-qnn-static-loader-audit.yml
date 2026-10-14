@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: myai-ci-ventuno
+  group: myai-qnn-static-elf-readonly
   cancel-in-progress: false
 jobs:
   inspect-only:
