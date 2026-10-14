@@ -66,6 +66,37 @@ def _find_libraries():
     return found
 
 
+def _find_v75_skel_directory():
+    """Use only known vendor locations; never copy or modify DSP libraries."""
+    roots = (
+        Path("/usr/lib/rfsa/adsp"),
+        Path("/vendor/dsp"),
+        Path("/opt/qcom"),
+        Path("/opt/qualcomm"),
+        Path("/home/arduino/.local/share/geniex/qairt"),
+    )
+    queue = [(root, 0) for root in roots if root.is_dir() and not root.is_symlink()]
+    count = 0
+    while queue and count < 300:
+        folder, depth = queue.pop(0)
+        count += 1
+        try:
+            entries = list(folder.iterdir())[:120]
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_file() and entry.name == "libQnnHtpV75Skel.so":
+                    return entry.parent
+                if entry.is_dir() and depth < 5:
+                    queue.append((entry, depth + 1))
+            except OSError:
+                continue
+    return None
+
+
 def _help_flags(binary):
     try:
         p = subprocess.run(
@@ -113,6 +144,7 @@ def run_once():
         "htp_attempted": False,
         "htp_inference_verified": False,
         "qnn_cli_exit_zero": None,
+        "dsp_library_path_configured": False,
         "native_output_status": None,
         "wall_seconds": None,
     }
@@ -147,6 +179,10 @@ def run_once():
     if any(x not in libs for x in LIBS):
         result["status"] = "no_go_required_htp_libraries"
         return result
+    dsp_directory = _find_v75_skel_directory()
+    if dsp_directory is None:
+        result["status"] = "no_go_missing_htp_v75_dsp_skel"
+        return result
     with tempfile.TemporaryDirectory(
         prefix="myai-tiny-htp-", dir=os.environ.get("RUNNER_TEMP", "/tmp")
     ) as dirname:
@@ -166,6 +202,7 @@ def run_once():
             "PATH": "/usr/bin:/bin",
             "HOME": str(root),
             "LD_LIBRARY_PATH": libraries,
+            "ADSP_LIBRARY_PATH": str(dsp_directory),
             "QNN_LOG_LEVEL": "ERROR",
         }
         arguments = [
@@ -179,6 +216,7 @@ def run_once():
             "--use_native_output_files",
         ]
         start = time.monotonic()
+        result["dsp_library_path_configured"] = True
         result["htp_attempted"] = True
         try:
             completed = subprocess.run(
