@@ -1,0 +1,61 @@
+# MyAI checkpoint – QAIRT HTP-v75 Skel-länk och paketidentitet
+
+Datum: 2026-10-14. Fortsättning efter PR #159. DRAFT, ingen driftsättning.
+
+## Verifierad tidigare status på riktig VENTUNO Q
+
+- [PR #159 full CI #38594973581](https://github.com/Harrokk/Myai/actions/runs/38594973581): **1886 passed, 14 skipped** och statisk integritets-/källkodsgranskning PASS, inga blockerande fynd. En äldre manuell exec-granskning återstår.
+- [QAIRT paket och filmetadata #38594879492](https://github.com/Harrokk/Myai/actions/runs/38594879492): `qairt-libs` och `qairt-dsp-binaries` installerade, båda **2.46.0-0ubuntu1~bpo24.04.1**. Host HTP, V75-Stub, CPU, ModelDlc och TFLite-delegate finns som vanliga filer i /usr/lib.
+- V75-DSP-skeleton finns på Arduino-dokumenterad plats som **symlink**, men föregående inventering följde inte länken. Denna länk är nu föremål för verifiering.
+- `libqnn1`/ `qnn-tools` rapporterades inte installerade eller inte verifierade, `libqnn-dev` var unavailable; detta är **inte** bevis att Arduino-installationen saknar nödvändiga komponenter eftersom dess officiella paket är de installerade `qairt-*`.
+- [PR #158 ACL](https://github.com/Harrokk/Myai/pull/158): runnern och GenieX har enligt POSIX ACL-v2 beräknad R/W till DMA-heap. Detta motsvarar inte verifierad HTP-körning.
+- [HTP-kategoritest #38585894311](https://github.com/Harrokk/Myai/actions/runs/38585894311) gav `backend_initialization_failure`, medan tiny CPU parity lyckades. HTP:s grundorsak är olöst.
+
+## Varför symlänken granskas
+
+Arduinos dokumentation nämner `/usr/lib/dsp/cdsp/libQnnHtpV75Skel.so` för VENTUNO HTP-v75:
+https://docs.arduino.cc/tutorials/ventuno-q/llama-cpp/
+
+Qualcomm beskriver att rätt DSP-Skel måste hittas och vara kompatibel med host-Stub, QAIRT och firmware:
+https://www.qualcomm.com/developer/blog/2026/10/how-ai-models-reach-hexagon-npu-qairt-fastrpc-hexagon-explained
+
+## Denna kodändring
+
+- `scripts/ventuno_htp_v75_skel_link_readonly.py` gör exakt lstat/resolve/stat för Skel-länk och två kända hostfiler (utan att läsa in, dlopen eller exekvera någon fil), klassificerar bara typ och om slutmålet är en vanlig fil i /usr/lib/dsp.
+- `dpkg-query -S` anropas på exakt tre kända systemfilnamn. Endast tillåtna paketnamn eller neutral felkategori kan exporteras, aldrig rå dpkg-utmatning eller målväg.
+- Syntetiska regressionstester täcker giltig länk, extern/dangling länk, specialfil, paketinventering och icke-utläckande JSON.
+- Gren-/path-begränsat GitHub Actions-jobb kör enbart denna metadataklassificering i temporär checkout.
+
+## Stoppgränser
+
+Denna kontroll kan verifiera att länken leder till en vanlig fil men inte att Skel är rätt binärformat för DSP, att firmware och bibliotek är kompatibla, att signed/unsigned PD stämmer eller att faktisk FastRPC/NPU-exekvering fungerar.
+
+Inget sudo, chmod/chown, paketinstallation, symlinkändring, udev/gruppändring, omstart, QNN-run, USB-ljudtest, produktionsmerge eller deployment. PR #110:s historikpurge är separat releaseblockerare.
+
+
+## Första verifierade Skel-resultatet (föregående versions körning)
+
+[GitHub run 38595467594](https://github.com/Harrokk/Myai/actions/runs/38595467594) körde på riktiga VENTUNO och verifierade:
+- V75-Skel är en symlink som **leder till en vanlig fil**.
+- Slutmålet ligger **utanför** den snävt samplade katalogen /usr/lib/dsp. Detta betyder inte automatiskt att länken är fel; firmware-/paketfiler kan använda andra systemkataloger.
+- V75-Stub och host `libQnnHtp.so` är vanliga filer och ägs av `qairt-libs`.
+- `dpkg-query -S` gav **unverified** för symlinkens källnamn, vilket inte avgör paketägaren för själva målfilen.
+- Inga bibliotek, enheter eller modeller öppnades/kördes; HTP-kompatibilitet förblir okänd.
+
+### Fortsatt avgränsning
+
+Kontrollen har nu utökats för att klassificera var *den lösta målfilen* finns i en strikt allowlist av kända system-/firmwarekataloger, och fråga efter pakettillhörighet för just målfilen om den ligger under en sådan katalog. Endast kategori och godkänt paketnamn eller neutral status får exporteras – inga riktiga paths eller länktexter.
+
+En ny *metadata-only* workflow körning på senaste commit behövs innan tolkning; gammal Skel-körning bekräftar inte de nya fälten. Ingen privilege escalation, paketskrivning eller HTP-körning.
+
+
+## Slutlig verifierad katalogkategori för Skel-länken
+
+[Read-only VENTUNO run 38596265439](https://github.com/Harrokk/Myai/actions/runs/38596265439) verifierade på utvecklingsgrenens commit `b75f6ba8`:
+- V75-Skel är symlink som leder till en vanlig fil i det övergripande `/usr`-trädet.
+- Målfilen ligger inte inom den uppräknade, snäva allowlisten av systemkataloger. Exakt sökväg, namn eller länktext publicerades **inte**.
+- Symlinkens dpkg-ägare är inte verifierad; uppslag av målfilen gjordes inte utanför allowlisten. Host HTP + V75-Stub ägs fortsatt av `qairt-libs`.
+- Det finns **inga belägg** från denna metadata att länken är trasig. Att målfilen ligger utanför provade kataloger säger **inte** att det är en felaktig eller osäker installation.
+- Ingen firmware-/ABI- eller processdomänkompatibilitet verifierades; ingen HTP-beräkning, installation eller driftsändring.
+
+Nästa rimliga steg är granskning av dokumenterad paketering och vendorprocessdomän för just QAIRT `2.46.0-0ubuntu1~bpo24.04.1`, separat från MyAI:s drift, före något nytt funktionellt HTP-prov. Inga blindade nya symlink-, chmod-, apt- eller QNN-åtgärder.
