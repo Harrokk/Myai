@@ -52,6 +52,8 @@ def remoteprocs(root=REMOTEPROC_ROOT):
     summary = {
         "remoteproc_count": 0,
         "cdsp_count": 0,
+        "remoteproc_running_count": 0,
+        "cdsp_identification_method": "not_identified",
         "cdsp_state": "unknown",
         "cdsp_firmware_attribute_readable": None,
         "cdsp_firmware_name_looks_like_cdsp": None,
@@ -70,11 +72,26 @@ def remoteprocs(root=REMOTEPROC_ROOT):
         entries = entries[:MAX_REMOTEPROC]
     summary["remoteproc_count"] = len(entries)
     cdsp_items = []
+    methods = []
     for entry in entries:
-        if classify_dsp_label(small_attr(entry / "name", 128)) != "cdsp":
-            continue
-        cdsp_items.append(entry)
+        state = classify_state(small_attr(entry / "state", 64))
+        if state == "running":
+            summary["remoteproc_running_count"] += 1
+        method = None
+        if classify_dsp_label(small_attr(entry / "name", 128)) == "cdsp":
+            method = "name"
+        elif classify_dsp_label(
+            small_attr(entry / "device" / "of_node" / "compatible", 256)
+        ) == "cdsp":
+            # DT compatible can identify CDSP even if remoteproc name is
+            # an opaque platform-bus address. Never export raw DT strings.
+            method = "dt_compatible"
+        if method is not None:
+            cdsp_items.append(entry)
+            methods.append(method)
     summary["cdsp_count"] = len(cdsp_items)
+    if len(cdsp_items) == 1:
+        summary["cdsp_identification_method"] = methods[0]
     if len(cdsp_items) == 1:
         node = cdsp_items[0]
         summary["cdsp_state"] = classify_state(small_attr(node / "state", 64))
