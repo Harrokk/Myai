@@ -8,6 +8,7 @@ HTP process evidence is *not* a direct HTP utilization/profile measurement.
 
 import json
 import math
+import os
 import re
 import time
 from urllib.request import Request, urlopen
@@ -155,6 +156,9 @@ def probe():
         "sample": None,
     }
     if gate != "ready_for_single_synthetic_request":
+        return report
+    if os.environ.get("MYAI_ALLOW_SYNTHETIC_GENIEX_REQUEST") != "yes":
+        report["status"] = "no_go_no_explicit_synthetic_request_authorization"
         return report
 
     try:
