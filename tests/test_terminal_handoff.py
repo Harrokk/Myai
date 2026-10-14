@@ -269,3 +269,27 @@ def test_format_event_reports_recommendation():
     assert "Bilterminal" in text
     assert "-55 dBm" in text
     assert "rekommendation" in text
+
+
+def test_invalid_rssi_cannot_latch_terminal_connection():
+    scanner = SequenceScanner([
+        [observation(0)],
+        [observation(0)],
+        [observation(float("nan"))],
+        [observation(-55)],
+        [observation(-55)],
+    ])
+    connector = FakeConnector()
+    monitor = TerminalHandoffMonitor(
+        settings(auto_execute=True),
+        scanner=scanner,
+        connector=connector,
+    )
+    for _ in range(3):
+        assert monitor.poll_once() == []
+        assert connector.connected == []
+    assert monitor.poll_once() == []
+    events = monitor.poll_once()
+    assert len(events) == 1
+    assert events[0]["action"] == "connect"
+    assert connector.connected == ["car-terminal"]
