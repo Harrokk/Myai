@@ -104,3 +104,35 @@ def test_memory_search_deduplicates_query_keywords(
     )
 
     assert repeated == once
+
+
+def test_parallel_save_if_new_never_creates_duplicate_active_memories(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from core.memory import MemoryStore
+
+    store = MemoryStore(tmp_path / "threaded.db")
+    store.init()
+    gate = Barrier(8)
+
+    def attempt(_):
+        gate.wait(timeout=5)
+        return store.save_if_new("preference", "Samma minne i flera trådar")
+
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        inserted = list(workers.map(attempt, range(8)))
+
+    assert inserted.count(True) == 1
+    assert inserted.count(False) == 7
+    assert len(store.get_all()) == 1
+
+
+def test_save_if_new_respects_casefolded_active_record(tmp_path):
+    from core.memory import MemoryStore
+
+    store = MemoryStore(tmp_path / "case.db")
+    store.init()
+    assert store.save_if_new("Rule", "Spara samma regel") is True
+    assert store.save_if_new("rule", "  spara samma regel  ") is False
+    assert len(store.get_all()) == 1
