@@ -45,6 +45,7 @@ def blank_result():
         "query_attempted": False,
         "query_completed": False,
         "get_frameworks_returned": False,
+        "source_is_injected_client_not_attested": False,
         "exact_arduino_ventuno_q_in_device_list": None,
         "exact_ubuntu_2404_target_verified": False,
         "qairt_246_in_returned_frameworks": None,
@@ -118,6 +119,11 @@ def run_readonly_query(*, confirm: bool = False, client_factory=None,
     if confirm is not True:
         return out
     out["query_attempted"] = True
+    # Any caller-supplied factory is untrusted test/fixture material,
+    # even if it implements the exact Qualcomm API methods and responds
+    # with plausible Framework and Device objects. Never mark this live.
+    injected_client = client_factory is not None
+    out["source_is_injected_client_not_attested"] = injected_client
     try:
         # Even API diagnostics can contain service/account details. Never
         # print client output, even if a dependency unexpectedly logs.
@@ -149,8 +155,13 @@ def run_readonly_query(*, confirm: bool = False, client_factory=None,
         out["status"] = "no_go_qairt_246_version_metadata_inconsistent"
     elif board is not True:
         out["status"] = "no_go_exact_arduino_ventuno_q_not_listed"
+    elif injected_client:
+        # Synthetically supplied API objects are NOT an authenticated
+        # observation of current Qualcomm service availability.
+        out["status"] = "injected_catalog_fixture_only_not_live_verified"
     else:
-        # This is a read-only live API OBSERVATION, not an HTP approval.
+        # SDK instantiated on a separately authorized host. This is only
+        # a read-only observation, NOT cloud compile/link eligibility.
         out["live_qairt_246_catalog_reported"] = True
         out["status"] = "read_only_catalog_and_target_listed_htp_unverified"
     return out
