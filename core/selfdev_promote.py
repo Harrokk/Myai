@@ -105,6 +105,29 @@ def _atomic_copy(
         raise
 
 
+def _write_json_atomic(path, payload):
+    """Persist a recovery record without leaving a truncated JSON file."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=target.name + ".",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
 class SelfDevPromotionManager:
     def __init__(
         self,
@@ -559,18 +582,21 @@ class SelfDevPromotionManager:
             ),
             "rolled_back": False,
         }
-        (
-            rollback_root
-            / "promotion.json"
-        ).write_text(
-            json.dumps(
+        # If the promotion journal cannot be committed, restore all files
+        # changed in this promotion. No applied changes may be left behind
+        # without a usable rollback record.
+        try:
+            _write_json_atomic(
+                rollback_root / "promotion.json",
                 record,
-                ensure_ascii=False,
-                indent=2,
             )
-            + "\n",
-            encoding="utf-8",
-        )
+        except Exception:
+            self._restore_from_backup(
+                rollback_root,
+                backups,
+                applied,
+            )
+            raise
 
         return record
 
@@ -604,6 +630,44 @@ class SelfDevPromotionManager:
             ) from error
 
         return candidate
+
+    def _verify_backup_integrity(self, rollback_root, backups):
+        # Validate every backup before mutating any production file.
+        # Otherwise the rollback could restore injected or corrupt code.
+        if not isinstance(backups, dict) or not backups:
+            raise RuntimeError("Rollback-backups saknas eller är ogiltiga.")
+
+        for relative, info in backups.items():
+            self._safe_project_target(relative)
+
+            if (
+                not isinstance(info, dict)
+                or not isinstance(info.get("existed"), bool)
+            ):
+                raise RuntimeError(
+                    "Rollback-backup har ogiltig metadata: " + relative
+                )
+
+            if not info["existed"]:
+                continue
+
+            expected = info.get("sha256")
+            if (
+                not isinstance(expected, str)
+                or len(expected) != 64
+                or any(char not in "0123456789abcdef" for char in expected)
+            ):
+                raise RuntimeError("Rollback-backup saknar giltig hash.")
+
+            backup = self._safe_backup_path(rollback_root, relative)
+            if (
+                backup.is_symlink()
+                or not backup.is_file()
+                or _sha256(backup) != expected
+            ):
+                raise RuntimeError(
+                    "Rollback-backup saknas eller har ändrats: " + relative
+                )
 
     def _restore_from_backup(
         self,
@@ -760,10 +824,15 @@ class SelfDevPromotionManager:
                 "Promotionen är redan rollbackad."
             )
 
-        after_hashes = record.get(
-            "after_hashes",
-            {},
-        )
+        after_hashes = record.get("after_hashes", {})
+        backups = record.get("backups", {})
+        if (
+            not isinstance(after_hashes, dict)
+            or not isinstance(backups, dict)
+            or not after_hashes
+            or set(after_hashes) != set(backups)
+        ):
+            raise RuntimeError("Rollback-record har ogiltig fillista.")
 
         for relative, expected_hash in (
             after_hashes.items()
@@ -787,13 +856,8 @@ class SelfDevPromotionManager:
                     + relative
                 )
 
-        backups = record.get(
-            "backups",
-            {},
-        )
-        paths = sorted(
-            backups
-        )
+        self._verify_backup_integrity(rollback_root, backups)
+        paths = sorted(backups)
         self._restore_from_backup(
             rollback_root,
             backups,
@@ -806,14 +870,6 @@ class SelfDevPromotionManager:
         record[
             "rolled_back_unix_time"
         ] = time.time()
-        record_path.write_text(
-            json.dumps(
-                record,
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        _write_json_atomic(record_path, record)
 
         return record

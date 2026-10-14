@@ -527,3 +527,79 @@ def test_selfdev_rollback_is_audited(
     assert "selfdev_rollback" in audit_text
     assert '"outcome":"success"' in audit_text
     assert "ROLLBACK session1 promo1" not in audit_text
+
+
+def test_selfdev_record_write_failure_restores_original_source(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_writer = selfdev_promote._write_json_atomic
+
+    def fail_promotion_record(path, payload):
+        if str(path).endswith("promotion.json"):
+            raise OSError("synthetic journal write failure")
+        return original_writer(path, payload)
+
+    monkeypatch.setattr(
+        selfdev_promote, "_write_json_atomic", fail_promotion_record
+    )
+    with pytest.raises(OSError, match="journal write failure"):
+        active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (project / "tests" / "test_new.py").exists()
+    assert not (
+        workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    ).exists()
+
+
+def test_selfdev_rollback_rejects_corrupt_backup_before_source_writes(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+
+    backup = (
+        workspace.session_root / "rollbacks" / "promo1"
+        / "files" / "core" / "example.py"
+    )
+    backup.write_text("MALICIOUS = True\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Rollback-backup"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    assert (project / "tests" / "test_new.py").exists()
+
+
+def test_selfdev_rollback_rejects_incomplete_manifest(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+
+    record_path = (
+        workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    del record["backups"]["core/example.py"]
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="fillista"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
