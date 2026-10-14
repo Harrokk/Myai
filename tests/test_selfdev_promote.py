@@ -1179,3 +1179,97 @@ def test_symlinked_journal_refuses_recovery(tmp_path, monkeypatch):
     assert (project / "core" / "example.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 2\n"
+
+
+def test_rollback_crash_mid_restore_is_manually_recoverable(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    old_copy = module._atomic_copy
+
+    def interrupt_during_restore(source, destination, **kwargs):
+        if "rollbacks" in str(source):
+            raise SystemExit("power loss during rollback")
+        return old_copy(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", interrupt_during_restore)
+        with pytest.raises(SystemExit, match="power loss during rollback"):
+            active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "rollback_prepared"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    assert not (project / "tests" / "test_new.py").exists()
+
+    recovery = active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )
+    assert recovery["state"] == "recovered"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_crash_after_rollback_restored_everything_can_finish_recovery(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    real_write = module._atomic_write_record
+
+    def interrupt_when_marking_complete(path, record):
+        if record.get("state") == "recovered":
+            raise SystemExit("power loss before rollback completion journal")
+        return real_write(path, record)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_write_record", interrupt_when_marking_complete)
+        with pytest.raises(SystemExit, match="power loss before rollback completion"):
+            active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (project / "tests" / "test_new.py").exists()
+    assert active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )["state"] == "recovered"
+
+
+def test_interrupted_rollback_journal_blocks_new_promotion_across_sessions(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    old_copy = module._atomic_copy
+
+    def abort_during_restore(source, target, **kwargs):
+        if "rollbacks" in str(source):
+            raise SystemExit("rollback interrupted")
+        return old_copy(source, target, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_atomic_copy", abort_during_restore)
+        with pytest.raises(SystemExit):
+            active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    other = manager(_second_workspace(project), settings())
+    with pytest.raises(RuntimeError, match="Ofullständig selfdev-promotion"):
+        other.promote("PROMOTE session2")
+    assert active.recover_interrupted(
+        "promo1", "RECOVER session1 promo1"
+    )["state"] == "recovered"

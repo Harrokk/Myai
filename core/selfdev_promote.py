@@ -923,7 +923,10 @@ class SelfDevPromotionManager:
         rollback_root = self.workspace.session_root / "rollbacks" / identifier
         record_path = rollback_root / "promotion.json"
         record = self._read_journal(record_path)
-        if not isinstance(record, dict) or record.get("state") != "prepared":
+        if (
+            not isinstance(record, dict)
+            or record.get("state") not in {"prepared", "rollback_prepared"}
+        ):
             raise RuntimeError(
                 "Återställning kräver en ofullständig prepared-journal."
             )
@@ -1166,6 +1169,10 @@ class SelfDevPromotionManager:
                     or _sha256(backup) != information.get("sha256")
                 ):
                     raise RuntimeError("Rollback-backup har ändrats eller saknas.")
+        # A crash in the middle of a normal rollback otherwise leaves
+        # mixed old/new files and a misleading "completed" journal.
+        record["state"] = "rollback_prepared"
+        self._write_journal(record_path, record)
         self._restore_from_backup(
             rollback_root,
             backups,
@@ -1175,6 +1182,7 @@ class SelfDevPromotionManager:
         record[
             "rolled_back"
         ] = True
+        record["state"] = "recovered"
         record[
             "rolled_back_unix_time"
         ] = time.time()
