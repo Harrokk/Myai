@@ -824,9 +824,10 @@ def test_missing_confirmation_confidence_without_majority_does_not_execute():
         b"confirm"
     )
 
-    assert result["status"] == "confirmation_required"
+    # One explicit cancellation vetoes even the other confirmation.
+    assert result["status"] == "confirmation_cancelled"
     assert assistant.messages == []
-    assert pipeline.pending_confirmation is not None
+    assert pipeline.pending_confirmation is None
 
 
 class FakeStreamingAssistant:
