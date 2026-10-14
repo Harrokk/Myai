@@ -473,63 +473,23 @@ def test_fault_unwritable_workspace_storage_leaves_no_target(
     tmp_path,
     monkeypatch,
 ):
-    settings = (
-        writable_workspace_settings(
-            tmp_path
-        )
-    )
-    original_write_text = (
-        Path.write_text
-    )
+    settings = writable_workspace_settings(tmp_path)
 
-    def fail_temp_write(
-        self,
-        data,
-        *args,
-        **kwargs,
-    ):
-        if str(
-            self
-        ).endswith(
-            ".tmp"
-        ):
-            raise OSError(
-                "synthetic disk full"
-            )
+    # The writer uses an exclusive temp file followed by os.replace.
+    # Inject disk-full at the atomic commit boundary.
+    def fail_replace(source, target):
+        raise OSError("synthetic disk full")
 
-        return original_write_text(
-            self,
-            data,
-            *args,
-            **kwargs,
-        )
+    monkeypatch.setattr(workspace.os, "replace", fail_replace)
 
-    monkeypatch.setattr(
-        Path,
-        "write_text",
-        fail_temp_write,
-    )
-
-    with pytest.raises(
-        OSError,
-        match="disk full",
-    ):
+    with pytest.raises(OSError, match="disk full"):
         workspace.write_workspace_text(
-            "full.txt",
-            "payload",
-            settings=settings,
+            "full.txt", "payload", settings=settings,
         )
 
-    assert not (
-        tmp_path
-        / "workspace"
-        / "full.txt"
-    ).exists()
-    assert not (
-        tmp_path
-        / "workspace"
-        / "full.txt.tmp"
-    ).exists()
+    target = tmp_path / "workspace" / "full.txt"
+    assert not target.exists()
+    assert not list(target.parent.glob("full.txt.*.tmp"))
 
 
 def test_fault_atomic_health_replace_failure_preserves_previous_snapshot(
