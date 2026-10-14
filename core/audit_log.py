@@ -269,6 +269,7 @@ class AuditLogger:
                 record,
                 max_bytes=self.max_bytes,
                 backups=self.backups,
+                durable=must_write,
             )
             return True
         except Exception as error:

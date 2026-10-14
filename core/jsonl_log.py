@@ -129,6 +129,15 @@ def _rotate_fd(fd, name, backups):
         os.rename(name, f"{name}.1", src_dir_fd=fd, dst_dir_fd=fd)
 
 
+def _same_leaf(fd, name, opened):
+    """Detect a swapped/unlinked audit leaf before returning success."""
+    current = _slot(fd, name)
+    if current is None or (
+        current.st_dev, current.st_ino
+    ) != (opened.st_dev, opened.st_ino):
+        raise PermissionError("Loggfilen byttes ut under skrivning.")
+
+
 def _parent_unchanged(fd, target):
     expected = os.fstat(fd)
     current = os.stat(
@@ -309,6 +318,7 @@ def append_jsonl(
     *,
     max_bytes=5_000_000,
     backups=5,
+    durable=False,
 ):
     target = Path(path)
     _check_parent_path(target)
@@ -366,10 +376,17 @@ def append_jsonl(
                             raise PermissionError("Osäker loggfil vid append.")
                         with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
                             descriptor = None
+                            _same_leaf(fd, name, info)
                             handle.write(line)
+                            handle.flush()
+                            if durable:
+                                os.fsync(handle.fileno())
+                            _same_leaf(fd, name, info)
                     finally:
                         if descriptor is not None:
                             os.close(descriptor)
+                    if durable:
+                        os.fsync(fd)
                     _parent_unchanged(fd, target)
             return target
         _check_parent_path(target)
@@ -383,6 +400,15 @@ def append_jsonl(
             _rotate_file_unlocked(target, backups=backups)
 
         with _open_append_regular(target) as handle:
+            info = os.fstat(handle.fileno())
             handle.write(line)
+            handle.flush()
+            if durable:
+                os.fsync(handle.fileno())
+            current = _check_existing_regular(target)
+            if current is None or (
+                current.st_dev, current.st_ino
+            ) != (info.st_dev, info.st_ino):
+                raise PermissionError("Loggfilen byttes ut under skrivning.")
 
     return target
