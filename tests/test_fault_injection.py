@@ -478,36 +478,16 @@ def test_fault_unwritable_workspace_storage_leaves_no_target(
             tmp_path
         )
     )
-    original_write_text = (
-        Path.write_text
-    )
-
-    def fail_temp_write(
-        self,
-        data,
-        *args,
-        **kwargs,
-    ):
-        if str(
-            self
-        ).endswith(
-            ".tmp"
-        ):
-            raise OSError(
-                "synthetic disk full"
-            )
-
-        return original_write_text(
-            self,
-            data,
-            *args,
-            **kwargs,
-        )
+    def fail_temp_create(*args, **kwargs):
+        # The writer now uses secure mkstemp() rather than a fixed
+        # Path.write_text(".tmp") target. Simulate no free disk space
+        # at the temporary file creation boundary.
+        raise OSError("synthetic disk full")
 
     monkeypatch.setattr(
-        Path,
-        "write_text",
-        fail_temp_write,
+        workspace.tempfile,
+        "mkstemp",
+        fail_temp_create,
     )
 
     with pytest.raises(
