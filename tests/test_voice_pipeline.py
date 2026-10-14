@@ -1200,3 +1200,69 @@ def test_two_different_backup_instances_can_confirm_without_confidence():
     assert result["status"] == "completed"
     assert result["confirmation"]["confirmed"] is True
     assert len(assistant.messages) == 1
+
+
+
+def test_highrisk_single_transcript_never_claims_consensus():
+    result = choose_consensus(["Radera filen rapport.txt"])
+    assert result["accepted"] is False
+    assert result["support"] == 1
+    assert result["text"] is None
+    assert choose_consensus(["Hur mycket RAM används?"])["accepted"] is True
+
+
+def test_highrisk_stt_redundancy_cannot_be_disabled_in_settings():
+    assistant = FakeAssistant()
+    a = FakeSTT({"text": "Radera filen ett", "confidence": 0.99})
+    b = FakeSTT({"text": "Radera filen ett", "confidence": 0.98})
+    c = FakeSTT({"text": "Radera filen ett", "confidence": 0.97})
+    pipeline = VoicePipeline(
+        assistant, a, backup_stt=[b, c],
+        settings=settings(redundancy_enabled=False),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "completed"
+    assert len(result["consensus"]["transcripts"]) == 3
+    assert b.calls == c.calls == 1
+    assert len(assistant.messages) == 1
+
+
+def test_highrisk_three_independent_votes_required_even_if_config_says_two():
+    assistant = FakeAssistant()
+    a = FakeSTT({"text": "Radera filen ett", "confidence": 0.99})
+    b = FakeSTT({"text": "Radera filen ett", "confidence": 0.99})
+    pipeline = VoicePipeline(
+        assistant, a, backup_stt=[b],
+        settings=settings(redundant_transcript_count=2),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert b.calls == 1
+    assert assistant.messages == []
+
+
+def test_highrisk_semantic_switch_cannot_overrule_nonmatching_targets():
+    assistant = FakeAssistant()
+    semantic = FakeSemanticResolver({
+        "accepted": True,
+        "text": "Radera filen rapport ett",
+        "support": 3,
+        "confidence": 1.0,
+    })
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT({"text": "Radera filen rapport ett", "confidence": 0.99}),
+        backup_stt=[
+            FakeSTT({"text": "Radera filen rapport två", "confidence": 0.99}),
+            FakeSTT({"text": "Radera filen rapport tre", "confidence": 0.99}),
+        ],
+        settings=settings(
+            semantic_consensus_enabled=True,
+            semantic_consensus_for_high_risk=True,
+        ),
+        semantic_resolver=semantic,
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert semantic.calls == []
+    assert assistant.messages == []
