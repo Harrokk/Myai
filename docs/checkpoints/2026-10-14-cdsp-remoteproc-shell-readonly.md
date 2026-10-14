@@ -31,3 +31,14 @@ Datum: 2026-10-14. Gren: dev/ventuno-cdsp-remoteproc-shell-readonly-20261014; en
 En rapporterad CDSP som "running" och en Hexagon ELF unsigned shell är **inte** likvärdigt med lyckad signerad/osignerad session, korrekt firmware/build matchning eller QNN HTP-inferens. Ingen apt, sudo, chmod/chown, grupp-/udev-ändring, omstart, kerneländring, nytt modellprov eller main-merge får göras i detta steg.
 
 Historisk GitHub Support purge, PR #110, är fortfarande separat releaseblockerare. Nästa steg efter nytt CI och sann metadatamätning är att avgöra om en fullständigt dokumenterad, *icke-invasiv* firmware-/processdomän-granskning fortfarande behövs.
+
+## Första verkliga resultatet och riktad förbättring
+
+[GitHub Actions 38601049337](https://github.com/Harrokk/Myai/actions/runs/38601049337), riktig VENTUNO, genomfördes framgångsrikt:
+- Tre remoteproc-enheter räknades, men ingen kunde klassificeras som CDSP enbart utifrån `name`-attributets säkra ordmatchning. CDSP-status är därför **unknown**, inte att processorn saknas eller är avstängd.
+- `/usr/lib/dsp/cdsp/fastrpc_shell_unsigned_3` upplöstes till en vanlig biblioteksfil under /usr med **Hexagon ELF-header**. Kandidaten direkt under /usr/lib/dsp kunde inte klassificeras som tillgänglig. Det bevisar inte vilken shell som faktisk DSP-PD-session skulle välja.
+- Ingen FastRPC-/DSP-enhet öppnades och ingen HTP-körning skedde.
+
+Uppföljningskod använder nu dessutom endast den fysiskt befintliga remoteproc-enhetens begränsat lästa Device Tree `device/of_node/compatible` för att identifiera CDSP när namnet är opakt. Hela DT-strängen och enhetsadresser exporteras aldrig. Dessutom rapporteras **antal remoteproc som är running**, utan att det förväxlas med ett särskilt CDSP. Om klassificeringen inte är säker blir resultatet fortsatt unknown.
+
+Dessa nya fält måste verifieras i en separat workflow-körning på exakt ny SHA innan någon slutsats om CDSP:s tillstånd dras.
