@@ -78,3 +78,57 @@ def test_private_error_capture_exact_limit_is_not_truncated(tmp_path):
     assert report["stdout_sampled_bytes"] == 16384
     assert report["categories"] == ["backend_initialization_failure"]
     assert "backend create error" not in str(report)
+
+
+def test_htp_skel_locator_uses_only_packaged_hexagon_file(monkeypatch):
+    expected = {
+        "path_inside_usr": True,
+        "file_regular": True,
+        "header_class": "hexagon_elf_header",
+        "package_owner": "qairt-dsp-binaries",
+        "library_file_header_read": True,
+    }
+    called = []
+    def fake_inspect(path, root):
+        called.append((str(path), str(root)))
+        return expected
+    monkeypatch.setattr(module, "inspect_resolved_skel", fake_inspect)
+    assert str(module._find_v75_skel_directory()) == "/usr/lib/dsp/cdsp"
+    assert called == [
+        ("/usr/lib/dsp/cdsp/libQnnHtpV75Skel.so", "/usr"),
+    ]
+
+
+def test_htp_skel_locator_fails_closed_on_untrusted_candidate(monkeypatch):
+    valid = {
+        "path_inside_usr": True,
+        "file_regular": True,
+        "header_class": "hexagon_elf_header",
+        "package_owner": "qairt-dsp-binaries",
+        "library_file_header_read": True,
+    }
+    for key, wrong in (
+        ("path_inside_usr", False),
+        ("file_regular", False),
+        ("header_class", "aarch64_elf_header"),
+        ("header_class", "unavailable"),
+        ("package_owner", "unverified"),
+        ("package_owner", "different_or_qualified_package"),
+        ("library_file_header_read", False),
+    ):
+        suspect = {**valid, key: wrong}
+        monkeypatch.setattr(
+            module, "inspect_resolved_skel", lambda *args, v=suspect: v
+        )
+        assert module._find_v75_skel_directory() is None
+
+
+def test_v75_gate_never_uses_other_fallback_directories(monkeypatch):
+    monkeypatch.setattr(module, "inspect_resolved_skel", lambda *_: {
+        "path_inside_usr": False, "file_regular": False,
+        "header_class": "unavailable", "package_owner": "unverified",
+        "library_file_header_read": False,
+    })
+    # If canonical QAIRT file is untrusted, do not search /opt, home,
+    # /vendor or older alternate copies: return no-go.
+    assert module._find_v75_skel_directory() is None
