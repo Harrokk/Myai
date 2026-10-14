@@ -1,0 +1,40 @@
+name: Windows JSONL fallback unit tests (host-only)
+on:
+  push:
+    branches: [dev/compat-guardrail-reconciliation-20261014]
+    paths:
+      - core/jsonl_log.py
+      - tests/test_jsonl_log.py
+      - .github/workflows/windows-jsonl-fallback.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-jsonl:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact revision on temporary Windows host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git -C $env:GITHUB_WORKSPACE init
+          git -C $env:GITHUB_WORKSPACE remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C $env:GITHUB_WORKSPACE fetch --quiet --depth=1 origin $env:GITHUB_SHA
+          git -C $env:GITHUB_WORKSPACE checkout --quiet --detach FETCH_HEAD
+          if ((git -C $env:GITHUB_WORKSPACE rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'Wrong commit' }
+      - name: Install isolated pinned test runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          py -3 -m venv "$env:RUNNER_TEMP\myai-win-tests"
+          & "$env:RUNNER_TEMP\myai-win-tests\Scripts\python.exe" -m pip install --disable-pip-version-check pytest==8.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'pytest install failed' }
+      - name: Run nonphysical Windows fallback cases
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:GITHUB_WORKSPACE
+          $filter = 'test_append_jsonl_writes_compact_record or test_append_jsonl_rotates_before_limit_is_exceeded or test_rotation_shifts_existing_backups or test_zero_backups_discards_old_log or test_fallback_jsonl_append_and_rotation_preserve_records or test_fallback_required_audit_append_flushes_data_and_fail_closes_on_fsync'
+          & "$env:RUNNER_TEMP\myai-win-tests\Scripts\python.exe" -m pytest -q tests/test_jsonl_log.py -k $filter
+          if ($LASTEXITCODE -ne 0) { throw 'Windows fallback regressions failed' }

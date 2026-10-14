@@ -582,3 +582,92 @@ def test_bounded_log_reader_allows_small_valid_unicode(tmp_path):
     path = tmp_path / "audit.jsonl"
     path.write_text("åäö\n", encoding="utf-8")
     assert module.read_log_text(path) == "åäö\n"
+
+
+def test_fallback_jsonl_append_and_rotation_preserve_records(tmp_path, monkeypatch):
+    from core import jsonl_log as module
+
+    monkeypatch.setattr(module, "_ANCHORED", False)
+    path = tmp_path / "fallback.jsonl"
+    append_jsonl(
+        path, {"source": "first", "text": "åäö"},
+        max_bytes=35, backups=2,
+    )
+    append_jsonl(
+        path, {"source": "second", "text": "åäö"},
+        max_bytes=35, backups=2,
+    )
+    assert read_lines(tmp_path / "fallback.jsonl.1") == [
+        {"source": "first", "text": "åäö"}
+    ]
+    assert read_lines(path) == [
+        {"source": "second", "text": "åäö"}
+    ]
+    assert module.read_log_text(path).endswith("\n")
+
+
+def test_fallback_jsonl_refuses_symlink_and_hardlink_without_modifying_them(
+    tmp_path, monkeypatch,
+):
+    import os
+    import pytest
+    from core import jsonl_log as module
+
+    monkeypatch.setattr(module, "_ANCHORED", False)
+    target = tmp_path / "fallback.jsonl"
+    other = tmp_path / "unrelated-data.txt"
+    other.write_text("DO NOT TOUCH", encoding="utf-8")
+    target.symlink_to(other)
+    with pytest.raises((PermissionError, OSError)):
+        append_jsonl(target, {"event": "no"})
+    assert other.read_text(encoding="utf-8") == "DO NOT TOUCH"
+    target.unlink()
+    os.link(other, target)
+    with pytest.raises((PermissionError, OSError)):
+        append_jsonl(target, {"event": "no"})
+    assert other.read_text(encoding="utf-8") == "DO NOT TOUCH"
+
+
+def test_fallback_rotation_rejects_unsafe_rotated_entry(
+    tmp_path, monkeypatch,
+):
+    import pytest
+    from core import jsonl_log as module
+
+    monkeypatch.setattr(module, "_ANCHORED", False)
+    path = tmp_path / "fallback.jsonl"
+    path.write_text("ORIGINAL", encoding="utf-8")
+    external = tmp_path / "external.txt"
+    external.write_text("EXTERNAL", encoding="utf-8")
+    (tmp_path / "fallback.jsonl.1").symlink_to(external)
+    with pytest.raises((PermissionError, OSError)):
+        rotate_file(path, backups=2)
+    assert path.read_text(encoding="utf-8") == "ORIGINAL"
+    assert external.read_text(encoding="utf-8") == "EXTERNAL"
+
+
+def test_fallback_required_audit_append_flushes_data_and_fail_closes_on_fsync(
+    tmp_path, monkeypatch,
+):
+    import pytest
+    from core import jsonl_log as module
+
+    monkeypatch.setattr(module, "_ANCHORED", False)
+    real_fsync = module.os.fsync
+    calls = [0]
+    def count_fsync(fd):
+        calls[0] += 1
+        return real_fsync(fd)
+
+    monkeypatch.setattr(module.os, "fsync", count_fsync)
+    path = tmp_path / "fallback.jsonl"
+    append_jsonl(path, {"event": "required"}, durable=True)
+    assert calls[0] >= 1
+    assert read_lines(path) == [{"event": "required"}]
+
+    def broken_fsync(fd):
+        raise OSError("simulated durable flush failure")
+
+    monkeypatch.setattr(module.os, "fsync", broken_fsync)
+    with pytest.raises(OSError, match="durable flush failure"):
+        append_jsonl(path, {"event": "must-fail"}, durable=True)
