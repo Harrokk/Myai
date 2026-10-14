@@ -89,3 +89,46 @@ def test_report_contains_only_metadata(monkeypatch):
     assert result["device_or_library_opened"] is False
     assert result["stub_skel_version_compatibility_proven"] is False
     assert "/usr/lib/" not in json.dumps(result)
+
+
+def test_resolved_target_region_returns_only_category(tmp_path):
+    vendor = tmp_path / "vendor"
+    dsp = vendor / "dsp"
+    firmware = vendor / "firmware"
+    dsp.mkdir(parents=True)
+    firmware.mkdir()
+    binary = firmware / "actual.so"
+    binary.write_bytes(b"NEVER-LOADED")
+    link = dsp / "skel.so"
+    link.symlink_to(binary)
+    region, resolved = probe.classify_resolved_location(link, {
+        "firmware": firmware, "vendor": vendor,
+    })
+    assert region == "firmware"
+    assert resolved == binary
+    assert str(binary) not in region
+
+
+def test_untrusted_resolved_target_does_not_reveal_path(tmp_path):
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    other = tmp_path / "private"
+    other.write_bytes(b"secret")
+    link = trusted / "libQnnHtpV75Skel.so"
+    link.symlink_to(other)
+    category, resolved = probe.classify_resolved_location(link, {
+        "only_trusted": trusted,
+    })
+    assert category == "outside_sampled_system_roots"
+    assert resolved is None
+    assert str(other) not in category
+
+
+def test_unresolvable_target_is_unknown_not_negative(tmp_path):
+    link = tmp_path / "missing.so"
+    link.symlink_to("absent.so")
+    category, target = probe.classify_resolved_location(link, {
+        "one": tmp_path,
+    })
+    assert category == "unavailable"
+    assert target is None
