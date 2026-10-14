@@ -18,6 +18,14 @@ SENSITIVE_PATTERNS = (
     r"\bkortnummer\b",
     r"\bcard number\b",
     r"\bpersonnummer\b",
+    # Obvious token-shaped credentials without an accompanying label.
+    # All matching is performed on normalized lowercase text.
+    r"\bgh[pousr]_[a-z0-9]{12,}\b",
+    r"\bgithub_pat_[a-z0-9_]{12,}\b",
+    r"\bsk-[a-z0-9_-]{20,}\b",
+    r"\bakia[a-z0-9]{16}\b",
+    r"\bxox[baprs]-[a-z0-9-]{10,}\b",
+    r"\bbearer\s+[^\s]{12,}",
 )
 
 EXPLICIT_MEMORY_PHRASES = (
