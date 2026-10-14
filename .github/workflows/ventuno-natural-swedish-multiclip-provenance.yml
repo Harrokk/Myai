@@ -52,7 +52,7 @@ jobs:
                   parsed=urllib.parse.urlparse(url)
                   assert parsed.scheme=="https"
                   assert parsed.netloc=="upload.wikimedia.org"
-                  assert "/Sv-%28conversation%29.ogg" in url or "Sv-(conversation).ogg" in url
+                  assert urllib.parse.unquote(parsed.path).endswith("Sv-(conversation).ogg")
                   declared=item.get("size")
                   assert type(declared) is int and 10000<=declared<=60000
                   file_request=urllib.request.Request(url,headers={
