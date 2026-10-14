@@ -1,0 +1,45 @@
+name: Hosted offline preview security integration
+on:
+  push:
+    branches: [dev/offline-inspection-pipeline-20261014]
+    paths:
+      - core/selfdev_signed_manifest.py
+      - core/selfdev_request_protocol.py
+      - core/selfdev_peer_identity.py
+      - core/selfdev_preview_ledger.py
+      - core/selfdev_offline_preview_pipeline.py
+      - tests/test_selfdev_signed_manifest.py
+      - tests/test_selfdev_peer_identity.py
+      - tests/test_selfdev_offline_preview_pipeline.py
+      - .github/workflows/hosted-offline-preview-integration.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact commit without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" init -q
+          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$GITHUB_WORKSPACE" fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$GITHUB_WORKSPACE" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare isolated crypto tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-preview-integration"
+          "$RUNNER_TEMP/myai-preview-integration/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: "cryptography==45.0.7" "pytest==8.3.5"
+      - name: Verify real Ed25519, Unix kernel peers, replay and framing
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/myai-preview-integration/bin/python" -B -m pytest -q -rs             tests/test_selfdev_signed_manifest.py             tests/test_selfdev_peer_identity.py             tests/test_selfdev_offline_preview_pipeline.py
