@@ -1,0 +1,50 @@
+name: Host-only ONNX numerical reference tests (not VENTUNO hardware)
+
+on:
+  push:
+    branches: [dev/unattended-audit-20261014]
+    paths:
+      - .github/workflows/host-only-onnx-regressions.yml
+
+permissions:
+  contents: read
+
+jobs:
+  host-onnx:
+    name: Run six optional ONNX and NumPy checks on temporary x86 host
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch exact commit without third-party actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          git init -q "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$GITHUB_WORKSPACE" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$GITHUB_WORKSPACE" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$GITHUB_WORKSPACE" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install pinned host-test wheels in disposable GitHub runner virtualenv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-onnx-host-venv"
+          "$RUNNER_TEMP/myai-onnx-host-venv/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1
+      - name: Run isolated optional ONNX, CPU numerical and input-integrity tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/myai-onnx-host-venv/bin/python" -m pytest -q -rs \
+            tests/test_prepare_tiny_qnn_host_sample.py \
+            tests/test_verify_tiny_qnn_host_sample.py \
+            tests/test_qairt_245_cpu_reference_trial.py
+          echo "Host-only math tested; no QNN/HTP/NPU or user hardware used."
