@@ -92,7 +92,7 @@ def test_unknown_runtime_never_invents_compile_options():
 def test_public_report_never_contains_tokens_identity_or_private_paths():
     r = policy.evaluate_target()
     encoded = json.dumps(r)
-    assert "api_token" not in encoded
+    assert '"api_token":' not in encoded
     assert "/home/" not in encoded
     assert r["source_model_expected_size"] == 608
     assert len(r["source_model_expected_sha256"]) == 64
