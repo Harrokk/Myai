@@ -1,3 +1,4 @@
+import math
 import time
 from pathlib import Path
 
@@ -91,35 +92,22 @@ class HealthAwareBackendPolicy:
         )
 
         try:
-            age = max(
-                0.0,
-                float(
-                    self.clock()
-                )
-                - float(
-                    written
-                ),
-            )
-        except (
-            TypeError,
-            ValueError,
-        ):
+            now = float(self.clock())
+            timestamp = float(written)
+            stale_after = float(self.supervisor.get(
+                "state_stale_seconds", 30.0
+            ))
+        except (TypeError, ValueError, OverflowError):
             return True
 
-        stale_after = max(
-            0.0,
-            float(
-                self.supervisor.get(
-                    "state_stale_seconds",
-                    30.0,
-                )
-            ),
-        )
+        # NaN timestamps can otherwise look recent forever; a far-future
+        # timestamp from a corrupt/clock-skewed watchdog is not trustworthy.
+        if not all(math.isfinite(x) for x in (now, timestamp, stale_after)):
+            return True
+        if stale_after < 0 or timestamp > now + 5.0:
+            return True
 
-        return bool(
-            stale_after > 0
-            and age > stale_after
-        )
+        return bool(stale_after > 0 and now - timestamp > stale_after)
 
     def note_fallback_activation(
         self,
@@ -146,6 +134,20 @@ class HealthAwareBackendPolicy:
             self.last_reason = str(
                 reason
             )
+
+    @staticmethod
+    def _valid_counter(value):
+        if isinstance(value, bool):
+            return None
+        try:
+            # Reject fractional, NaN and infinite counters before int().
+            number = float(value)
+            if not math.isfinite(number) or not number.is_integer():
+                return None
+            count = int(number)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return count if 0 <= count <= 1_000_000 else None
 
     def choose_backend(
         self,
@@ -193,23 +195,21 @@ class HealthAwareBackendPolicy:
             )
             else {}
         )
-        healthy = check.get(
-            "healthy"
-        )
-        failures = int(
-            check.get(
-                "consecutive_failures",
-                0,
-            )
-            or 0
-        )
-        successes = int(
-            check.get(
-                "consecutive_successes",
-                0,
-            )
-            or 0
-        )
+        if not isinstance(check, dict):
+            self.last_reason = "watchdog check invalid; preserve active backend"
+            return current
+
+        healthy = check.get("healthy")
+        failures = self._valid_counter(check.get("consecutive_failures", 0))
+        successes = self._valid_counter(check.get("consecutive_successes", 0))
+        if (
+            not isinstance(healthy, bool)
+            or failures is None
+            or successes is None
+        ):
+            self.last_reason = "watchdog counters invalid; preserve active backend"
+            return current
+
         failure_threshold = max(
             1,
             int(

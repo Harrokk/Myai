@@ -197,3 +197,67 @@ def test_disabled_health_routing_retries_primary(tmp_path):
     assert policy.choose_backend(
         "fallback"
     ) == "primary"
+
+
+def test_corrupt_watchdog_counters_never_crash_or_switch_backend(tmp_path):
+    invalid_values = ("unavailable", None, float("nan"),
+                      float("inf"), -1, True, [], {})
+    for value in invalid_values:
+        write_state(
+            tmp_path,
+            written=99.0,
+            healthy=False,
+            failures=value,
+            successes=0,
+        )
+        policy = HealthAwareBackendPolicy(
+            settings(tmp_path), tmp_path, clock=lambda: 100.0,
+        )
+        assert policy.choose_backend("primary") == "primary"
+        assert policy.choose_backend("fallback") == "fallback"
+
+
+def test_corrupt_watchdog_success_counter_cannot_restore_primary(tmp_path):
+    for value in ("broken", float("nan"), None, -4, True):
+        write_state(
+            tmp_path,
+            written=99,
+            healthy=True,
+            failures=0,
+            successes=value,
+        )
+        policy = HealthAwareBackendPolicy(
+            settings(tmp_path), tmp_path, clock=lambda: 100.0,
+        )
+        assert policy.choose_backend("fallback") == "fallback"
+
+
+def test_nonfinite_and_far_future_watchdog_timestamps_are_stale(tmp_path):
+    for written in (float("nan"), float("inf"), float("-inf"), 10000.0):
+        write_state(
+            tmp_path,
+            written=written,
+            healthy=False,
+            failures=99,
+            successes=0,
+        )
+        policy = HealthAwareBackendPolicy(
+            settings(tmp_path), tmp_path, clock=lambda: 100.0,
+        )
+        assert policy.choose_backend("primary") == "primary"
+        assert policy.choose_backend("fallback") == "fallback"
+
+
+def test_malformed_watchdog_check_is_non_authoritative(tmp_path):
+    path = tmp_path / "runtime" / "geniex_health.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for check in (None, "corrupt", [], 4):
+        path.write_text(json.dumps({
+            "written_unix_time": 99.0,
+            "check": check,
+        }), encoding="utf-8")
+        policy = HealthAwareBackendPolicy(
+            settings(tmp_path), tmp_path, clock=lambda: 100.0,
+        )
+        assert policy.choose_backend("primary") == "primary"
+        assert policy.choose_backend("fallback") == "fallback"
