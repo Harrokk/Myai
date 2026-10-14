@@ -1,4 +1,7 @@
 import json
+import hmac
+import hashlib
+import stat
 import os
 from pathlib import Path
 import secrets
@@ -24,6 +27,7 @@ from core.audit_log import (
 from core.selfdev_workspace import (
     SelfDevWorkspace,
     _sha256,
+    _allowed_relative_path,
 )
 
 
@@ -252,6 +256,97 @@ class SelfDevPromotionManager:
                     msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
             os.close(descriptor)
 
+    def _journal_integrity_key(self, *, create=False):
+        """Detect altered journal data using a local private project key."""
+        directory = self.workspace.project_root / "runtime" / "selfdev"
+        if directory.is_symlink():
+            raise RuntimeError("Selfdev-nyckelkatalogen är en symlink.")
+        if create:
+            directory.mkdir(parents=True, exist_ok=True)
+        path = directory / ".journal-integrity-key"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if create:
+            try:
+                fd = os.open(str(path), flags, 0o600)
+            except FileExistsError:
+                pass
+            else:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(secrets.token_bytes(32))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                _sync_directory(directory)
+        if path.is_symlink():
+            raise RuntimeError("Selfdev-integritetsnyckeln är en symlink.")
+        read_flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            read_flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(str(path), read_flags)
+        except OSError as error:
+            raise RuntimeError(
+                "Selfdev-integritetsnyckeln saknas eller kan inte läsas."
+            ) from error
+        with os.fdopen(fd, "rb") as handle:
+            metadata = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or (os.name == "posix" and metadata.st_mode & 0o077)
+            ):
+                raise RuntimeError("Osäker selfdev-integritetsnyckel.")
+            secret = handle.read(33)
+        if len(secret) != 32:
+            raise RuntimeError("Ogiltig selfdev-integritetsnyckel.")
+        return secret
+
+    def _write_journal(self, path, record):
+        if not isinstance(record, dict):
+            raise RuntimeError("Ogiltig återställningsjournal.")
+        copy = dict(record)
+        copy.pop("journal_hmac", None)
+        copy["journal_version"] = 1
+        payload = json.dumps(
+            copy, sort_keys=True, ensure_ascii=False,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        copy["journal_hmac"] = hmac.new(
+            self._journal_integrity_key(create=True),
+            payload, hashlib.sha256,
+        ).hexdigest()
+        _atomic_write_record(path, copy)
+
+    def _read_journal(self, path):
+        if Path(path).is_symlink():
+            raise RuntimeError("Återställningsjournalen är en symlink.")
+        record = _read_json(path)
+        if not isinstance(record, dict) or record.get("journal_version") != 1:
+            raise RuntimeError("Återställningsjournal saknar integritetsskydd.")
+        signature = record.get("journal_hmac")
+        if not isinstance(signature, str) or len(signature) != 64:
+            raise RuntimeError("Återställningsjournalens integritet är ogiltig.")
+        unsigned = dict(record)
+        unsigned.pop("journal_hmac")
+        try:
+            payload = json.dumps(
+                unsigned, sort_keys=True, ensure_ascii=False,
+                separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                "Återställningsjournalens innehåll är ogiltigt."
+            ) from error
+        computed = hmac.new(
+            self._journal_integrity_key(), payload, hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, computed):
+            raise RuntimeError(
+                "Återställningsjournalens integritet kunde inte verifieras."
+            )
+        return record
+
     def _require_promotion_enabled(self):
         if not self.config.get(
             "enabled",
@@ -321,6 +416,9 @@ class SelfDevPromotionManager:
         self,
         relative,
     ):
+        relative = Path(relative)
+        if not _allowed_relative_path(relative):
+            raise PermissionError("Otillåten källkodsfil i promotion-journalen.")
         root = (
             self.workspace
             .project_root
@@ -396,8 +494,8 @@ class SelfDevPromotionManager:
                             "Ofullständig selfdev-promotion saknar återställningsjournal."
                         )
                     try:
-                        record = _read_json(record_path)
-                    except (OSError, ValueError, TypeError) as error:
+                        record = self._read_journal(record_path)
+                    except (OSError, ValueError, TypeError, RuntimeError) as error:
                         raise RuntimeError(
                             "Selfdev-promotion har en skadad återställningsjournal."
                         ) from error
@@ -639,7 +737,7 @@ class SelfDevPromotionManager:
         record_path = rollback_root / "promotion.json"
         # Power loss after this write can be recovered via the backups and
         # intended content hashes. No active file is touched before this.
-        _atomic_write_record(record_path, journal)
+        self._write_journal(record_path, journal)
 
         applied = []
         after_hashes = {}
@@ -670,7 +768,7 @@ class SelfDevPromotionManager:
                 "promoted_unix_time": time.time(),
                 "after_hashes": after_hashes,
             }
-            _atomic_write_record(record_path, record)
+            self._write_journal(record_path, record)
         except Exception:
             # Restore only known before/after versions. If an external
             # writer changed *any* touched file, leave PREPARED for
@@ -698,7 +796,7 @@ class SelfDevPromotionManager:
                 if observed != original:
                     to_restore.append(relative)
             self._restore_from_backup(rollback_root, backups, to_restore)
-            _atomic_write_record(
+            self._write_journal(
                 record_path,
                 {
                     **journal,
@@ -716,6 +814,8 @@ class SelfDevPromotionManager:
         rollback_root,
         relative,
     ):
+        if not _allowed_relative_path(relative):
+            raise PermissionError("Otillåten backup-sökväg.")
         base = (
             Path(
                 rollback_root
@@ -822,7 +922,7 @@ class SelfDevPromotionManager:
     def _recover_interrupted_impl(self, identifier):
         rollback_root = self.workspace.session_root / "rollbacks" / identifier
         record_path = rollback_root / "promotion.json"
-        record = _read_json(record_path)
+        record = self._read_journal(record_path)
         if not isinstance(record, dict) or record.get("state") != "prepared":
             raise RuntimeError(
                 "Återställning kräver en ofullständig prepared-journal."
@@ -892,7 +992,7 @@ class SelfDevPromotionManager:
         record["state"] = "recovered"
         record["rolled_back"] = True
         record["recovered_unix_time"] = time.time()
-        _atomic_write_record(record_path, record)
+        self._write_journal(record_path, record)
         return record
 
     def rollback(
@@ -1002,7 +1102,7 @@ class SelfDevPromotionManager:
                 "Promotion-record saknas."
             )
 
-        record = _read_json(record_path)
+        record = self._read_journal(record_path)
         if not isinstance(record, dict):
             raise RuntimeError("Ogiltig återställningsjournal.")
         state = record.get("state")
@@ -1078,6 +1178,6 @@ class SelfDevPromotionManager:
         record[
             "rolled_back_unix_time"
         ] = time.time()
-        _atomic_write_record(record_path, record)
+        self._write_journal(record_path, record)
 
         return record
