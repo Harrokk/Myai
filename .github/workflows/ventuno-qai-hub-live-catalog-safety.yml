@@ -1,0 +1,61 @@
+name: Off-device QAI Hub live-catalog probe safety tests only
+on:
+  push:
+    branches: [dev/ventuno-qai-hub-live-catalog-readonly-20261014]
+    paths:
+      - .github/workflows/ventuno-qai-hub-live-catalog-safety.yml
+      - scripts/ventuno_qai_hub_live_catalog_readonly.py
+      - tests/test_ventuno_qai_hub_live_catalog_readonly.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-qai-hub-live-catalog-safety-20261014
+  cancel-in-progress: false
+jobs:
+  offline-synthetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact commit into temporary x86 directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-qai-live.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_QAI_LIVE_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install only pytest into disposable x86 venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-qai-live-venv"
+          "$RUNNER_TEMP/myai-qai-live-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+      - name: Synthetic QAI client only, never enable real read-only API flag
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_QAI_LIVE_SCRATCH"
+          "$RUNNER_TEMP/myai-qai-live-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_qai_hub_live_catalog_readonly.py
+          "$RUNNER_TEMP/myai-qai-live-venv/bin/python" -B \
+            -m scripts.ventuno_qai_hub_live_catalog_readonly
+          echo 'No Qualcomm token, no QAI Hub SDK, no get_frameworks network call, no model upload or job.'
+      - name: Clean disposable test data
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_QAI_LIVE_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_QAI_LIVE_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-qai-live-venv"
