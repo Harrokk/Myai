@@ -1,0 +1,58 @@
+name: Offline tiny QDQ graph contract (no QNN SDK or device)
+on:
+  push:
+    branches: [dev/ventuno-htp-offhost-qdq-contract-20261014]
+    paths:
+      - .github/workflows/ventuno-htp-offhost-qdq-contract.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-offhost-qdq-contract-20261014
+  cancel-in-progress: false
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact commit to disposable hosted x86 directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/offhost-qdq.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "OFFHOST_QDQ_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install only pinned open-source graph checker dependencies on hosted x86
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/offhost-qdq-venv"
+          "$RUNNER_TEMP/offhost-qdq-venv/bin/python" -m pip install             --disable-pip-version-check --only-binary=:all:             onnx==1.17.0 pytest==8.3.5
+      - name: Generate the exact small ONNX source and verify schema contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$OFFHOST_QDQ_SCRATCH"
+          "$RUNNER_TEMP/offhost-qdq-venv/bin/python" -m pytest -q             tests/test_ventuno_htp_offhost_qdq_contract.py
+          "$RUNNER_TEMP/offhost-qdq-venv/bin/python"             -m scripts.prepare_tiny_qnn_host_sample             --output-dir "$RUNNER_TEMP/offhost-qdq-synthetic"
+          "$RUNNER_TEMP/offhost-qdq-venv/bin/python"             -m scripts.ventuno_htp_offhost_qdq_contract             --model "$RUNNER_TEMP/offhost-qdq-synthetic/tiny_qdq_conv.onnx"
+          test ! -e "$RUNNER_TEMP/offhost-qdq-synthetic/htp-context.bin"
+          echo 'ONNX schema only; no QAIRT SDK, HTP context, vendor model execution or board access.'
+      - name: Remove disposable checkout and synthetic model
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${OFFHOST_QDQ_SCRATCH:-}" ]; then
+            rm -rf -- "$OFFHOST_QDQ_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/offhost-qdq-synthetic" "$RUNNER_TEMP/offhost-qdq-venv"
