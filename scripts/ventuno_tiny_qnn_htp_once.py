@@ -26,7 +26,6 @@ from scripts.ventuno_geniex_runtime_attestation import (
 )
 from scripts.ventuno_qnn_cli_gate import parse_flags
 from scripts.ventuno_qnn_error_categories import classify_qnn_output, MAX_CAPTURE_READ
-from scripts.ventuno_tiny_qnn_htp_readiness import ROOTS
 from scripts.ventuno_v75_elf_fastrpc_readonly import inspect_resolved_skel
 
 
@@ -40,31 +39,25 @@ LIBS = ("libQnnHtp.so", "libQnnModelDlc.so", "libQnnHtpV75Stub.so")
 
 
 def _find_libraries():
-    """Search fixed SDK roots without following symlinks or printing paths."""
+    """Only accept exact QAIRT-owned AArch64 host libraries under /usr/lib.
+
+    Previous bounded recursive searching selected three different inodes
+    than the distro-packaged libs on real VENTUNO. Never use other copies
+    from /opt, a user tree, or arbitrary package runtime directories.
+    Return missing rather than guessing when an owner or ELF check fails.
+    """
     found = {}
-    queue = [(r, 0) for r in ROOTS if r.is_dir() and not r.is_symlink()]
-    visited = set()
-    while queue and len(visited) < 600 and len(found) < len(LIBS):
-        directory, depth = queue.pop(0)
-        try:
-            info = directory.stat()
-            identity = (info.st_dev, info.st_ino)
-            if identity in visited:
-                continue
-            visited.add(identity)
-            entries = list(directory.iterdir())[:120]
-        except OSError:
-            continue
-        for file in entries:
-            try:
-                if file.is_symlink():
-                    continue
-                if file.is_file() and file.name in LIBS:
-                    found[file.name] = file
-                elif file.is_dir() and depth < 6:
-                    queue.append((file, depth + 1))
-            except OSError:
-                continue
+    for name in LIBS:
+        candidate = Path("/usr/lib") / name
+        metadata = inspect_resolved_skel(candidate, Path("/usr"))
+        if (
+            metadata["path_inside_usr"] is True
+            and metadata["file_regular"] is True
+            and metadata["header_class"] == "aarch64_elf_header"
+            and metadata["package_owner"] == "qairt-libs"
+            and metadata["library_file_header_read"] is True
+        ):
+            found[name] = candidate
     return found
 
 
