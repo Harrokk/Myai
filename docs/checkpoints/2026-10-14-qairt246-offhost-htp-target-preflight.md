@@ -52,3 +52,17 @@ Publika AI Hub-profiljobb från **Arduino VENTUNO Q** finns med faktisk rapporte
 ### Uppdaterad nästa prioritet
 
 Verifiera den officiellt erbjudna QAIRT-versionen och exakt kompileringsstöd för enheten **via betrodda Qualcomm-dokument/API med behörig användare**. Om exakt 2.46 saknas i molntjänsten, gör ingen automatisk uppgradering av kortets befintliga 2.46-runtime. Ingen molnuppladdning, modellkörning eller produktionsändring får ske utan separat godkännande.
+
+## Offentliga Qualcomm-jobb, jämförda med installerad runtime (2026-10-14)
+
+Publicerade riktiga jobb på **Arduino VENTUNO Q, Ubuntu 24.04** bekräftar att Qualcomms namngivna mål kan rapportera NPU-op-placering, men endast för andra modeller och de versioner som de specifika jobben visar:
+
+- [Qualcomm AI Hub, densenet121, 8 augusti 2026](https://aihub.qualcomm.com/jobs/jgllw4omg): QAIRT **2.45.0.260326154327**, NPU **374** operatörer.
+- [Qualcomm AI Hub, regnet_y_800mf, 20 september 2026](https://aihub.qualcomm.com/jobs/jgk2dn0vg): QAIRT **2.50.0.260828221209**, NPU **195** operatörer.
+- [Qualcomm AI Hub, sam3_vision_backbone, 3 oktober 2026](https://aihub.qualcomm.com/jobs/jpyo00j05): QAIRT **2.50.0.260828221209**, NPU **1845** operatörer.
+- [Arduino VENTUNO Q Qualcomm AI Hub-guide](https://docs.arduino.cc/tutorials/ventuno-q/getting-started-qc-ai-hub/): använder direkt `Arduino VENTUNO Q` (Ubuntu 24.04) och förklarar att `QCS8275 (Proxy)` är Android-proxy.
+- [Qualcomm Working with Frameworks](https://workbench.aihub.qualcomm.com/docs/hub/frameworks.html): exakt tillgängliga QAIRT-versioner och deras API-värden ska inhämtas via `get_frameworks()` / `qai-hub list-frameworks`, med en autentiserad och godkänd klient.
+
+**Tolkning:** publik dokumentation och jobb visar att riktiga VENTUNO Q kan köra NPU-modeller på Qualcomms molnplattform, men detta **verifierar inte** att AI Hub erbjuder exakt `2.46` för vår graf, att användaren har tillgång till motsvarande compile/link-tjänst eller att en QAIRT 2.50-kontext skulle vara kompatibel med VENTUNO-enhetens installerade QAIRT **2.46**. Inga sådana antaganden ska göras; med begränsad offentlig information kvarstår `no_go_246_not_confirmed_in_live_cloud_catalog` enligt policyn.
+
+**Ingen** Qualcomm-identitet, API-token, privat modell, delad data eller HTP-jobb användes för dessa observationer.
