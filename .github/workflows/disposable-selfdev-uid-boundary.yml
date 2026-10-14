@@ -1,0 +1,40 @@
+name: Disposable Linux multi-UID boundary simulation
+on:
+  push:
+    branches: [dev/selfdev-disposable-uid-boundary-ci-20261014]
+    paths:
+      - scripts/test_disposable_updater_uid_boundary.py
+      - .github/workflows/disposable-selfdev-uid-boundary.yml
+      - docs/security/disposable-uid-test-scope.md
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  disposable-uid-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact commit without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" init
+          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$GITHUB_WORKSPACE" fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$GITHUB_WORKSPACE" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run two simulated Unix identities only inside disposable container
+        shell: bash
+        env:
+          DOCKER_CONTENT_TRUST: "0"
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+          docker run --rm --network none --read-only \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --mount "type=bind,src=$PWD/scripts/test_disposable_updater_uid_boundary.py,dst=/opt/myai-test.py,readonly" \
+            -e MYAI_DISPOSABLE_UID_TEST=yes \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 python /opt/myai-test.py
