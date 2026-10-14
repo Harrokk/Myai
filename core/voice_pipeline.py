@@ -304,10 +304,18 @@ def choose_consensus(
         }
 
     if len(normalized) == 1:
+        # A single high-risk ASR opinion is never 2-of-3 consensus.
+        high_risk_single = (
+            classify_voice_risk(normalized[0]["text"])["level"] == "high"
+        )
         return {
-            "accepted": True,
-            "reason": "Endast en transkription användes.",
-            "text": normalized[0]["text"],
+            "accepted": not high_risk_single,
+            "reason": (
+                "Högriskkommandot kräver oberoende STT-majoritet."
+                if high_risk_single else
+                "Endast en transkription användes."
+            ),
+            "text": None if high_risk_single else normalized[0]["text"],
             "support": 1,
             "transcripts": normalized,
         }
@@ -329,6 +337,18 @@ def choose_consensus(
             "transcripts": normalized,
         }
 
+    # High-risk actions may contain one decisive token: a file name,
+    # terminal, device, or numeric target. Token overlap/Jaccard does
+    # not attest that the recognizers heard the SAME instruction.
+    # Preserve tolerant fuzzy matching only for low-risk questions.
+    risky = [
+        classify_voice_risk(item["text"])["level"] == "high"
+        for item in normalized
+    ]
+    high_risk = any(risky)
+    strict_phrases = [
+        normalize_transcript(item["text"]) for item in normalized
+    ]
     support = [1] * len(normalized)
 
     for left_index in range(len(normalized)):
@@ -336,12 +356,21 @@ def choose_consensus(
             left_index + 1,
             len(normalized),
         ):
-            similarity = transcript_similarity(
-                normalized[left_index]["text"],
-                normalized[right_index]["text"],
-            )
+            if risky[left_index] or risky[right_index]:
+                # High-risk candidates can only earn an exact vote.
+                # A stray dangerous outlier must not invalidate two
+                # genuinely matching low-risk questions.
+                agreeing = (
+                    strict_phrases[left_index] == strict_phrases[right_index]
+                )
+            else:
+                similarity = transcript_similarity(
+                    normalized[left_index]["text"],
+                    normalized[right_index]["text"],
+                )
+                agreeing = similarity >= similarity_threshold
 
-            if similarity >= similarity_threshold:
+            if agreeing:
                 support[left_index] += 1
                 support[right_index] += 1
 
@@ -363,6 +392,9 @@ def choose_consensus(
         return {
             "accepted": False,
             "reason": (
+                "Högriskkommandot saknar två exakt överensstämmande "
+                "STT-tolkningar."
+                if high_risk else
                 "STT-tolkningarna saknar tydlig majoritetskonsensus."
             ),
             "text": None,
@@ -762,11 +794,17 @@ class VoicePipeline:
                     ),
                 )
 
+                # Confirmation votes must also represent separate
+                # recognizer instances; duplicates cannot vote twice.
+                confirmation_seen = {id(self.primary_stt)}
                 for provider in self.backup_stt:
                     if len(
                         confirmation_transcripts
                     ) >= desired:
                         break
+                    if id(provider) in confirmation_seen:
+                        continue
+                    confirmation_seen.add(id(provider))
 
                     confirmation_transcripts.append(
                         self._transcribe(
@@ -892,14 +930,16 @@ class VoicePipeline:
     ):
         config = self.voice_settings
 
+        # High-risk commands must never bypass redundancy merely
+        # because a user-level performance toggle disables it.
+        if risk["level"] == "high":
+            return True
+
         if not config.get(
             "redundancy_enabled",
             True,
         ):
             return False
-
-        if risk["level"] == "high":
-            return True
 
         confidence = primary.get("confidence")
 
@@ -962,7 +1002,7 @@ class VoicePipeline:
             risk,
         ):
             desired = max(
-                2,
+                3 if risk["level"] == "high" else 2,
                 int(
                     config.get(
                         "redundant_transcript_count",
@@ -971,9 +1011,15 @@ class VoicePipeline:
                 ),
             )
 
+            # The majority must be independent STT *instances*.
+            # Repeating one recognizer twice is not extra evidence.
+            seen_providers = {id(self.primary_stt)}
             for provider in self.backup_stt:
                 if len(transcripts) >= desired:
                     break
+                if id(provider) in seen_providers:
+                    continue
+                seen_providers.add(id(provider))
 
                 transcripts.append(
                     self._transcribe(
@@ -1010,13 +1056,11 @@ class VoicePipeline:
                         False,
                     )
                     and self.semantic_resolver is not None
-                    and (
-                        risk["level"] != "high"
-                        or config.get(
-                            "semantic_consensus_for_high_risk",
-                            False,
-                        )
-                    )
+                    # A semantic paraphrase is not independent
+                    # word-for-word agreement for dangerous commands.
+                    # This safety requirement cannot be disabled through
+                    # semantic_consensus_for_high_risk.
+                    and risk["level"] != "high"
                 )
 
                 if semantic_allowed:

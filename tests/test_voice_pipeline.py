@@ -1079,3 +1079,203 @@ def test_malformed_or_nonfinite_stt_confidence_never_becomes_high():
         normalized = normalize_stt_result({"text": "bekräfta", "confidence": bad})
         assert normalized["confidence"] is None, repr(bad)
     assert normalize_stt_result({"text": "ok", "confidence": "0.95"})["confidence"] == 0.95
+
+
+
+def test_highrisk_similar_but_different_delete_targets_do_not_vote():
+    # All three share most words; ordinary fuzzy Jaccard would agree.
+    r = choose_consensus([
+        {"text": "Radera filen rapport ett", "confidence": 0.98},
+        {"text": "Radera filen rapport två", "confidence": 0.99},
+        {"text": "Radera filen rapport tre", "confidence": 0.97},
+    ])
+    assert r["accepted"] is False
+    assert r["text"] is None
+    assert "Högriskkommandot" in r["reason"]
+
+
+def test_highrisk_two_matching_targets_over_differing_outlier():
+    r = choose_consensus([
+        {"text": "Radera filen rapport ett", "confidence": 0.75},
+        {"text": "Radera filen rapport två", "confidence": 0.99},
+        {"text": "radera filen rapport ETT!", "confidence": 0.85},
+    ])
+    assert r["accepted"] is True
+    assert r["support"] == 2
+    assert "ett" in r["text"].lower()
+
+
+def test_highrisk_similar_phrasings_are_not_equivalent_authorization():
+    r = choose_consensus([
+        "Stäng av datorn nu",
+        "Stäng av datorn genast",
+        "Stäng av datorn omedelbart",
+    ])
+    assert r["accepted"] is False
+    assert r["support"] == 1
+
+
+def test_lowrisk_fuzzy_transcript_consensus_remains_unchanged():
+    r = choose_consensus([
+        "Hur mycket RAM använder datorn?",
+        "Hur mycket ram använder min dator?",
+        "Hitta närmaste postlåda",
+    ])
+    assert r["accepted"] is True
+    assert r["support"] == 2
+
+
+def test_highrisk_disagreeing_targets_require_clarification_without_tool_call():
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT({"text": "Radera filen rapport ett", "confidence": 0.99}),
+        backup_stt=[
+            FakeSTT({"text": "Radera filen rapport två", "confidence": 0.99}),
+            FakeSTT({"text": "Radera filen rapport tre", "confidence": 0.99}),
+        ],
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert assistant.messages == []
+    assert result["consensus"]["accepted"] is False
+
+
+def test_same_stt_instance_repeated_cannot_fake_highrisk_majority():
+    assistant = FakeAssistant()
+    primary = FakeSTT({"text": "Radera filen test", "confidence": 0.99})
+    duplicate = FakeSTT({"text": "Radera filen test", "confidence": 0.99})
+    pipeline = VoicePipeline(
+        assistant, primary,
+        backup_stt=[duplicate, duplicate],
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert primary.calls == 1
+    assert duplicate.calls == 1
+    assert assistant.messages == []
+
+
+def test_primary_stt_reused_as_backup_not_independent():
+    assistant = FakeAssistant()
+    primary = FakeSTT({"text": "Radera filen test", "confidence": 0.99})
+    independent = FakeSTT({"text": "Radera filen test", "confidence": 0.90})
+    pipeline = VoicePipeline(
+        assistant, primary,
+        backup_stt=[primary, independent],
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert primary.calls == 1
+    assert independent.calls == 1
+    assert assistant.messages == []
+
+
+def test_duplicate_backup_cannot_fake_weak_confirmation_majority():
+    clock = FakeClock()
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=clock)
+    first = pipeline.process_utterance(b"danger")
+    assert first["status"] == "confirmation_required"
+    duplicate = FakeSTT({"text": "bekräfta", "confidence": None})
+    pipeline.backup_stt = [duplicate, duplicate]
+    primary.result = {"text": "bekräfta", "confidence": None}
+    result = pipeline.process_utterance(b"confirm")
+    assert result["status"] == "confirmation_required"
+    assert result["confirmation_confidence"] is None
+    assert duplicate.calls == 1
+    assert assistant.messages == []
+
+
+def test_two_different_backup_instances_can_confirm_without_confidence():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    first = pipeline.process_utterance(b"danger")
+    assert first["status"] == "confirmation_required"
+    primary.result = {"text": "bekräfta", "confidence": None}
+    for backup in pipeline.backup_stt:
+        backup.result = {"text": "bekräfta", "confidence": None}
+    result = pipeline.process_utterance(b"confirm")
+    assert result["status"] == "completed"
+    assert result["confirmation"]["confirmed"] is True
+    assert len(assistant.messages) == 1
+
+
+
+def test_highrisk_single_transcript_never_claims_consensus():
+    result = choose_consensus(["Radera filen rapport.txt"])
+    assert result["accepted"] is False
+    assert result["support"] == 1
+    assert result["text"] is None
+    assert choose_consensus(["Hur mycket RAM används?"])["accepted"] is True
+
+
+def test_highrisk_stt_redundancy_cannot_be_disabled_in_settings():
+    assistant = FakeAssistant()
+    a = FakeSTT({"text": "Radera filen ett", "confidence": 0.99})
+    b = FakeSTT({"text": "Radera filen ett", "confidence": 0.98})
+    c = FakeSTT({"text": "Radera filen ett", "confidence": 0.97})
+    pipeline = VoicePipeline(
+        assistant, a, backup_stt=[b, c],
+        settings=settings(redundancy_enabled=False),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "completed"
+    assert len(result["consensus"]["transcripts"]) == 3
+    assert b.calls == c.calls == 1
+    assert len(assistant.messages) == 1
+
+
+def test_highrisk_three_independent_votes_required_even_if_config_says_two():
+    assistant = FakeAssistant()
+    a = FakeSTT({"text": "Radera filen ett", "confidence": 0.99})
+    b = FakeSTT({"text": "Radera filen ett", "confidence": 0.99})
+    pipeline = VoicePipeline(
+        assistant, a, backup_stt=[b],
+        settings=settings(redundant_transcript_count=2),
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert b.calls == 1
+    assert assistant.messages == []
+
+
+def test_highrisk_semantic_switch_cannot_overrule_nonmatching_targets():
+    assistant = FakeAssistant()
+    semantic = FakeSemanticResolver({
+        "accepted": True,
+        "text": "Radera filen rapport ett",
+        "support": 3,
+        "confidence": 1.0,
+    })
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT({"text": "Radera filen rapport ett", "confidence": 0.99}),
+        backup_stt=[
+            FakeSTT({"text": "Radera filen rapport två", "confidence": 0.99}),
+            FakeSTT({"text": "Radera filen rapport tre", "confidence": 0.99}),
+        ],
+        settings=settings(
+            semantic_consensus_enabled=True,
+            semantic_consensus_for_high_risk=True,
+        ),
+        semantic_resolver=semantic,
+    )
+    result = pipeline.process_utterance(b"synthetic-audio")
+    assert result["status"] == "clarify"
+    assert semantic.calls == []
+    assert assistant.messages == []
+
+
+
+def test_safe_majority_remains_possible_with_unrelated_dangerous_outlier():
+    r = choose_consensus([
+        {"text": "Hur mycket RAM använder datorn?", "confidence": 0.80},
+        {"text": "Hur mycket ram använder min dator?", "confidence": 0.81},
+        {"text": "Stäng av lampan", "confidence": 0.99},
+    ])
+    assert r["accepted"] is True
+    assert r["support"] == 2
+    assert "ram" in r["text"].lower()
+    assert "Stäng av" not in r["text"]
