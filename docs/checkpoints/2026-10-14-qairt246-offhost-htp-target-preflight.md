@@ -31,3 +31,24 @@ Datum: 2026-10-14. Gren: `dev/ventuno-qairt246-host-htp-preflight-20261014`. All
 4. Faktisk operatöracceptans, processdomän, firmwarekompatibilitet och HTP-placering på NPU kräver ett separat test med resursspärrar, isolering och explicit godkännande. En kontextfil eller SHA-identisk output bevisar inte själv NPU-exekvering.
 
 **Ingen** apt/pip-installation av Qualcomm SDK, ny nätverksnedladdning, production merge/deploy, `sudo`, ACL/udev/gruppändring, symlink- eller firmwareändring, service-omstart, ljud- eller kameraaktivitet eller HTP-modelltest ingår. Historisk GitHub Support-purge [PR #110](https://github.com/Harrokk/Myai/pull/110) förblir separat releaseblockerare.
+
+## Nytt verifierat vägval – exakt Arduino-enhet i Qualcomm AI Hub
+
+Officiell [Arduino-guide för Qualcomm AI Hub på VENTUNO Q](https://docs.arduino.cc/tutorials/ventuno-q/getting-started-qc-ai-hub/) anger **`Arduino VENTUNO Q` (Ubuntu 24.04)** som den riktiga molnmålenheten, medan **`QCS8275 (Proxy)` (Android 14)** bara är en fallback. Därmed behöver man **inte manuellt gissa ett numeriskt `soc_id` om man väljer den dokumenterade QAI Hub cloud-rutten med namngiven målenhet**. Detta ändrar inte de strikta kraven för en *lokal* vendor-SDK/context-generator som fortfarande behöver rätt konfiguration.
+
+[Qualcomms officiella API-dokumentation](https://workbench.aihub.qualcomm.com/docs/hub/api.html) anger `--qairt_version 2.46`-liknande **major.minor**-syntax och att man måste verifiera faktiskt erbjudna versioner genom `get_frameworks()`. **Det är ännu inte verifierat att QAI Hub i dag erbjuder exakt 2.46 för vår målenhet och kompileringstyp.** Qualcomms dokumenterade [compile-and-link-API](https://workbench.aihub.qualcomm.com/docs/hub/generated/qai_hub.submit_compile_and_link_jobs.html) kan skapa en SoC-specifik QNN-kontext; `qnn_dlc` är däremot hårdvaruagnostisk och **inte** en förkompilerad HTP-kontext. Dessa artefakter får inte blandas ihop.
+
+Publika AI Hub-profiljobb från **Arduino VENTUNO Q** finns med faktisk rapporterad NPU-beräkning (exempel: [public job med QAIRT 2.45](https://aihub.qualcomm.com/jobs/j5671y4vp) och [public job med QAIRT 2.50](https://aihub.qualcomm.com/jobs/jgnzx03mg)). Det är **andras modeller i Qualcomms tjänst**, inte vår tiny-QDQ-graf, och bevisar varken exakt QAIRT 2.46, användarkontots åtkomst, vår HTP-operatoracceptans eller lokal drift i MyAI.
+
+`scripts/ventuno_qai_hub_offhost_target_policy.py` lägger därför till ett **alternativt, helt offline** beslutsflöde:
+- Kräver exakt `Arduino VENTUNO Q`, nekar Android-proxyn och närliggande namn.
+- Skiljer `qnn_dlc` från `qnn_context` (Cloud compile/link) samt den exakt kontrollerade ONNX-fixturens modellmetadata.
+- Kräver explicit verifierad 2.46-tillgänglighet i *live* AI Hub-katalog, behörig autentisering och **separat uttryckligt samtycke till modelluppladdning och jobbinlämning**. Alla uppgifter är för närvarande obekräftade. En eventuell framtida metod ska granska sekretess och tredjepartsöverföring innan något görs.
+- Även om någon skulle markera alla dessa villkor som sanna ger koden endast `manual_service_and_model_review_required_no_submission`. **Ingen token läses, API anropas, modell skickas eller kompilering startas.**
+- Tio nya syntetiska tester verifierar exaktnamn, OS-/proxy-skillnad, runtime-artefakttyp, version/behörighetskontroller och fail-closed-regler.
+
+**Förväntat verkligt beslut nu:** `no_go_246_not_confirmed_in_live_cloud_catalog` för exakt Arduino-mål, medan den fristående lokala SDK-vägen fortsatt ger `no_go_sdk_not_supplied`. Inget av detta är HTP-fel på VENTUNO.
+
+### Uppdaterad nästa prioritet
+
+Verifiera den officiellt erbjudna QAIRT-versionen och exakt kompileringsstöd för enheten **via betrodda Qualcomm-dokument/API med behörig användare**. Om exakt 2.46 saknas i molntjänsten, gör ingen automatisk uppgradering av kortets befintliga 2.46-runtime. Ingen molnuppladdning, modellkörning eller produktionsändring får ske utan separat godkännande.
