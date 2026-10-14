@@ -34,4 +34,4 @@ jobs:
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           timeout --signal=TERM --kill-after=3s 30s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_htp_v75_skel_link_readonly
-          echo 'Read-only symlink and package ownership metadata; no device open, HTP, model or production changes.'
+          echo 'Resolved vendor target category and package ownership metadata only; no device open, HTP, model or production changes.'
