@@ -42,8 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MYAI_QAIRT246_SCRATCH"
-          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m pytest -q tests/test_ventuno_qairt246_offhost_htp_preflight.py
+          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m pytest -q tests/test_ventuno_qairt246_offhost_htp_preflight.py tests/test_ventuno_qai_hub_offhost_target_policy.py
           "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m scripts.ventuno_qairt246_offhost_htp_preflight
+          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m scripts.ventuno_qai_hub_offhost_target_policy
           echo 'QAIRT SDK intentionally NOT supplied, downloaded or executed.'
           echo 'QCS8275 numeric soc_id and vendor SDK authenticity intentionally not guessed.'
           echo 'No ONNX conversion, QNN context binary, DSP device or model execution.'
