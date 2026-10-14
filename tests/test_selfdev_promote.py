@@ -1878,3 +1878,82 @@ def test_verified_backup_snapshot_preserves_original_permissions(tmp_path):
         (workspace.session_root / "rollbacks" / "promo1" / "files" / "core")
         .glob(".verified-backup-*")
     )
+
+
+def test_orphan_snapshot_inventory_reports_without_changes(tmp_path, monkeypatch):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    backup = (
+        workspace.session_root / "rollbacks" / "promo1"
+        / "files" / "core"
+    )
+    orphan = backup / ".verified-backup-simulated.tmp"
+    orphan.write_text("LEFT AFTER CRASH\n", encoding="utf-8")
+    before = _read_only_project_snapshot(project)
+    report = active.inspect_recovery_artifacts("promo1")
+    assert report == {
+        "promotion_id": "promo1",
+        "read_only": True,
+        "status": "orphan_snapshots_detected",
+        "orphan_snapshot_count": 1,
+    }
+    assert _read_only_project_snapshot(project) == before
+    assert orphan.read_text(encoding="utf-8") == "LEFT AFTER CRASH\n"
+
+
+def test_orphan_snapshot_inventory_reports_clean_without_mutations(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    before = _read_only_project_snapshot(project)
+    report = active.inspect_recovery_artifacts("missing")
+    assert report["status"] == "no_artifacts"
+    assert report["orphan_snapshot_count"] == 0
+    assert report["read_only"]
+    assert _read_only_project_snapshot(project) == before
+
+
+def test_orphan_snapshot_inventory_never_follows_untrusted_symlink(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    external = tmp_path / "outside-copy.txt"
+    external.write_text("PRIVATE CONTENT", encoding="utf-8")
+    backup_dir = (
+        workspace.session_root / "rollbacks" / "promo1"
+        / "files" / "core"
+    )
+    (backup_dir / ".verified-backup-malicious.tmp").symlink_to(external)
+    before = _read_only_project_snapshot(project)
+    result = active.inspect_recovery_artifacts("promo1")
+    assert result["status"] == "blocked"
+    assert "Symlink" in result["reason"]
+    assert _read_only_project_snapshot(project) == before
+    assert external.read_text(encoding="utf-8") == "PRIVATE CONTENT"
+
+
+def test_orphan_snapshot_inventory_rejects_symlinked_backup_directory(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    external = tmp_path / "outside-folder"
+    external.mkdir()
+    (external / ".verified-backup-outside.tmp").write_text(
+        "OUTSIDE", encoding="utf-8"
+    )
+    backup_root = (
+        workspace.session_root / "rollbacks" / "promo1" / "files"
+    )
+    (backup_root / "untrusted").symlink_to(
+        external, target_is_directory=True
+    )
+    report = active.inspect_recovery_artifacts("promo1")
+    assert report["status"] == "blocked"
+    assert "Symlink" in report["reason"]
+    assert (external / ".verified-backup-outside.tmp").read_text(
+        encoding="utf-8"
+    ) == "OUTSIDE"
