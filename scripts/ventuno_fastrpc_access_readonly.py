@@ -12,6 +12,17 @@ import shutil
 import stat
 
 
+def rpc_category(name):
+    name = name.lower()
+    if not name.startswith(("fastrpc", "adsprpc")):
+        return None
+    if "cdsp" in name and name.endswith("-secure"):
+        return "cdsp_secure"
+    if "cdsp" in name:
+        return "cdsp_nonsecure"
+    return "other_rpc_nodes"
+
+
 def classify_rpc_nodes(dev_root=Path("/dev")):
     groups = {
         "cdsp_secure": {"exists": False, "character_device": False, "effective_read": False,
@@ -22,7 +33,8 @@ def classify_rpc_nodes(dev_root=Path("/dev")):
     }
     for node in sorted(dev_root.glob("*rpc*"))[:40]:
         name = node.name.lower()
-        if not name.startswith(("fastrpc", "adsprpc")):
+        key = rpc_category(name)
+        if key is None:
             continue
         try:
             info = node.lstat()
@@ -30,8 +42,6 @@ def classify_rpc_nodes(dev_root=Path("/dev")):
                 continue
         except OSError:
             continue
-        key = ("cdsp_secure" if "cdsp" in name and "secure" in name
-               else "cdsp_nonsecure" if "cdsp" in name else "other_rpc_nodes")
         if key == "other_rpc_nodes":
             groups[key]["count"] += 1
             continue
