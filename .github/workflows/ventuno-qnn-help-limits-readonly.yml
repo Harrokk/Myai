@@ -1,0 +1,42 @@
+name: VENTUNO compare QNN help startup under resource limits (no inference)
+on:
+  push:
+    branches: [dev/ventuno-qnn-static-loader-audit-20261014]
+    paths:
+      - .github/workflows/ventuno-qnn-help-limits-readonly.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-qnn-help-only-readonly
+  cancel-in-progress: false
+jobs:
+  inspect-only:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact SHA into temporary checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-qnn-help-preflight"
+          cd "$RUNNER_TEMP/myai-qnn-help-preflight"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run only bounded QNN help twice, never a model
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qnn-help-preflight"
+          timeout --signal=TERM --kill-after=3s 35s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_qnn_help_limit_preflight
+          echo 'Only help option passed; no inference, QNN HTP backend or user audio.'
