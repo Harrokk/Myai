@@ -1,0 +1,120 @@
+name: VENTUNO Arduino App Lab network readiness (sanitized read-only)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-app-lab-network-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  network:
+    name: Check network, mDNS, SSH and active services without revealing IP
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Sanitize non-invasive network and service metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$(uname -m)" = "aarch64"
+          python3 - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          def command(argv):
+              try:
+                  completed = subprocess.run(
+                      argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                      text=True, timeout=5, check=False,
+                  )
+                  return completed.stdout if completed.returncode == 0 else ""
+              except (OSError, subprocess.TimeoutExpired):
+                  return ""
+
+          def service(name):
+              return command(["systemctl", "is-active", name]).strip() == "active"
+
+          def ip_metadata(subcmd):
+              raw = command(["ip", "-j", "-4"] + subcmd)
+              try:
+                  data = json.loads(raw)
+                  return data if isinstance(data, list) else []
+              except (json.JSONDecodeError, ValueError):
+                  return []
+
+          # Collect addresses internally, but NEVER display addresses, MACs,
+          # SSIDs, subnets, gateways, interfaces or DNS values in public CI.
+          wireless = set()
+          for net in Path("/sys/class/net").iterdir():
+              if re.fullmatch(r"[A-Za-z0-9_.-]{1,16}", net.name):
+                  if (net / "wireless").exists() or (net / "phy80211").exists():
+                      wireless.add(net.name)
+
+          ipv4 = ip_metadata(["address", "show", "scope", "global"])
+          active_ipv4_interfaces = {
+              data.get("ifname", "") for data in ipv4
+              if isinstance(data, dict) and any(
+                  a.get("family") == "inet" and a.get("local")
+                  for a in data.get("addr_info", [])
+                  if isinstance(a, dict)
+              )
+          }
+          defaults = ip_metadata(["route", "show", "default"])
+          default_devices = {
+              d.get("dev", "") for d in defaults
+              if isinstance(d, dict) and d.get("dst") == "default"
+          }
+
+          def udp_mdns_bound():
+              for fname in ("/proc/net/udp", "/proc/net/udp6"):
+                  try:
+                      with open(fname, encoding="ascii") as fh:
+                          next(fh, None)
+                          for line in fh:
+                              columns = line.split()
+                              if len(columns) > 1 and columns[1].rsplit(":", 1)[-1].upper() == "14E9":
+                                  return True
+                  except OSError:
+                      continue
+              return False
+
+          # /proc/net/tcp exposes the local socket table without opening ports.
+          def ssh_tcp_22_listen():
+              for fname in ("/proc/net/tcp", "/proc/net/tcp6"):
+                  try:
+                      with open(fname, encoding="ascii") as fh:
+                          next(fh, None)
+                          for line in fh:
+                              cols = line.split()
+                              if (len(cols) >= 4 and cols[3] == "0A"
+                                  and cols[1].rsplit(":", 1)[-1].upper() == "0016"):
+                                  return True
+                  except OSError:
+                      continue
+              return False
+
+          print("VENTUNO network status (private IP/SSID/MAC redacted):", json.dumps({
+              "global_ipv4_present": bool(active_ipv4_interfaces),
+              "wifi_interface_detected": bool(wireless),
+              "wifi_ipv4_present": bool(wireless & active_ipv4_interfaces),
+              "ipv4_default_route_present": bool(default_devices),
+              "default_route_via_wifi": bool(default_devices & wireless),
+              "mdns_udp_5353_bound": udp_mdns_bound(),
+              "avahi_daemon_active": service("avahi-daemon.service"),
+              "ssh_tcp_22_listening": ssh_tcp_22_listen(),
+              "ssh_service_active": service("ssh.service") or service("sshd.service"),
+              "myai_service_active": service("myai-ventuno.service"),
+              "geniex_service_active": service("myai-geniex.service"),
+              "runner_service_active": service("actions.runner.Harrokk-Myai.ventuno-q.service"),
+              "network_modified": False,
+              "devices_opened": False,
+              "audio_changed": False,
+          }, sort_keys=True))
+          PY
+          echo "Read-only metadata only; no network/service resets or private addresses in logs."
