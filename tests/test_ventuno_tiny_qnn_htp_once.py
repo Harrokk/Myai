@@ -56,3 +56,25 @@ def test_no_qnn_cli_flag_confidence_from_malformed_help(monkeypatch):
         stderr = ""
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: MockResult())
     assert module._help_flags("qnn-net-run") == frozenset()
+
+
+def test_private_error_capture_one_byte_lookahead_detects_truncation(tmp_path):
+    # Only local synthetic files: never start QNN, FastRPC, or device services.
+    (tmp_path / "stdout.private").write_bytes(b"x" * 16384 + b"permission denied SECRET")
+    (tmp_path / "stderr.private").write_bytes(b"")
+    report = module._classify_private_capture(tmp_path)
+    assert report["output_capture_read_was_truncated"] is True
+    assert report["stdout_sampled_bytes"] == 16384
+    assert report["categories"] == ["unclassified"]
+    assert "SECRET" not in str(report)
+    assert "permission denied" not in str(report)
+
+
+def test_private_error_capture_exact_limit_is_not_truncated(tmp_path):
+    (tmp_path / "stdout.private").write_bytes(b"x" * 16384)
+    (tmp_path / "stderr.private").write_bytes(b"backend create error")
+    report = module._classify_private_capture(tmp_path)
+    assert report["output_capture_read_was_truncated"] is False
+    assert report["stdout_sampled_bytes"] == 16384
+    assert report["categories"] == ["backend_initialization_failure"]
+    assert "backend create error" not in str(report)
