@@ -576,7 +576,11 @@ class SelfDevPromotionManager:
             for relative in paths:
                 source = self.workspace.workspace_root / relative
                 target = self._safe_project_target(relative)
-                planned_hashes[relative] = _sha256(source)
+                planned_hashes[relative] = changes["manifest"][relative]
+                if _sha256(source) != planned_hashes[relative]:
+                    raise RuntimeError(
+                        "Källfil i staging har ändrats efter verifiering."
+                    )
                 if target.exists():
                     old_digest = _sha256(target)
                     backup = self._safe_backup_path(rollback_root, relative)
@@ -772,6 +776,7 @@ class SelfDevPromotionManager:
             else:
                 try:
                     target.unlink()
+                    _sync_directory(target.parent)
                 except FileNotFoundError:
                     pass
 

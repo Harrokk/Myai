@@ -995,3 +995,56 @@ def test_backup_copy_failure_happens_before_any_active_code_change(
         encoding="utf-8"
     ) == "VALUE = 1\n"
     assert not (workspace.session_root / "rollbacks" / "promo1").exists()
+
+
+def test_staging_mutation_after_preflight_is_rejected(tmp_path, monkeypatch):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_preflight = active._preflight_promotion
+
+    def mutate_after_validated_snapshot():
+        result = original_preflight()
+        (workspace.workspace_root / "core" / "example.py").write_text(
+            "UNVERIFIED = True\n", encoding="utf-8"
+        )
+        return result
+
+    monkeypatch.setattr(active, "_preflight_promotion", mutate_after_validated_snapshot)
+    with pytest.raises(RuntimeError, match="staging har ändrats"):
+        active.promote("PROMOTE session1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (workspace.session_root / "rollbacks" / "promo1").exists()
+
+
+def test_directory_fsync_failure_after_rename_restores_original(tmp_path, monkeypatch):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    real_sync = module._sync_directory
+    injected = [False]
+
+    def fail_first_source_directory_sync(path):
+        if path == project / "core" and not injected[0]:
+            injected[0] = True
+            raise OSError("simulated source directory fsync failure")
+        return real_sync(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_sync_directory", fail_first_source_directory_sync)
+        with pytest.raises(OSError, match="directory fsync failure"):
+            active.promote("PROMOTE session1")
+
+    assert injected[0]
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    record = json.loads((
+        workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    ).read_text(encoding="utf-8"))
+    assert record["state"] == "reverted"
