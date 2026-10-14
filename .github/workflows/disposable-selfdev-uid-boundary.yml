@@ -29,10 +29,12 @@ jobs:
           DOCKER_CONTENT_TRUST: "0"
         run: |
           set -euo pipefail
-          docker pull python:3.12-slim-bookworm
+          docker pull python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
           docker run --rm --network none --read-only \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=64m \
             --mount "type=bind,src=$PWD/scripts/test_disposable_updater_uid_boundary.py,dst=/opt/myai-test.py,readonly" \
             -e MYAI_DISPOSABLE_UID_TEST=yes \
             -e PYTHONDONTWRITEBYTECODE=1 \
-            python:3.12-slim-bookworm python /opt/myai-test.py
+            python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 python /opt/myai-test.py
