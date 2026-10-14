@@ -1,5 +1,7 @@
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 import re
 import secrets
@@ -419,18 +421,12 @@ class SelfDevWorkspace:
                 / part
             )
 
-            if (
-                current.exists()
-                and current.is_symlink()
-            ):
+            if current.is_symlink():
                 raise PermissionError(
                     "Symlänkar är inte tillåtna i selfdev-workspacen."
                 )
 
-        if (
-            candidate.exists()
-            and candidate.is_symlink()
-        ):
+        if candidate.is_symlink():
             raise PermissionError(
                 "Symlänkar är inte tillåtna i selfdev-workspacen."
             )
@@ -449,12 +445,28 @@ class SelfDevWorkspace:
             parents=True,
             exist_ok=True,
         )
-        target.write_text(
-            str(
-                content
-            ),
-            encoding="utf-8",
+
+        # Never follow a swapped final-file symlink. Stage a fresh,
+        # exclusive file then atomically replace the destination.
+        descriptor, temporary = tempfile.mkstemp(
+            prefix="." + target.name + ".",
+            suffix=".tmp",
+            dir=str(target.parent),
         )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(str(content))
+                handle.flush()
+                os.fsync(handle.fileno())
+            # A link may have appeared after the initial path check.
+            target = self._candidate_path(relative_path)
+            os.replace(temporary, target)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+            raise
 
         try:
             self.verification_path.unlink()
