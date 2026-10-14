@@ -65,50 +65,60 @@ def _read_json(path):
     )
 
 
-def _atomic_copy(
-    source,
-    destination,
-):
-    source = Path(
-        source
+def _sync_directory(path):
+    """Best-effort durable directory entry flush on POSIX filesystems."""
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    descriptor = os.open(
+        str(path),
+        os.O_RDONLY | os.O_DIRECTORY,
     )
-    destination = Path(
-        destination
-    )
-    destination.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    descriptor, temp_name = (
-        tempfile.mkstemp(
-            prefix=(
-                destination.name
-                + "."
-            ),
-            suffix=".tmp",
-            dir=str(
-                destination.parent
-            ),
-        )
-    )
-    os.close(
-        descriptor
-    )
-    temp = Path(
-        temp_name
-    )
-
     try:
-        shutil.copy2(
-            source,
-            temp,
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _source_matches_before_replace(destination, expected):
+    """Fail closed if a non-cooperating process modified a target."""
+    if expected is _NO_EXPECTED_SOURCE:
+        return
+    if destination.is_symlink():
+        raise RuntimeError("Extern ändring av källkodsfil (symlink).")
+    if expected is None:
+        if os.path.lexists(destination):
+            raise RuntimeError("Extern ändring: ny målkodsfil finns redan.")
+    elif not destination.is_file() or _sha256(destination) != expected:
+        raise RuntimeError(
+            "Extern ändring av källkodsfil; promotion avbröts."
         )
-        os.replace(
-            temp,
-            destination,
-        )
-    except Exception:
+
+
+_NO_EXPECTED_SOURCE = object()
+
+
+def _atomic_copy(source, destination, *, expected_old=_NO_EXPECTED_SOURCE):
+    source = Path(source)
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=destination.name + ".",
+        suffix=".tmp",
+        dir=str(destination.parent),
+    )
+    os.close(descriptor)
+    temp = Path(temp_name)
+    try:
+        shutil.copy2(source, temp)
+        # A power cut after rename must not expose an unsynced new file.
+        with temp.open("rb") as handle:
+            os.fsync(handle.fileno())
+        # Check again immediately before replace, not only during preflight.
+        # This narrows but cannot eliminate races with non-cooperating writers.
+        _source_matches_before_replace(destination, expected_old)
+        os.replace(temp, destination)
+        _sync_directory(destination.parent)
+    except BaseException:
         try:
             temp.unlink()
         except FileNotFoundError:
@@ -556,22 +566,61 @@ class SelfDevPromotionManager:
             raise FileExistsError("Promotion-ID finns redan.")
         rollback_root.mkdir(parents=True, exist_ok=False)
 
+        # Make parent directory entries durable before relying on a
+        # journal stored under this newly created promotion directory.
+        _sync_directory(rollback_root.parent)
+        _sync_directory(rollback_root.parent.parent)
         backups = {}
         planned_hashes = {}
-        for relative in paths:
-            source = self.workspace.workspace_root / relative
-            target = self._safe_project_target(relative)
-            planned_hashes[relative] = _sha256(source)
-            if target.exists():
-                backup = self._safe_backup_path(rollback_root, relative)
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(target, backup)
-                backups[relative] = {
-                    "existed": True,
-                    "sha256": _sha256(target),
-                }
-            else:
-                backups[relative] = {"existed": False, "sha256": None}
+        try:
+            for relative in paths:
+                source = self.workspace.workspace_root / relative
+                target = self._safe_project_target(relative)
+                planned_hashes[relative] = changes["manifest"][relative]
+                if _sha256(source) != planned_hashes[relative]:
+                    raise RuntimeError(
+                        "Källfil i staging har ändrats efter verifiering."
+                    )
+                if target.exists():
+                    old_digest = _sha256(target)
+                    backup = self._safe_backup_path(rollback_root, relative)
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    # Backups are not source promotions; copy and sync them
+                    # separately so source-replace fault injection remains
+                    # precise and backups stay durable before PREPARED.
+                    shutil.copy2(target, backup)
+                    with backup.open("rb") as handle:
+                        os.fsync(handle.fileno())
+                    _sync_directory(backup.parent)
+                    # The source may have changed while backup was copied.
+                    if (
+                        _sha256(backup) != old_digest
+                        or _sha256(target) != old_digest
+                    ):
+                        raise RuntimeError(
+                            "Extern ändring under säkerhetskopiering."
+                        )
+                    backups[relative] = {
+                        "existed": True,
+                        "sha256": old_digest,
+                    }
+                else:
+                    backups[relative] = {"existed": False, "sha256": None}
+            # Ensure nested backup directory entries reach stable storage.
+            for current_dir in sorted(
+                {parent for parent in (rollback_root / "files").rglob("*")
+                 if parent.is_dir()},
+                key=lambda p: len(p.parts),
+                reverse=True,
+            ) if (rollback_root / "files").exists() else ():
+                _sync_directory(current_dir)
+            _sync_directory(rollback_root)
+        except BaseException:
+            # No active file has been modified before the journal is
+            # prepared; remove an unusable partial backup safely.
+            shutil.rmtree(rollback_root)
+            _sync_directory(rollback_root.parent)
+            raise
 
         journal = {
             "session_id": self.workspace.session_id,
@@ -598,9 +647,22 @@ class SelfDevPromotionManager:
             for relative in paths:
                 source = self.workspace.workspace_root / relative
                 target = self._safe_project_target(relative)
-                _atomic_copy(source, target)
+                if _sha256(source) != planned_hashes[relative]:
+                    raise RuntimeError(
+                        "Källfil i staging har ändrats efter verifiering."
+                    )
+                # Include current target before copying so a rename followed
+                # by a failed fsync still leaves a recoverable PREPARED record.
                 applied.append(relative)
+                _atomic_copy(
+                    source, target,
+                    expected_old=backups[relative]["sha256"],
+                )
                 after_hashes[relative] = _sha256(target)
+                if after_hashes[relative] != planned_hashes[relative]:
+                    raise RuntimeError(
+                        "Promoterad kodfil matchar inte verifierad version."
+                    )
 
             record = {
                 **journal,
@@ -610,9 +672,32 @@ class SelfDevPromotionManager:
             }
             _atomic_write_record(record_path, record)
         except Exception:
-            # Ordinary errors are repaired immediately. SystemExit, kill,
-            # power loss and partial recovery leave the PREPARED journal.
-            self._restore_from_backup(rollback_root, backups, applied)
+            # Restore only known before/after versions. If an external
+            # writer changed *any* touched file, leave PREPARED for
+            # explicit manual recovery rather than clobber their work.
+            to_restore = []
+            for relative in applied:
+                target = self._safe_project_target(relative)
+                original = backups[relative]["sha256"]
+                desired = planned_hashes[relative]
+                if target.is_symlink():
+                    raise RuntimeError(
+                        "Extern filändring under promotion; manuell återställning krävs."
+                    )
+                if not os.path.lexists(target):
+                    if original is not None:
+                        raise RuntimeError(
+                            "Extern filändring under promotion; manuell återställning krävs."
+                        )
+                    continue
+                observed = _sha256(target)
+                if observed not in {original, desired}:
+                    raise RuntimeError(
+                        "Extern filändring under promotion; manuell återställning krävs."
+                    )
+                if observed != original:
+                    to_restore.append(relative)
+            self._restore_from_backup(rollback_root, backups, to_restore)
             _atomic_write_record(
                 record_path,
                 {
@@ -691,6 +776,7 @@ class SelfDevPromotionManager:
             else:
                 try:
                     target.unlink()
+                    _sync_directory(target.parent)
                 except FileNotFoundError:
                     pass
 
