@@ -1,0 +1,63 @@
+name: Off-device QAIRT 2.46 HTP preparation prerequisites only
+on:
+  push:
+    branches: [dev/ventuno-qairt246-host-htp-preflight-20261014]
+    paths:
+      - .github/workflows/ventuno-qairt246-offhost-preflight.yml
+      - scripts/ventuno_qairt246_offhost_htp_preflight.py
+      - scripts/ventuno_qai_hub_offhost_target_policy.py
+      - tests/test_ventuno_qairt246_offhost_htp_preflight.py
+      - tests/test_ventuno_qai_hub_offhost_target_policy.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-qairt246-offhost-preflight-20261014
+  cancel-in-progress: false
+jobs:
+  requirements:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact Git SHA to disposable x86 workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-qairt246-reqs.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_QAIRT246_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run pinned open-source pytest only in disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-qairt246-test-venv"
+          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+      - name: Verify hard NO-GO on absent proprietary SDK and unverified SoC config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_QAIRT246_SCRATCH"
+          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m pytest -q tests/test_ventuno_qairt246_offhost_htp_preflight.py tests/test_ventuno_qai_hub_offhost_target_policy.py
+          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m scripts.ventuno_qairt246_offhost_htp_preflight
+          "$RUNNER_TEMP/myai-qairt246-test-venv/bin/python" -B -m scripts.ventuno_qai_hub_offhost_target_policy
+          echo 'QAIRT SDK intentionally NOT supplied, downloaded or executed.'
+          echo 'QCS8275 numeric soc_id and vendor SDK authenticity intentionally not guessed.'
+          echo 'No ONNX conversion, QNN context binary, DSP device or model execution.'
+      - name: Clean isolated checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_QAIRT246_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_QAIRT246_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-qairt246-test-venv"
