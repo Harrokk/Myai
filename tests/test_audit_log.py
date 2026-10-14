@@ -208,3 +208,31 @@ def test_read_recent_audit_reads_rotated_and_ignores_malformed(
     assert result[
         "malformed_count"
     ] == 1
+
+
+def test_required_audit_blocks_action_with_symlinked_log_file(tmp_path):
+    external = tmp_path / "outside.txt"
+    external.write_text("UNCHANGED", encoding="utf-8")
+    log = tmp_path / "runtime" / "audit.jsonl"
+    log.parent.mkdir()
+    log.symlink_to(external)
+    logger = AuditLogger(settings(), tmp_path)
+    with pytest.raises(RuntimeError, match="blockeras"):
+        logger.write_attempt(
+            action="selfdev_promote", component="selfdev", target="session1"
+        )
+    assert external.read_text(encoding="utf-8") == "UNCHANGED"
+
+
+def test_read_recent_audit_ignores_symlinked_log_and_backups(tmp_path):
+    external = tmp_path / "external-audit.jsonl"
+    external.write_text(
+        '{"written_unix_time":1,"action":"SECRET","component":"audit","outcome":"success"}\\n',
+        encoding="utf-8",
+    )
+    log = tmp_path / "audit.jsonl"
+    log.symlink_to(external)
+    (tmp_path / "audit.jsonl.1").symlink_to(external)
+    result = read_recent_audit(log, backups=1)
+    assert result["records"] == []
+    assert external.is_file()

@@ -2,7 +2,7 @@ import json
 import time
 from pathlib import Path
 
-from core.jsonl_log import append_jsonl
+from core.jsonl_log import append_jsonl, read_log_text
 
 
 _ALLOWED_OUTCOMES = {
@@ -380,12 +380,11 @@ def read_recent_audit(
             break
 
         try:
-            lines = candidate.read_text(
-                encoding="utf-8"
-            ).splitlines()
+            lines = read_log_text(candidate).splitlines()
         except (
             FileNotFoundError,
             OSError,
+            UnicodeError,
         ):
             continue
 
