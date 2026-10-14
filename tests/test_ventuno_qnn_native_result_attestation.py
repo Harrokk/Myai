@@ -124,3 +124,115 @@ def test_htp_diagnostic_does_not_claim_inference_on_nonzero_result():
     assert 'result["htp_inference_verified"] = True' not in src
     assert 'result["htp_operator_placement_verified"] = True' not in src
     assert 'tiny_qnn_htp_native_inference_succeeded' not in src
+
+
+
+def test_swapping_raw_file_to_symlink_during_open_is_denied(tmp_path, monkeypatch):
+    """Checking is_symlink before read_bytes was vulnerable to this swap."""
+    folder = make_result(tmp_path, b"A" * 64)
+    target = tmp_path / "secret.raw"
+    target.write_bytes(b"PRIVATE_DATA" * 10)
+    actual_open = verify.os.open
+    attempted = [False]
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        if path == "result.raw" and kwargs.get("dir_fd") is not None:
+            attempted[0] = True
+            (folder / "result.raw").unlink()
+            (folder / "result.raw").symlink_to(target)
+        return actual_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(verify.os, "open", swap_before_open)
+    report = verify.attest_native_output(tmp_path)
+    assert attempted[0] is True
+    assert report["status"] == "missing_or_untrusted_raw_output"
+    assert report["native_64_byte_output_present"] is False
+    assert "PRIVATE_DATA" not in json.dumps(report)
+
+
+def test_swapping_result_directory_to_symlink_before_open_is_denied(
+        tmp_path, monkeypatch):
+    folder = make_result(tmp_path, b"A" * 64)
+    outside = tmp_path / "private-folder"
+    outside.mkdir()
+    (outside / "result.raw").write_bytes(b"S" * 64)
+    actual_open = verify.os.open
+    attempted = [False]
+
+    def swap_directory(path, flags, *args, **kwargs):
+        if path == "Result_0" and kwargs.get("dir_fd") is not None:
+            attempted[0] = True
+            folder.rename(folder.parent / "old-folder")
+            folder.symlink_to(outside, target_is_directory=True)
+        return actual_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(verify.os, "open", swap_directory)
+    report = verify.attest_native_output(tmp_path)
+    assert attempted[0] is True
+    assert report["status"] == "missing_or_untrusted_result_directory"
+    assert report["native_64_byte_output_present"] is False
+
+
+def test_fifo_named_raw_is_rejected_without_blocking(tmp_path):
+    import os
+    folder = tmp_path / "results" / "Result_0"
+    folder.mkdir(parents=True)
+    os.mkfifo(folder / "fifo.raw")
+    result = verify.attest_native_output(tmp_path)
+    assert result["status"] == "missing_or_untrusted_raw_output"
+    assert result["npu_execution_verified"] is False
+
+
+def test_raw_file_read_is_bounded_to_at_most_65_bytes(tmp_path, monkeypatch):
+    data = bytes(range(64))
+    make_result(tmp_path, data)
+    actual_read = verify.os.read
+    reads = []
+
+    def bounded_read(fd, n):
+        reads.append(n)
+        assert n <= 65
+        return actual_read(fd, n)
+
+    monkeypatch.setattr(verify.os, "read", bounded_read)
+    result = verify.attest_native_output(
+        tmp_path, expected_sha=hashlib.sha256(data).hexdigest()
+    )
+    assert reads == [65]
+    assert result["output_matches_verified_cpu_reference"] is True
+    assert result["npu_execution_verified"] is False
+
+
+def test_file_size_change_during_fd_read_does_not_pass(tmp_path, monkeypatch):
+    folder = make_result(tmp_path, b"A" * 64)
+    actual_read = verify.os.read
+
+    def truncate_before_read(fd, n):
+        (folder / "result.raw").write_bytes(b"B" * 63)
+        return actual_read(fd, n)
+
+    monkeypatch.setattr(verify.os, "read", truncate_before_read)
+    r = verify.attest_native_output(tmp_path)
+    assert r["status"] == "changed_or_unreadable_output"
+    assert r["output_matches_verified_cpu_reference"] is None
+
+
+def test_replacing_named_result_after_fd_open_reads_original_inode(
+        tmp_path, monkeypatch):
+    raw = bytes(range(64))
+    folder = make_result(tmp_path, raw)
+    expected = hashlib.sha256(raw).hexdigest()
+    outside = tmp_path / "outside.raw"
+    outside.write_bytes(b"S" * 64)
+    actual_read = verify.os.read
+
+    def swap_after_fd_open(fd, n):
+        (folder / "result.raw").unlink()
+        (folder / "result.raw").symlink_to(outside)
+        return actual_read(fd, n)
+
+    monkeypatch.setattr(verify.os, "read", swap_after_fd_open)
+    report = verify.attest_native_output(tmp_path, expected_sha=expected)
+    assert report["output_matches_verified_cpu_reference"] is True
+    assert report["htp_operator_placement_verified"] is False
+    assert report["raw_output_or_digest_exported"] is False
