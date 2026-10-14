@@ -1,0 +1,37 @@
+name: VENTUNO strict packaged HTP host lib metadata gate
+on:
+  push:
+    branches: [dev/ventuno-htp-hostlib-packaged-failclosed-20261014]
+    paths:
+      - .github/workflows/ventuno-strict-htp-hostlib-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-htp-hostlib-failclosed-20261014
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Exact commit host-library package and ELF gate metadata only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-htp-hostlib-packaged-failclosed-20261014"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-htp-hostgate.XXXXXX")"
+          chmod 700 "$scratch"
+          trap 'cd "$RUNNER_TEMP" && rm -rf -- "$scratch"' EXIT
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          timeout --signal=TERM --kill-after=3s 35s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_strict_htp_hostlib_readonly
+          echo 'No QNN/HTP, DSP devices, model inference, package modification or production changes.'
