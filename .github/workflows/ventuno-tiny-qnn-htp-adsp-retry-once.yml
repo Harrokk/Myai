@@ -1,0 +1,43 @@
+name: VENTUNO tiny HTP with explicit V75 DSP library path (single retry)
+on:
+  push:
+    branches: [dev/ventuno-qnn-tiny-htp-feasibility-20261014]
+    paths:
+      - .github/workflows/ventuno-tiny-qnn-htp-adsp-retry-once.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ci-ventuno
+  cancel-in-progress: false
+jobs:
+  one-corrected-tiny-htp-test:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Fetch verified temporary checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-tiny-htp-corrected-once"
+          cd "$RUNNER_TEMP/myai-tiny-htp-corrected-once"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run one resource-limited 16KB synthetic HTP experiment with V75 DSP path
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          MYAI_ALLOW_ONE_TINY_QNN_HTP_ATTEMPT: "yes"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tiny-htp-corrected-once"
+          timeout --signal=TERM --kill-after=3s 70s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_tiny_qnn_htp_once
+          echo 'One 16 KB DLC only. No GenieX request, audio or service modifications.'
