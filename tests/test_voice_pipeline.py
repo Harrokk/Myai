@@ -659,6 +659,9 @@ def test_high_risk_command_waits_for_explicit_confirmation():
         "text": "bekräfta",
         "confidence": 0.95,
     }
+    # Approval must come from separate STT instances even at 0.95.
+    for backup in pipeline.backup_stt:
+        backup.result = {"text": "bekräfta", "confidence": 0.95}
     second = pipeline.process_utterance(
         b"confirm"
     )
@@ -1015,6 +1018,8 @@ def test_selected_write_tool_requires_confirmation_even_without_risk_words():
         "text": "bekräfta",
         "confidence": 0.99,
     }
+    for backup in pipeline.backup_stt:
+        backup.result = {"text": "bekräfta", "confidence": 0.95}
     second = pipeline.process_utterance(
         b"confirm"
     )
