@@ -82,9 +82,12 @@ def acl_permission(entries, owner_uid, owner_gid, fsuid, fsgid, groups):
                 perm for tag, perm, identity in entries
                 if tag == TAG_GROUP and identity in memberships
             )
-            bits = (0 if not selected else
-                    __import__("functools").reduce(lambda a, b: a | b, selected, 0) & mask)
-            if not selected:
+            if selected:
+                union = 0
+                for permission in selected:
+                    union |= permission
+                bits = union & mask
+            else:
                 bits = base[TAG_OTHER]
     return {"read": bool(bits & 4), "write": bool(bits & 2)}
 
