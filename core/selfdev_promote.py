@@ -938,6 +938,62 @@ class SelfDevPromotionManager:
             raise RuntimeError("Backup är skadad eller saknas.")
         return backup
 
+    @contextmanager
+    def _backup_verified_snapshot(self, rollback_root, relative, expected_hash):
+        """Read a verified backup inode once; never reopen the original path.
+
+        The private temporary snapshot is checked before source restoration.
+        This closes link swaps between backup validation and source copy.
+        """
+        backup = self._verified_backup(rollback_root, relative, expected_hash)
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
+        try:
+            descriptor = os.open(str(backup), flags)
+        except OSError as error:
+            raise RuntimeError("Backup kan inte öppnas säkert.") from error
+
+        snapshot = None
+        try:
+            with os.fdopen(descriptor, "rb") as source:
+                info = os.fstat(source.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise RuntimeError("Osäker backupfil vid återställning.")
+                out_fd, filename = tempfile.mkstemp(
+                    prefix=".verified-backup-",
+                    suffix=".tmp",
+                    dir=str(backup.parent),
+                )
+                snapshot = Path(filename)
+                with os.fdopen(out_fd, "wb") as destination:
+                    digest = hashlib.sha256()
+                    while True:
+                        part = source.read(1024 * 1024)
+                        if not part:
+                            break
+                        digest.update(part)
+                        destination.write(part)
+                    if digest.hexdigest() != expected_hash:
+                        raise RuntimeError(
+                            "Backup ändrades efter verifiering; återställning stoppas."
+                        )
+                    # Preserve backup source permissions, minus special bits.
+                    os.fchmod(destination.fileno(), stat.S_IMODE(info.st_mode) & 0o777)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+            _sync_directory(snapshot.parent)
+            yield snapshot
+        finally:
+            if snapshot is not None:
+                try:
+                    snapshot.unlink()
+                    _sync_directory(snapshot.parent)
+                except FileNotFoundError:
+                    pass
+
     def _restore_from_backup(
         self,
         rollback_root,
@@ -961,13 +1017,13 @@ class SelfDevPromotionManager:
             if info[
                 "existed"
             ]:
-                backup = self._verified_backup(
+                with self._backup_verified_snapshot(
                     rollback_root, relative, info["sha256"]
-                )
-                _atomic_copy(
-                    backup,
-                    target,
-                )
+                ) as backup:
+                    _atomic_copy(
+                        backup,
+                        target,
+                    )
             else:
                 try:
                     target.unlink()

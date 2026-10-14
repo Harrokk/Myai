@@ -1793,3 +1793,87 @@ def test_private_selfdev_directory_rejects_group_writable_metadata(tmp_path):
     with pytest.raises(PermissionError, match="osäkra behörigheter"):
         with active._project_mutation_lock():
             pass
+
+
+def test_swap_backup_to_external_symlink_after_first_validation(
+    tmp_path, monkeypatch,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    backup = (
+        workspace.session_root / "rollbacks" / "promo1"
+        / "files" / "core" / "example.py"
+    )
+    external = tmp_path / "external-backup.py"
+    external.write_bytes(backup.read_bytes())
+    original_check = active._verified_backup
+    calls = [0]
+
+    def swap_after_validation(root, relative, expected):
+        verified = original_check(root, relative, expected)
+        calls[0] += 1
+        if calls[0] == 2:
+            verified.unlink()
+            verified.symlink_to(external)
+        return verified
+
+    monkeypatch.setattr(active, "_verified_backup", swap_after_validation)
+    with pytest.raises(RuntimeError, match="Backup kan inte öppnas säkert"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert external.read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_backup_mutates_inside_snapshot_read_and_never_restores(
+    tmp_path, monkeypatch,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    backup = (
+        workspace.session_root / "rollbacks" / "promo1"
+        / "files" / "core" / "example.py"
+    )
+    original = active._verified_backup
+    calls = [0]
+
+    def mutate_after_first_verification(root, relative, expected):
+        verified = original(root, relative, expected)
+        calls[0] += 1
+        if calls[0] == 2:
+            verified.write_text("CORRUPT\n", encoding="utf-8")
+        return verified
+
+    monkeypatch.setattr(active, "_verified_backup", mutate_after_first_verification)
+    with pytest.raises(RuntimeError, match="Backup ändrades efter verifiering"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    assert not list(backup.parent.glob(".verified-backup-*"))
+
+
+def test_verified_backup_snapshot_preserves_original_permissions(tmp_path):
+    import stat
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original = project / "core" / "example.py"
+    original.chmod(0o640)
+    active.promote("PROMOTE session1")
+    assert active.rollback("promo1", "ROLLBACK session1 promo1")[
+        "rolled_back"
+    ]
+    assert stat.S_IMODE(original.stat().st_mode) == 0o640
+    assert not list(
+        (workspace.session_root / "rollbacks" / "promo1" / "files" / "core")
+        .glob(".verified-backup-*")
+    )
