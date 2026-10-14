@@ -28,7 +28,8 @@ jobs:
           cd "$scratch"
           git init -q
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" >/dev/null 2>&1 || true' EXIT
+          # Ensure the temporary checkout is discarded after the one-pass audit.
+          trap 'cd "$RUNNER_TEMP" && rm -rf -- "$scratch"' EXIT
           git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
