@@ -109,3 +109,47 @@ permanent services added. Existing generic MyAI CI on dev pushes runs
 automatically and is non-production checkout. No branch merge to main.
 Active production stack, installed models, secrets and audio left
 unchanged. This is a checkpoint, not a promotion to production.
+
+## Verified follow-up: runner, skipped dependencies, USB and App Lab (2026-10-14)
+
+- GitHub runner is back online. The formerly queued checkpoint retry succeeded
+  on run 38344870738, attempt 2; additional real ARM64 jobs also succeeded.
+- In the isolated generic MyAI CI, use `pytest -q -rs` to report skipped
+  reasons automatically. This does **not** change test execution or production.
+  Change commit: `3cc588399ea55f677b383e67a8b09ed5113a6a94`.
+  Successful run: https://github.com/Harrokk/Myai/actions/runs/38516562492
+  Result: **1489 passed, 6 skipped**.
+- The skips are explained by **missing optional host test dependencies**:
+  - `onnx` absent: 2 tests in
+    `tests/test_prepare_tiny_qnn_host_sample.py` and 2 tests in
+    `tests/test_verify_tiny_qnn_host_sample.py`;
+  - `numpy` absent: 2 tests in
+    `tests/test_qairt_245_cpu_reference_trial.py`.
+  These are not six discovered test failures. The host ONNX numerical-reference
+  tests also require `numpy` and may require `onnxruntime` once `onnx`
+  is available; do not blindly install/force host-only dependencies on ARM64.
+  No persistent dependency installation was performed.
+- Read-only USB metadata workflow rerun:
+  https://github.com/Harrokk/Myai/actions/runs/38508999336 (attempt 2).
+  USB ALSA cards remain **absent**. Card0/device1 capture and card0/device0/2
+  playback exist but must not be assumed to be the user's USB headset.
+  No audio device was opened or modified.
+- New sanitized App Lab connection diagnostic workflow:
+  https://github.com/Harrokk/Myai/actions/runs/38516851399
+  `global_ipv4_present`, `wifi_ipv4_present`,
+  `ipv4_default_route_present`, `default_route_via_wifi`,
+  `mdns_udp_5353_bound`, `avahi_daemon_active`,
+  `ssh_tcp_22_listening`, `ssh_service_active`, runner service,
+  MyAI service and GenieX service were all **true**.
+  The diagnostic printed no network addresses, SSIDs, MACs or secrets.
+- App Lab on Windows previously returned "invalid board address / invalid IP".
+  With the VENTUNO network and local discovery/server services now confirmed
+  operational, investigate **Windows mDNS/firewall, client network isolation,
+  stale cached IP and client-side App Lab settings** before touching VENTUNO.
+  This is a hypothesis, not a proven Windows root cause.
+  Arduino troubleshooting for Q family mentions `mdns-discovery.exe`
+  firewall permission and UDP/5353 for mDNS discovery.
+
+The production MyAI/GenieX services and runner settings were not changed.
+No audio capture/playback, model start, installation, reboot, mDNS reset,
+network reconfiguration, or privileged device operation was attempted.
