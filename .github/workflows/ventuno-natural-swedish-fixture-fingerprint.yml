@@ -1,0 +1,47 @@
+name: VENTUNO identify licensed human Swedish speech fixture (no inference)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-natural-swedish-fixture-fingerprint.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-natural-swedish-fixture-fingerprint
+  cancel-in-progress: false
+
+jobs:
+  fingerprint:
+    name: Fingerprint one public archived Swedish human recording, no models or audio playback
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: SHA256 public human recording in RUNNER_TEMP
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "\${RUNNER_TEMP:-}"
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-natural-sv-fingerprint-XXXXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+          uri='https://upload.wikimedia.org/wikipedia/commons/archive/1/1d/20071106020716%21Sv-%28conversation%29.ogg'
+          curl --fail --location --silent --show-error --max-time 30 --output "$scratch/sv-original.ogg" "$uri"
+          size="$(wc -c < "$scratch/sv-original.ogg")"
+          test "$size" -ge 9000
+          test "$size" -le 32000
+          test "$(head -c 4 "$scratch/sv-original.ogg")" = "OggS"
+          echo "PUBLIC SWEDISH HUMAN AUDIO, NOT USER RECORDING"
+          echo "Wikimedia Commons Shtooka archived version; declared utterance: hur mår du?"
+          echo "Attribution: M. Kihlstedt and N. Vion; CC BY 2.0 France."
+          echo "Public audio bytes: $size"
+          echo "Public fixture SHA256: $(sha256sum "$scratch/sv-original.ogg" | cut -d' ' -f1)"
+          echo "Only hashed public audio. No microphone, speaker, STT, TTS or LLM request."
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
