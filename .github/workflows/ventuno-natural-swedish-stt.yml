@@ -7,6 +7,8 @@ on:
       - .github/workflows/ventuno-natural-swedish-stt.yml
       - scripts/ventuno_natural_swedish_stt.py
       - tests/test_ventuno_natural_swedish_stt.py
+      - scripts/ventuno_natural_swedish_base_followup.py
+      - tests/test_ventuno_natural_swedish_base_followup.py
   workflow_dispatch:
 
 permissions:
@@ -49,6 +51,7 @@ jobs:
           cd "$MYAI_NATURAL_SV_ROOT/source"
           /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
             tests/test_ventuno_natural_swedish_stt.py \
+            tests/test_ventuno_natural_swedish_base_followup.py \
             tests/test_ventuno_whisper_tiny_cpu_smoke.py \
             tests/test_ventuno_swedish_reference_audio.py \
             tests/test_ventuno_whisper_base_swedish_comparison.py
@@ -121,6 +124,15 @@ jobs:
             --allow-public-human-reference-only
           echo "No user speech, transcripts, audio files or model replies were retained."
 
+      - name: Compare same SHA256-pinned human sample with verified Whisper Base
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NATURAL_SV_ROOT/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_natural_swedish_base_followup \
+            --runner-temp "$MYAI_NATURAL_SV_ROOT" \
+            --allow-licensed-human-audio-only
+          echo "Whisper Base was temporary; no production models, audio devices or settings changed."
       - name: Verify services and remove disposable source, models and sample
         if: always()
         shell: bash
