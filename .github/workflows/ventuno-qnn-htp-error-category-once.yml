@@ -1,0 +1,43 @@
+name: VENTUNO one classified tiny HTP error without raw vendor logs
+on:
+  push:
+    branches: [dev/ventuno-fastrpc-access-readonly-20261014]
+    paths:
+      - .github/workflows/ventuno-qnn-htp-error-category-once.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-qnn-classified-error-single-shot
+  cancel-in-progress: false
+jobs:
+  error-category-only:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact source SHA in runner temporary worktree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-qnn-classified-error-once"
+          cd "$RUNNER_TEMP/myai-qnn-classified-error-once"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: One resource-gated 16KB synthetic DLC HTP error category only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          MYAI_ALLOW_ONE_TINY_QNN_HTP_ATTEMPT: "yes"
+          MYAI_CAPTURE_QNN_ERROR_CATEGORY_ONLY: "yes"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-qnn-classified-error-once"
+          timeout --signal=TERM --kill-after=3s 70s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_tiny_qnn_htp_once
+          echo 'Single HTP diagnostic only: no raw logs, model text, USB audio or service changes.'
