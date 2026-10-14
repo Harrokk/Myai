@@ -148,7 +148,10 @@ def test_invalid_firmware_name_prevents_any_lookup(monkeypatch, tmp_path):
                         lambda *_: (_ for _ in ()).throw(
                             AssertionError("No firmware query expected")
                         ))
-    result = p.report(remote_root=remote, firmware_root=tmp_path)
+    result = p.report(
+        remote_root=remote, firmware_root=tmp_path,
+        shell=tmp_path / "missing-shell",
+    )
     assert result["firmware_name_usable"] is False
     assert result["regular_firmware_candidates_examined"] == 0
     assert result["firmware_package_provenance"] == "not_checked"
