@@ -73,16 +73,11 @@ def evaluate_target(*, device: str = TARGET, runtime: str = "qnn_context",
         report["status"] = "no_go_unknown_target_runtime"
     elif not ai_hub_version_246_listed:
         report["status"] = "no_go_246_not_confirmed_in_live_cloud_catalog"
-    elif ai_hub_version_246_listed:
-        report["status"] = "no_go_246_catalog_claim_not_live_attested"
-    elif not credential_available:
-        report["status"] = "no_go_no_authorized_cloud_credentials"
-    elif not cloud_model_upload_authorized:
-        report["status"] = "no_go_cloud_upload_not_explicitly_authorized"
-    elif not job_submission_authorized:
-        report["status"] = "no_go_cloud_job_not_explicitly_authorized"
     else:
-        report["status"] = "manual_service_and_model_review_required_no_submission"
+        # No authenticated read-only get_frameworks() API evidence is
+        # accepted by this offline-only policy. Credential claims and
+        # upload/job consent also cannot override catalog uncertainty.
+        report["status"] = "no_go_246_catalog_claim_not_live_attested"
     return report
 
 
