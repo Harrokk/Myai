@@ -276,3 +276,30 @@ def test_optional_result_audit_does_not_require_durable_fsync(
         outcome="success",
         target="session1",
     )
+
+
+def test_audit_view_skips_oversized_file_without_loading_it(tmp_path):
+    from core import jsonl_log
+
+    path = tmp_path / "audit.jsonl"
+    path.write_bytes(b"X" * (jsonl_log._MAX_READ_BYTES + 1))
+    result = read_recent_audit(path, backups=0)
+    assert result["records"] == []
+    assert path.stat().st_size == jsonl_log._MAX_READ_BYTES + 1
+
+
+def test_required_audit_blocks_group_writable_log_directory(tmp_path):
+    import os
+    from core import jsonl_log
+
+    if not jsonl_log._ANCHORED:
+        pytest.skip("POSIX anchored I/O required")
+    logger = AuditLogger(settings(), tmp_path)
+    directory = tmp_path / "runtime"
+    directory.mkdir()
+    os.chmod(directory, 0o775)
+    with pytest.raises(RuntimeError, match="blockeras"):
+        logger.write_attempt(
+            action="selfdev_promote", component="selfdev", target="session1"
+        )
+    assert not (directory / "audit.jsonl").exists()
