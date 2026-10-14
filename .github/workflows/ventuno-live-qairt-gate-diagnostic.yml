@@ -1,0 +1,42 @@
+name: VENTUNO QAIRT gate explanation (read-only, no inference)
+on:
+  push:
+    branches: [dev/ventuno-live-qairt-synthetic-20261014]
+    paths:
+      - .github/workflows/ventuno-live-qairt-gate-diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ci-ventuno
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact source revision in temporary checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-live-qairt-gate-diagnostic"
+          cd "$RUNNER_TEMP/myai-live-qairt-gate-diagnostic"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Inspect why backend could not be attested
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-live-qairt-gate-diagnostic"
+          timeout --signal=TERM --kill-after=3s 40s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_live_qairt_gate_diagnostic
+          echo 'Read-only, no POST, no inference, no audio, no service changes.'
