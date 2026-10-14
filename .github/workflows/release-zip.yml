@@ -8,6 +8,9 @@ on:
     paths:
       - ".github/workflows/release-zip.yml"
 
+permissions:
+  contents: read
+
 jobs:
   package:
     runs-on: ubuntu-latest

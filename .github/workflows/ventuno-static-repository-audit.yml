@@ -5,6 +5,7 @@ on:
     paths:
       - scripts/static_repository_audit.py
       - .github/workflows/ventuno-static-repository-audit.yml
+      - .github/workflows/release-zip.yml
 permissions:
   contents: read
 concurrency:
