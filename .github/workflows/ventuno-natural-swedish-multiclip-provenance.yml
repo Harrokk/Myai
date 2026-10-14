@@ -1,0 +1,77 @@
+name: VENTUNO public human Swedish multi-clip provenance (no ASR or audio devices)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-natural-swedish-multiclip-provenance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    name: Identify immutable public human Swedish recordings, no playback, no models
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Wikimedia Commons 2007 archived metadata and hash candidate fixtures in RAM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          python3 - <<'PY'
+          import hashlib,json,re,urllib.parse,urllib.request
+          api="https://commons.wikimedia.org/w/api.php?"
+          query=urllib.parse.urlencode({
+              "action":"query","prop":"imageinfo",
+              "titles":"File:Sv-(conversation).ogg",
+              "iiprop":"timestamp|size|sha1|comment|url",
+              "iilimit":"20","format":"json",
+          })
+          request=urllib.request.Request(api+query,
+              headers={"User-Agent":"MyAI-Unattended-Public-Fixture-Provenance/1.0 (research test)"})
+          with urllib.request.urlopen(request,timeout=25) as response:
+              data=response.read(96*1024)
+          meta=json.loads(data)
+          pages=list(meta.get("query",{}).get("pages",{}).values())
+          assert len(pages)==1
+          versions=pages[0].get("imageinfo",[])
+          assert isinstance(versions,list)
+          expected=("hur mår du","jag talar svenska","jag heter maria","jag talar lite svenska")
+          matched={}
+          for item in versions:
+              if not isinstance(item,dict):continue
+              comment=item.get("comment","").lower()
+              for phrase in expected:
+                  if phrase not in comment or phrase in matched:continue
+                  url=item.get("url","")
+                  parsed=urllib.parse.urlparse(url)
+                  assert parsed.scheme=="https"
+                  assert parsed.netloc=="upload.wikimedia.org"
+                  assert "/Sv-%28conversation%29.ogg" in url or "Sv-(conversation).ogg" in url
+                  declared=item.get("size")
+                  assert type(declared) is int and 10000<=declared<=60000
+                  file_request=urllib.request.Request(url,headers={
+                      "User-Agent":"MyAI-Public-Swedish-Fixture/1.0"})
+                  with urllib.request.urlopen(file_request,timeout=25) as res:
+                      assert urllib.parse.urlparse(res.geturl()).netloc=="upload.wikimedia.org"
+                      audio=res.read(60001)
+                  assert len(audio)==declared and audio[:4]==b"OggS"
+                  matched[phrase]={
+                      "phrase":phrase,"date":str(item.get("timestamp",""))[:20],
+                      "url":url,"bytes":len(audio),
+                      "sha256":hashlib.sha256(audio).hexdigest(),
+                  }
+                  del audio
+          print("Public verified historical speech clip hashes:",
+              json.dumps(list(matched.values()),sort_keys=True))
+          print("Attribution Shtooka Project, M. Kihlstedt / N. Vion, CC BY 2.0 France.")
+          print("Fixture metadata only; no decoded speech, microphone, speaker, model or production changes.")
+          assert all(k in matched for k in ("hur mår du","jag talar svenska","jag heter maria"))
+          PY
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
