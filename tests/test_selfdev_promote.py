@@ -1764,7 +1764,8 @@ def test_private_selfdev_directory_refuses_symlinked_runtime_parent(tmp_path):
     outside = tmp_path / "runtime-outside"
     old_runtime.rename(outside)
     old_runtime.symlink_to(outside, target_is_directory=True)
-    with pytest.raises(PermissionError, match="symlink"):
+    # Required audit logging now fails closed before selfdev's own check.
+    with pytest.raises(RuntimeError, match="Audit-loggen kunde inte skrivas"):
         active.promote("PROMOTE session1")
     assert (project / "core" / "example.py").read_text(
         encoding="utf-8"
