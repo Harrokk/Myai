@@ -595,3 +595,54 @@ def test_memory_admin_tool_surface_has_separate_read_and_write_actions():
     ][
         "pass_user_input"
     ] is True
+
+
+def test_corrupt_review_conflicts_cannot_be_plain_approved(tmp_path):
+    store = make_store(tmp_path)
+    review_id = store.enqueue_review(
+        "preference", "Ny preferens"
+    )["review_id"]
+    import sqlite3
+
+    for corrupted in ("not-json", "null", "{}", "[null]", "[true]", '["bad"]'):
+        with sqlite3.connect(store.database_path) as conn:
+            conn.execute(
+                "UPDATE memory_reviews SET conflicts_json = ? WHERE id = ?",
+                (corrupted, review_id),
+            )
+        with pytest.raises(ValueError, match="konfliktinformation"):
+            store.approve_review(review_id)
+        assert store.get_review(review_id)["status"] == "pending"
+        assert store.get_all() == []
+
+
+def test_corrupt_or_empty_conflicts_cannot_replace_unrelated_memory(tmp_path):
+    store = make_store(tmp_path)
+    target_id = store.save("preference", "Gammal preferens")
+    review_id = store.enqueue_review(
+        "preference", "Ny preferens"
+    )["review_id"]
+    import sqlite3
+
+    for corrupted in ("not-json", "null", "[]", "{}", "[false]", '["bad"]'):
+        with sqlite3.connect(store.database_path) as conn:
+            conn.execute(
+                "UPDATE memory_reviews SET conflicts_json = ? WHERE id = ?",
+                (corrupted, review_id),
+            )
+        with pytest.raises((ValueError, PermissionError)):
+            store.replace_from_review(review_id, target_id)
+        assert store.get_review(review_id)["status"] == "pending"
+        assert len(store.get_all()) == 1
+
+
+def test_registered_review_conflict_still_permits_explicit_replacement(tmp_path):
+    store = make_store(tmp_path)
+    target_id = store.save("preference", "Gammalt")
+    review_id = store.enqueue_review(
+        "preference", "Nytt", conflict_ids=[target_id]
+    )["review_id"]
+
+    replacement_id = store.replace_from_review(review_id, target_id)
+    assert replacement_id != target_id
+    assert store.get_review(review_id)["status"] == "replaced"
