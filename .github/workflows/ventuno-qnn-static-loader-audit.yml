@@ -4,6 +4,8 @@ on:
     branches: [dev/ventuno-qnn-static-loader-audit-20261014]
     paths:
       - .github/workflows/ventuno-qnn-static-loader-audit.yml
+      - scripts/ventuno_elf64_dynamic_reader.py
+      - scripts/ventuno_qnn_static_loader_probe.py
   workflow_dispatch:
 permissions:
   contents: read
