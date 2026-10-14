@@ -1,0 +1,55 @@
+name: VENTUNO unattended full static repository audit (no device IO)
+on:
+  push:
+    branches: [dev/unattended-audit-20261014]
+    paths:
+      - scripts/static_repository_audit.py
+      - .github/workflows/ventuno-static-repository-audit.yml
+      - .github/workflows/release-zip.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-static-audit-readonly-20261014
+  cancel-in-progress: false
+jobs:
+  static-audit:
+    name: Syntax, configs, workflow safety and security patterns
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Stage exact commit only in disposable runner temp
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = arduino
+          test "$(uname -m)" = aarch64
+          test -n "${RUNNER_TEMP:-}"
+          temp="$(mktemp -d "$RUNNER_TEMP/myai-audit-XXXXXXXX")"
+          echo "MYAI_AUDIT_TEMP=$temp" >> "$GITHUB_ENV"
+          git init -q "$temp/source"
+          git -C "$temp/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$temp/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$temp/source" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$temp/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$temp/source" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Audit only tracked source as data; no MyAI code imports
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_AUDIT_TEMP/source"
+          python3 -B scripts/static_repository_audit.py
+      - name: Remove only the disposable checkout and verify production service states
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${MYAI_AUDIT_TEMP:-}" && "$MYAI_AUDIT_TEMP" == "$RUNNER_TEMP/myai-audit-"* ]]; then
+            rm -rf -- "$MYAI_AUDIT_TEMP"
+          fi
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          echo "Audit is source only; original running services not altered."
