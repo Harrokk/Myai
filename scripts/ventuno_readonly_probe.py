@@ -116,6 +116,59 @@ def accelerators():
             "kgsl_gpu_node":Path("/dev/kgsl-3d0").exists()}
 
 
+def usb_audio_interfaces():
+    # USB class 01 is Audio. Do not output IDs, names or topology.
+    audio_interfaces=0
+    for entry in list(Path("/sys/bus/usb/devices").glob("*:*"))[:128]:
+        if text_file(entry/"bInterfaceClass",8).strip().lower()=="01":
+            audio_interfaces+=1
+    return audio_interfaces
+
+
+def pcm_capabilities():
+    pcm=text_file("/proc/asound/pcm",12000)
+    capture=sum(int(x) for x in re.findall(r"\bcapture\s+(\d+)",pcm))
+    playback=sum(int(x) for x in re.findall(r"\bplayback\s+(\d+)",pcm))
+    playback_nodes=capture_nodes=0
+    for item in list(Path("/dev/snd").glob("pcmC*D*"))[:64]:
+        if re.fullmatch(r"pcmC\d+D\d+p",item.name):
+            playback_nodes+=1
+        elif re.fullmatch(r"pcmC\d+D\d+c",item.name):
+            capture_nodes+=1
+    return {"alsa_capture_pcm_count":capture,"alsa_playback_pcm_count":playback,
+            "capture_device_nodes":capture_nodes,
+            "playback_device_nodes":playback_nodes}
+
+
+def qualcomm_runtime_indicators():
+    # Presence alone cannot establish that QNN or the Hexagon NPU works.
+    nodes=list(Path("/dev").glob("fastrpc*"))[:16]
+    nodes+=list(Path("/dev").glob("adsprpc*"))[:16]
+    remotes=list(Path("/sys/class/remoteproc").glob("remoteproc[0-9]*"))[:24]
+    running=sum(text_file(x/"state",24).strip()=="running" for x in remotes)
+    libraries=("libQnnHtp.so","libQnnSystem.so",
+               "libcdsprpc.so","libadsprpc.so","libSNPE.so")
+    locations=("/usr/lib/aarch64-linux-gnu","/usr/lib",
+               "/usr/local/lib","/opt/qcom/lib","/opt/qualcomm/lib")
+    found=set()
+    for dirname in locations:
+        root=Path(dirname)
+        for library in libraries:
+            try:
+                if (root/library).is_file() or any(root.glob(library+".*")):
+                    found.add(library)
+            except OSError:
+                pass
+    return {"fastrpc_device_nodes":len(nodes),
+            "remote_processors_visible":len(remotes),
+            "remote_processors_running":running,
+            "qnn_htp_library_in_standard_paths":"libQnnHtp.so" in found,
+            "qnn_system_library_in_standard_paths":"libQnnSystem.so" in found,
+            "rpc_library_in_standard_paths":bool(found.intersection(
+                {"libcdsprpc.so","libadsprpc.so"})),
+            "snpe_library_in_standard_paths":"libSNPE.so" in found}
+
+
 def units():
     result={"myai":"not_listed","geniex":"not_listed","github_runner":"not_listed"}
     for command in (
@@ -155,7 +208,11 @@ def report():
                     "logical_cpus":os.cpu_count(),"uptime_hours":hours},
         "cpu_frequencies":clocks(),"thermal":temperature(),"memory":memory(),
         "root_disk":disk(),"usb_audio":usb_audio(),"network":connectivity(),
-        "accelerator_indicators_only":accelerators(),"services":units(),
+        "audio_interface_class_count":usb_audio_interfaces(),
+        "pcm_capabilities":pcm_capabilities(),
+        "accelerator_indicators_only":accelerators(),
+        "qualcomm_runtime_indicators_only":qualcomm_runtime_indicators(),
+        "services":units(),
         "privacy":{"audio_recorded":False,"device_identifiers_exported":False,
                    "network_addresses_exported":False,"services_modified":False}
     }
