@@ -1031,6 +1031,78 @@ class SelfDevPromotionManager:
                 except FileNotFoundError:
                     pass
 
+    def inspect_recovery_artifacts(self, promotion_id):
+        """Report orphaned restore snapshots without reading or deleting them.
+
+        Files left by SIGKILL/power loss are *not* automatically removed;
+        human review must determine whether recovery is still pending.
+        """
+        identifier = _safe_identifier(promotion_id)
+        rollback_root = (
+            self.workspace.session_root / "rollbacks" / identifier
+        )
+        result = {
+            "promotion_id": identifier,
+            "read_only": True,
+            "status": "blocked",
+            "orphan_snapshot_count": 0,
+        }
+        try:
+            # Inspect links without resolving them or traversing outside.
+            for directory in (
+                self.workspace.session_root,
+                self.workspace.session_root / "rollbacks",
+                rollback_root,
+                rollback_root / "files",
+            ):
+                if directory.is_symlink():
+                    raise PermissionError("Återställningskatalogen är en symlink.")
+            backup_root = rollback_root / "files"
+            if not backup_root.exists():
+                result["status"] = "no_artifacts"
+                return result
+            if not backup_root.is_dir():
+                raise RuntimeError("Backup-roten är inte en katalog.")
+
+            stack = [backup_root]
+            inspected = 0
+            count = 0
+            while stack:
+                directory = stack.pop()
+                if directory.is_symlink():
+                    raise PermissionError("Symlink i återställningskatalogen.")
+                with os.scandir(directory) as iterator:
+                    for entry in iterator:
+                        inspected += 1
+                        if inspected > 5000:
+                            raise RuntimeError(
+                                "För många filer i återställningskatalogen."
+                            )
+                        if entry.is_symlink():
+                            raise PermissionError(
+                                "Symlink i återställningskatalogen."
+                            )
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                            continue
+                        if entry.name.startswith(".verified-backup-") and (
+                            entry.name.endswith(".tmp")
+                        ):
+                            info = entry.stat(follow_symlinks=False)
+                            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                                raise RuntimeError(
+                                    "Osäker temporär återställningsfil."
+                                )
+                            count += 1
+            result["orphan_snapshot_count"] = count
+            result["status"] = (
+                "orphan_snapshots_detected" if count else "no_artifacts"
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            result["status"] = "blocked"
+            result["reason"] = str(error)
+        return result
+
     def inspect_recovery(self, promotion_id):
         """Read-only advisory preflight; NEVER writes audit, locks or source.
 
