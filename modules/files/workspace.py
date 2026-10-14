@@ -1,5 +1,6 @@
 import os
 import re
+import tempfile
 from pathlib import Path
 
 from core.audit_log import (
@@ -136,7 +137,14 @@ def list_workspace_files(settings=None):
     entries = []
 
     for path in sorted(root.rglob("*"), key=lambda item: str(item).lower()):
-        if not path.is_file():
+        # Do not expose metadata from files reached through symbolic links.
+        # Resolving such links can escape the configured workspace boundary.
+        if path.is_symlink() or not path.is_file():
+            continue
+
+        try:
+            path.resolve(strict=True).relative_to(root)
+        except (OSError, RuntimeError, ValueError):
             continue
 
         entries.append(
@@ -219,9 +227,26 @@ def write_workspace_text(user_path, content, settings=None):
         raise ValueError("Tomt filinnehåll skrivs inte utan uttrycklig text.")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
-    os.replace(temporary, path)
+    # A fixed .tmp filename is unsafe: another process can replace it
+    # with a symlink before write_text() follows it outside the workspace.
+    # mkstemp() creates a new, exclusive file with a non-predictable name.
+    descriptor, temporary = tempfile.mkstemp(
+        prefix="." + path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
 
     return {
         "path": path.relative_to(workspace_root(settings)).as_posix(),

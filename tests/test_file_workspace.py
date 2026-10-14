@@ -256,3 +256,57 @@ def test_workspace_write_disabled_is_audited_as_denied(
         / "workspace"
         / "note.txt"
     ).exists()
+
+
+def test_preexisting_temporary_symlink_does_not_escape_workspace(tmp_path):
+    cfg = settings(tmp_path, write_enabled=True)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "important.txt"
+    outside.write_text("UNCHANGED", encoding="utf-8")
+    (root / "note.txt.tmp").symlink_to(outside)
+
+    result = workspace.write_workspace_text("note.txt", "Safe", cfg)
+    assert result["chars_written"] == 4
+    assert outside.read_text(encoding="utf-8") == "UNCHANGED"
+    assert (root / "note.txt").read_text(encoding="utf-8") == "Safe"
+    assert (root / "note.txt.tmp").is_symlink()
+
+
+def test_workspace_listing_ignores_symbolic_link_to_external_file(tmp_path):
+    cfg = settings(tmp_path, write_enabled=True)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    external = tmp_path / "private.txt"
+    external.write_text("PRIVATE_METADATA", encoding="utf-8")
+    (root / "outside.txt").symlink_to(external)
+    (root / "safe.txt").write_text("ok", encoding="utf-8")
+
+    entries = workspace.list_workspace_files(cfg)
+    assert [entry["path"] for entry in entries] == ["safe.txt"]
+
+
+def test_failed_atomic_write_cleans_only_new_temporary_file(tmp_path, monkeypatch):
+    cfg = settings(tmp_path, write_enabled=True)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    destination = root / "note.txt"
+    destination.write_text("old", encoding="utf-8")
+    old_replace = workspace.os.replace
+
+    def denied_replace(source, target):
+        assert target == destination
+        raise OSError("simulated atomic replace failure")
+
+    monkeypatch.setattr(workspace.os, "replace", denied_replace)
+    try:
+        workspace.write_workspace_text("note.txt", "new", cfg)
+    except OSError as error:
+        assert "simulated" in str(error)
+    else:
+        raise AssertionError("Atomic replace failure must propagate")
+    finally:
+        monkeypatch.setattr(workspace.os, "replace", old_replace)
+
+    assert destination.read_text(encoding="utf-8") == "old"
+    assert sorted(path.name for path in root.iterdir()) == ["note.txt"]
