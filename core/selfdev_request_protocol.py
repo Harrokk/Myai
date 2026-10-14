@@ -72,6 +72,7 @@ def _valid_source_path(value):
         or not 1 <= len(value) <= _MAX_PATH_CHARS
         or not _PATH.fullmatch(value)
         or "//" in value
+        or value.endswith("/")
         or any(part in (".", "..") or part.startswith(".")
                for part in value.split("/"))
         or not _allowed_relative_path(value)
