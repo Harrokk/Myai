@@ -2,11 +2,85 @@ import json
 import os
 import stat
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 
 _LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS = {}
+
+_ANCHORED = (
+    os.name == "posix" and hasattr(os, "O_NOFOLLOW")
+    and hasattr(os, "O_DIRECTORY")
+    and all(f in os.supports_dir_fd
+            for f in (os.open, os.stat, os.mkdir, os.rename, os.unlink))
+)
+
+
+@contextmanager
+def _parent_fd(target, *, create=False):
+    absolute = os.path.abspath(os.fspath(target))
+    pieces = Path(absolute).parts
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(pieces[0], flags)
+    try:
+        for part in pieces[1:-1]:
+            if create:
+                try:
+                    os.mkdir(part, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            new_fd = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = new_fd
+        yield fd, pieces[-1]
+    finally:
+        os.close(fd)
+
+
+def _slot(fd, name):
+    try:
+        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise PermissionError("Osäker roterad loggfil.")
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise PermissionError("Osäkra rättigheter för loggfil.")
+    return info
+
+
+def _rotate_fd(fd, name, backups):
+    count = max(0, int(backups))
+    for candidate in [name] + [f"{name}.{i}" for i in range(1, count + 1)]:
+        _slot(fd, candidate)
+    if count == 0:
+        if _slot(fd, name) is not None:
+            os.unlink(name, dir_fd=fd)
+        return
+    if _slot(fd, f"{name}.{count}") is not None:
+        os.unlink(f"{name}.{count}", dir_fd=fd)
+    for index in range(count - 1, 0, -1):
+        source, dest = f"{name}.{index}", f"{name}.{index + 1}"
+        if _slot(fd, source) is not None:
+            _slot(fd, dest)
+            os.rename(source, dest, src_dir_fd=fd, dst_dir_fd=fd)
+    if _slot(fd, name) is not None:
+        _slot(fd, f"{name}.1")
+        os.rename(name, f"{name}.1", src_dir_fd=fd, dst_dir_fd=fd)
+
+
+def _parent_unchanged(fd, target):
+    expected = os.fstat(fd)
+    current = os.stat(
+        os.path.abspath(os.fspath(Path(target).parent)),
+        follow_symlinks=False,
+    )
+    if not stat.S_ISDIR(current.st_mode) or (
+        current.st_dev, current.st_ino
+    ) != (expected.st_dev, expected.st_ino):
+        raise PermissionError("Loggkatalogen byttes ut under skrivning.")
+
 
 
 def _path_lock(path):
@@ -66,6 +140,29 @@ def _open_append_regular(target):
 def read_log_text(path):
     """Read a log using no-follow and inode validation, without mutations."""
     target = Path(path)
+    if _ANCHORED:
+        with _parent_fd(target) as (fd, name):
+            if _slot(fd, name) is None:
+                raise FileNotFoundError(str(target))
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            if hasattr(os, "O_NONBLOCK"):
+                flags |= os.O_NONBLOCK
+            descriptor = os.open(name, flags, dir_fd=fd)
+            try:
+                info = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1
+                ):
+                    raise PermissionError("Osäker loggfil vid läsning.")
+                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                    descriptor = None
+                    content = handle.read()
+                _parent_unchanged(fd, target)
+                return content
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
     _check_parent_path(target)
     _check_existing_regular(target)
     flags = os.O_RDONLY
@@ -101,6 +198,11 @@ def _rotate_file_unlocked(
     backups,
 ):
     count = max(0, int(backups))
+    if _ANCHORED:
+        with _parent_fd(target) as (fd, name):
+            _rotate_fd(fd, name, count)
+            _parent_unchanged(fd, target)
+        return
     _check_parent_path(target)
     # Validate *all* destinations before any unlink or rename. Otherwise a
     # tampered rotation entry could be silently overwritten or skipped.
@@ -180,6 +282,35 @@ def append_jsonl(
     )
 
     with _path_lock(target):
+        if _ANCHORED:
+            with _parent_fd(target, create=True) as (fd, name):
+                meta = _slot(fd, name)
+                if (
+                    limit > 0 and meta is not None
+                    and meta.st_size + encoded_size > limit
+                ):
+                    _rotate_fd(fd, name, backups)
+                flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW
+                if hasattr(os, "O_NONBLOCK"):
+                    flags |= os.O_NONBLOCK
+                descriptor = os.open(name, flags, 0o600, dir_fd=fd)
+                try:
+                    info = os.fstat(descriptor)
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_nlink != 1
+                        or info.st_uid != os.geteuid()
+                        or info.st_mode & 0o022
+                    ):
+                        raise PermissionError("Osäker loggfil vid append.")
+                    with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+                        descriptor = None
+                        handle.write(line)
+                finally:
+                    if descriptor is not None:
+                        os.close(descriptor)
+                _parent_unchanged(fd, target)
+            return target
         _check_parent_path(target)
         # Never treat dangling symlinks as absent files.
         meta = _check_existing_regular(target)
