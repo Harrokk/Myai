@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-ci-source"
-          /home/arduino/MyAI/.venv/bin/python -m pytest -q
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -rs
 
       - name: Summarize test run
         if: always()
