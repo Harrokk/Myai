@@ -97,8 +97,11 @@ def metadata_for_device(path, vendor_gid, geniex):
     return result
 
 
+MAX_DIRECTORY_ENTRIES = 4096
+
+
 def bounded_rules_inventory(roots=RULE_DIRS):
-    """Read only small, non-symlink regular .rules files; export counts/flags."""
+    """Read metadata from pinned rule directories; never follow symlinks."""
     result = {
         "scanned_rule_files": 0,
         "fastrpc_mention_files": 0,
@@ -107,67 +110,86 @@ def bounded_rules_inventory(roots=RULE_DIRS):
         "mode_0640_assignment_seen": False,
         "scan_complete": True,
     }
-    visited_dirs = set()
-    entries_seen = 0
-    if not hasattr(os, "O_NOFOLLOW"):
+    required_flags = ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")
+    if any(not hasattr(os, name) for name in required_flags):
         result["scan_complete"] = False
         return result
+
+    visited_dirs = set()
+    files_seen = 0
+    directory_entries_seen = 0
+    common_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     for root in roots:
+        dir_fd = None
         try:
-            st = root.lstat()
-            if not stat.S_ISDIR(st.st_mode):
-                # Never follow rule-root symlinks; disclose that coverage is partial.
+            # Pin the directory inode to close the lstat/open race. All files
+            # are opened relative to this exact directory using dir_fd.
+            dir_fd = os.open(root, common_flags | os.O_DIRECTORY)
+            directory_stat = os.fstat(dir_fd)
+            if not stat.S_ISDIR(directory_stat.st_mode):
                 result["scan_complete"] = False
                 continue
-            identity = (st.st_dev, st.st_ino)
+            identity = (directory_stat.st_dev, directory_stat.st_ino)
             if identity in visited_dirs:
                 continue
             visited_dirs.add(identity)
-            with os.scandir(root) as iterator:
-                entries = sorted(
-                    (entry.path, entry.name) for entry in iterator
-                    if entry.name.endswith(".rules")
-                )
+
+            filenames = []
+            with os.scandir(dir_fd) as iterator:
+                for entry in iterator:
+                    directory_entries_seen += 1
+                    if directory_entries_seen > MAX_DIRECTORY_ENTRIES:
+                        result["scan_complete"] = False
+                        return result
+                    if entry.name.endswith(".rules"):
+                        files_seen += 1
+                        if files_seen > MAX_RULE_ENTRIES:
+                            result["scan_complete"] = False
+                            return result
+                        filenames.append(entry.name)
+
+            for name in sorted(filenames):
+                fd = None
+                try:
+                    # Nonblocking prevents unexpected FIFO/device reads from
+                    # hanging, even if an attacker substituted a .rules entry.
+                    fd = os.open(
+                        name, common_flags | os.O_NONBLOCK, dir_fd=dir_fd
+                    )
+                    info = os.fstat(fd)
+                    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_RULE_BYTES:
+                        result["scan_complete"] = False
+                        continue
+                    data = os.read(fd, MAX_RULE_BYTES + 1)
+                    if len(data) > MAX_RULE_BYTES:
+                        result["scan_complete"] = False
+                        continue
+                except OSError:
+                    result["scan_complete"] = False
+                    continue
+                finally:
+                    if fd is not None:
+                        os.close(fd)
+
+                result["scanned_rule_files"] += 1
+                data = data.lower()
+                if b"fastrpc" in data:
+                    result["fastrpc_mention_files"] += 1
+                if b"dma_heap" in data:
+                    result["dma_heap_mention_files"] += 1
+                if re.search(rb'\bgroup\s*={1,2}\s*"fastrpc"', data):
+                    result["fastrpc_group_assignment_seen"] = True
+                if re.search(rb'\bmode\s*={1,2}\s*"0640"', data):
+                    result["mode_0640_assignment_seen"] = True
+
         except FileNotFoundError:
             continue
         except OSError:
+            # Includes a symlinked policy directory: never follow it.
             result["scan_complete"] = False
-            continue
-        for filename, _ in entries:
-            entries_seen += 1
-            if entries_seen > MAX_RULE_ENTRIES:
-                result["scan_complete"] = False
-                return result
-            fd = None
-            try:
-                fd = os.open(
-                    filename, os.O_RDONLY | os.O_NOFOLLOW
-                    | getattr(os, "O_CLOEXEC", 0)
-                )
-                info = os.fstat(fd)
-                if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_RULE_BYTES:
-                    result["scan_complete"] = False
-                    continue
-                data = os.read(fd, MAX_RULE_BYTES + 1)
-                if len(data) > MAX_RULE_BYTES:
-                    result["scan_complete"] = False
-                    continue
-            except OSError:
-                result["scan_complete"] = False
-                continue
-            finally:
-                if fd is not None:
-                    os.close(fd)
-            result["scanned_rule_files"] += 1
-            data = data.lower()
-            if b"fastrpc" in data:
-                result["fastrpc_mention_files"] += 1
-            if b"dma_heap" in data:
-                result["dma_heap_mention_files"] += 1
-            if re.search(rb'\bgroup\s*={1,2}\s*"fastrpc"', data):
-                result["fastrpc_group_assignment_seen"] = True
-            if re.search(rb'\bmode\s*={1,2}\s*"0640"', data):
-                result["mode_0640_assignment_seen"] = True
+        finally:
+            if dir_fd is not None:
+                os.close(dir_fd)
     return result
 
 
