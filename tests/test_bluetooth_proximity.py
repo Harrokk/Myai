@@ -125,3 +125,18 @@ def test_bluetooth_nearby_handles_missing_bleak(monkeypatch):
     result = proximity.bluetooth_nearby()
 
     assert "bleak" in result.lower()
+
+
+def test_missing_or_invalid_rssi_is_not_near_or_distance():
+    for rssi in (0, 1, 99, -200, True, False, float("nan"),
+                 float("inf"), float("-inf"), "-55", "invalid", {}, []):
+        assert proximity.classify_proximity(rssi) == "okänd", repr(rssi)
+        assert proximity.estimate_distance_meters(rssi) is None, repr(rssi)
+
+
+def test_normalized_zero_signal_does_not_claim_close_distance():
+    device = SimpleNamespace(name="Unknown strength", address="AA:BB")
+    advertisement = SimpleNamespace(local_name=None, rssi=0, tx_power=None)
+    item = proximity.normalize_observation(device, advertisement)
+    assert item["estimated_distance_m"] is None
+    assert item["proximity"] == "okänd"

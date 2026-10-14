@@ -1,3 +1,6 @@
+import math
+
+
 DEFAULT_CONNECT_RSSI = -60
 DEFAULT_DISCONNECT_RSSI = -75
 
@@ -57,11 +60,17 @@ def evaluate_terminal_connection(
 
     rssi = observation.get("rssi")
 
-    if rssi is None:
+    # RSSI=0 represents an unknown signal in some BLE backends.
+    if (
+        isinstance(rssi, bool)
+        or not isinstance(rssi, (int, float))
+        or not (-128 <= rssi < 0)
+        or not math.isfinite(rssi)
+    ):
         return {
             "action": "none",
             "allowed": False,
-            "reason": "RSSI saknas; närheten kan inte bedömas säkert.",
+            "reason": "RSSI saknas eller är ogiltigt; anslutning nekad.",
         }
 
     connect_rssi = terminal.get(
@@ -73,7 +82,15 @@ def evaluate_terminal_connection(
         config.get("disconnect_rssi", DEFAULT_DISCONNECT_RSSI),
     )
 
-    if disconnect_rssi >= connect_rssi:
+    if (
+        isinstance(connect_rssi, bool)
+        or isinstance(disconnect_rssi, bool)
+        or not isinstance(connect_rssi, (int, float))
+        or not isinstance(disconnect_rssi, (int, float))
+        or not math.isfinite(connect_rssi)
+        or not math.isfinite(disconnect_rssi)
+        or not (-128 <= disconnect_rssi < connect_rssi < 0)
+    ):
         return {
             "action": "none",
             "allowed": False,

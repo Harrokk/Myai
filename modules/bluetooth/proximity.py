@@ -16,10 +16,15 @@ def estimate_distance_meters(
     if rssi is None:
         return None
 
-    rssi = int(rssi)
-
-    if rssi == 0:
+    if (
+        isinstance(rssi, bool)
+        or not isinstance(rssi, (int, float))
+        or not math.isfinite(rssi)
+        or not (-128 <= rssi < 0)
+    ):
         return None
+
+    rssi = int(rssi)
 
     if path_loss_exponent <= 0:
         raise ValueError("path_loss_exponent måste vara större än 0")
@@ -40,6 +45,14 @@ def estimate_distance_meters(
 def classify_proximity(rssi):
     """Klassificera RSSI till en försiktig närhetsnivå."""
     if rssi is None:
+        return "okänd"
+
+    if (
+        isinstance(rssi, bool)
+        or not isinstance(rssi, (int, float))
+        or not math.isfinite(rssi)
+        or not (-128 <= rssi < 0)
+    ):
         return "okänd"
 
     rssi = int(rssi)
