@@ -1,0 +1,42 @@
+name: VENTUNO tiny synthetic QAIRT HTP prerequisites (no inference)
+on:
+  push:
+    branches: [dev/ventuno-qnn-tiny-htp-feasibility-20261014]
+    paths:
+      - .github/workflows/ventuno-tiny-qnn-no-inference-preflight.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ci-ventuno
+  cancel-in-progress: false
+jobs:
+  tiny-qnn-preflight:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact source revision into temporary checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-tiny-qnn-no-inference"
+          cd "$RUNNER_TEMP/myai-tiny-qnn-no-inference"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Report only small synthetic QNN prerequisite booleans
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-tiny-qnn-no-inference"
+          timeout --signal=TERM --kill-after=3s 80s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_tiny_qnn_htp_readiness
+          echo 'No qnn-net-run model execution, audio, service restart or installation.'
