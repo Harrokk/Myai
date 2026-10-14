@@ -4,6 +4,10 @@ on:
     branches: [dev/ventuno-qairt246-host-htp-preflight-20261014]
     paths:
       - .github/workflows/ventuno-qairt246-offhost-preflight.yml
+      - scripts/ventuno_qairt246_offhost_htp_preflight.py
+      - scripts/ventuno_qai_hub_offhost_target_policy.py
+      - tests/test_ventuno_qairt246_offhost_htp_preflight.py
+      - tests/test_ventuno_qai_hub_offhost_target_policy.py
 permissions:
   contents: read
 concurrency:
