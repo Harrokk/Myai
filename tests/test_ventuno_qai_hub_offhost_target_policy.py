@@ -44,7 +44,7 @@ def test_credentials_alone_are_insufficient_for_upload():
         ai_hub_version_246_listed=True,
         credential_available=True,
     )
-    assert r["status"] == "no_go_cloud_upload_not_explicitly_authorized"
+    assert r["status"] == "no_go_246_catalog_claim_not_live_attested"
     assert r["model_uploaded"] is False
 
 
@@ -54,7 +54,7 @@ def test_requires_separate_cloud_upload_and_job_permissions():
         credential_available=True,
         cloud_model_upload_authorized=True,
     )
-    assert r["status"] == "no_go_cloud_job_not_explicitly_authorized"
+    assert r["status"] == "no_go_246_catalog_claim_not_live_attested"
     assert r["cloud_compile_or_link_submitted"] is False
 
 
@@ -65,7 +65,7 @@ def test_even_all_claims_do_not_trigger_job():
         cloud_model_upload_authorized=True,
         job_submission_authorized=True,
     )
-    assert r["status"] == "manual_service_and_model_review_required_no_submission"
+    assert r["status"] == "no_go_246_catalog_claim_not_live_attested"
     assert r["cloud_compile_or_link_submitted"] is False
     assert r["model_uploaded"] is False
     assert r["npu_inference_or_placement_verified"] is False
@@ -98,3 +98,17 @@ def test_public_report_never_contains_tokens_identity_or_private_paths():
     assert len(r["source_model_expected_sha256"]) == 64
     assert r["ventuno_accessed_or_modified"] is False
     assert r["no_api_tokens_or_personal_data_exported"] is True
+
+
+def test_caller_boolean_cannot_attest_live_qairt_version():
+    r = policy.evaluate_target(
+        ai_hub_version_246_listed=True,
+        credential_available=True,
+        cloud_model_upload_authorized=True,
+        job_submission_authorized=True,
+    )
+    assert r["qairt_246_catalog_availability_claimed_not_attested"] is True
+    assert r["qairt_246_in_live_service_catalog_verified"] is False
+    assert r["status"] == "no_go_246_catalog_claim_not_live_attested"
+    assert r["cloud_compile_or_link_submitted"] is False
+    assert r["npu_inference_or_placement_verified"] is False

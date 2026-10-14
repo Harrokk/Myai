@@ -1,0 +1,61 @@
+name: Qualcomm QAIRT 2.46 catalog snapshot offline verifier
+on:
+  push:
+    branches: [dev/ventuno-qai-hub-catalog-evidence-20261014]
+    paths:
+      - .github/workflows/ventuno-qai-hub-catalog-snapshot-offline.yml
+      - scripts/ventuno_qai_hub_framework_catalog_readonly.py
+      - scripts/ventuno_qai_hub_offhost_target_policy.py
+      - tests/test_ventuno_qai_hub_framework_catalog_readonly.py
+      - tests/test_ventuno_qai_hub_offhost_target_policy.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-qairt-catalog-snapshot-20261014
+  cancel-in-progress: false
+jobs:
+  offline-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact SHA to disposable GitHub-hosted x86 directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-qairt-catalog.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "CATALOG_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install only pinned pytest in disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-catalog-venv"
+          "$RUNNER_TEMP/myai-catalog-venv/bin/python" -m pip install             --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+      - name: Verify normal catalog absence is NO-GO and test isolated synthetic snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CATALOG_SCRATCH"
+          "$RUNNER_TEMP/myai-catalog-venv/bin/python" -B -m pytest -q             tests/test_ventuno_qai_hub_framework_catalog_readonly.py             tests/test_ventuno_qai_hub_offhost_target_policy.py
+          "$RUNNER_TEMP/myai-catalog-venv/bin/python" -B             -m scripts.ventuno_qai_hub_framework_catalog_readonly
+          "$RUNNER_TEMP/myai-catalog-venv/bin/python" -B             -m scripts.ventuno_qai_hub_offhost_target_policy
+          echo 'Only fake catalog data tested. No Qualcomm API token, get_frameworks() network call, upload, QNN, DSP or service change.'
+      - name: Remove disposable snapshot verifier
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${CATALOG_SCRATCH:-}" ]; then
+            rm -rf -- "$CATALOG_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-catalog-venv"
