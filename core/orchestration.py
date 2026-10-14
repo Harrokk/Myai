@@ -203,13 +203,30 @@ def _status_hint_tools(
 def _explicit_capture_requested(
     user_input,
 ):
-    text = str(
-        user_input
-        or ""
-    ).lower()
+    text = " ".join(
+        str(
+            user_input
+            or ""
+        ).lower().split()
+    )
+
+    # Never interpret a negated capture phrase as permission to use
+    # the camera. For mixed commands, fail closed and ask for a
+    # separate unambiguous capture instruction.
+    if re.search(
+        r"(?<!\w)(?:inte|ej|aldrig|icke|ingen|inget|inga|nej|"
+        r"not|never|don't|do not)(?!\w)",
+        text,
+    ):
+        return False
 
     return any(
-        phrase in text
+        re.search(
+            r"(?<!\w)"
+            + re.escape(phrase)
+            + r"(?!\w)",
+            text,
+        )
         for phrase in _EXPLICIT_CAPTURE_PHRASES
     )
 

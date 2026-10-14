@@ -733,3 +733,45 @@ def test_status_hints_still_match_complete_status_words():
         "ram_status",
         "disk_status",
     ]
+
+
+def test_local_capture_negations_never_authorize_orchestration():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    available = tools("camera_capture", "cpu_status")
+
+    def detect(_text):
+        return ["camera_capture", "cpu_status"]
+
+    for message in (
+        "Fotografera inte och visa CPU status",
+        "Fotografera aldrig; visa CPU status",
+        "Ta en bild, nej inte nu, visa CPU status",
+        "Please do not capture image and show CPU status",
+        "Never capture photo; show CPU status",
+    ):
+        plan = build_safe_orchestration_plan(
+            message,
+            available_tools=available,
+            detect_function=detect,
+            settings=settings,
+        )
+        assert "camera_capture" in plan["blocked_tools"], message
+        assert not any(
+            step["tool"] == "camera_capture"
+            for step in plan["steps"]
+        ), message
+
+
+def test_explicit_nonnegated_capture_remains_orchestration_safe():
+    settings = deepcopy(DEFAULT_SETTINGS)
+    plan = build_safe_orchestration_plan(
+        "Ta en bild och visa CPU status",
+        available_tools=tools("camera_capture", "cpu_status"),
+        detect_function=lambda _text: ["camera_capture", "cpu_status"],
+        settings=settings,
+    )
+    assert "camera_capture" not in plan["blocked_tools"]
+    assert any(
+        step["tool"] == "camera_capture"
+        for step in plan["steps"]
+    )
