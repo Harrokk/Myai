@@ -67,10 +67,11 @@ def test_only_two_allowlisted_read_calls_with_explicit_consent():
     assert client.calls == [
         ("get_frameworks",), ("get_devices", "Arduino VENTUNO Q", "24.04")
     ]
-    assert result["status"] == "read_only_catalog_and_target_listed_htp_unverified"
+    assert result["status"] == "injected_catalog_fixture_only_not_live_verified"
     assert result["query_completed"] is True
     assert result["exact_ubuntu_2404_target_verified"] is True
-    assert result["live_qairt_246_catalog_reported"] is True
+    assert result["source_is_injected_client_not_attested"] is True
+    assert result["live_qairt_246_catalog_reported"] is False
     assert result["exact_target_qairt_246_compile_link_eligibility_verified"] is False
     assert result["htp_operator_support_verified"] is False
     assert result["model_or_context_uploaded"] is False
@@ -217,3 +218,47 @@ def test_device_with_missing_os_is_rejected():
     )
     assert result["status"] == "no_go_untrusted_or_ambiguous_service_response"
     assert result["exact_ubuntu_2404_target_verified"] is False
+
+
+def test_plausible_injected_frameworks_cannot_claim_authenticated_catalog():
+    """Exact matching fake objects do not establish live service provenance."""
+    injected = Client(
+        frameworks=[f(version="2.46", full="2.46.0.260800")],
+        devices=[device(name="Arduino VENTUNO Q", os="24.04")],
+    )
+    r = api.run_readonly_query(
+        confirm=True, machine="x86_64", client_factory=lambda: injected
+    )
+    assert injected.calls == [
+        ("get_frameworks",), ("get_devices", "Arduino VENTUNO Q", "24.04")
+    ]
+    assert r["qairt_246_in_returned_frameworks"] is True
+    assert r["exact_ubuntu_2404_target_verified"] is True
+    assert r["query_completed"] is True
+    assert r["status"] == "injected_catalog_fixture_only_not_live_verified"
+    assert r["source_is_injected_client_not_attested"] is True
+    assert r["live_qairt_246_catalog_reported"] is False
+    assert r["exact_target_qairt_246_compile_link_eligibility_verified"] is False
+    assert r["cloud_job_submitted"] is False
+
+
+def test_default_without_optin_neither_initializes_nor_attests_client():
+    r = api.run_readonly_query(
+        confirm=False, machine="x86_64", client_factory=Client,
+    )
+    assert r["status"] == "no_go_readonly_api_not_authorized"
+    assert r["query_attempted"] is False
+    assert r["source_is_injected_client_not_attested"] is False
+    assert r["live_qairt_246_catalog_reported"] is False
+
+
+def test_injected_mismatching_client_never_marked_live():
+    r = api.run_readonly_query(
+        confirm=True, machine="x86_64",
+        client_factory=lambda: Client(
+            frameworks=[f(version="2.45", full="2.45.0")],
+        ),
+    )
+    assert r["status"] == "no_go_qairt_246_not_in_returned_catalog"
+    assert r["source_is_injected_client_not_attested"] is True
+    assert r["live_qairt_246_catalog_reported"] is False
