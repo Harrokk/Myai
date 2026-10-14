@@ -199,3 +199,88 @@ def test_htp_host_lib_gate_keeps_two_safe_files_but_rejects_third(monkeypatch):
     assert "libQnnHtpV75Stub.so" in selected
     assert "libQnnModelDlc.so" not in selected
     assert len(selected) == 2
+
+
+
+def _complete_geniex_without_open_fastrpc():
+    return {
+        "status": "inconclusive-backend-association",
+        "service_mainpid_present": True,
+        "geniex_process_count": 1,
+        "complete_fast_rpc_fd_scan": True,
+        "complete_process_maps": True,
+        "fast_rpc_secure_fd_open": False,
+    }
+
+
+def test_fast_rpc_unknown_never_counts_as_safe_htp_quiescence():
+    for observation in (
+        None, {}, {"fast_rpc_secure_fd_open": None},
+        {"fast_rpc_secure_fd_open": False},
+        {**_complete_geniex_without_open_fastrpc(),
+         "complete_fast_rpc_fd_scan": False},
+        {**_complete_geniex_without_open_fastrpc(),
+         "complete_process_maps": False},
+        {**_complete_geniex_without_open_fastrpc(),
+         "service_mainpid_present": False},
+        {**_complete_geniex_without_open_fastrpc(),
+         "geniex_process_count": 0},
+        {**_complete_geniex_without_open_fastrpc(),
+         "geniex_process_count": True},
+    ):
+        assert module.assess_geniex_concurrency(observation) == (
+            "no_go_geniex_service_state_unknown"
+        )
+
+
+def test_busy_fast_rpc_blocks_even_when_observation_otherwise_incomplete():
+    assert module.assess_geniex_concurrency(
+        {"fast_rpc_secure_fd_open": True}
+    ) == "no_go_existing_geniex_fastrpc_busy"
+
+
+def test_even_completely_scanned_live_geniex_is_not_safe_for_second_htp():
+    result = module.assess_geniex_concurrency(
+        _complete_geniex_without_open_fastrpc()
+    )
+    assert result == "no_go_geniex_active_concurrent_htp_unsafe"
+
+
+def test_explicit_htp_optin_cannot_bypass_unknown_geniex_state(monkeypatch):
+    monkeypatch.setenv("MYAI_ALLOW_ONE_TINY_QNN_HTP_ATTEMPT", "yes")
+    monkeypatch.setattr(module.platform, "machine", lambda: "aarch64")
+    calls = []
+    monkeypatch.setattr(module, "available_memory_kib",
+                        lambda: calls.append("ram") or (12 * 1048576))
+    monkeypatch.setattr(module, "main_pid_from_systemd", lambda: None)
+    monkeypatch.setattr(module, "summarize_service", lambda *_: {})
+    monkeypatch.setattr(
+        module, "verify_fixture", lambda *_:
+        (_ for _ in ()).throw(AssertionError("fixture reached")))
+    monkeypatch.setattr(
+        module.subprocess, "run", lambda *args, **kwargs:
+        (_ for _ in ()).throw(AssertionError("vendor binary launched")))
+    output = module.run_once()
+    assert output["status"] == "no_go_geniex_service_state_unknown"
+    assert output["htp_attempted"] is False
+    assert calls == ["ram"]
+
+
+def test_explicit_optin_cannot_race_active_geniex_after_fd_scan(monkeypatch):
+    monkeypatch.setenv("MYAI_ALLOW_ONE_TINY_QNN_HTP_ATTEMPT", "yes")
+    monkeypatch.setattr(module.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(module, "available_memory_kib", lambda: 12 * 1048576)
+    monkeypatch.setattr(module, "main_pid_from_systemd", lambda: 123)
+    monkeypatch.setattr(
+        module, "summarize_service",
+        lambda *_: _complete_geniex_without_open_fastrpc())
+    monkeypatch.setattr(
+        module, "verify_fixture", lambda *_:
+        (_ for _ in ()).throw(AssertionError("fixture reached")))
+    monkeypatch.setattr(
+        module.subprocess, "run", lambda *args, **kwargs:
+        (_ for _ in ()).throw(AssertionError("vendor binary launched")))
+    output = module.run_once()
+    assert output["status"] == "no_go_geniex_active_concurrent_htp_unsafe"
+    assert output["htp_attempted"] is False
+    assert output["htp_inference_verified"] is False

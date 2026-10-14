@@ -30,6 +30,34 @@ from scripts.ventuno_v75_elf_fastrpc_readonly import inspect_resolved_skel
 from scripts.ventuno_qnn_native_result_attestation import attest_native_output
 
 
+def assess_geniex_concurrency(live):
+    """Fail closed on any active/unknown GenieX state.
+
+    A momentary absence of a secure FastRPC fd is *not* a durable
+    quiescence guarantee: the running GenieX may open a DSP session
+    immediately after a /proc scan. Never run a second HTP client
+    alongside GenieX. Separate evidence of a stopped service and
+    explicit vendor-approved test procedure would need a new gate.
+    """
+    if not isinstance(live, dict):
+        return "no_go_geniex_service_state_unknown"
+    if live.get("fast_rpc_secure_fd_open") is True:
+        return "no_go_existing_geniex_fastrpc_busy"
+    if (
+        live.get("service_mainpid_present") is not True
+        or type(live.get("geniex_process_count")) is not int
+        or live["geniex_process_count"] < 1
+        or live.get("complete_fast_rpc_fd_scan") is not True
+        or live.get("complete_process_maps") is not True
+        or type(live.get("fast_rpc_secure_fd_open")) is not bool
+    ):
+        return "no_go_geniex_service_state_unknown"
+    # Even with complete point-in-time maps and fd scans, a live
+    # process may start accelerator work after observation. Do not
+    # infer safe concurrent HTP use from the lack of an open fd.
+    return "no_go_geniex_active_concurrent_htp_unsafe"
+
+
 MIN_AVAILABLE_KIB = 8 * 1048576
 INPUT_SHA = "19a0129fd39c4e7495d7c3cc5e9ffe28220d9239ecb945b79d34f714e4ccdb15"
 NEEDED = frozenset({
@@ -152,12 +180,14 @@ def run_once():
     if os.environ.get("MYAI_ALLOW_ONE_TINY_QNN_HTP_ATTEMPT") != "yes":
         result["status"] = "no_go_not_authorized"
         return result
-    if available_memory_kib() is None or available_memory_kib() < MIN_AVAILABLE_KIB:
+    available_kib = available_memory_kib()
+    if available_kib is None or available_kib < MIN_AVAILABLE_KIB:
         result["status"] = "no_go_insufficient_ram"
         return result
     live = summarize_service(Path("/proc"), main_pid_from_systemd())
-    if live.get("fast_rpc_secure_fd_open") is True:
-        result["status"] = "no_go_existing_geniex_fastrpc_busy"
+    concurrent_risk = assess_geniex_concurrency(live)
+    if concurrent_risk:
+        result["status"] = concurrent_risk
         return result
     checked = verify_fixture(DEFAULT_FIXTURE)
     if checked.get("file_identity_verified") is not True:
