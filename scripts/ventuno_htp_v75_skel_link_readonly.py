@@ -20,12 +20,13 @@ HOST_LIBS = {
 ALLOWED_PACKAGES = frozenset(("qairt-dsp-binaries", "qairt-libs"))
 MAX_OUTPUT = 8192
 TRUSTED_VENDOR_ROOTS = {
-    "usr_lib": Path("/usr/lib"),
-    "usr_local_lib": Path("/usr/local/lib"),
+    "usr_lib_dsp": Path("/usr/lib/dsp"),
     "usr_lib_firmware": Path("/usr/lib/firmware"),
     "lib_firmware": Path("/lib/firmware"),
-    "opt_qcom": Path("/opt/qcom"),
+    "usr_local_lib": Path("/usr/local/lib"),
     "opt_qualcomm": Path("/opt/qualcomm"),
+    "opt_qcom": Path("/opt/qcom"),
+    "usr_lib_other": Path("/usr/lib"),
 }
 
 
