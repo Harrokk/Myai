@@ -109,11 +109,15 @@ def bounded_rules_inventory(roots=RULE_DIRS):
     }
     visited_dirs = set()
     entries_seen = 0
+    if not hasattr(os, "O_NOFOLLOW"):
+        result["scan_complete"] = False
+        return result
     for root in roots:
         try:
             st = root.lstat()
             if not stat.S_ISDIR(st.st_mode):
-                # Symlinked vendor rules trees intentionally not traversed.
+                # Never follow rule-root symlinks; disclose that coverage is partial.
+                result["scan_complete"] = False
                 continue
             identity = (st.st_dev, st.st_ino)
             if identity in visited_dirs:
@@ -137,7 +141,7 @@ def bounded_rules_inventory(roots=RULE_DIRS):
             fd = None
             try:
                 fd = os.open(
-                    filename, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                    filename, os.O_RDONLY | os.O_NOFOLLOW
                     | getattr(os, "O_CLOEXEC", 0)
                 )
                 info = os.fstat(fd)
