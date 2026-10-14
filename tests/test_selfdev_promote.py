@@ -1484,3 +1484,97 @@ def test_repeat_recovery_after_second_process_interruption(tmp_path, monkeypatch
         encoding="utf-8"
     ) == "def test_ok():\n    assert True\n"
     assert not (project / "tests" / "test_new.py").exists()
+
+
+def test_journal_duplicate_state_fields_are_rejected_before_recovery(tmp_path, monkeypatch):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    raw = path.read_text(encoding="utf-8")
+    path.write_text(raw.replace(
+        '"state": "prepared",',
+        '"state": "completed", "state": "prepared",',
+        1,
+    ), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="JSON är ogiltig"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_journal_rejects_hardlink_and_nonregular_record(tmp_path, monkeypatch):
+    import os
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    alias = tmp_path / "duplicate-journal.json"
+    os.link(path, alias)
+    with pytest.raises(RuntimeError, match="Osäker"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_large_journal_is_rejected_before_parsing(tmp_path, monkeypatch):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    path.write_bytes(b"x" * (1024 * 1024 + 1))
+    with pytest.raises(RuntimeError, match="för stor"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_journal_rejects_nonfinite_json_number(tmp_path, monkeypatch):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    raw = path.read_text(encoding="utf-8")
+    path.write_text(raw.replace(
+        '"rolled_back": false', '"rolled_back": NaN', 1
+    ), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="JSON är ogiltig"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_new_integrity_key_is_complete_private_and_hardlink_free(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    directory = project / "runtime" / "selfdev"
+    key = directory / ".journal-integrity-key"
+    import stat
+    info = key.lstat()
+    assert info.st_size == 32
+    assert info.st_nlink == 1
+    assert stat.S_ISREG(info.st_mode)
+    assert info.st_mode & 0o077 == 0
+    assert not list(directory.glob(".journal-key.*"))
+
+
+def test_corrupt_existing_integrity_key_is_never_regenerated(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    key = project / "runtime" / "selfdev" / ".journal-integrity-key"
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.write_bytes(b"short")
+    with pytest.raises(RuntimeError, match="integritetsnyckel"):
+        active.promote("PROMOTE session1")
+    assert key.read_bytes() == b"short"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
