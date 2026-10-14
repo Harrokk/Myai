@@ -15,6 +15,9 @@ except ImportError:
 _LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS = {}
 
+_MAX_READ_BYTES = 8 * 1024 * 1024
+_MAX_BACKUPS = 128
+
 _ANCHORED = (
     os.name == "posix" and fcntl is not None
     and hasattr(os, "O_NOFOLLOW")
@@ -40,6 +43,15 @@ def _parent_fd(target, *, create=False):
             new_fd = os.open(part, flags, dir_fd=fd)
             os.close(fd)
             fd = new_fd
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022
+        ):
+            raise PermissionError(
+                "Loggkatalogen har osäkert ägarskap eller skrivrättigheter."
+            )
         yield fd, pieces[-1]
     finally:
         os.close(fd)
@@ -109,8 +121,15 @@ def _process_log_lock(parent_fd, name):
         os.close(lock_fd)
 
 
-def _rotate_fd(fd, name, backups):
+def _validated_backup_count(backups):
     count = max(0, int(backups))
+    if count > _MAX_BACKUPS:
+        raise ValueError("För många rotationskopior har begärts.")
+    return count
+
+
+def _rotate_fd(fd, name, backups):
+    count = _validated_backup_count(backups)
     for candidate in [name] + [f"{name}.{i}" for i in range(1, count + 1)]:
         _slot(fd, candidate)
     if count == 0:
@@ -223,11 +242,15 @@ def read_log_text(path):
                     or info.st_nlink != 1
                 ):
                     raise PermissionError("Osäker loggfil vid läsning.")
-                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                if info.st_size > _MAX_READ_BYTES:
+                    raise ValueError("Audit-loggen är för stor för säker läsning.")
+                with os.fdopen(descriptor, "rb") as handle:
                     descriptor = None
-                    content = handle.read()
+                    data = handle.read(_MAX_READ_BYTES + 1)
+                if len(data) > _MAX_READ_BYTES:
+                    raise ValueError("Audit-loggen är för stor för säker läsning.")
                 _parent_unchanged(fd, target)
-                return content
+                return data.decode("utf-8")
             finally:
                 if descriptor is not None:
                     os.close(descriptor)
@@ -243,9 +266,14 @@ def read_log_text(path):
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise PermissionError("Osäker loggfil vid läsning.")
-        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+        if info.st_size > _MAX_READ_BYTES:
+            raise ValueError("Audit-loggen är för stor för säker läsning.")
+        with os.fdopen(descriptor, "rb") as handle:
             descriptor = None
-            return handle.read()
+            data = handle.read(_MAX_READ_BYTES + 1)
+        if len(data) > _MAX_READ_BYTES:
+            raise ValueError("Audit-loggen är för stor för säker läsning.")
+        return data.decode("utf-8")
     finally:
         if descriptor is not None:
             os.close(descriptor)
@@ -265,7 +293,7 @@ def _rotate_file_unlocked(
     *,
     backups,
 ):
-    count = max(0, int(backups))
+    count = _validated_backup_count(backups)
     if _ANCHORED:
         with _parent_fd(target) as (fd, name):
             with _process_log_lock(fd, name):
@@ -350,6 +378,7 @@ def append_jsonl(
             max_bytes
         ),
     )
+    backups = _validated_backup_count(backups)
 
     with _path_lock(target):
         if _ANCHORED:

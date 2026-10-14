@@ -538,3 +538,47 @@ def test_durable_append_fsyncs_data_and_directory(tmp_path, monkeypatch):
     assert any(stat.S_ISREG(mode) for mode in modes)
     assert any(stat.S_ISDIR(mode) for mode in modes)
     assert read_lines(path) == [{"important": True}]
+
+
+def test_parent_log_directory_group_writable_fails_closed(tmp_path):
+    import os
+    import pytest
+    from core import jsonl_log as module
+    if not module._ANCHORED:
+        pytest.skip("POSIX anchored I/O required")
+    directory = tmp_path / "group-shared"
+    directory.mkdir()
+    os.chmod(directory, 0o775)
+    with pytest.raises(PermissionError, match="Loggkatalogen"):
+        append_jsonl(directory / "audit.jsonl", {"action": "deny"})
+    assert not (directory / "audit.jsonl").exists()
+
+
+def test_excessive_log_rotation_count_is_rejected(tmp_path):
+    import pytest
+    path = tmp_path / "audit.jsonl"
+    with pytest.raises(ValueError, match="rotationskopior"):
+        append_jsonl(path, {"a": 1}, backups=1000000)
+    assert not path.exists()
+    path.write_text("CURRENT", encoding="utf-8")
+    with pytest.raises(ValueError, match="rotationskopior"):
+        rotate_file(path, backups=1000000)
+    assert path.read_text(encoding="utf-8") == "CURRENT"
+
+
+def test_bounded_log_reader_rejects_oversized_file(tmp_path):
+    import pytest
+    from core import jsonl_log as module
+
+    path = tmp_path / "audit.jsonl"
+    path.write_bytes(b"X" * (module._MAX_READ_BYTES + 1))
+    with pytest.raises(ValueError, match="för stor"):
+        module.read_log_text(path)
+
+
+def test_bounded_log_reader_allows_small_valid_unicode(tmp_path):
+    from core import jsonl_log as module
+
+    path = tmp_path / "audit.jsonl"
+    path.write_text("åäö\n", encoding="utf-8")
+    assert module.read_log_text(path) == "åäö\n"

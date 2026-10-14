@@ -386,6 +386,7 @@ def read_recent_audit(
             FileNotFoundError,
             OSError,
             UnicodeError,
+            ValueError,
         ):
             continue
 
