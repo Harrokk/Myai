@@ -115,6 +115,7 @@ def process_evidence(proc_root: Path, pid: int) -> dict[str, object]:
         "fast_rpc_secure_fd_open": False,
         "fd_scan_capped": False,
         "fd_readable": False,
+        "fd_links_complete": False,
     }
     try:
         with (root / "maps").open("rb") as stream:
@@ -130,6 +131,7 @@ def process_evidence(proc_root: Path, pid: int) -> dict[str, object]:
         with os.scandir(root / "fd") as entries:
             count = 0
             result["fd_readable"] = True
+            result["fd_links_complete"] = True
             for entry in entries:
                 count += 1
                 if count > MAX_FDS:
@@ -138,6 +140,9 @@ def process_evidence(proc_root: Path, pid: int) -> dict[str, object]:
                 try:
                     destination = os.readlink(entry.path)
                 except OSError:
+                    # A vanished/unreadable descriptor can hide an open
+                    # FastRPC handle: absence is no longer proven.
+                    result["fd_links_complete"] = False
                     continue
                 if destination == "/dev/fastrpc-cdsp-secure":
                     result["fast_rpc_secure_fd_open"] = True
@@ -153,6 +158,7 @@ def summarize_service(proc_root: Path, main_pid: int | None) -> dict[str, object
         "geniex_process_count": 0,
         "mapped_libraries": {name: False for name in LIBRARIES},
         "fast_rpc_secure_fd_open": False,
+        "complete_fast_rpc_fd_scan": False,
         "complete_process_maps": False,
         "runtime_backend_evidence": False,
         "actual_context_order_proven": False,
@@ -178,6 +184,12 @@ def summarize_service(proc_root: Path, main_pid: int | None) -> dict[str, object
         o["fast_rpc_secure_fd_open"] for o in observations
     )
     base["complete_process_maps"] = all(o["maps_readable"] for o in observations)
+    base["complete_fast_rpc_fd_scan"] = all(
+        o["fd_readable"] is True
+        and o["fd_scan_capped"] is False
+        and o["fd_links_complete"] is True
+        for o in observations
+    )
     base["runtime_backend_evidence"] = bool(
         base["mapped_libraries"]["libQnnHtp.so"]
         and base["fast_rpc_secure_fd_open"]
