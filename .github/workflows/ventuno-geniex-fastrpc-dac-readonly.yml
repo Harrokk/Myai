@@ -1,0 +1,41 @@
+name: VENTUNO compare GenieX vs runner FastRPC DAC read-only
+on:
+  push:
+    branches: [dev/ventuno-fastrpc-access-readonly-20261014]
+    paths:
+      - .github/workflows/ventuno-geniex-fastrpc-dac-readonly.yml
+permissions:
+  contents: read
+concurrency:
+  group: myai-geniex-fastrpc-dac-metadata
+  cancel-in-progress: false
+jobs:
+  metadata:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Checkout exact source to runner scratch directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-geniex-fastrpc-dac-check"
+          cd "$RUNNER_TEMP/myai-geniex-fastrpc-dac-check"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Compare filesystem mode and active GenieX FSUID without opening CDSP
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-geniex-fastrpc-dac-check"
+          timeout --signal=TERM --kill-after=3s 30s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_geniex_fastrpc_dac_compare
+          echo 'No IDs or file paths exported; device never opened; service untouched.'

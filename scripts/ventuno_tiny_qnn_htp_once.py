@@ -25,6 +25,7 @@ from scripts.ventuno_geniex_runtime_attestation import (
     main_pid_from_systemd, summarize_service,
 )
 from scripts.ventuno_qnn_cli_gate import parse_flags
+from scripts.ventuno_qnn_error_categories import classify_qnn_output, MAX_CAPTURE_READ
 from scripts.ventuno_tiny_qnn_htp_readiness import ROOTS
 
 
@@ -146,6 +147,8 @@ def run_once():
         "qnn_cli_exit_zero": None,
         "dsp_library_path_configured": False,
         "native_output_status": None,
+        "error_categories": None,
+        "error_category_capture_enabled": False,
         "wall_seconds": None,
     }
     if platform.machine().lower() != "aarch64":
@@ -219,12 +222,35 @@ def run_once():
         result["dsp_library_path_configured"] = True
         result["htp_attempted"] = True
         try:
-            completed = subprocess.run(
-                arguments, cwd=root, env=env,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, check=False, timeout=30,
-                preexec_fn=_child_limits,
-            )
+            # Only the explicitly gated diagnostic workflow can retain
+            # temporary vendor error bytes. Always discard at cleanup,
+            # and export *only* allowlisted error categories (never lines).
+            capture = os.environ.get("MYAI_CAPTURE_QNN_ERROR_CATEGORY_ONLY") == "yes"
+            result["error_category_capture_enabled"] = capture
+            if capture:
+                with (root / "stdout.private").open("wb") as output, (
+                    root / "stderr.private"
+                ).open("wb") as error_stream:
+                    completed = subprocess.run(
+                        arguments, cwd=root, env=env,
+                        stdin=subprocess.DEVNULL, stdout=output,
+                        stderr=error_stream, check=False, timeout=30,
+                        preexec_fn=_child_limits,
+                    )
+                # Read only the first 16 KiB of each private file.
+                # TemporaryDirectory deletes the raw diagnostic streams.
+                raw_stdout = (root / "stdout.private").open("rb").read(MAX_CAPTURE_READ)
+                raw_stderr = (root / "stderr.private").open("rb").read(MAX_CAPTURE_READ)
+                # Output may have been truncated by RLIMIT_FSIZE; cannot
+                # establish that the entire vendor diagnostic is captured.
+                result["error_categories"] = classify_qnn_output(raw_stdout, raw_stderr)
+            else:
+                completed = subprocess.run(
+                    arguments, cwd=root, env=env,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, check=False, timeout=30,
+                    preexec_fn=_child_limits,
+                )
             result["qnn_cli_exit_zero"] = completed.returncode == 0
             result["status"] = (
                 "qnn_htp_cli_exit_zero_check_output"

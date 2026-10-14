@@ -1,0 +1,42 @@
+name: VENTUNO FastRPC permissions metadata only
+on:
+  push:
+    branches: [dev/ventuno-fastrpc-access-readonly-20261014]
+    paths:
+      - .github/workflows/ventuno-fastrpc-permissions-readonly.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-fastrpc-metadata-only-20261014
+  cancel-in-progress: false
+jobs:
+  diagnostic:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact commit into temporary working tree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          mkdir -p "$RUNNER_TEMP/myai-fastrpc-meta"
+          cd "$RUNNER_TEMP/myai-fastrpc-meta"
+          git init -q
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Check stat and os.access only, never open FastRPC
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-fastrpc-meta"
+          timeout --signal=TERM --kill-after=3s 30s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_fastrpc_access_readonly
+          echo 'No FastRPC opened, no QNN inference, no USB audio, no system mutations.'
