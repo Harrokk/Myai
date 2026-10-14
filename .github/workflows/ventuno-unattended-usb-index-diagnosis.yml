@@ -1,0 +1,75 @@
+name: VENTUNO unattended USB routing diagnosis - metadata only
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-unattended-usb-index-diagnosis.yml
+
+permissions:
+  contents: read
+
+jobs:
+  usb-metadata:
+    name: Read /proc/asound and stat PCM nodes only, no audio I/O
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Read only permitted Linux ALSA metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json,re,stat
+          from pathlib import Path
+          root=Path("/proc/asound")
+          def read_small(p):
+              if p.is_symlink() or not p.is_file():return ""
+              try:
+                  with p.open("rb") as h:raw=h.read(16*1024+1)
+                  if len(raw)>16*1024:return ""
+                  return raw.decode("utf-8","replace")
+              except OSError:return ""
+          cards=read_small(root/"cards")
+          pcm=read_small(root/"pcm")
+          pairs=[]
+          for entry in pcm.splitlines():
+              m=re.match(r"\s*(\d{2,3})-(\d{2,3}):",entry)
+              if m:
+                  n=int(m.group(1));d=int(m.group(2))
+                  if n>=32 or d>=100:continue
+                  for direction in ("capture","playback"):
+                      if re.search(r"\b"+direction+r"\s+[1-9]\d*\b",entry):
+                          node=Path("/dev/snd")/f"pcmC{n}D{d}{'c' if direction=='capture' else 'p'}"
+                          try:
+                              mode=node.stat().st_mode if not node.is_symlink() else 0
+                              import os
+                              usable=stat.S_ISCHR(mode) and os.access(node,os.R_OK|os.W_OK)
+                          except OSError:usable=False
+                          pairs.append({"card":n,"device":d,"direction":direction,
+                                        "node_read_write_accessible":bool(usable)})
+          usb_candidates=[]
+          for n in range(32):
+              identifier=read_small(root/f"card{n}"/"usbid").strip()
+              if re.fullmatch(r"[a-fA-F0-9]{4}:[a-fA-F0-9]{4}",identifier):
+                  usb_candidates.append(n)
+          result={
+              "proc_asound_cards_visible":bool(cards),
+              "proc_asound_pcm_visible":bool(pcm),
+              "usb_card_indices":usb_candidates,
+              "pcm_routes":pairs[:48],
+              "expected_legacy_capture_pair_1_0":any(x["card"]==1 and x["device"]==0 and x["direction"]=="capture" and x["node_read_write_accessible"] for x in pairs),
+              "expected_legacy_playback_pair_1_0":any(x["card"]==1 and x["device"]==0 and x["direction"]=="playback" and x["node_read_write_accessible"] for x in pairs),
+              "audio_device_opened":False,
+              "mixer_modified":False,
+              "service_changed":False,
+          }
+          print("VENTUNO ALSA-only normalized diagnostic:",json.dumps(result,sort_keys=True))
+          PY
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo "Read-only ALSA metadata check completed. No capture, playback or system changes."
