@@ -244,3 +244,84 @@ def test_truncated_signed_transport_does_not_record_preview(tmp_path, pair):
             now_unix=NOW,
         )
     assert not path.exists()
+
+
+
+def _slow_fragment_writer(sender, chunks, delay):
+    """Avoid accumulating thread errors when the receiver times out."""
+    try:
+        for part in chunks:
+            sender.sendall(part)
+            time.sleep(delay)
+        sender.shutdown(socket.SHUT_WR)
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        pass
+
+
+def test_many_slow_fragments_cannot_reset_global_deadline(pair):
+    receiver, sender = pair
+    wire = frame_signed_preview(b"abcdefghijklmno")
+    producer = threading.Thread(
+        target=_slow_fragment_writer,
+        args=(sender, [wire[i:i + 1] for i in range(len(wire))], 0.035),
+    )
+    producer.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="deadline"):
+            read_one_preview_frame(
+                receiver,
+                allowed_runtime_uids=frozenset({os.geteuid()}),
+                updater_uid=os.geteuid() + 200,
+                timeout_seconds=0.10,
+            )
+        assert time.monotonic() - started < 0.6
+    finally:
+        producer.join(timeout=2)
+    assert not producer.is_alive()
+
+
+def test_socket_blocking_and_timeout_settings_are_never_mutated(pair):
+    receiver, sender = pair
+    receiver.settimeout(1.25)
+    prior_timeout = receiver.gettimeout()
+    wire = frame_signed_preview(b"complete")
+    sender.sendall(wire)
+    sender.shutdown(socket.SHUT_WR)
+    assert _receive(receiver) == wire
+    assert receiver.gettimeout() == prior_timeout
+
+
+def test_timeout_preserves_nonblocking_socket_flag(pair):
+    receiver, _ = pair
+    receiver.setblocking(False)
+    assert receiver.gettimeout() == 0.0
+    with pytest.raises(TimeoutError, match="deadline"):
+        read_one_preview_frame(
+            receiver,
+            allowed_runtime_uids=frozenset({os.geteuid()}),
+            updater_uid=os.geteuid() + 200,
+            timeout_seconds=0.05,
+        )
+    assert receiver.gettimeout() == 0.0
+
+
+def test_receiver_socket_closed_between_fragments_fails_closed(pair, monkeypatch):
+    from core import selfdev_offline_preview_transport as module
+    receiver, sender = pair
+    wire = frame_signed_preview(b"something")
+    sender.sendall(wire)
+    sender.shutdown(socket.SHUT_WR)
+    existing = module._read_ready_chunk
+    reads = [0]
+
+    def close_after_first_recv(sock, amount, deadline):
+        data = existing(sock, amount, deadline)
+        reads[0] += 1
+        if reads[0] == 1:
+            sock.close()
+        return data
+
+    monkeypatch.setattr(module, "_read_ready_chunk", close_after_first_recv)
+    with pytest.raises(PreviewTransportError, match="unavailable"):
+        _receive(receiver)
