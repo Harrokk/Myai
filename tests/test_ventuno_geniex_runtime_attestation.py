@@ -106,3 +106,57 @@ def test_parent_wrapper_child_backend(tmp_path):
     assert r["service_mainpid_present"] is True
     assert r["geniex_process_count"] == 1
     assert r["runtime_backend_evidence"] is True
+
+
+
+def test_complete_fd_scan_is_reported_separately_from_no_open_fastrpc(
+        tmp_path):
+    create_proc(tmp_path, 300)
+    r = summarize_service(tmp_path, 300)
+    assert r["fast_rpc_secure_fd_open"] is False
+    assert r["complete_fast_rpc_fd_scan"] is True
+    assert r["complete_process_maps"] is True
+
+
+def test_missing_fd_directory_never_implies_complete_scan(tmp_path):
+    proc = create_proc(tmp_path, 301)
+    (proc / "fd").rmdir()
+    r = summarize_service(tmp_path, 301)
+    assert r["fast_rpc_secure_fd_open"] is False
+    assert r["complete_fast_rpc_fd_scan"] is False
+
+
+def test_unreadable_descriptor_link_invalidates_absence_claim(
+        tmp_path, monkeypatch):
+    import os
+    proc = create_proc(tmp_path, 302)
+    (proc / "fd" / "6").symlink_to("/dev/fastrpc-unrelated")
+    original = os.readlink
+
+    def intermittent_readlink(path, *args, **kwargs):
+        if str(path).endswith("/fd/6"):
+            raise OSError("a simulated disappearing descriptor SECRET")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "readlink", intermittent_readlink)
+    r = summarize_service(tmp_path, 302)
+    assert r["fast_rpc_secure_fd_open"] is False
+    assert r["complete_fast_rpc_fd_scan"] is False
+    assert "SECRET" not in json.dumps(r)
+
+
+def test_capped_descriptor_scan_does_not_prove_no_fastrpc(tmp_path):
+    from scripts import ventuno_geniex_runtime_attestation as module
+    proc = create_proc(tmp_path, 303)
+    for index in range(module.MAX_FDS + 1):
+        (proc / "fd" / str(index)).symlink_to("/dev/other")
+    r = summarize_service(tmp_path, 303)
+    assert r["fast_rpc_secure_fd_open"] is False
+    assert r["complete_fast_rpc_fd_scan"] is False
+    assert module.process_evidence(tmp_path, 303)["fd_scan_capped"] is True
+
+
+def test_no_main_pid_has_no_complete_fd_scan_evidence(tmp_path):
+    r = summarize_service(tmp_path, None)
+    assert r["complete_fast_rpc_fd_scan"] is False
+    assert r["service_mainpid_present"] is False
