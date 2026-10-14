@@ -2,15 +2,22 @@ import json
 import os
 import stat
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 _LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS = {}
 
 _ANCHORED = (
-    os.name == "posix" and hasattr(os, "O_NOFOLLOW")
+    os.name == "posix" and fcntl is not None
+    and hasattr(os, "O_NOFOLLOW")
     and hasattr(os, "O_DIRECTORY")
     and all(f in os.supports_dir_fd
             for f in (os.open, os.stat, os.mkdir, os.rename, os.unlink))
@@ -48,6 +55,58 @@ def _slot(fd, name):
     if info.st_uid != os.geteuid() or info.st_mode & 0o022:
         raise PermissionError("Osäkra rättigheter för loggfil.")
     return info
+
+
+@contextmanager
+def _process_log_lock(parent_fd, name):
+    """Shared across cooperating processes; never replace an existing lock.
+
+    The descriptor is held for the full rotate + append transaction. The
+    kernel releases flock when a crashed process closes its descriptors.
+    """
+    if fcntl is None:
+        raise RuntimeError("Processgemensamt logglås saknas på denna plattform.")
+    lock_name = "." + name + ".rotation.lock"
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+    lock_fd = os.open(lock_name, flags, 0o600, dir_fd=parent_fd)
+    locked = False
+    try:
+        info = os.fstat(lock_fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+        ):
+            raise PermissionError("Osäkert processgemensamt revisionslogglås.")
+        # Bounded wait rather than indefinitely blocking a required audit.
+        deadline = time.monotonic() + 10.0
+        while True:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Revisionslogglåset är upptaget.")
+                time.sleep(0.01)
+        slot = _slot(parent_fd, lock_name)
+        if slot is None or (slot.st_dev, slot.st_ino) != (
+            info.st_dev, info.st_ino
+        ):
+            raise PermissionError("Revisionslogglåset har bytts ut.")
+        yield
+        slot = _slot(parent_fd, lock_name)
+        if slot is None or (slot.st_dev, slot.st_ino) != (
+            info.st_dev, info.st_ino
+        ):
+            raise PermissionError("Revisionslogglåset har bytts ut.")
+    finally:
+        if locked:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
 
 
 def _rotate_fd(fd, name, backups):
@@ -200,8 +259,9 @@ def _rotate_file_unlocked(
     count = max(0, int(backups))
     if _ANCHORED:
         with _parent_fd(target) as (fd, name):
-            _rotate_fd(fd, name, count)
-            _parent_unchanged(fd, target)
+            with _process_log_lock(fd, name):
+                _rotate_fd(fd, name, count)
+                _parent_unchanged(fd, target)
         return
     _check_parent_path(target)
     # Validate *all* destinations before any unlink or rename. Otherwise a
@@ -284,32 +344,33 @@ def append_jsonl(
     with _path_lock(target):
         if _ANCHORED:
             with _parent_fd(target, create=True) as (fd, name):
-                meta = _slot(fd, name)
-                if (
-                    limit > 0 and meta is not None
-                    and meta.st_size + encoded_size > limit
-                ):
-                    _rotate_fd(fd, name, backups)
-                flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW
-                if hasattr(os, "O_NONBLOCK"):
-                    flags |= os.O_NONBLOCK
-                descriptor = os.open(name, flags, 0o600, dir_fd=fd)
-                try:
-                    info = os.fstat(descriptor)
+                with _process_log_lock(fd, name):
+                    meta = _slot(fd, name)
                     if (
-                        not stat.S_ISREG(info.st_mode)
-                        or info.st_nlink != 1
-                        or info.st_uid != os.geteuid()
-                        or info.st_mode & 0o022
+                        limit > 0 and meta is not None
+                        and meta.st_size + encoded_size > limit
                     ):
-                        raise PermissionError("Osäker loggfil vid append.")
-                    with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-                        descriptor = None
-                        handle.write(line)
-                finally:
-                    if descriptor is not None:
-                        os.close(descriptor)
-                _parent_unchanged(fd, target)
+                        _rotate_fd(fd, name, backups)
+                    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW
+                    if hasattr(os, "O_NONBLOCK"):
+                        flags |= os.O_NONBLOCK
+                    descriptor = os.open(name, flags, 0o600, dir_fd=fd)
+                    try:
+                        info = os.fstat(descriptor)
+                        if (
+                            not stat.S_ISREG(info.st_mode)
+                            or info.st_nlink != 1
+                            or info.st_uid != os.geteuid()
+                            or info.st_mode & 0o022
+                        ):
+                            raise PermissionError("Osäker loggfil vid append.")
+                        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+                            descriptor = None
+                            handle.write(line)
+                    finally:
+                        if descriptor is not None:
+                            os.close(descriptor)
+                    _parent_unchanged(fd, target)
             return target
         _check_parent_path(target)
         # Never treat dangling symlinks as absent files.

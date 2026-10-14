@@ -355,3 +355,108 @@ def test_direct_rotate_file_rejects_swapped_parent_directory(
     ) == "EXTERNAL"
     assert not (outside / "audit.jsonl.1").exists()
     assert (moved / "audit.jsonl.1").is_file()
+
+
+def _multiprocess_write_case(parameters):
+    path, index, size, generations = parameters
+    append_jsonl(
+        path, {"index": index, "payload": "x" * 10},
+        max_bytes=size, backups=generations,
+    )
+    return index
+
+
+def test_multiple_os_processes_append_without_losing_records(tmp_path):
+    import multiprocessing
+    import pytest
+    from concurrent.futures import ProcessPoolExecutor
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX process-shared flock required")
+    path = tmp_path / "events.jsonl"
+    ctx = multiprocessing.get_context("fork")
+    with ProcessPoolExecutor(max_workers=4, mp_context=ctx) as pool:
+        result = list(pool.map(
+            _multiprocess_write_case,
+            [(path, i, 1_000_000, 4) for i in range(120)],
+        ))
+    assert result == list(range(120))
+    assert {entry["index"] for entry in read_lines(path)} == set(range(120))
+    lock = tmp_path / ".events.jsonl.rotation.lock"
+    assert lock.is_file()
+    assert lock.stat().st_mode & 0o077 == 0
+
+
+def test_multiple_os_processes_rotate_without_losing_retained_entries(
+    tmp_path,
+):
+    import multiprocessing
+    import pytest
+    from concurrent.futures import ProcessPoolExecutor
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX process-shared flock required")
+    path = tmp_path / "rotating.jsonl"
+    ctx = multiprocessing.get_context("fork")
+    total = 56
+    with ProcessPoolExecutor(max_workers=4, mp_context=ctx) as pool:
+        list(pool.map(
+            _multiprocess_write_case,
+            [(path, i, 140, 40) for i in range(total)],
+        ))
+    files = [path] + [
+        tmp_path / f"rotating.jsonl.{i}" for i in range(1, 41)
+    ]
+    records = [
+        item for candidate in files if candidate.is_file()
+        for item in read_lines(candidate)
+    ]
+    assert len(records) == total
+    assert {record["index"] for record in records} == set(range(total))
+
+
+def test_symlinked_cross_process_lock_fails_closed(tmp_path):
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX process-shared flock required")
+    path = tmp_path / "audit.jsonl"
+    other = tmp_path / "outside.txt"
+    other.write_text("NO MODIFICATION", encoding="utf-8")
+    (tmp_path / ".audit.jsonl.rotation.lock").symlink_to(other)
+    with pytest.raises((PermissionError, OSError)):
+        append_jsonl(path, {"event": "must-not-append"})
+    assert not path.exists()
+    assert other.read_text(encoding="utf-8") == "NO MODIFICATION"
+
+
+def test_world_writable_cross_process_lock_is_rejected(tmp_path):
+    import os
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX process-shared flock required")
+    lock = tmp_path / ".audit.jsonl.rotation.lock"
+    lock.write_text("", encoding="utf-8")
+    os.chmod(lock, 0o666)
+    with pytest.raises(PermissionError, match="processgemensamt"):
+        append_jsonl(tmp_path / "audit.jsonl", {"event": "no"})
+    assert not (tmp_path / "audit.jsonl").exists()
+
+
+def test_direct_rotation_uses_same_process_lock_as_append(tmp_path):
+    import pytest
+    from core import jsonl_log as module
+
+    if not module._ANCHORED:
+        pytest.skip("POSIX process-shared flock required")
+    path = tmp_path / "rotate.jsonl"
+    append_jsonl(path, {"old": True}, backups=2)
+    rotate_file(path, backups=2)
+    assert read_lines(tmp_path / "rotate.jsonl.1") == [{"old": True}]
+    append_jsonl(path, {"new": True}, backups=2)
+    assert read_lines(path) == [{"new": True}]
