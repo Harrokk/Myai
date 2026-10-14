@@ -27,6 +27,7 @@ from scripts.ventuno_geniex_runtime_attestation import (
 from scripts.ventuno_qnn_cli_gate import parse_flags
 from scripts.ventuno_qnn_error_categories import classify_qnn_output, MAX_CAPTURE_READ
 from scripts.ventuno_tiny_qnn_htp_readiness import ROOTS
+from scripts.ventuno_v75_elf_fastrpc_readonly import inspect_resolved_skel
 
 
 MIN_AVAILABLE_KIB = 8 * 1048576
@@ -68,33 +69,22 @@ def _find_libraries():
 
 
 def _find_v75_skel_directory():
-    """Use only known vendor locations; never copy or modify DSP libraries."""
-    roots = (
-        Path("/usr/lib/rfsa/adsp"),
-        Path("/vendor/dsp"),
-        Path("/opt/qcom"),
-        Path("/opt/qualcomm"),
-        Path("/home/arduino/.local/share/geniex/qairt"),
-    )
-    queue = [(root, 0) for root in roots if root.is_dir() and not root.is_symlink()]
-    count = 0
-    while queue and count < 300:
-        folder, depth = queue.pop(0)
-        count += 1
-        try:
-            entries = list(folder.iterdir())[:120]
-        except OSError:
-            continue
-        for entry in entries:
-            try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_file() and entry.name == "libQnnHtpV75Skel.so":
-                    return entry.parent
-                if entry.is_dir() and depth < 5:
-                    queue.append((entry, depth + 1))
-            except OSError:
-                continue
+    """Only select the distro-owned Hexagon V75 Skel; never pick stray copies.
+
+    This is a future diagnostic gate, NOT permission to run HTP. The earlier
+    broad search omitted /usr/lib/dsp/cdsp and could select another inode.
+    Reject unverified, unowned, wrong-architecture or out-of-tree files.
+    """
+    canonical = Path("/usr/lib/dsp/cdsp/libQnnHtpV75Skel.so")
+    assessment = inspect_resolved_skel(canonical, Path("/usr"))
+    if (
+        assessment["path_inside_usr"] is True
+        and assessment["file_regular"] is True
+        and assessment["header_class"] == "hexagon_elf_header"
+        and assessment["package_owner"] == "qairt-dsp-binaries"
+        and assessment["library_file_header_read"] is True
+    ):
+        return canonical.parent
     return None
 
 
