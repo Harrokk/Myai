@@ -1284,3 +1284,132 @@ def test_safe_majority_remains_possible_with_unrelated_dangerous_outlier():
     assert r["support"] == 2
     assert "ram" in r["text"].lower()
     assert "Stäng av" not in r["text"]
+
+
+
+def test_high_confidence_single_confirm_cannot_execute_destructive_command():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    assert pipeline.process_utterance(b"danger")["status"] == "confirmation_required"
+    primary.result = {"text": "bekräfta", "confidence": 1.0}
+    result = pipeline.process_utterance(b"confirm")
+    assert result["status"] == "confirmation_required"
+    assert result["confirmation_confidence"] == 1.0
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is not None
+
+
+def test_two_independent_confirmation_votes_from_three_may_confirm():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    pipeline.backup_stt[0].result = {
+        "text": "bekräfta kommandot", "confidence": 0.91,
+    }
+    pipeline.backup_stt[1].result = {"text": "bakgrundsljud", "confidence": 0.99}
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "completed"
+    assert result["confirmation"]["support"] == 2
+    assert assistant.messages == ["Radera filen rapport txt"]
+
+
+def test_any_backup_cancel_vetoes_two_high_confidence_confirmations():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    pipeline.backup_stt[0].result = {"text": "bekräfta", "confidence": 0.95}
+    pipeline.backup_stt[1].result = {"text": "avbryt", "confidence": 0.70}
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert assistant.messages == []
+
+
+def test_any_backup_explicit_negation_vetoes_confirmation():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    pipeline.backup_stt[0].result = {"text": "bekräfta", "confidence": 0.99}
+    pipeline.backup_stt[1].result = {"text": "bekräfta inte", "confidence": 0.97}
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_required"
+    assert pipeline.pending_confirmation is not None
+    assert assistant.messages == []
+
+
+def test_two_duplicate_confirming_recognizers_cannot_make_three_votes():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 1.0}
+    duplicate = FakeSTT({"text": "bekräfta", "confidence": 1.0})
+    pipeline.backup_stt = [duplicate, duplicate]
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_required"
+    assert duplicate.calls == 1
+    assert assistant.messages == []
+
+
+def test_primary_as_backup_cannot_make_three_confirmation_votes():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 1.0}
+    independent = FakeSTT({"text": "bekräfta", "confidence": 0.99})
+    pipeline.backup_stt = [primary, independent]
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_required"
+    assert primary.calls == 2
+    assert independent.calls == 1
+    assert assistant.messages == []
+
+
+def test_stt_failure_during_confirmation_is_not_authorization():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    class FailingBackup:
+        def transcribe(self, audio):
+            raise RuntimeError("SECRET_ACCOUNT_DATA")
+    pipeline.backup_stt = [
+        FailingBackup(), FakeSTT({"text": "bekräfta", "confidence": 0.99}),
+    ]
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_required"
+    assert "SECRET_ACCOUNT_DATA" not in str(result)
+    assert assistant.messages == []
+
+
+def test_confirmation_expiring_during_backup_stt_never_executes():
+    clock = FakeClock()
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=clock)
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    class SlowBackup:
+        def transcribe(self, audio):
+            clock.advance(16)
+            return {"text": "bekräfta", "confidence": 0.99}
+    pipeline.backup_stt = [
+        SlowBackup(), FakeSTT({"text": "bekräfta", "confidence": 0.99}),
+    ]
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_expired"
+    assert pipeline.pending_confirmation is None
+    assert assistant.messages == []
+
+
+def test_no_independent_confirmation_backups_never_override_confidence():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "bekräfta", "confidence": 1.0}
+    pipeline.backup_stt = []
+    result = pipeline.process_utterance(b"confirmation")
+    assert result["status"] == "confirmation_required"
+    assert assistant.messages == []
+
+
+def test_primary_cancel_still_immediately_clears_pending_action():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    pipeline.process_utterance(b"danger")
+    primary.result = {"text": "avbryt", "confidence": 0.6}
+    result = pipeline.process_utterance(b"cancel")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert assistant.messages == []
