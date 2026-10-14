@@ -132,3 +132,70 @@ def test_v75_gate_never_uses_other_fallback_directories(monkeypatch):
     # If canonical QAIRT file is untrusted, do not search /opt, home,
     # /vendor or older alternate copies: return no-go.
     assert module._find_v75_skel_directory() is None
+
+
+def test_htp_host_libraries_use_only_qairt_distro_aarch64_files(monkeypatch):
+    seen = []
+    def inspect(path, root):
+        seen.append((str(path), str(root)))
+        return {
+            "path_inside_usr": True,
+            "file_regular": True,
+            "header_class": "aarch64_elf_header",
+            "package_owner": "qairt-libs",
+            "library_file_header_read": True,
+        }
+    monkeypatch.setattr(module, "inspect_resolved_skel", inspect)
+    libs = module._find_libraries()
+    assert set(libs) == set(module.LIBS)
+    assert {str(v) for v in libs.values()} == {
+        "/usr/lib/libQnnHtp.so",
+        "/usr/lib/libQnnModelDlc.so",
+        "/usr/lib/libQnnHtpV75Stub.so",
+    }
+    assert all(root == "/usr" for _, root in seen)
+    assert len(seen) == 3
+
+
+def test_htp_host_library_gate_rejects_each_untrusted_metadata(monkeypatch):
+    valid = {
+        "path_inside_usr": True,
+        "file_regular": True,
+        "header_class": "aarch64_elf_header",
+        "package_owner": "qairt-libs",
+        "library_file_header_read": True,
+    }
+    for field, value in (
+        ("path_inside_usr", False),
+        ("file_regular", False),
+        ("header_class", "hexagon_elf_header"),
+        ("header_class", "not_elf_or_incomplete"),
+        ("package_owner", "unverified"),
+        ("package_owner", "qairt-dsp-binaries"),
+        ("library_file_header_read", False),
+    ):
+        monkeypatch.setattr(
+            module, "inspect_resolved_skel",
+            lambda *_args, result={**valid, field: value}: result,
+        )
+        assert module._find_libraries() == {}
+
+
+def test_htp_host_lib_gate_keeps_two_safe_files_but_rejects_third(monkeypatch):
+    def inspect(path, root):
+        return {
+            "path_inside_usr": True,
+            "file_regular": True,
+            "header_class": "aarch64_elf_header",
+            "package_owner": (
+                "unverified" if path.name == "libQnnModelDlc.so"
+                else "qairt-libs"
+            ),
+            "library_file_header_read": True,
+        }
+    monkeypatch.setattr(module, "inspect_resolved_skel", inspect)
+    selected = module._find_libraries()
+    assert "libQnnHtp.so" in selected
+    assert "libQnnHtpV75Stub.so" in selected
+    assert "libQnnModelDlc.so" not in selected
+    assert len(selected) == 2
