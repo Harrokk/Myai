@@ -540,11 +540,11 @@ def test_interrupted_promotion_writes_recovery_journal_before_source_change(
     original_copy = module._atomic_copy
     calls = [0]
 
-    def interrupt_on_second_copy(source, target):
+    def interrupt_on_second_copy(source, target, **kwargs):
         calls[0] += 1
         if calls[0] == 2:
             raise SystemExit("synthetic power loss")
-        return original_copy(source, target)
+        return original_copy(source, target, **kwargs)
 
     with monkeypatch.context() as patch:
         patch.setattr(module, "_atomic_copy", interrupt_on_second_copy)
@@ -585,11 +585,11 @@ def test_recovery_refuses_to_overwrite_external_change_without_partial_restore(
     original_copy = module._atomic_copy
     calls = [0]
 
-    def interrupt_after_first(source, target):
+    def interrupt_after_first(source, target, **kwargs):
         calls[0] += 1
         if calls[0] == 2:
             raise SystemExit("synthetic interruption")
-        return original_copy(source, target)
+        return original_copy(source, target, **kwargs)
 
     with monkeypatch.context() as patch:
         patch.setattr(module, "_atomic_copy", interrupt_after_first)
@@ -630,7 +630,7 @@ def test_recovery_is_idempotent_and_refuses_second_restore(tmp_path, monkeypatch
         patch.setattr(
             module,
             "_atomic_copy",
-            lambda *args: (_ for _ in ()).throw(SystemExit("interrupted")),
+            lambda *args, **kwargs: (_ for _ in ()).throw(SystemExit("interrupted")),
         )
         with pytest.raises(SystemExit):
             active.promote("PROMOTE session1")
@@ -653,7 +653,7 @@ def test_incomplete_promotion_cannot_bypass_recovery_using_rollback(
     with monkeypatch.context() as patch:
         patch.setattr(
             module, "_atomic_copy",
-            lambda *args: (_ for _ in ()).throw(SystemExit("power loss")),
+            lambda *args, **kwargs: (_ for _ in ()).throw(SystemExit("power loss")),
         )
         with pytest.raises(SystemExit):
             active.promote("PROMOTE session1")
@@ -728,11 +728,11 @@ def test_corrupt_backup_blocks_recovery_before_any_source_mutation(
     original_copy = module._atomic_copy
     copies = [0]
 
-    def interrupt_second_copy(source, target):
+    def interrupt_second_copy(source, target, **kwargs):
         copies[0] += 1
         if copies[0] == 2:
             raise SystemExit("simulated crash")
-        return original_copy(source, target)
+        return original_copy(source, target, **kwargs)
 
     with monkeypatch.context() as patch:
         patch.setattr(module, "_atomic_copy", interrupt_second_copy)
@@ -807,7 +807,7 @@ def test_global_lock_released_after_simulated_critical_interruption(
         patch.setattr(
             module,
             "_atomic_copy",
-            lambda *args: (_ for _ in ()).throw(SystemExit("crash")),
+            lambda *args, **kwargs: (_ for _ in ()).throw(SystemExit("crash")),
         )
         with pytest.raises(SystemExit):
             active.promote("PROMOTE session1")
@@ -844,7 +844,7 @@ def test_global_lock_blocks_recovery_during_other_session_operation(
         patch.setattr(
             module,
             "_atomic_copy",
-            lambda *args: (_ for _ in ()).throw(SystemExit("crash")),
+            lambda *args, **kwargs: (_ for _ in ()).throw(SystemExit("crash")),
         )
         with pytest.raises(SystemExit):
             active.promote("PROMOTE session1")
