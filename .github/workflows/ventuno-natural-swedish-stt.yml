@@ -25,19 +25,19 @@ jobs:
       - name: Checkout exact repo commit in temporary workspace
         shell: bash
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
           test "$(id -un)" = "arduino"
-          test -n "\${RUNNER_TEMP:-}"
+          test -n "${RUNNER_TEMP:-}"
           scratch="$(mktemp -d "$RUNNER_TEMP/myai-natural-sv-XXXXXXXX")"
           echo "MYAI_NATURAL_SV_ROOT=$scratch" >> "$GITHUB_ENV"
           git init -q "$scratch/source"
-          git -C "$scratch/source" remote add origin "https://x-access-token:\${GH_TOKEN}@github.com/\${GITHUB_REPOSITORY}.git"
+          git -C "$scratch/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -C "$scratch/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
           git -C "$scratch/source" -c credential.helper= checkout -q --detach FETCH_HEAD
-          git -C "$scratch/source" remote set-url origin "https://github.com/\${GITHUB_REPOSITORY}.git"
+          git -C "$scratch/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git -C "$scratch/source" rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Run privacy and safety mock tests
@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "\${MYAI_NATURAL_SV_ROOT:-}" ] && [ -n "\${RUNNER_TEMP:-}" ]; then
+          if [ -n "${MYAI_NATURAL_SV_ROOT:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
             case "$MYAI_NATURAL_SV_ROOT" in
               "$RUNNER_TEMP"/myai-natural-sv-*)
                 if [ -d "$MYAI_NATURAL_SV_ROOT" ] && [ ! -L "$MYAI_NATURAL_SV_ROOT" ]; then
