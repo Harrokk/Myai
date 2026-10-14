@@ -47,3 +47,15 @@ Inget sudo, chmod/chown, paketinstallation, symlinkändring, udev/gruppändring,
 Kontrollen har nu utökats för att klassificera var *den lösta målfilen* finns i en strikt allowlist av kända system-/firmwarekataloger, och fråga efter pakettillhörighet för just målfilen om den ligger under en sådan katalog. Endast kategori och godkänt paketnamn eller neutral status får exporteras – inga riktiga paths eller länktexter.
 
 En ny *metadata-only* workflow körning på senaste commit behövs innan tolkning; gammal Skel-körning bekräftar inte de nya fälten. Ingen privilege escalation, paketskrivning eller HTP-körning.
+
+
+## Slutlig verifierad katalogkategori för Skel-länken
+
+[Read-only VENTUNO run 38596265439](https://github.com/Harrokk/Myai/actions/runs/38596265439) verifierade på utvecklingsgrenens commit `b75f6ba8`:
+- V75-Skel är symlink som leder till en vanlig fil i det övergripande `/usr`-trädet.
+- Målfilen ligger inte inom den uppräknade, snäva allowlisten av systemkataloger. Exakt sökväg, namn eller länktext publicerades **inte**.
+- Symlinkens dpkg-ägare är inte verifierad; uppslag av målfilen gjordes inte utanför allowlisten. Host HTP + V75-Stub ägs fortsatt av `qairt-libs`.
+- Det finns **inga belägg** från denna metadata att länken är trasig. Att målfilen ligger utanför provade kataloger säger **inte** att det är en felaktig eller osäker installation.
+- Ingen firmware-/ABI- eller processdomänkompatibilitet verifierades; ingen HTP-beräkning, installation eller driftsändring.
+
+Nästa rimliga steg är granskning av dokumenterad paketering och vendorprocessdomän för just QAIRT `2.46.0-0ubuntu1~bpo24.04.1`, separat från MyAI:s drift, före något nytt funktionellt HTP-prov. Inga blindade nya symlink-, chmod-, apt- eller QNN-åtgärder.
