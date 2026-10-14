@@ -1,0 +1,150 @@
+name: VENTUNO unattended non-invasive test matrix (read only)
+
+on:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths:
+      - .github/workflows/ventuno-unattended-safety-inventory.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-unattended-readonly-matrix
+  cancel-in-progress: false
+
+jobs:
+  readonly-matrix:
+    name: ARM64 services, profiles, USB inventory, LLM readiness, resources; no activation
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 8
+    steps:
+      - name: Stage exact commit only under disposable runner temp
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          temp="$(mktemp -d "$RUNNER_TEMP/myai-unattended-readonly-XXXXXXXX")"
+          echo "MYAI_UNATTENDED_TEMP=$temp" >> "$GITHUB_ENV"
+          git init -q "$temp/source"
+          git -C "$temp/source" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$temp/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$temp/source" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$temp/source" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$temp/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run non-device unit tests for health, routing, voice privacy and LLM
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_UNATTENDED_TEMP/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_ventuno_usb_audio_inventory.py \
+            tests/test_ventuno_ollama_readiness.py \
+            tests/test_ventuno_voice_backend_selector.py \
+            tests/test_llm_factory.py \
+            tests/test_ollama_client.py
+
+      - name: Read live service states, production safety flags and resource gates
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_UNATTENDED_TEMP/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json,platform,subprocess
+          from pathlib import Path
+          from core.config import DEFAULT_SETTINGS,_merge_settings
+          from core.config_validation import validate_settings
+          from scripts.ventuno_voice_wheel_staging import mem_available_kib,disk_free_bytes
+          from scripts.ventuno_whisper_tiny_cpu_smoke import MIN_MEM_AVAILABLE_KIB,MIN_DISK_AVAILABLE_BYTES
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          from scripts.ventuno_ollama_readiness import inspect_ollama
+
+          assert platform.machine()=="aarch64"
+          production=Path("/home/arduino/MyAI/config/profiles/ventuno_q.json")
+          assert production.is_file() and not production.is_symlink()
+          assert production.stat().st_size<65536
+          current=json.loads(production.read_text(encoding="utf-8-sig"))
+          assert isinstance(current,dict)
+          voice=current.get("voice")
+          llm=current.get("llm")
+          assert isinstance(voice,dict) and isinstance(llm,dict)
+          flags=("enabled","tts_enabled","handsfree_enabled")
+          assert all(voice.get(k) is False for k in flags)
+          assert llm.get("provider")=="geniex"
+          assert llm.get("fallback",{}).get("enabled") is False
+          assert current.get("selfdev",{}).get("enabled") is False
+          assert current.get("selfdev",{}).get("promotion_enabled") is False
+          assert current.get("trusted_terminals",{}).get("auto_execute") is False
+          assert current.get("ventuno",{}).get("rpc_write_enabled") is False
+          assert current.get("excel",{}).get("write_enabled") is False
+          assert current.get("location",{}).get("enabled") is False
+          assert current.get("camera",{}).get("enabled") is False
+          cfg=_merge_settings(DEFAULT_SETTINGS,current)
+          assert validate_settings(cfg,require_ventuno_profile=True)["valid"]
+          service_names=("myai-ventuno.service","myai-geniex.service")
+          active={}
+          for service in service_names:
+              p=subprocess.run(["systemctl","is-active",service],capture_output=True,text=True,timeout=5)
+              active[service]=p.stdout.strip()=="active" and p.returncode==0
+          assert all(active.values()),"Production core services not healthy"
+          available=mem_available_kib()
+          disk=disk_free_bytes(Path("/"))
+          assert available is not None and available>=MIN_MEM_AVAILABLE_KIB
+          assert disk is not None and disk>=MIN_DISK_AVAILABLE_BYTES
+          readiness=inspect(disk_root=Path("/"))
+          assert readiness["microphone_opened"] is False
+          assert readiness["speaker_opened"] is False
+          assert readiness["model_loaded"] is False
+          assert readiness["production_changed"] is False
+          ollama=inspect_ollama()
+          assert ollama["ollama_started"] is False
+          assert ollama["model_loaded"] is False
+          assert ollama["geniex_touched"] is False
+          assert ollama["files_changed"] is False
+          result={
+              "services_active":active,
+              "production_config_valid":True,
+              "all_unsafe_auto_features_disabled":True,
+              "ram_available_mib":available//1024,
+              "free_disk_mib":disk//(1024*1024),
+              "ram_reserve_pass":True,
+              "disk_reserve_pass":True,
+              "usb_readiness":readiness["status"],
+              "usb_capture_playback_accessible":readiness["usb_capture_and_playback_1_0_accessible"],
+              "ollama_readiness":ollama["status"],
+              "ollama_api_ready":ollama["loopback_ollama_api_ready"],
+              "physical_audio_attempts":0,
+              "llm_model_inference_attempts":0,
+              "service_restarts":0,
+          }
+          print("Non-invasive ARM64 unattended safe matrix:",json.dumps(result,sort_keys=True))
+          PY
+
+      - name: Remove only temporary test checkout and verify production services
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_UNATTENDED_TEMP:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_UNATTENDED_TEMP" in
+              "$RUNNER_TEMP"/myai-unattended-readonly-*)
+                if [ -d "$MYAI_UNATTENDED_TEMP" ] && [ ! -L "$MYAI_UNATTENDED_TEMP" ]; then
+                  rm -rf -- "$MYAI_UNATTENDED_TEMP"
+                fi
+                ;;
+              *) echo "Unrecognized temp workspace; no deletion" >&2; exit 2;;
+            esac
+          fi
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          echo "Read-only test complete: no audio, no model load, no service restart, no permanent changes."
