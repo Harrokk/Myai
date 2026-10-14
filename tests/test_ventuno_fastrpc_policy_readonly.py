@@ -115,3 +115,51 @@ def test_symlinked_rules_directory_is_reported_as_partial(tmp_path):
     report = policy.bounded_rules_inventory((alias,))
     assert report["scan_complete"] is False
     assert report["scanned_rule_files"] == 0
+
+
+def test_fifo_rule_is_rejected_without_blocking(tmp_path):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    import os
+    os.mkfifo(rules / "untrusted.rules")
+    result = policy.bounded_rules_inventory((rules,))
+    assert result["scan_complete"] is False
+    assert result["scanned_rule_files"] == 0
+
+
+def test_total_directory_entry_budget_is_enforced(tmp_path, monkeypatch):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    monkeypatch.setattr(policy, "MAX_DIRECTORY_ENTRIES", 2)
+    for i in range(3):
+        (rules / f"unrelated-{i}.txt").write_bytes(b"")
+    result = policy.bounded_rules_inventory((rules,))
+    assert result["scan_complete"] is False
+    assert result["scanned_rule_files"] == 0
+
+
+def test_policy_files_are_opened_relative_to_pinned_directory(tmp_path, monkeypatch):
+    import os
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "fast.rules").write_text('GROUP="fastrpc"', encoding="ascii")
+    original_open = policy.os.open
+    observations = []
+
+    def inspected_open(path, flags, *args, **kwargs):
+        if path == "fast.rules":
+            observations.append({
+                "dir_fd": kwargs.get("dir_fd"),
+                "no_follow": bool(flags & os.O_NOFOLLOW),
+                "nonblock": bool(flags & os.O_NONBLOCK),
+            })
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(policy.os, "open", inspected_open)
+    result = policy.bounded_rules_inventory((rules,))
+    assert result["scan_complete"] is True
+    assert result["scanned_rule_files"] == 1
+    assert len(observations) == 1
+    assert isinstance(observations[0]["dir_fd"], int)
+    assert observations[0]["no_follow"] is True
+    assert observations[0]["nonblock"] is True
