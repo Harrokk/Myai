@@ -676,7 +676,7 @@ def test_modified_backup_refuses_rollback_without_mutating_sources(tmp_path):
         / "files" / "core" / "example.py"
     )
     backup.write_text("MALICIOUS = True\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="backup har ändrats"):
+    with pytest.raises(RuntimeError, match="Backup är skadad"):
         active.rollback("promo1", "ROLLBACK session1 promo1")
 
     assert (project / "core" / "example.py").read_text(
