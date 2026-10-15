@@ -563,5 +563,11 @@ TOOLS = {
             "för godkännande, avvisning, ersättning eller permanent radering."
         ),
         "pass_user_input": True,
+        # A destructive memory operation must never masquerade as a
+        # low-risk read-only voice tool when metadata is inspected.
+        "safety": {
+            "effect": "destructive",
+            "voice_confirmation_required": True,
+        },
     },
 }
