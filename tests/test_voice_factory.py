@@ -157,3 +157,43 @@ def test_factory_can_use_different_primary_and_backup_stt_providers():
         )
         for item in result["backup_stt"]
     )
+
+
+
+def test_isolation_is_disabled_by_default_even_with_fake_models():
+    value = settings()
+    result = voice_factory.build_voice_components(
+        settings=value, provider_classes=classes(),
+    )
+    assert isinstance(result["primary_stt"], Recorder)
+    assert not hasattr(result["primary_stt"], "_argv")
+
+
+def test_opted_in_isolation_builds_only_trusted_builtin_worker_without_launch():
+    from core.voice_stt_process import IsolatedFasterWhisperSTT
+    value = settings()
+    value["voice"]["stt_process_isolation_enabled"] = True
+    value["voice"]["stt_process_timeout_seconds"] = 8
+    value["voice"]["stt_model"] = "tiny"
+    value["voice"]["backup_stt_models"] = ["base", "small"]
+    result = voice_factory.build_voice_components(settings=value)
+    assert isinstance(result["primary_stt"], IsolatedFasterWhisperSTT)
+    assert result["primary_stt"].timeout_seconds == 8.0
+    assert len(result["backup_stt"]) == 2
+    assert all(isinstance(x, IsolatedFasterWhisperSTT)
+               for x in result["backup_stt"])
+
+
+def test_isolation_refuses_injected_provider_classes_or_untrusted_settings():
+    value = settings()
+    value["voice"]["stt_process_isolation_enabled"] = True
+    import pytest
+    with pytest.raises(ValueError, match="built-in FasterWhisper only"):
+        voice_factory.build_voice_components(
+            settings=value, provider_classes=classes(),
+        )
+    value["voice"]["stt_process_isolation_enabled"] = "true"
+    with pytest.raises(ValueError, match="isolation toggle"):
+        voice_factory.build_voice_components(
+            settings=value, provider_classes=classes(),
+        )
