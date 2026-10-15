@@ -99,8 +99,13 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
         # verify the FULL group is stopped before surfacing a timeout.
         terminate_owned_group(proc)
         raise TimeoutError("Isolated STT process deadline exceeded") from None
+    except OversizedSTTOutput:
+        # Surface only a fixed category; the child's actual output is
+        # never echoed or stored and the group must first be reaped.
+        terminate_owned_group(proc)
+        raise RuntimeError("Invalid isolated STT output") from None
     except BaseException:
-        # Even excess stdout or a broken pipe may leave a child alive.
+        # Even a broken pipe may leave a native child alive.
         # Refuse the reply unless its group is fully cleaned up.
         terminate_owned_group(proc)
         raise RuntimeError("Isolated STT worker failed") from None
