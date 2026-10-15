@@ -246,3 +246,38 @@ def test_missing_exact_inspection_optin_prohibits_even_sudo_list(tmp_path, monke
     )
     assert result["status"] == "no_go_not_opted_in"
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("stderr,code", [
+    (b"sudo: a password is required", "no_go_sudo_interactive_authorization_required"),
+    (b"sudo: sorry, you are not allowed to execute", "no_go_sudo_exact_execution_not_permitted"),
+    (b"Failed to connect to bus: Connection refused", "no_go_systemd_manager_bus_unavailable"),
+    (b"Failed to start transient timer unit: Access denied", "no_go_systemd_manager_authorization_rejected"),
+    (b"Failed to start transient timer unit: Invalid argument", "no_go_systemd_unit_property_rejected"),
+    (b"Transient unit already exists", "no_go_transient_unit_name_conflict"),
+    (b"SECRET_PRIVATE_DATA /home/arduino/.ssh", "no_go_unclassified_launch_error"),
+])
+def test_fixed_error_coding_never_exposes_sudo_or_systemd_output(stderr, code):
+    result = gate.classify_launch_failure(
+        SimpleNamespace(returncode=1, stderr=stderr)
+    )
+    assert result == code
+    assert "SECRET" not in result and "/home/" not in result
+
+
+def test_launch_failed_code_is_emitted_without_stderr(tmp_path, monkeypatch):
+    monkeypatch.setenv("MYAI_ALLOW_SYSTEM_MANAGER_FAKE_CANARY", "yes")
+    outcome = gate.run_canary(
+        runner_temp=tmp_path, arch="aarch64", user="arduino",
+        check=lambda: True,
+        call=lambda argv, **kw: SimpleNamespace(
+            returncode=1, stderr=b"Failed to connect to bus: Permission denied"
+        ),
+    )
+    assert outcome["status"] == "no_go_system_manager_timer_launch_denied"
+    assert outcome["launch_failure_classification"] == (
+        "no_go_systemd_manager_bus_unavailable"
+    )
+    assert outcome["transient_system_timer_submitted"] is False
+    assert "Permission denied" not in json.dumps(outcome)
+    assert not list(tmp_path.iterdir())
