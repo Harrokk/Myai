@@ -6,6 +6,7 @@ from core.assistant import MyAICore
 from core.config import DEFAULT_SETTINGS
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
+    EXECUTION_FAILED_MESSAGE,
     run_tools,
 )
 from core.voice_plan_attestation import (
