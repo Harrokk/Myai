@@ -113,6 +113,15 @@ def test_old_assistants_without_memory_feedback_remain_compatible():
     assert "memory_feedback" not in result
 
 
+def test_malformed_list_feedback_state_cannot_crash_voice_ui():
+    assistant = StubMemoryAssistant(["unknown", "unhashable"])
+    result = VoicePipeline(
+        assistant, FakeSTT("Kom ihåg"), settings=voice_config(),
+    ).process_utterance(b"fake")
+    assert result["status"] == "clarify"
+    assert result["memory_feedback"] == {"status": "unverified"}
+
+
 def test_unrecognized_feedback_state_cannot_claim_success():
     assistant = StubMemoryAssistant("unknown_external_state")
     result = VoicePipeline(
