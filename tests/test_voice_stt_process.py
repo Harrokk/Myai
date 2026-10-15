@@ -257,3 +257,48 @@ def test_one_shot_child_startup_failure_is_private_and_no_audio_sent():
     assert calls[0][1]["start_new_session"] is True
     assert calls[0][1]["stderr"] == subprocess.DEVNULL
     assert calls[0][1]["cwd"] == "/"
+
+
+
+def test_child_forged_early_transcript_without_consuming_pcm_is_rejected():
+    """A plausible answer before complete audio transfer is not a vote."""
+    fake_answer = VALID_JSON.encode()
+    script = (
+        "import sys,time;"
+        f"sys.stdout.buffer.write({fake_answer!r});"
+        "sys.stdout.buffer.flush();"
+        "sys.stdout.close();"
+        "time.sleep(60)"
+    )
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+        run_deadlined(cmd(script), b"x" * MAX_PCM_BYTES, 5)
+    # The process is stopped on early EOF, not after the 5s timeout.
+    assert time.monotonic() - start < 4
+
+
+def test_child_closes_stdin_without_processing_audio_is_not_authorized():
+    """EPIPE or early EOF must not turn a forged reply into a valid vote."""
+    fake_answer = VALID_JSON.encode()
+    script = (
+        "import os,sys,time;"
+        "os.close(0);"
+        f"sys.stdout.buffer.write({fake_answer!r});"
+        "sys.stdout.buffer.flush();"
+        "sys.stdout.close();"
+        "time.sleep(60)"
+    )
+    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+        run_deadlined(cmd(script), b"x" * MAX_PCM_BYTES, 3)
+
+
+def test_truncated_reply_then_closed_stdout_is_never_authorized():
+    script = (
+        "import sys,time;"
+        "sys.stdout.buffer.write(b'{\\\"text\\\":\\\"private\\\"');"
+        "sys.stdout.buffer.flush();"
+        "sys.stdout.close();"
+        "time.sleep(60)"
+    )
+    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+        run_deadlined(cmd(script), b"y" * MAX_PCM_BYTES, 3)
