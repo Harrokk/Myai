@@ -25,6 +25,7 @@ from core.health_status import (
 )
 from core.orchestration import public_plan
 from core.voice_plan_attestation import allow_voice_dispatch
+from core.voice_retry_quarantine import VoiceRetryQuarantine
 from core.tool_outcome import summarize_guarded_outcomes
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
@@ -40,6 +41,9 @@ class MyAICore:
     def __init__(self, settings, project_root, tools=None, memory=None, llm=None):
         self.settings = settings
         self._response_lock = threading.RLock()
+        # Prevent unverified replays of effectful voice commands across
+        # Stop -> Start within this MyAICore process. Not crash-durable.
+        self._voice_retry_quarantine = VoiceRetryQuarantine()
         self.project_root = project_root
         self.error_logger = ErrorLogger(
             settings,
@@ -1028,14 +1032,15 @@ Svara kort och tydligt på svenska.
                     # This boundary is rechecked for each invocation,
                     # against actual selected inputs and live tool metadata.
                     def execution_guard(name, entry, actual_input):
-                        return allow_voice_dispatch(
-                            tool_plan,
-                            self.tools,
-                            name,
-                            entry,
-                            actual_input,
-                            voice_plan_verifier,
-                        )
+                        return (self._voice_retry_quarantine.permits(name, entry)
+                                and allow_voice_dispatch(
+                                    tool_plan,
+                                    self.tools,
+                                    name,
+                                    entry,
+                                    actual_input,
+                                    voice_plan_verifier,
+                                ))
 
                 tool_results = run_tools(
                     tool_names,
@@ -1054,6 +1059,11 @@ Svara kort och tydligt på svenska.
                         if voice_mode else None
                     ),
                 )
+                if voice_mode:
+                    self._voice_retry_quarantine.observe(
+                        tool_names, self.tools, tool_outcomes,
+                        stopped=self._voice_stop_requested(voice_plan_verifier),
+                    )
 
             pending_intermediate_results = (
                 self._create_pending_intermediate_results(
@@ -1224,6 +1234,13 @@ Svara kort och tydligt på svenska.
         voice_plan_verifier=None,
     ):
         cancelled = self._voice_stop_requested(voice_plan_verifier)
+        if voice_plan_verifier is not None:
+            # Stop can race AFTER guarded dispatch and BEFORE the LLM
+            # returns. A previously successful effect must not become
+            # freely repeatable merely because Stop arrived later.
+            self._voice_retry_quarantine.observe(
+                tool_names, self.tools, tool_outcomes, stopped=cancelled,
+            )
         if cancelled:
             memory_decision = self._voice_cancelled_memory_decision()
         elif self._memory_lookup_status == "unavailable":
@@ -1293,9 +1310,11 @@ Svara kort och tydligt på svenska.
             # needs human verification before any new attempt. Never
             # persist or automatically replay the original arguments.
             "manual_reconciliation_required": (
-                summarize_guarded_outcomes(tool_outcomes) in {
+                (summarize_guarded_outcomes(tool_outcomes) in {
                     "unknown", "partially_completed",
-                } if tool_outcomes is not None else False
+                } if tool_outcomes is not None else False)
+                or (voice_plan_verifier is not None
+                    and self._voice_retry_quarantine.review_required)
             ),
             "orchestration_plan": public_plan(
                 tool_plan
