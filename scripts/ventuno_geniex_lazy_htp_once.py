@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
+from urllib.request import ProxyHandler, Request, build_opener
 
 from scripts import ventuno_live_qairt_synthetic_once as single
 from scripts.ventuno_geniex_runtime_attestation import (
     main_pid_from_systemd, summarize_service,
 )
 from scripts.ventuno_geniex_idle_model_readonly import (
-    fixed_loopback_catalog, service_startup_hint,
+    _NoRedirects, service_startup_hint,
 )
 from scripts.ventuno_qairt_v75_package_readonly import package_versions
 from scripts.ventuno_v75_npu_readiness_readonly import _installed_minor
@@ -79,6 +81,31 @@ def _existing_model():
             return False
         models = single._read_json(response)
     return single._model_id(models) == EXPECTED_MODEL
+
+
+def _post_once(model_id):
+    """One bounded localhost POST with no inherited proxy or redirects."""
+    if model_id != EXPECTED_MODEL:
+        raise ValueError("unexpected-model-id")
+    body = json.dumps({
+        "model": EXPECTED_MODEL,
+        "messages": [{"role": "user", "content": single.SYNTHETIC_PROMPT}],
+        "temperature": 0,
+        "max_tokens": single.MAX_GENERATED_TOKENS,
+        "stream": False,
+    }).encode("utf-8")
+    req = Request(
+        single.BASE_URL + "/chat/completions",
+        data=body, headers={"Content-Type": "application/json"}, method="POST",
+    )
+    t0 = time.monotonic()
+    with build_opener(ProxyHandler({}), _NoRedirects()).open(
+        req, timeout=30
+    ) as response:
+        if response.geturl() != single.BASE_URL + "/chat/completions":
+            raise ValueError("redirect-not-allowed")
+        obj = single._read_json(response)
+    return single._safe_sample(obj, time.monotonic() - t0)
 
 
 def attempt():
@@ -156,7 +183,7 @@ def attempt():
 
     try:
         report["http_post_attempted"] = True
-        sample = single.run_one_synthetic_request(EXPECTED_MODEL)
+        sample = _post_once(EXPECTED_MODEL)
         # Keep only the known safe sampling contract, never any reply.
         report["sample"] = sample
         report["bounded_synthetic_reply_received"] = (
