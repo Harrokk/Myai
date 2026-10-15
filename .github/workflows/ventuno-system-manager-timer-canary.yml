@@ -80,7 +80,7 @@ jobs:
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Probe noninteractive sudo and run fake timer only if explicitly allowed
+      - name: Read-only inspect exact sudo policy of previously denied system timer
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
@@ -91,7 +91,7 @@ jobs:
           cd "$MYAI_SYSTEMTIMER_BOARD"
           timeout --signal=TERM --kill-after=3s 55s \
             /home/arduino/MyAI/.venv/bin/python -B \
-            -m scripts.ventuno_system_manager_timer_canary \
+            -m scripts.ventuno_system_manager_timer_canary --inspect-exact-sudo-policy \
             | tee "$MYAI_SYSTEMTIMER_BOARD/result.jsonl"
           /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
           import json
@@ -100,16 +100,13 @@ jobs:
           assert len(lines) == 1
           assert lines[0].startswith("MYAI_SYSTEM_TIMER_FAKE_CANARY_JSON=")
           r = json.loads(lines[0].split("=", 1)[1])
-          assert r["runner_service_stopped_or_changed"] is False
-          assert r["geniex_or_myai_services_changed"] is False
-          assert r["systemd_manager_reconfigured"] is False
-          assert r["persistent_system_timer_installed"] is False
+          assert r["probe"] == "ventuno_exact_systemd_timer_sudo_policy_readonly"
+          assert r["actual_systemd_timer_submitted"] is False
+          assert r["systemd_or_service_modified"] is False
+          assert r["runner_or_geniex_or_myai_modified"] is False
           assert r["sudoers_modified"] is False
-          assert r["htp_qnn_or_inference_executed"] is False
-          assert r["runner_disconnect_recovery_verified"] is False
-          assert r["reboot_recovery_verified"] is False
-          assert r["private_paths_logs_or_credentials_exported"] is False
-          print("Completed safe system-manager canary or explicit NO-GO.")
+          assert r["raw_sudo_policy_or_paths_exported"] is False
+          print("Exact system timer sudo policy reviewed: no system commands executed.")
           PY
       - name: Delete temporary on-board checkout and sanitized output
         if: always()
