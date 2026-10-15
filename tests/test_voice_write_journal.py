@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import subprocess
 import sys
+import stat
 
 from core.assistant import MyAICore
 from core.config import DEFAULT_SETTINGS
@@ -142,7 +143,11 @@ def test_writing_marker_failure_fails_closed(monkeypatch, tmp_path):
     (tmp_path / "runtime").mkdir(mode=0o700)
     original = os.fsync
     def fail_fsync(fd):
-        raise OSError("SYNTHETIC_PRIVATE_IO_ERROR")
+        # The durable lock and parent sync must succeed so the injected
+        # failure occurs AFTER marker creation, on the file's own fsync.
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("SYNTHETIC_PRIVATE_IO_ERROR")
+        return original(fd)
     monkeypatch.setattr(os, "fsync", fail_fsync)
     journal = VoiceWriteAheadMarker(tmp_path)
     assert journal.begin_effect() is False
