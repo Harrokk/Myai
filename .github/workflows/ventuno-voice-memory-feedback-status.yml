@@ -1,0 +1,64 @@
+name: Voice memory feedback interface (synthetic only)
+on:
+  push:
+    branches: [dev/ventuno-voice-memory-feedback-status-20261015]
+    paths:
+      - .github/workflows/ventuno-voice-memory-feedback-status.yml
+      - core/voice_pipeline.py
+      - tests/test_voice_memory_feedback_bridge.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-voice-memory-feedback-20261015
+  cancel-in-progress: false
+jobs:
+  synthetic-voice-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Exact SHA disposable GitHub-hosted x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-memory-voice-ui.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_VOICE_UI_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install pinned test and existing runtime dependencies in disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-memory-voice-ui-venv"
+          "$RUNNER_TEMP/myai-memory-voice-ui-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
+      - name: Run memory feedback and audio-only fake voice pipeline tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_UI_SCRATCH"
+          "$RUNNER_TEMP/myai-memory-voice-ui-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_memory_feedback_bridge.py \
+            tests/test_voice_pipeline.py \
+            tests/test_memory_explicit_retry_feedback.py
+          echo 'Fake STT/TTS/LLM and synthetic SQLite only. No microphone, hardware or production action.'
+      - name: Clean disposable test directory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_VOICE_UI_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_VOICE_UI_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-memory-voice-ui-venv"
