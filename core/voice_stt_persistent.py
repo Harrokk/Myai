@@ -200,10 +200,16 @@ class PersistentFasterWhisperSTT:
             bufsize=0, start_new_session=True,
         )
         self._count = 0
-        # select() only prevents blocking if the actual pipe fd is also
-        # O_NONBLOCK. Linux pipe writes larger than PIPE_BUF could stall.
-        os.set_blocking(self._worker.stdin.fileno(), False)
-        os.set_blocking(self._worker.stdout.fileno(), False)
+        try:
+            # select() only prevents blocking if the actual pipe fd is
+            # O_NONBLOCK. Large pipe writes must obey the STT deadline.
+            os.set_blocking(self._worker.stdin.fileno(), False)
+            os.set_blocking(self._worker.stdout.fileno(), False)
+        except BaseException:
+            # A pipe-configuration failure must not orphan a child with
+            # a loaded (or partially loaded) native model.
+            self._release()
+            raise
 
     def _release(self):
         proc = self._worker
