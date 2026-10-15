@@ -1,0 +1,67 @@
+name: Camera voice outcome contracts (synthetic only)
+on:
+  push:
+    branches: [dev/ventuno-camera-outcome-voice-safety-20261015]
+    paths:
+      - .github/workflows/ventuno-camera-voice-outcome-safety.yml
+      - modules/camera/capture.py
+      - modules/camera/video.py
+      - modules/camera/video_frames.py
+      - modules/camera/stream.py
+      - tests/test_voice_camera_outcome_safety.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-camera-voice-outcome-20261015
+  cancel-in-progress: false
+jobs:
+  no-camera-fake-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact SHA into disposable GitHub-hosted x86 directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-camera-outcome.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_CAMERA_TEST_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install only test and already-used runtime dependencies in disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-camera-outcome-venv"
+          "$RUNNER_TEMP/myai-camera-outcome-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
+      - name: Test mock camera errors and related structured status
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_CAMERA_TEST_SCRATCH"
+          "$RUNNER_TEMP/myai-camera-outcome-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_camera_outcome_safety.py \
+            tests/test_voice_structured_tool_outcomes.py \
+            tests/test_voice_multitool_preflight.py
+          echo 'No cv2 install, camera opens, real media, QNN, GenieX or production actions.'
+      - name: Clean disposable checkout and venv
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_CAMERA_TEST_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_CAMERA_TEST_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-camera-outcome-venv"
