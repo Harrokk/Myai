@@ -737,6 +737,9 @@ def test_voice_stop_signals_cached_stt_before_waiting_for_pipeline_cleanup():
     assert model.close_calls == 1
     assert model.cancel_requests == 1
     assert not s.running
+    # This assertion belongs only to the FIRST shutdown. A second
+    # session correctly issues its own, second cancellation.
+    s.pipeline.interrupt = original_interrupt
     assert s.start() is True
     assert model.resume_requests == 2
     assert s.stop() is True
