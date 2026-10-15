@@ -1,0 +1,112 @@
+name: MyAI STT subprocess hard deadline - no model or audio device
+on:
+  push:
+    branches: [dev/ventuno-stt-process-watchdog-20261015]
+    paths:
+      - .github/workflows/ventuno-stt-process-hard-timeout.yml
+      - core/voice_stt_process.py
+      - core/voice_stt_worker.py
+      - core/voice_factory.py
+      - core/config.py
+      - core/config_validation.py
+      - tests/test_voice_stt_process.py
+      - tests/test_voice_factory.py
+      - tests/test_config_validation.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-stt-hard-timeout-20261015
+  cancel-in-progress: false
+jobs:
+  hosted-real-process-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact source commit in private disposable worktree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          temp="$(mktemp -d "$RUNNER_TEMP/myai-stt-process-host.XXXXXX")"
+          chmod 700 "$temp"
+          echo "MYAI_STT_PROCESS_HOST=$temp" >> "$GITHUB_ENV"
+          cd "$temp"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run real child-kill test with synthetic bytes and factory validation
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-stt-process-test-venv"
+          "$RUNNER_TEMP/myai-stt-process-test-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_STT_PROCESS_HOST"
+          "$RUNNER_TEMP/myai-stt-process-test-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_stt_process.py \
+            tests/test_voice_factory.py \
+            tests/test_config_validation.py
+      - name: Remove temporary checked-out files and test environment
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_STT_PROCESS_HOST:-}" ]; then rm -rf -- "$MYAI_STT_PROCESS_HOST"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-stt-process-test-venv"
+
+  ventuno-source-only:
+    name: Confirm feature remains OFF in VENTUNO source-only build
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    needs: hosted-real-process-tests
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exactly this SHA in disposable VENTUNO code checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-stt-process-board.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_STT_PROCESS_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Source-only assertion (NO WHISPER LOAD OR DSP CLIENT)
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STT_PROCESS_BOARD"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          from core.config import DEFAULT_SETTINGS
+          from core.voice_factory import build_voice_components
+          from core.voice_stt_process import worker_argv
+          assert DEFAULT_SETTINGS["voice"]["stt_process_isolation_enabled"] is False
+          off = build_voice_components(settings={"voice":{"enabled":False}})
+          assert off["enabled"] is False and off["primary_stt"] is None
+          assert off["backup_stt"] == []
+          print("Experimental child timeout OFF; no microphone, Whisper, HTP or GenieX touched.")
+          PY
+      - name: Delete disposable source checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_STT_PROCESS_BOARD:-}" ]; then rm -rf -- "$MYAI_STT_PROCESS_BOARD"; fi
