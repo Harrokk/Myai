@@ -184,3 +184,40 @@ def test_stable_lock_ownership_and_private_permissions(tmp_path):
     assert VoiceWriteReconciliation(tmp_path).finalize(
         token, ATTESTATION_PREFIX + token)
     assert locks[0].exists()
+
+
+def test_cli_interactive_prepare_and_release_create_durable_receipt(
+        tmp_path, monkeypatch, capsys):
+    """A local operator still needs two distinct interactive steps."""
+    begin(tmp_path)
+    import scripts.voice_write_reconcile as cli
+
+    class LocalTTY:
+        def isatty(self):
+            return True
+    monkeypatch.setattr(cli.sys, "stdin", LocalTTY())
+    monkeypatch.setattr("builtins.input", lambda *_: "PREPARE REVIEW TICKET")
+    root = str(tmp_path)
+    assert main(["--project-root", root, "prepare"]) == 0
+    output = capsys.readouterr().out
+    ticket = output.split("Private review ticket: ")[1].splitlines()[0]
+    assert len(ticket) == 32
+    assert VoiceWriteAheadMarker(tmp_path).review_required
+    monkeypatch.setattr(
+        "builtins.input", lambda *_: ATTESTATION_PREFIX + ticket
+    )
+    assert main(["--project-root", root, "release", ticket]) == 0
+    assert (tmp_path / "runtime" / (
+        RECEIPT_PREFIX + ticket + RECEIPT_SUFFIX)).exists()
+    assert not (tmp_path / "runtime" / MARKER).exists()
+
+
+def test_tampered_review_ticket_blocks_release_and_keeps_marker(tmp_path):
+    begin(tmp_path)
+    recovery = VoiceWriteReconciliation(tmp_path)
+    token = recovery.prepare()
+    pending = tmp_path / "runtime" / PENDING
+    body = pending.read_bytes()
+    pending.write_bytes(body + b"tampered\n")
+    assert recovery.finalize(token, ATTESTATION_PREFIX + token) is False
+    assert VoiceWriteAheadMarker(tmp_path).review_required
