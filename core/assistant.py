@@ -29,6 +29,7 @@ from core.tool_outcome import summarize_guarded_outcomes
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
     EXECUTION_FAILED_MESSAGE,
+    EXECUTION_INTERRUPTED_MESSAGE,
     load_tools,
     run_tools,
     select_tool_plan,
@@ -1030,6 +1031,11 @@ Svara kort och tydligt på svenska.
                     ),
                     execution_guard=execution_guard,
                     outcome_details=tool_outcomes,
+                    execution_cancelled=(
+                        (lambda: self._voice_stop_requested(
+                            voice_plan_verifier
+                        )) if voice_mode else None
+                    ),
                 )
 
             pending_intermediate_results = (
@@ -1178,7 +1184,11 @@ Svara kort och tydligt på svenska.
     @staticmethod
     def _tool_dispatch_was_blocked(tool_results):
         return isinstance(tool_results, dict) and any(
-            value in (EXECUTION_BLOCKED_MESSAGE, EXECUTION_FAILED_MESSAGE)
+            value in (
+                EXECUTION_BLOCKED_MESSAGE,
+                EXECUTION_FAILED_MESSAGE,
+                EXECUTION_INTERRUPTED_MESSAGE,
+            )
             for value in tool_results.values()
             if isinstance(value, str)
         )

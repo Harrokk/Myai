@@ -7,6 +7,7 @@ from core.config import DEFAULT_SETTINGS
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
     EXECUTION_FAILED_MESSAGE,
+    EXECUTION_INTERRUPTED_MESSAGE,
     run_tools,
 )
 from core.voice_plan_attestation import (
@@ -330,3 +331,142 @@ def test_unguarded_text_execution_still_collects_other_tool_results():
     assert "historiskt testfel" in result["one"]
     assert result["two"] == "TWO"
     assert calls == ["two"]
+
+
+def test_voice_stop_inside_active_tool_marks_attempted_unknown_and_blocks_next():
+    """No text result or implicit rollback claim survives an in-flight Stop."""
+    effects, outcomes = [], {}
+    stop = [False]
+
+    def first():
+        effects.append("called")
+        stop[0] = True
+        return "SECRET_SUCCESS_LOOKING_RETURN"
+
+    tools = {
+        "cpu_status": {"function": first},
+        "ram_status": {"function": lambda: effects.append("must_not_run")},
+    }
+    result = run_tools(
+        ["cpu_status", "ram_status"], tools,
+        execution_guard=lambda *_: True,
+        execution_cancelled=lambda: stop[0],
+        outcome_details=outcomes,
+    )
+    assert effects == ["called"]
+    assert result == {
+        "cpu_status": EXECUTION_INTERRUPTED_MESSAGE,
+        "ram_status": EXECUTION_BLOCKED_MESSAGE,
+    }
+    assert outcomes["cpu_status"] == {"state": "unknown", "attempted": True}
+    assert outcomes["ram_status"] == {"state": "blocked", "attempted": False}
+    assert "SECRET" not in str(result)
+
+
+def test_known_prior_voice_step_is_partial_when_later_step_stopped_mid_call():
+    from core.tool_outcome import summarize_guarded_outcomes
+
+    effects, outcomes = [], {}
+    stop = [False]
+    def finish():
+        effects.append("read")
+        return "read-value"
+    def stop_in_second():
+        effects.append("write_started")
+        stop[0] = True
+        return "unsafe_success_claim"
+    tools = {
+        "cpu_status": {"function": finish},
+        "workspace_write": {"function": stop_in_second},
+        "ram_status": {"function": lambda: effects.append("never")},
+    }
+    result = run_tools(
+        ["cpu_status", "workspace_write", "ram_status"], tools,
+        execution_guard=lambda *_: True,
+        execution_cancelled=lambda: stop[0],
+        outcome_details=outcomes,
+    )
+    assert effects == ["read", "write_started"]
+    assert result["cpu_status"] == "read-value"
+    assert result["workspace_write"] == EXECUTION_INTERRUPTED_MESSAGE
+    assert result["ram_status"] == EXECUTION_BLOCKED_MESSAGE
+    assert summarize_guarded_outcomes(outcomes) == "partially_completed"
+
+
+def test_cancel_between_guard_and_invocation_starts_no_tool():
+    effects, outcome = [], {}
+    stop = [False]
+    checks = [0]
+    def guard(*_):
+        checks[0] += 1
+        if checks[0] == 2:
+            stop[0] = True
+        return True
+
+    results = run_tools(
+        ["cpu_status"],
+        {"cpu_status": {"function": lambda: effects.append("no")}},
+        execution_guard=guard,
+        execution_cancelled=lambda: stop[0],
+        outcome_details=outcome,
+    )
+    assert checks == [2]
+    assert effects == []
+    assert results["cpu_status"] == EXECUTION_BLOCKED_MESSAGE
+    assert outcome["cpu_status"] == {"state": "blocked", "attempted": False}
+
+
+def test_faulty_stop_probe_fails_closed_without_invocation():
+    observed = []
+    def invalid_probe():
+        raise RuntimeError("SECRET_EVENT_FAILURE")
+    results = run_tools(
+        ["cpu_status"],
+        {"cpu_status": {"function": lambda: observed.append("run")}},
+        execution_guard=lambda *_: True,
+        execution_cancelled=invalid_probe,
+    )
+    assert observed == []
+    assert results["cpu_status"] == EXECUTION_BLOCKED_MESSAGE
+    assert "SECRET" not in str(results)
+
+
+def test_voice_core_stop_mid_tool_cannot_claim_full_completion(tmp_path, monkeypatch):
+    """Integration: guarded tools, core status, memory and LLM stay truthful."""
+    from core.tool_outcome import summarize_guarded_outcomes
+
+    stop, effects = [False], []
+    tools = {}
+    def inflight():
+        effects.append("already_started")
+        stop[0] = True
+        return "FALSE_SUCCESS"
+    tools["cpu_status"] = {"function": inflight}
+    plan = {"steps": [{"tool": "cpu_status", "input": "synthetic"}]}
+    core = core_with_plan(tmp_path, monkeypatch, tools, plan)
+    def verifier(*_args):
+        return True
+    verifier.voice_stop_requested = lambda: stop[0]
+    result = core.respond_voice("synthetic", plan_verifier=verifier)
+    assert effects == ["already_started"]
+    assert stop[0] is True
+    assert result["tool_results"]["cpu_status"] == EXECUTION_INTERRUPTED_MESSAGE
+    assert result["tool_outcomes"]["cpu_status"] == {
+        "state": "unknown", "attempted": True,
+    }
+    assert summarize_guarded_outcomes(result["tool_outcomes"]) == "unknown"
+    assert result["tool_execution_status"] == "unknown"
+    assert result["tool_dispatch_blocked"] is True
+    assert core.llm.calls == []
+    assert core.conversation_history == []
+
+
+def test_typed_text_tool_return_keeps_legacy_output_without_guard():
+    effects = []
+    result = run_tools(
+        ["cpu_status"],
+        {"cpu_status": {"function": lambda: effects.append(1) or "OK"}},
+        execution_cancelled=lambda: True,
+    )
+    assert effects == [1]
+    assert result == {"cpu_status": "OK"}
