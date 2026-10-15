@@ -60,6 +60,10 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
     if not isinstance(secure, dict):
         secure = {}
 
+    dma = nodes.get("dma_heap_system", {})
+    if not isinstance(dma, dict):
+        dma = {}
+
     rt = _installed_minor(packages.get("qairt-libs"))
     dsp = _installed_minor(packages.get("qairt-dsp-binaries"))
     platform_ok = isinstance(machine, str) and machine.casefold() == "aarch64"
@@ -70,11 +74,19 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
         type(available_kib) is int and available_kib >= MIN_AVAILABLE_KIB
     )
     concurrency = assess_geniex_concurrency(service)
-    # Effective access is metadata only, NOT proof of a successful DSP open.
-    fastrpc_access = (
+    # Upstream Qualcomm FastRPC udev rules use root:fastrpc 0640 on
+    # /dev/fastrpc-*dsp (group READ, not write). Actual DSP opening is
+    # still unverified; do not flag absent secure-device write as a
+    # permission error. DMA-heap/system is a separate read/write gate.
+    # https://github.com/qualcomm/fastrpc#setting-up-the-fastrpc-group
+    fastrpc_read = (
         secure.get("character_device") is True
         and secure.get("runner_effective_read_access") is True
-        and secure.get("runner_effective_write_access") is True
+    )
+    dma_read_write = (
+        dma.get("character_device") is True
+        and dma.get("runner_effective_read_access") is True
+        and dma.get("runner_effective_write_access") is True
     )
     blockers = []
     if not platform_ok:
@@ -97,8 +109,10 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
         blockers.append("active_geniex_concurrency_unsafe")
     else:
         blockers.append("exclusive_htp_maintenance_not_attested")
-    if not fastrpc_access:
-        blockers.append("runner_fastrpc_device_access_unverified")
+    if not fastrpc_read:
+        blockers.append("runner_secure_fastrpc_read_access_unverified")
+    if not dma_read_write:
+        blockers.append("runner_dma_heap_read_write_access_unverified")
     # Separate signed, version-compatible model and vendor-approved
     # exclusive-run procedure are prerequisites for a future new workflow.
     blockers.append("vendor_htp_placement_proof_not_available")
@@ -114,7 +128,9 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
         "repository_245_dlc_integrity_verified": checked_dlc,
         "matching_246_htp_artifact_attested": False,
         "available_ram_at_least_safe_threshold": memory_ok,
-        "runner_secure_fastrpc_metadata_permits_rw": fastrpc_access,
+        "runner_secure_fastrpc_metadata_permits_read": fastrpc_read,
+        "runner_dma_heap_metadata_permits_read_write": dma_read_write,
+        "secure_fastrpc_write_not_assumed_required": True,
         "runner_fastrpc_group_member": policy.get(
             "runner_in_fastrpc_group"
         ) if type(policy.get("runner_in_fastrpc_group")) is bool else None,

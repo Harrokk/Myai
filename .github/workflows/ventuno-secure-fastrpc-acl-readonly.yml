@@ -1,0 +1,142 @@
+name: VENTUNO secure FastRPC ACL attribution (read-only)
+on:
+  push:
+    branches: [dev/ventuno-secure-fastrpc-acl-readonly-20261015]
+    paths:
+      - .github/workflows/ventuno-secure-fastrpc-acl-readonly.yml
+      - scripts/ventuno_secure_fastrpc_acl_effective_readonly.py
+      - tests/test_ventuno_secure_fastrpc_acl_effective_readonly.py
+      - scripts/ventuno_v75_npu_readiness_readonly.py
+      - tests/test_ventuno_v75_npu_readiness_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-secure-fastrpc-acl-readonly-20261015
+  cancel-in-progress: false
+jobs:
+  synthetic-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Fetch exact revision on disposable hosted x86
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-secure-acl-unit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_ACL_UNIT_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run strictly fake-only ACL regression tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-secure-acl-unit-venv"
+          "$RUNNER_TEMP/myai-secure-acl-unit-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+          cd "$MYAI_ACL_UNIT_SCRATCH"
+          "$RUNNER_TEMP/myai-secure-acl-unit-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_secure_fastrpc_acl_effective_readonly.py \
+            tests/test_ventuno_dma_acl_effective_readonly.py \
+            tests/test_ventuno_v75_npu_readiness_readonly.py
+      - name: Delete fake-only workspace and virtualenv
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_ACL_UNIT_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_ACL_UNIT_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-secure-acl-unit-venv"
+
+  real-board-readonly:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact revision to temporary read-only workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-secure-acl-metadata.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_ACL_METADATA_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Inspect ONLY secure CDSP character-node metadata and POSIX ACL
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ACL_METADATA_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 45s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_secure_fastrpc_acl_effective_readonly \
+            | tee "$MYAI_ACL_METADATA_SCRATCH/result.txt"
+          /home/arduino/MyAI/.venv/bin/python -B -c '
+          import json
+          from pathlib import Path
+          lines = Path("result.txt").read_text(encoding="utf-8").splitlines()
+          assert len(lines) == 1 and lines[0].startswith("MYAI_SECURE_FASTRPC_ACL_JSON=")
+          r = json.loads(lines[0].split("=", 1)[1])
+          assert r["device_opened"] is False
+          assert r["device_written"] is False
+          assert r["service_or_permissions_modified"] is False
+          assert r["qnn_or_htp_executed"] is False
+          assert r["npu_inference_verified"] is False
+          print("Read-only FastRPC ACL attribution completed; no HTP inference.")
+          '
+      - name: Recheck NPU metadata without assuming secure node write is required
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ACL_METADATA_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 60s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_v75_npu_readiness_readonly \
+            | tee "$MYAI_ACL_METADATA_SCRATCH/npu-readiness.txt"
+          /home/arduino/MyAI/.venv/bin/python -B -c '
+          import json
+          from pathlib import Path
+          rows = Path("npu-readiness.txt").read_text(encoding="utf-8").splitlines()
+          assert len(rows) == 1 and rows[0].startswith("MYAI_V75_NPU_READINESS_JSON=")
+          r = json.loads(rows[0].split("=", 1)[1])
+          assert r["status"] == "no_go"
+          assert r["secure_fastrpc_write_not_assumed_required"] is True
+          assert r["qnn_or_htp_attempted"] is False
+          assert r["npu_inference_verified"] is False
+          assert r["devices_opened"] is False
+          print("Separate secure FastRPC read and DMA heap read/write metadata checked.")
+          '
+      - name: Destroy temporary checkout and metadata files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_ACL_METADATA_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_ACL_METADATA_SCRATCH"
+          fi
