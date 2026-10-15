@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-from core.voice_stt_bounded_io import exchange_bounded
+from core.voice_stt_bounded_io import exchange_bounded, OversizedSTTOutput
 from core.voice_stt_process_group import terminate_owned_group
 
 MAX_PCM_BYTES = 2 * 1024 * 1024
