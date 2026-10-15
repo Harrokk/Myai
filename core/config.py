@@ -134,6 +134,8 @@ DEFAULT_SETTINGS = {
         "microphone_provider": "sounddevice",
         "vad_provider": "webrtcvad",
         "stt_provider": "faster_whisper",
+        "stt_process_isolation_enabled": False,
+        "stt_process_timeout_seconds": 45.0,
         "backup_stt_provider": "faster_whisper",
         "tts_provider": "pyttsx3",
         "sample_rate": 16000,
