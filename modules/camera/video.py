@@ -279,6 +279,15 @@ def camera_record_video():
 TOOLS = {
     "camera_record_video": {
         "function": camera_record_video,
+        # This action accesses a local camera (and some persist files).
+        # Require explicit spoken consent; never classify as read-only.
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
+        "result_failure_prefixes": (
+            "Videoinspelningen misslyckades:",
+        ),
         "description": (
             "Spelar in ett kort videoklipp från den konfigurerade kameran, "
             "sparar det lokalt och stänger kameran direkt efteråt."
