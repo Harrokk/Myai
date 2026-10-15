@@ -1388,7 +1388,8 @@ Svara kort och tydligt på svenska.
                     )
                 # No model output and no speculative streaming token
                 # may present an unexecuted action as completed.
-                if on_chunk is not None and not delayed_memory_feedback:
+                if (on_chunk is not None and not delayed_memory_feedback
+                        and not self._voice_stop_requested(_voice_plan_verifier)):
                     on_chunk(answer)
                 return self._finalize_response(
                     user_message,
@@ -1400,6 +1401,7 @@ Svara kort och tydligt på svenska.
                     streamed=False,
                     tool_outcomes=tool_outcomes,
                     on_finalized_chunk=callback,
+                    voice_plan_verifier=_voice_plan_verifier,
                 )
 
             stream = getattr(
@@ -1414,7 +1416,8 @@ Svara kort och tydligt på svenska.
                     timeout=300,
                 )
 
-                if on_chunk is not None and answer and not delayed_memory_feedback:
+                if (on_chunk is not None and answer and not delayed_memory_feedback
+                        and not self._voice_stop_requested(_voice_plan_verifier)):
                     on_chunk(answer)
 
                 return self._finalize_response(
@@ -1429,6 +1432,7 @@ Svara kort och tydligt på svenska.
                     streamed=False,
                     tool_outcomes=tool_outcomes,
                     on_finalized_chunk=callback,
+                    voice_plan_verifier=_voice_plan_verifier,
                 )
 
             chunks = []
@@ -1437,6 +1441,9 @@ Svara kort och tydligt på svenska.
                 messages,
                 timeout=300,
             ):
+                # Never send another streamed voice chunk after Stop.
+                if self._voice_stop_requested(_voice_plan_verifier):
+                    break
                 value = str(chunk or "")
 
                 if not value:
@@ -1444,7 +1451,8 @@ Svara kort och tydligt på svenska.
 
                 chunks.append(value)
 
-                if on_chunk is not None and not delayed_memory_feedback:
+                if (on_chunk is not None and not delayed_memory_feedback
+                        and not self._voice_stop_requested(_voice_plan_verifier)):
                     on_chunk(value)
 
             answer = "".join(chunks)
@@ -1461,6 +1469,7 @@ Svara kort och tydligt på svenska.
                 streamed=True,
                 tool_outcomes=tool_outcomes,
                 on_finalized_chunk=callback,
+                voice_plan_verifier=_voice_plan_verifier,
             )
 
     def _remember_conversation_turn(self, user_message, answer):
