@@ -1343,6 +1343,27 @@ class VoicePipeline:
             transcript
         )
 
+        # A semantic fallback is NOT independent verbatim evidence for
+        # a destructive action. In particular, if a low-risk primary
+        # fails lexical consensus and the LLM selects a dangerous STT
+        # outlier, never promote that to an executable voice command.
+        if (
+            consensus.get("method") == "semantic"
+            and final_risk["level"] == "high"
+        ):
+            return {
+                "status": "clarify",
+                "message": (
+                    "Semantisk jämförelse kan inte godkänna ett "
+                    "högriskkommando. Säg kommandot igen."
+                ),
+                "risk": final_risk,
+                "consensus": {
+                    **consensus,
+                    "accepted": False,
+                },
+            }
+
         if final_risk.get("tool_plan_error") is not None:
             return {
                 "status": "clarify",
