@@ -388,3 +388,21 @@ def test_persistent_duplicate_stt_json_is_never_trusted():
         decode_stt_reply(contradictory)
     with pytest.raises(RuntimeError, match="Invalid persistent STT response"):
         module.parse_reply(contradictory)
+
+
+def test_persistent_child_resource_env_is_off_by_default_and_opt_in():
+    from core.voice_stt_child_limits import CPU_ENV, AS_ENV
+    from core.voice_stt_persistent import offline_environment
+    empty = offline_environment()
+    assert CPU_ENV not in empty and AS_ENV not in empty
+    limited = offline_environment(cpu_seconds=10, virtual_memory_mib=2048)
+    assert limited[CPU_ENV] == "10"
+    assert limited[AS_ENV] == "2048"
+    assert "HF_HUB_TOKEN" not in limited
+    worker = PersistentFasterWhisperSTT(
+        **CONFIG, timeout_seconds=4, cpu_seconds=10,
+        virtual_memory_mib=2048,
+    )
+    assert worker.cpu_seconds == 10
+    assert worker.virtual_memory_mib == 2048
+    assert worker._worker is None

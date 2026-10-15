@@ -21,6 +21,7 @@ import time
 from core.voice_stt_bounded_io import exchange_bounded, OversizedSTTOutput
 from core.voice_stt_process_group import terminate_owned_group
 from core.voice_stt_reply import decode_stt_reply
+from core.voice_stt_child_limits import add_limit_environment, validated_limits
 
 MAX_PCM_BYTES = 2 * 1024 * 1024
 MAX_REPLY_BYTES = 8192
@@ -62,7 +63,8 @@ def worker_argv(config):
     return [sys.executable, "-I", str(WORKER), json.dumps(config, separators=(",", ":"))]
 
 
-def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
+def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen,
+                 cpu_seconds=0, virtual_memory_mib=0):
     """Kill full owned process group on deadline, not merely Python thread.
 
     This only runs our trusted, fixed worker from worker_argv. Suppresses
@@ -72,14 +74,18 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
     if (type(audio) not in (bytes, bytearray)
             or not 0 < len(audio) <= MAX_PCM_BYTES):
         raise ValueError("Invalid or oversized isolated STT PCM")
-    environment = {
-        "PATH": "/usr/bin:/bin",
-        "HOME": os.path.expanduser("~"),
-        "HF_HUB_OFFLINE": "1",
-        "TRANSFORMERS_OFFLINE": "1",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "OMP_NUM_THREADS": "2",
-    }
+    environment = add_limit_environment(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": os.path.expanduser("~"),
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "OMP_NUM_THREADS": "2",
+        },
+        cpu_seconds=cpu_seconds,
+        virtual_memory_mib=virtual_memory_mib,
+    )
     try:
         proc = popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -133,13 +139,21 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
 class IsolatedFasterWhisperSTT:
     """Same voice-provider API. No shared loaded model across utterances."""
 
-    def __init__(self, *, timeout_seconds=45, **config):
+    def __init__(self, *, timeout_seconds=45, cpu_seconds=0,
+                 virtual_memory_mib=0, **config):
         self.timeout_seconds = bounded_seconds(timeout_seconds)
+        self.cpu_seconds, self.virtual_memory_mib = validated_limits(
+            cpu_seconds, virtual_memory_mib
+        )
         self._config = dict(config)
         self._argv = worker_argv(self._config)
 
     def transcribe(self, audio):
-        return run_deadlined(self._argv, audio, self.timeout_seconds)
+        return run_deadlined(
+            self._argv, audio, self.timeout_seconds,
+            cpu_seconds=self.cpu_seconds,
+            virtual_memory_mib=self.virtual_memory_mib,
+        )
 
     def release_for_inference(self):
         # The worker exits after each utterance; no persistent model.

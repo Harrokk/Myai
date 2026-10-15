@@ -171,7 +171,13 @@ def build_voice_components(
         if stt_class is not FasterWhisperSTT or backup_stt_class is not FasterWhisperSTT:
             raise ValueError("STT isolation supports built-in FasterWhisper only")
         timeout = config.get("stt_process_timeout_seconds", 45.0)
-        isolation_kwargs = {"timeout_seconds": timeout}
+        isolation_kwargs = {
+            "timeout_seconds": timeout,
+            "cpu_seconds": config.get("stt_child_cpu_seconds", 0),
+            "virtual_memory_mib": config.get(
+                "stt_child_virtual_memory_mib", 0
+            ),
+        }
         if persistent:
             provider_type = PersistentFasterWhisperSTT
             isolation_kwargs["max_utterances"] = config.get(

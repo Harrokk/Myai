@@ -1067,3 +1067,39 @@ def test_persistent_stt_enabled_requires_parent_process_isolation():
     ]
     cfg["voice"]["stt_process_isolation_enabled"] = True
     assert validate_settings(cfg)["valid"] is True
+
+
+@pytest.mark.parametrize("field,bad,code", [
+    ("stt_child_cpu_seconds", True, "stt_child_cpu_invalid"),
+    ("stt_child_cpu_seconds", "10", "stt_child_cpu_invalid"),
+    ("stt_child_cpu_seconds", -1, "stt_child_cpu_invalid"),
+    ("stt_child_cpu_seconds", 4, "stt_child_cpu_invalid"),
+    ("stt_child_cpu_seconds", 301, "stt_child_cpu_invalid"),
+    ("stt_child_virtual_memory_mib", True, "stt_child_virtual_memory_invalid"),
+    ("stt_child_virtual_memory_mib", "2048", "stt_child_virtual_memory_invalid"),
+    ("stt_child_virtual_memory_mib", -1, "stt_child_virtual_memory_invalid"),
+    ("stt_child_virtual_memory_mib", 1023, "stt_child_virtual_memory_invalid"),
+    ("stt_child_virtual_memory_mib", 8193, "stt_child_virtual_memory_invalid"),
+])
+def test_untrusted_stt_child_resource_limits_are_blocking(field, bad, code):
+    cfg = deepcopy(DEFAULT_SETTINGS)
+    cfg["voice"][field] = bad
+    result = validate_settings(cfg)
+    assert not result["valid"]
+    assert code in [entry["code"] for entry in result["errors"]]
+
+
+def test_stt_child_limits_require_isolation_and_default_off():
+    cfg = deepcopy(DEFAULT_SETTINGS)
+    assert cfg["voice"]["stt_child_cpu_seconds"] == 0
+    assert cfg["voice"]["stt_child_virtual_memory_mib"] == 0
+    assert validate_settings(cfg)["valid"] is True
+    cfg["voice"]["stt_child_cpu_seconds"] = 15
+    cfg["voice"]["stt_child_virtual_memory_mib"] = 2048
+    result = validate_settings(cfg)
+    assert not result["valid"]
+    assert "stt_child_limits_require_isolation" in [
+        entry["code"] for entry in result["errors"]
+    ]
+    cfg["voice"]["stt_process_isolation_enabled"] = True
+    assert validate_settings(cfg)["valid"] is True

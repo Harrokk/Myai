@@ -26,6 +26,7 @@ import time
 
 from core.voice_stt_process_group import terminate_owned_group
 from core.voice_stt_reply import decode_stt_reply
+from core.voice_stt_child_limits import add_limit_environment, validated_limits
 from core.voice_stt_process import (
     MAX_PCM_BYTES, MAX_REPLY_BYTES, CLEAN_KEYS,
     KNOWN_LANGUAGES, bounded_seconds, worker_argv,
@@ -58,15 +59,19 @@ def persistent_argv(config):
     return [one_shot[0], "-I", str(WORKER), one_shot[3]]
 
 
-def offline_environment():
-    return {
-        "PATH": "/usr/bin:/bin",
-        "HOME": os.path.expanduser("~"),
-        "HF_HUB_OFFLINE": "1",
-        "TRANSFORMERS_OFFLINE": "1",
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "OMP_NUM_THREADS": "2",
-    }
+def offline_environment(*, cpu_seconds=0, virtual_memory_mib=0):
+    return add_limit_environment(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": os.path.expanduser("~"),
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "OMP_NUM_THREADS": "2",
+        },
+        cpu_seconds=cpu_seconds,
+        virtual_memory_mib=virtual_memory_mib,
+    )
 
 
 def _ready(fd, write, deadline, clock, cancel_event=None):
@@ -157,9 +162,13 @@ def terminate_owned(proc):
 class PersistentFasterWhisperSTT:
     """Cached model with bounded lifetime, fail-closed after any IPC fault."""
 
-    def __init__(self, *, timeout_seconds=45, max_utterances=4, **config):
+    def __init__(self, *, timeout_seconds=45, max_utterances=4,
+                 cpu_seconds=0, virtual_memory_mib=0, **config):
         self.timeout_seconds = bounded_seconds(timeout_seconds)
         self.max_utterances = bounded_utterances(max_utterances)
+        self.cpu_seconds, self.virtual_memory_mib = validated_limits(
+            cpu_seconds, virtual_memory_mib
+        )
         self._argv = persistent_argv(dict(config))
         self._worker = None
         self._count = 0
@@ -171,7 +180,11 @@ class PersistentFasterWhisperSTT:
         try:
             self._worker = subprocess.Popen(
                 self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, cwd="/", env=offline_environment(),
+                stderr=subprocess.DEVNULL, cwd="/",
+                env=offline_environment(
+                    cpu_seconds=self.cpu_seconds,
+                    virtual_memory_mib=self.virtual_memory_mib,
+                ),
                 bufsize=0, start_new_session=True,
             )
         except (OSError, ValueError, subprocess.SubprocessError):

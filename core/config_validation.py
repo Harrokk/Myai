@@ -1067,6 +1067,30 @@ def validate_settings(
             "voice.stt_process_timeout_seconds måste vara mellan 1 och 300.",
         ))
 
+    # These are experimental child-only Linux RLIMIT_CPU / RLIMIT_AS
+    # policies, NOT a total device RAM or cgroup guarantee.
+    cpu_cap = voice.get("stt_child_cpu_seconds", 0)
+    address_cap = voice.get("stt_child_virtual_memory_mib", 0)
+    if (type(cpu_cap) is not int or
+            cpu_cap != 0 and not 5 <= cpu_cap <= 300):
+        issues.append(_issue(
+            "error", "stt_child_cpu_invalid",
+            "voice.stt_child_cpu_seconds måste vara 0 eller 5–300.",
+        ))
+    if (type(address_cap) is not int or
+            address_cap != 0 and not 1024 <= address_cap <= 8192):
+        issues.append(_issue(
+            "error", "stt_child_virtual_memory_invalid",
+            "voice.stt_child_virtual_memory_mib måste vara 0 eller 1024–8192.",
+        ))
+    if ((type(cpu_cap) is int and cpu_cap != 0)
+            or (type(address_cap) is int and address_cap != 0)):
+        if iso is not True:
+            issues.append(_issue(
+                "error", "stt_child_limits_require_isolation",
+                "CPU/minnesgränser får bara användas i isolerad STT.",
+            ))
+
     persistent = voice.get("stt_persistent_worker_enabled", False)
     cap = voice.get("stt_persistent_worker_max_utterances", 4)
     if type(persistent) is not bool:

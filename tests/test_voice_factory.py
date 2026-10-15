@@ -261,3 +261,26 @@ def test_persistent_worker_cap_and_bool_validation_is_failclosed():
             voice_factory.build_voice_components(
                 settings=cfg, provider_classes=fake_hardware
             )
+
+
+def test_optional_stt_child_resource_caps_pass_only_to_isolated_worker():
+    from modules.voice.providers import FasterWhisperSTT
+    from core.voice_stt_process import IsolatedFasterWhisperSTT
+    cfg = settings()
+    cfg["voice"].update({
+        "stt_process_isolation_enabled": True,
+        "stt_child_cpu_seconds": 15,
+        "stt_child_virtual_memory_mib": 2048,
+        "stt_model": "tiny",
+    })
+    mocks = classes()
+    mocks["stt"] = {"faster_whisper": FasterWhisperSTT}
+    result = voice_factory.build_voice_components(
+        settings=cfg, provider_classes=mocks,
+    )
+    stt = result["primary_stt"]
+    assert isinstance(stt, IsolatedFasterWhisperSTT)
+    assert stt.cpu_seconds == 15
+    assert stt.virtual_memory_mib == 2048
+    # Constructing components does not spawn model processes.
+    assert not hasattr(stt, "_worker")

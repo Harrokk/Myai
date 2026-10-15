@@ -18,6 +18,10 @@ class OversizedSTTOutput(RuntimeError):
     """Fixed public error category, no private child data."""
 
 
+class PrematureSTTStreamClose(RuntimeError):
+    """No transcript may succeed before all PCM bytes were transferred."""
+
+
 def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
                      clock=time.monotonic):
     """Send fixed bounded PCM, receive raw EOF-terminated answer.
@@ -64,6 +68,13 @@ def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
                                 raise OversizedSTTOutput("Invalid isolated STT output")
                         else:
                             selector.unregister(stdout_fd)
+                            if sent < len(audio):
+                                # Child may have sent a plausible JSON
+                                # transcript before consuming audio. A
+                                # partial upload can NEVER authorize it.
+                                raise PrematureSTTStreamClose(
+                                    "Isolated STT stream closed before PCM upload"
+                                )
                     else:
                         if sent == len(audio):
                             selector.unregister(stdin_fd)
