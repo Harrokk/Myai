@@ -1,0 +1,174 @@
+"""Disposable child-only tests: no microphone, Whisper model or NPU."""
+import json
+import os
+import subprocess
+import sys
+import time
+
+import pytest
+
+from core.voice_stt_persistent import (
+    PersistentFasterWhisperSTT, bounded_utterances, exchange,
+    offline_environment, parse_reply, persistent_argv, terminate_owned,
+)
+from core.voice_stt_process import MAX_PCM_BYTES
+
+CONFIG = {
+    "model_name": "tiny", "device": "cpu", "compute_type": "int8",
+    "language": "sv", "sample_rate": 16000, "channels": 1,
+    "sample_width": 2,
+}
+REPLY = json.dumps({"text": "syntetiskt svar", "language": "sv",
+                    "confidence": None}, separators=(",", ":")).encode()
+
+
+def script(mode="reply"):
+    # Synthetic isolated child with real POSIX framed pipe I/O, never
+    # imports whisper. Only this pytest fixture can set _argv to -c.
+    source = """
+import json,struct,sys,time
+i=sys.stdin.buffer
+o=sys.stdout.buffer
+while True:
+    hdr=i.read(4)
+    if not hdr: break
+    n=struct.unpack('>I',hdr)[0]
+    data=i.read(n)
+    if len(data)!=n: break
+    if MODE=='sleep':
+        time.sleep(60)
+    elif MODE=='invalid':
+        o.write(struct.pack('>I',999999));o.flush()
+    elif MODE=='die':
+        sys.exit(3)
+    else:
+        assert len(data)>0
+        payload=json.dumps({'text':'syntetiskt svar','language':'sv','confidence':None}).encode()
+        o.write(struct.pack('>I',len(payload))+payload);o.flush()
+""".replace("MODE", repr(mode))
+    return [sys.executable, "-I", "-u", "-c", source]
+
+
+def provider(mode="reply", cap=4, deadline=2):
+    worker = PersistentFasterWhisperSTT(
+        **CONFIG, timeout_seconds=deadline, max_utterances=cap,
+    )
+    worker._argv = script(mode)
+    return worker
+
+
+def test_multiple_requests_reuse_single_worker_pid():
+    model = provider(cap=3)
+    try:
+        assert model.transcribe(b"pcm-1")["text"] == "syntetiskt svar"
+        first_pid = model._worker.pid
+        assert model.transcribe(b"pcm-2")["text"] == "syntetiskt svar"
+        assert model._worker.pid == first_pid
+        assert model._count == 2
+        assert model.transcribe(b"pcm-3")["text"] == "syntetiskt svar"
+        assert model._worker is None
+        assert model._count == 0
+        # Fourth request spawns fresh child, not the old cached model.
+        assert model.transcribe(b"pcm-4")["text"] == "syntetiskt svar"
+        assert model._worker is not None
+    finally:
+        model.close()
+    assert model._worker is None
+
+
+def test_actual_hung_process_terminated_then_next_request_can_recover():
+    model = provider(mode="sleep", deadline=1)
+    start = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="deadline exceeded"):
+            model.transcribe(b"test-audio")
+        assert time.monotonic() - start < 9
+        assert model._worker is None
+        model._argv = script("reply")
+        assert model.transcribe(b"second-audio")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("bad_mode", ["invalid", "die"])
+def test_broken_worker_never_reused_after_failed_reply(bad_mode):
+    model = provider(mode=bad_mode)
+    try:
+        with pytest.raises(RuntimeError):
+            model.transcribe(b"private-pcm")
+        assert model._worker is None
+        model._argv = script("reply")
+        assert model.transcribe(b"next-good-pcm")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+
+
+def test_release_for_inference_frees_cached_model_and_is_idempotent():
+    model = provider()
+    assert model.release_for_inference() is False
+    try:
+        assert model.transcribe(b"synthetic")["language"] == "sv"
+        assert model._worker is not None
+        assert model.release_for_inference() is True
+        assert model._worker is None
+        assert model.release_for_inference() is False
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("bad", [
+    True, False, "4", None, 0, 9, 2.0, -1,
+])
+def test_max_request_cap_rejects_invalid_types_and_values(bad):
+    with pytest.raises(ValueError):
+        bounded_utterances(bad)
+
+
+def test_default_optin_off_is_not_model_execution():
+    from core.config import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["voice"]["stt_persistent_worker_enabled"] is False
+    assert DEFAULT_SETTINGS["voice"]["stt_process_isolation_enabled"] is False
+
+
+@pytest.mark.parametrize("malformed", [
+    b"", b"null", b"[]", b"true", b"not json",
+    b'{"text":"x","language":"sv","confidence":0.1}',
+    b'{"text":true,"language":"sv","confidence":null}',
+    b'{"text":"x","language":"sv","confidence":null,"raw_audio":"SECRET"}',
+    b'{"text":"x","language":"nl","confidence":null}',
+    b'{"text":"x","language":"sv","confidence":NaN}',
+])
+def test_untrusted_child_reply_never_authorizes_vote(malformed):
+    with pytest.raises(RuntimeError):
+        parse_reply(malformed)
+
+
+def test_invalid_audio_rejected_before_worker_process_start(monkeypatch):
+    model = provider()
+    monkeypatch.setattr(model, "_spawn", lambda: pytest.fail("unexpected worker"))
+    with pytest.raises(ValueError):
+        model.transcribe(b"")
+    with pytest.raises(ValueError):
+        model.transcribe(b"x" * (MAX_PCM_BYTES + 1))
+    assert model._worker is None
+
+
+def test_argv_fixed_path_no_shell_or_untrusted_params():
+    args = persistent_argv(CONFIG)
+    assert args[:2] == [sys.executable, "-I"]
+    assert args[2].endswith("core/voice_stt_persistent_worker.py")
+    assert args[3].startswith("{")
+    assert "/bin/sh" not in args
+    with pytest.raises(ValueError):
+        persistent_argv(dict(CONFIG, model_name="../private"))
+
+
+def test_child_environment_does_not_inherit_access_tokens(monkeypatch):
+    monkeypatch.setenv("HF_HUB_TOKEN", "PRIVATE_DO_NOT_COPY")
+    monkeypatch.setenv("HTTP_PROXY", "http://private.example/")
+    env = offline_environment()
+    assert env["HF_HUB_OFFLINE"] == "1"
+    assert env["TRANSFORMERS_OFFLINE"] == "1"
+    assert "HTTP_PROXY" not in env
+    assert "HF_HUB_TOKEN" not in env
+    assert "PRIVATE" not in json.dumps(env)
