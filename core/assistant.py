@@ -1382,6 +1382,7 @@ Svara kort och tydligt på svenska.
                 elif self._voice_retry_quarantine.review_required:
                     answer = (
                         "Tidigare röststyrda ändringar har osäkert utfall. "
+                        "Tidigare ändringar kan finnas kvar. "
                         "Nya skrivkommandon är spärrade tills resultatet "
                         "har kontrollerats manuellt. Försök inte igen automatiskt."
                     )
@@ -1453,6 +1454,7 @@ Svara kort och tydligt på svenska.
                 elif self._voice_retry_quarantine.review_required:
                     answer = (
                         "Tidigare röststyrda ändringar har osäkert utfall. "
+                        "Tidigare ändringar kan finnas kvar. "
                         "Nya skrivkommandon är spärrade tills resultatet "
                         "har kontrollerats manuellt. Försök inte igen automatiskt."
                     )
