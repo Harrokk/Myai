@@ -25,11 +25,18 @@ def good():
         },
         available_kib=12 * 1048576,
         fixture={"file_identity_verified": True},
-        policy={"nodes": {"cdsp_secure": {
-            "character_device": True,
-            "runner_effective_read_access": True,
-            "runner_effective_write_access": True,
-        }}},
+        policy={"runner_in_fastrpc_group": True, "nodes": {
+            "cdsp_secure": {
+                "character_device": True,
+                "runner_effective_read_access": True,
+                "runner_effective_write_access": False,
+            },
+            "dma_heap_system": {
+                "character_device": True,
+                "runner_effective_read_access": True,
+                "runner_effective_write_access": True,
+            },
+        }},
         machine="aarch64",
     )
 
@@ -87,7 +94,8 @@ def test_partial_library_skel_and_bad_fastrpc_metadata_all_no_go():
     report = probe.evaluate(**values)
     assert "packaged_htp_host_libraries_unverified" in report["blockers"]
     assert "packaged_v75_dsp_skel_unverified" in report["blockers"]
-    assert "runner_fastrpc_device_access_unverified" in report["blockers"]
+    assert "runner_secure_fastrpc_read_access_unverified" in report["blockers"]
+    assert "runner_dma_heap_read_write_access_unverified" in report["blockers"]
 
 
 def test_unverified_dlc_and_ram_remain_no_go():
@@ -143,3 +151,34 @@ def test_no_fields_claim_runtime_htp_activation_or_vendor_certification():
         result["exclusive_htp_execution_attested"],
         result["matching_246_htp_artifact_attested"],
     ])
+
+
+def test_secure_group_read_only_is_vendor_normal_not_false_npu_blocker():
+    values = good()
+    observed = probe.evaluate(**values)
+    assert observed["runner_secure_fastrpc_metadata_permits_read"] is True
+    assert observed["runner_secure_fastrpc_effective_write"] is False
+    assert observed["runner_dma_heap_metadata_permits_read_write"] is True
+    assert observed["secure_fastrpc_write_not_assumed_required"] is True
+    assert "runner_secure_fastrpc_read_access_unverified" not in observed["blockers"]
+    assert "runner_dma_heap_read_write_access_unverified" not in observed["blockers"]
+    assert observed["status"] == "no_go"
+    assert "matching_246_htp_artifact_not_attested" in observed["blockers"]
+    assert "active_geniex_concurrency_unsafe" in observed["blockers"]
+
+
+def test_missing_dma_heap_write_is_separate_npu_preflight_blocker():
+    values = good()
+    values["policy"]["nodes"]["dma_heap_system"]["runner_effective_write_access"] = False
+    observed = probe.evaluate(**values)
+    assert "runner_dma_heap_read_write_access_unverified" in observed["blockers"]
+    assert "runner_secure_fastrpc_read_access_unverified" not in observed["blockers"]
+    assert observed["npu_inference_verified"] is False
+
+
+def test_secure_fastrpc_read_missing_is_a_real_preflight_blocker():
+    values = good()
+    values["policy"]["nodes"]["cdsp_secure"]["runner_effective_read_access"] = False
+    observed = probe.evaluate(**values)
+    assert "runner_secure_fastrpc_read_access_unverified" in observed["blockers"]
+    assert observed["runner_dma_heap_metadata_permits_read_write"] is True
