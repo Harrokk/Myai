@@ -1,6 +1,7 @@
 from core.config import load_settings
 from core.voice_output import InterruptibleTTS
 from core.voice_stt_process import IsolatedFasterWhisperSTT
+from core.voice_stt_persistent import PersistentFasterWhisperSTT
 from modules.voice.providers import (
     FasterWhisperSTT,
     Pyttsx3TTS,
