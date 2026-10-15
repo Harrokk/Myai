@@ -46,8 +46,13 @@ def summarize_guarded_outcomes(outcomes):
     ]
     if len(states) != len(outcomes):
         return "unknown"
-    if any(state not in ("succeeded", "failed", "blocked") for state in states):
+    if any(state not in ("succeeded", "failed", "blocked", "unknown")
+           for state in states):
         return "unknown"
+    # One or more known completed steps, followed by an interrupted
+    # in-flight step, means partial side effects may already exist.
+    if "unknown" in states:
+        return "partially_completed" if "succeeded" in states else "unknown"
     if all(state == "succeeded" for state in states):
         return "completed"
     if "succeeded" in states:
