@@ -401,9 +401,7 @@ Svara kort och tydligt på svenska.
             ] = False
             decision[
                 "review_queue_error"
-            ] = str(
-                error
-            )
+            ] = "Minnesgranskningen kunde inte köas."
             return decision
 
         try:
@@ -442,9 +440,7 @@ Svara kort och tydligt på svenska.
             ] = False
             decision[
                 "review_queue_error"
-            ] = str(
-                error
-            )
+            ] = "Minnesgranskningen kunde inte köas."
             return decision
 
         decision[
@@ -546,9 +542,7 @@ Svara kort och tydligt på svenska.
                 ] = "audit_blocked"
                 decision[
                     "audit_error"
-                ] = str(
-                    error
-                )
+                ] = "Minnesåtgärdens revisionslogg misslyckades."
                 return decision
 
             try:
@@ -590,9 +584,7 @@ Svara kort och tydligt på svenska.
                 ] = "failed"
                 decision[
                     "memory_error"
-                ] = str(
-                    error
-                )
+                ] = "Långtidsminnet kunde inte uppdateras."
                 return decision
 
             decision.update(
