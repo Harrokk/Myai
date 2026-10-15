@@ -118,8 +118,18 @@ def head_probe(*, machine=None, opener=None):
                 result["status"] = "no_go_content_type_unverified"
             else:
                 result["status"] = "head_metadata_compatible_not_downloaded"
-    except (HTTPError, URLError, OSError, TimeoutError, ValueError):
-        result["status"] = "no_go_official_head_unavailable"
+    except HTTPError as error:
+        # HTTP status alone is safe to publish; never emit the URL,
+        # response body, error text or authentication headers.
+        result["status"] = {
+            401: "no_go_official_http_auth_required",
+            403: "no_go_official_http_forbidden",
+            404: "no_go_official_http_not_found",
+            405: "no_go_official_head_not_allowed",
+            429: "no_go_official_http_rate_limited",
+        }.get(error.code, "no_go_official_http_unavailable")
+    except (URLError, OSError, TimeoutError, ValueError):
+        result["status"] = "no_go_official_transport_unavailable"
     return result
 
 
