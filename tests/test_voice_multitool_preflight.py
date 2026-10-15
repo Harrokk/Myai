@@ -656,4 +656,6 @@ def test_core_cooperative_voice_tool_works_with_real_stop_hook(tmp_path, monkeyp
     result = core.respond_voice("synthetic", plan_verifier=verifier)
     assert calls == [False]
     assert result["tool_execution_status"] == "completed"
-    assert result["manual_reconciliation_required"] is False
+    # A durable marker remains even after success: the next effectful
+    # voice action needs out-of-band state reconciliation.
+    assert result["manual_reconciliation_required"] is True
