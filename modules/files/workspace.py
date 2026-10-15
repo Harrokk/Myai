@@ -403,6 +403,7 @@ TOOLS = {
     },
     "workspace_write": {
         "function": workspace_write,
+        "result_failure_prefixes": ("Kunde inte skriva filen:",),
         "description": (
             "Skapar eller skriver en tillåten textfil inne i MyAI:s "
             "sandboxade workspace när skrivning uttryckligen är aktiverad."
