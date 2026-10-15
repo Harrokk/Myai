@@ -271,6 +271,13 @@ class PersistentFasterWhisperSTT:
                     self._worker, audio, self.timeout_seconds,
                     cancel_event=self._cancel,
                 )
+            except (OSError, ValueError):
+                # OS pipe/select failures may contain private paths,
+                # descriptors or native messages. They must never escape
+                # into the voice status, even if teardown itself succeeds.
+                # No partial transcript is trusted after a transport fault.
+                self._release()
+                raise RuntimeError("Persistent STT IPC transfer failed") from None
             except BaseException:
                 # No partial/late transcript is authorized after any
                 # transport error. Try cleanup exactly once per failure.
