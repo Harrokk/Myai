@@ -271,6 +271,12 @@ class PersistentFasterWhisperSTT:
                     self._worker, audio, self.timeout_seconds,
                     cancel_event=self._cancel,
                 )
+            except TimeoutError:
+                # TimeoutError is a subclass of OSError. Keep this
+                # separate so a genuinely late STT request remains a
+                # deterministic timeout instead of a transport fault.
+                self._release()
+                raise
             except (OSError, ValueError):
                 # OS pipe/select failures may contain private paths,
                 # descriptors or native messages. They must never escape
