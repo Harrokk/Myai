@@ -83,3 +83,25 @@ avstängd som standard och inte driftsatt på VENTUNO.
 ett nytt ID från att fabricera ett transkript med det ID:t. Detta är
 begärandebindning, inte kryptografisk autentisering av arbetaren eller
 ett bevis på STT-kvalitet.
+
+
+## Stop vid slutlig cleanup och förkortad header
+
+En särskild racekontroll täcker nu sista yttrandets processstädning:
+om `Stop` begärs under avslut/reap efter det första avbrottstestet
+ska `transcribe()` **inte** lämna tillbaka det färdiga transkriptet.
+Avbrott kontrolleras igen **efter** den potentiellt långsamma städningen.
+Regression injicerar avbrott exakt i cleanup, kontrollerar avslutat barn
+och kräver explicit `resume()` innan nästa syntetiska yttrande.
+
+Tidigare kunde STT-barnet tolka ett avhugget 1–3-byte ramhuvud följt
+av EOF som en vanlig, felfri sessionstängning. Nu är **endast EOF innan
+någon headerbyte har lästs** normal stängning; en delvis mottagen header
+returnerar felstatus utan transkript. Även svar från en äldre worker
+utan 16-byte begärande-ID avvisas av föräldern och processen städas.
+
+**Kvarvarande gräns:** Avbrottskontroller kan inte göra hela kedjan
+från färdig STT till tal-/verktygsåtgärd atomär. Den överordnade
+röstsessionens egna interrupt-/stoppspärrar krävs fortsatt. Tester
+använder isolerad källkod och syntetiska bytes; varken mic, riktig
+modell, NPU eller driftkonfiguration aktiveras.
