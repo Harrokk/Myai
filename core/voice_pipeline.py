@@ -742,7 +742,7 @@ class VoicePipeline:
             status = "unknown"
         public = {"status": status}
         if (
-            status in {"unknown", "partially_completed"}
+            status in {"not_started", "unknown", "partially_completed"}
             and response.get("manual_reconciliation_required") is True
         ):
             # Boolean only. Never expose arguments, raw outcomes or the
