@@ -239,3 +239,70 @@ def test_real_core_streamed_memory_outage_reports_clarify_and_no_false_tts(
     assert "Jag har sparat" not in " ".join(tts.spoken)
     assert "Minnet sparades inte" in " ".join(tts.spoken)
     assert len(tts.spoken) >= 1
+
+
+def test_stop_during_voice_llm_skips_sqlite_memory_and_conversation(tmp_path, monkeypatch):
+    """LLM completion after Stop must not persist a spoken memory request."""
+    core, store = make_real_core(tmp_path, monkeypatch)
+    phrase = "Kom ihåg att jag föredrar modulär kod."
+    pipeline = VoicePipeline(core, FakeSTT(phrase), settings=voice_config())
+
+    class StopDuringChat(MockLLM):
+        def chat(self, *args, **kwargs):
+            pipeline.cancel_pending()
+            return "Jag har sparat det."
+
+    core.llm = StopDuringChat()
+    response = pipeline.process_utterance(b"synthetic-PCM")
+    assert response["status"] == "clarify"
+    assert response["memory_feedback"] == {"status": "not_saved"}
+    assert store.write_count == 0
+    assert store.get_all() == []
+    assert core.conversation_history == []
+    assert "Jag har sparat det" not in response["assistant"]["answer"]
+
+
+def test_stop_after_memory_audit_before_lifecycle_never_writes(tmp_path, monkeypatch):
+    """An audit attempt is not permission to save when Stop intervenes."""
+    core, store = make_real_core(tmp_path, monkeypatch)
+    phrase = "Kom ihåg att jag föredrar modulär kod."
+    pipeline = VoicePipeline(core, FakeSTT(phrase), settings=voice_config())
+    original = core.audit_logger.write_attempt
+    observed = []
+
+    def cancel_after_attempt(*args, **kwargs):
+        observed.append((args, kwargs))
+        original(*args, **kwargs)
+        pipeline.cancel_pending()
+
+    monkeypatch.setattr(core.audit_logger, "write_attempt", cancel_after_attempt)
+    response = pipeline.process_utterance(b"synthetic")
+    assert observed
+    assert response["status"] == "clarify"
+    assert response["memory_feedback"] == {"status": "not_saved"}
+    assert store.write_count == 0
+    assert store.get_all() == []
+    assert core.conversation_history == []
+
+
+def test_stream_stop_does_not_emit_saved_claim_or_write_memory(tmp_path, monkeypatch):
+    core, store = make_real_core(tmp_path, monkeypatch)
+    tts = FakeTTS()
+    phrase = "Kom ihåg att jag föredrar modulär kod."
+    pipeline = VoicePipeline(core, FakeSTT(phrase), tts=tts,
+                             settings=voice_config(stream=True))
+
+    class StopDuringStreaming(MockLLM):
+        def chat_stream(self, *args, **kwargs):
+            yield "Jag har "
+            pipeline.cancel_pending()
+            yield "sparat det."
+
+    core.llm = StopDuringStreaming()
+    response = pipeline.process_utterance(b"synthetic")
+    assert response["status"] == "clarify"
+    assert response["memory_feedback"] == {"status": "not_saved"}
+    assert store.write_count == 0
+    assert store.get_all() == []
+    assert core.conversation_history == []
+    assert not tts.spoken
