@@ -1314,9 +1314,15 @@ Svara kort och tydligt på svenska.
             # without invoking the model.
             if (
                 _voice_plan_verifier is not None
-                and self._tool_dispatch_was_blocked(tool_results)
+                and (self._voice_stop_requested(_voice_plan_verifier)
+                     or self._tool_dispatch_was_blocked(tool_results))
             ):
-                if summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
+                if self._voice_stop_requested(_voice_plan_verifier):
+                    answer = (
+                        "Röstsessionen avbröts. Tidigare verktygsåtgärder "
+                        "kan ha genomförts; kontrollera innan du försöker igen."
+                    )
+                elif summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
                     answer = (
                         "Flerkommandot stoppades efter att minst ett steg "
                         "hade genomförts. Tidigare ändringar kan finnas kvar. "
@@ -1373,9 +1379,15 @@ Svara kort och tydligt på svenska.
 
             if (
                 _voice_plan_verifier is not None
-                and self._tool_dispatch_was_blocked(tool_results)
+                and (self._voice_stop_requested(_voice_plan_verifier)
+                     or self._tool_dispatch_was_blocked(tool_results))
             ):
-                if summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
+                if self._voice_stop_requested(_voice_plan_verifier):
+                    answer = (
+                        "Röstsessionen avbröts. Tidigare verktygsåtgärder "
+                        "kan ha genomförts; kontrollera innan du försöker igen."
+                    )
+                elif summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
                     answer = (
                         "Flerkommandot stoppades efter att minst ett steg "
                         "hade genomförts. Tidigare ändringar kan finnas kvar. "
