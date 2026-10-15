@@ -161,15 +161,24 @@ def build_voice_components(
     isolate_stt = config.get("stt_process_isolation_enabled", False)
     if type(isolate_stt) is not bool:
         raise ValueError("Invalid STT isolation toggle")
+    persistent = config.get("stt_persistent_worker_enabled", False)
+    if type(persistent) is not bool:
+        raise ValueError("Invalid persistent STT toggle")
+    if persistent and not isolate_stt:
+        raise ValueError("Persistent STT requires process isolation")
     if isolate_stt:
-        # Do not pass arbitrary injected provider classes or additional
-        # plugin code through an isolated worker. Only our built-in,
-        # fixed FasterWhisper worker is supported and opt-in.
+        # No arbitrary provider classes or model/plugin paths in worker.
         if stt_class is not FasterWhisperSTT or backup_stt_class is not FasterWhisperSTT:
             raise ValueError("STT isolation supports built-in FasterWhisper only")
-        provider_type = IsolatedFasterWhisperSTT
         timeout = config.get("stt_process_timeout_seconds", 45.0)
         isolation_kwargs = {"timeout_seconds": timeout}
+        if persistent:
+            provider_type = PersistentFasterWhisperSTT
+            isolation_kwargs["max_utterances"] = config.get(
+                "stt_persistent_worker_max_utterances", 4
+            )
+        else:
+            provider_type = IsolatedFasterWhisperSTT
     else:
         provider_type = stt_class
         isolation_kwargs = {}
