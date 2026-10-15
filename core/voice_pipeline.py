@@ -740,7 +740,15 @@ class VoicePipeline:
         }
         if not isinstance(status, str) or status not in allowed:
             status = "unknown"
-        return {"status": status}
+        public = {"status": status}
+        if (
+            status in {"unknown", "partially_completed"}
+            and response.get("manual_reconciliation_required") is True
+        ):
+            # Boolean only. Never expose arguments, raw outcomes or the
+            # transcript to the caller or a subsequent retry prompt.
+            public["manual_reconciliation_required"] = True
+        return public
 
     @staticmethod
     def _tool_execution_incomplete(response, public_execution):

@@ -515,6 +515,24 @@ Svara kort och tydligt på svenska.
 
 
     @staticmethod
+    def _voice_stop_probe(voice_plan_verifier):
+        """Only a real per-utterance Stop hook qualifies for cooperative IO.
+
+        A naked voice-plan approval lambda is not an active Stop source:
+        tools that explicitly require cooperative cancellation must fail
+        closed rather than receiving a callback that always says False.
+        """
+        if voice_plan_verifier is None:
+            return None
+        try:
+            candidate = getattr(
+                voice_plan_verifier, "voice_stop_requested", None
+            )
+            return candidate if callable(candidate) else None
+        except BaseException:
+            return None
+
+    @staticmethod
     def _voice_stop_requested(voice_plan_verifier):
         """Fail closed on malformed or failing per-utterance Stop tokens.
 
@@ -1032,9 +1050,8 @@ Svara kort och tydligt på svenska.
                     execution_guard=execution_guard,
                     outcome_details=tool_outcomes,
                     execution_cancelled=(
-                        (lambda: self._voice_stop_requested(
-                            voice_plan_verifier
-                        )) if voice_mode else None
+                        self._voice_stop_probe(voice_plan_verifier)
+                        if voice_mode else None
                     ),
                 )
 
@@ -1271,6 +1288,14 @@ Svara kort och tydligt på svenska.
             "tool_execution_status": (
                 summarize_guarded_outcomes(tool_outcomes)
                 if tool_outcomes is not None else "not_applicable"
+            ),
+            # Fixed UI hint: an uncertain or partly executed voice batch
+            # needs human verification before any new attempt. Never
+            # persist or automatically replay the original arguments.
+            "manual_reconciliation_required": (
+                summarize_guarded_outcomes(tool_outcomes) in {
+                    "unknown", "partially_completed",
+                } if tool_outcomes is not None else False
             ),
             "orchestration_plan": public_plan(
                 tool_plan

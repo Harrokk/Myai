@@ -456,6 +456,7 @@ def test_voice_core_stop_mid_tool_cannot_claim_full_completion(tmp_path, monkeyp
     }
     assert summarize_guarded_outcomes(result["tool_outcomes"]) == "unknown"
     assert result["tool_execution_status"] == "unknown"
+    assert result["manual_reconciliation_required"] is True
     assert result["tool_dispatch_blocked"] is True
     assert core.llm.calls == []
     assert core.conversation_history == []
@@ -470,3 +471,189 @@ def test_typed_text_tool_return_keeps_legacy_output_without_guard():
     )
     assert effects == [1]
     assert result == {"cpu_status": "OK"}
+
+
+def test_cooperative_voice_tool_receives_live_cancel_probe_and_blocks_followups():
+    """Opted-in tools can return promptly after Stop without false success."""
+    from core.tool_outcome import ToolOutcome
+    calls, detail = [], {}
+    stopped = [False]
+
+    def long_running(*, cancel_requested):
+        assert callable(cancel_requested)
+        calls.append("running")
+        stopped[0] = True
+        assert cancel_requested() is True
+        calls.append("stopped_cooperatively")
+        return ToolOutcome(False, "MAY_HAVE_WRITTEN_PRIVATE_DATA")
+
+    tools = {
+        "workspace_write": {
+            "function": long_running,
+            "safety": {"effect": "write", "voice_cancel_callback": True},
+        },
+        "cpu_status": {"function": lambda: calls.append("unexpected")},
+    }
+    result = run_tools(
+        ["workspace_write", "cpu_status"], tools,
+        execution_guard=lambda *_: True,
+        execution_cancelled=lambda: stopped[0],
+        outcome_details=detail,
+    )
+    assert calls == ["running", "stopped_cooperatively"]
+    assert result["workspace_write"] == EXECUTION_INTERRUPTED_MESSAGE
+    assert result["cpu_status"] == EXECUTION_BLOCKED_MESSAGE
+    assert detail["workspace_write"] == {"state": "unknown", "attempted": True}
+    assert "PRIVATE_DATA" not in str(result)
+
+
+def test_cooperative_voice_tool_normal_success_passes_keyword_only_probe():
+    calls = []
+    def read_status(*, cancel_requested):
+        calls.append(cancel_requested())
+        return "CPU OK"
+    result = run_tools(
+        ["cpu_status"],
+        {"cpu_status": {
+            "function": read_status,
+            "safety": {"effect": "read_only", "voice_cancel_callback": True},
+        }},
+        execution_guard=lambda *_: True,
+        execution_cancelled=lambda: False,
+    )
+    assert result == {"cpu_status": "CPU OK"}
+    assert calls == [False]
+
+
+def test_cooperative_voice_tool_with_user_input_gets_both_arguments():
+    received = []
+    def action(query, *, cancel_requested):
+        received.append((query, cancel_requested()))
+        return "done"
+    result = run_tools(
+        ["workspace_write"],
+        {"workspace_write": {
+            "function": action, "pass_user_input": True,
+            "safety": {"effect": "write", "voice_cancel_callback": True},
+        }},
+        user_input="synthetic request",
+        execution_guard=lambda *_: True,
+        execution_cancelled=lambda: False,
+    )
+    assert received == [("synthetic request", False)]
+    assert result["workspace_write"] == "done"
+
+
+def test_invalid_cooperative_signature_denies_entire_batch_before_actions():
+    for bad in [
+        lambda: "not cancellable",
+        lambda cancel_requested: "not keyword-only",
+    ]:
+        effects = []
+        tools = {
+            "cpu_status": {"function": lambda: effects.append("read")},
+            "workspace_write": {
+                "function": bad,
+                "safety": {"effect": "write", "voice_cancel_callback": True},
+            },
+        }
+        res = run_tools(
+            ["cpu_status", "workspace_write"], tools,
+            execution_guard=lambda *_: True,
+            execution_cancelled=lambda: False,
+        )
+        assert effects == []
+        assert all(v == EXECUTION_BLOCKED_MESSAGE for v in res.values())
+
+
+def test_cooperative_optin_missing_or_malformed_stop_probe_denies_without_call():
+    effects = []
+    tools = {"workspace_write": {
+        "function": lambda *, cancel_requested: effects.append("called"),
+        "safety": {"effect": "write", "voice_cancel_callback": True},
+    }}
+    for stop in (None, True, "not_a_callable"):
+        res = run_tools(
+            ["workspace_write"], tools,
+            execution_guard=lambda *_: True,
+            execution_cancelled=stop,
+        )
+        assert res["workspace_write"] == EXECUTION_BLOCKED_MESSAGE
+    assert effects == []
+
+
+def test_cooperative_safety_flag_mutation_invalidates_voice_hmac():
+    from core.voice_plan_attestation import sign_voice_plan, same_voice_plan
+    def action(*, cancel_requested):
+        return "no write"
+    tools = {"workspace_write": {
+        "function": action,
+        "safety": {"effect": "write", "voice_cancel_callback": True},
+    }}
+    plan = {"steps": [{"tool": "workspace_write", "input": "synthetic"}]}
+    key = secrets.token_bytes(32)
+    digest = sign_voice_plan(plan, tools, key)
+    assert same_voice_plan(plan, tools, key, digest)
+    tools["workspace_write"]["safety"]["voice_cancel_callback"] = False
+    assert not same_voice_plan(plan, tools, key, digest)
+
+
+def test_no_cooperative_keyword_is_passed_to_typical_existing_tool():
+    effects = []
+    def ordinary(value):
+        effects.append(value)
+        return "legacy tool okay"
+    result = run_tools(
+        ["workspace_write"],
+        {"workspace_write": {
+            "function": ordinary, "pass_user_input": True,
+            "safety": {"effect": "write"},
+        }},
+        user_input="synthetic",
+        execution_guard=lambda *_: True,
+        execution_cancelled=lambda: False,
+    )
+    assert effects == ["synthetic"]
+    assert result["workspace_write"] == "legacy tool okay"
+
+
+def test_core_cooperative_voice_tool_requires_real_stop_hook(tmp_path, monkeypatch):
+    calls = []
+    def operation(*, cancel_requested):
+        calls.append("unwanted")
+        return "done"
+    tools = {"workspace_write": {
+        "function": operation,
+        "safety": {"effect": "write", "voice_cancel_callback": True},
+    }}
+    plan = {"steps": [{"tool": "workspace_write", "input": "synthetic"}]}
+    core = core_with_plan(tmp_path, monkeypatch, tools, plan)
+
+    # A bare verifier can approve a plan, but cannot actually supply
+    # live cancellation for a callback claiming cooperative safety.
+    result = core.respond_voice("synthetic", plan_verifier=lambda *_: True)
+    assert calls == []
+    assert result["tool_dispatch_blocked"] is True
+    assert result["tool_results"]["workspace_write"] == EXECUTION_BLOCKED_MESSAGE
+    assert core.llm.calls == []
+
+
+def test_core_cooperative_voice_tool_works_with_real_stop_hook(tmp_path, monkeypatch):
+    calls = []
+    def operation(*, cancel_requested):
+        calls.append(cancel_requested())
+        return "done"
+    tools = {"workspace_write": {
+        "function": operation,
+        "safety": {"effect": "write", "voice_cancel_callback": True},
+    }}
+    plan = {"steps": [{"tool": "workspace_write", "input": "synthetic"}]}
+    core = core_with_plan(tmp_path, monkeypatch, tools, plan)
+
+    def verifier(*_):
+        return True
+    verifier.voice_stop_requested = lambda: False
+    result = core.respond_voice("synthetic", plan_verifier=verifier)
+    assert calls == [False]
+    assert result["tool_execution_status"] == "completed"
+    assert result["manual_reconciliation_required"] is False
