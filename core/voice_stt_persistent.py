@@ -272,11 +272,10 @@ class PersistentFasterWhisperSTT:
                     cancel_event=self._cancel,
                 )
             except TimeoutError:
-                # TimeoutError is a subclass of OSError. Keep this
-                # separate so a genuinely late STT request remains a
-                # deterministic timeout instead of a transport fault.
+                # TimeoutError is a subclass of OSError. Preserve the
+                # timeout category but never echo a native error/path.
                 self._release()
-                raise
+                raise TimeoutError("Persistent STT deadline exceeded") from None
             except (OSError, ValueError):
                 # OS pipe/select failures may contain private paths,
                 # descriptors or native messages. They must never escape
