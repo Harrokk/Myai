@@ -104,7 +104,8 @@ def test_memory_read_failure_preserves_normal_chat_and_defer_save(
         tmp_path, error_type):
     core, mem, llm = create_core(tmp_path, error_type=error_type)
     response = core.respond("Kom ihåg mitt syntetiska projekt.")
-    assert response["answer"] == "Syntetiskt testsvar."
+    assert response["answer"].startswith("Minnet sparades inte.")
+    assert response["memory_feedback"]["status"] == "retry_required"
     assert response["memory_lookup_status"] == "unavailable"
     assert response["memory_decision"]["saved"] is False
     assert response["memory_decision"]["action"] == (
@@ -125,7 +126,8 @@ def test_memory_read_failure_streaming_works_and_skips_auto_save(tmp_path):
     result = core.respond_stream(
         "Kom ihåg ett test.", on_chunk=emitted.append,
     )
-    assert result["answer"] == "Syntetiskt testsvar."
+    assert result["answer"].startswith("Minnet sparades inte.")
+    assert result["memory_feedback"]["status"] == "retry_required"
     assert result["memory_lookup_status"] == "unavailable"
     assert result["streamed"] is True
     assert "".join(emitted) == result["answer"]
@@ -220,7 +222,8 @@ def test_completed_memory_save_survives_final_audit_failure(tmp_path):
     core.audit_logger.write_result = final_audit_fails
     result = core.respond("Kom ihåg att jag föredrar modulär kod.")
     decision = result["memory_decision"]
-    assert result["answer"] == "Syntetiskt testsvar."
+    assert "kan redan vara genomförd" in result["answer"]
+    assert result["memory_feedback"]["status"] == "unverified"
     assert decision["saved"] is True
     assert decision["lifecycle_action"] == "saved_legacy_store"
     assert decision["audit_result_status"] == "unverified"
