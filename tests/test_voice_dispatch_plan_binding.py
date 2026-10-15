@@ -328,9 +328,11 @@ def test_stop_during_planning_blocks_read_only_tool_at_invocation(tmp_path, monk
 
     response = pipeline.process_utterance(b"synthetic")
     assert response["status"] == "clarify"
-    assert response["assistant"]["tool_dispatch_blocked"] is True
+    # Cancellation before dispatch needs no assistant response at all.
+    assert response["message"] == "Röstsessionen avbröts."
     assert effects == []
     assert core.llm.calls == []
+    assert len(seen) >= 2
 
 
 def test_stop_during_guarded_multitool_prevents_next_call():
@@ -339,15 +341,17 @@ def test_stop_during_guarded_multitool_prevents_next_call():
         "cpu_status": {"function": lambda: executed.append("cpu") or "ok"},
         "ram_status": {"function": lambda: executed.append("ram") or "ok"},
     }
+    # Preflight must pass for BOTH tools. Stop arrives only after the
+    # first tool has run; the second invocation must then be denied.
     stop = False
-    def guard(tool_name, tool, value):
+    def cpu():
         nonlocal stop
-        if stop:
-            return False
-        if tool_name == "ram_status":
-            stop = True
-            return False
-        return True
+        executed.append("cpu")
+        stop = True
+        return "ok"
+    tools["cpu_status"]["function"] = cpu
+    def guard(tool_name, tool, value):
+        return not stop
     details = {}
     result = run_tools(["cpu_status", "ram_status"], tools,
                        execution_guard=guard, outcome_details=details)
