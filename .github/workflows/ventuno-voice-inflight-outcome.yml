@@ -33,6 +33,7 @@ on:
       - tests/test_voice_memory_feedback_bridge.py
       - tests/test_voice_pipeline.py
       - tests/test_voice_multitool_preflight.py
+      - docs/VOICE_INFLIGHT_STOP_AND_SIX_CALL_REVIEW.md
       - tests/test_voice_factory.py
       - tests/test_config_validation.py
   workflow_dispatch:
