@@ -45,6 +45,10 @@ def diagnose(target=TARGET):
         "effective_access_runner_write": None,
         "posix_effective_matches_os_access": None,
         "write_denial_classification": "unattributed",
+        # Qualcomm upstream documents root:fastrpc 0640 on RPC devices.
+        # A group user's missing write permission is not itself proof
+        # of an unsupported or failed QNN/HTP backend.
+        "fast_rpc_write_permission_required_for_htp_proven": False,
         "device_opened": False,
         "device_written": False,
         "acl_or_identity_exported": False,
@@ -132,7 +136,10 @@ def diagnose(target=TARGET):
             result["write_denial_classification"] = "effective_denied_despite_posix_allow"
         else:
             result["write_denial_classification"] = "write_denied_cause_unverified"
-        result["status"] = "no_go_no_effective_write"
+        result["status"] = (
+            "metadata_read_only_no_htp_conclusion"
+            if read is True else "no_go_no_effective_read"
+        )
     elif write is True and read is True:
         result["write_denial_classification"] = "no_access_denial_observed"
         result["status"] = "access_metadata_only_no_htp_proof"
