@@ -1272,6 +1272,14 @@ Svara kort och tydligt på svenska.
                 summarize_guarded_outcomes(tool_outcomes)
                 if tool_outcomes is not None else "not_applicable"
             ),
+            # Fixed UI hint: an uncertain or partly executed voice batch
+            # needs human verification before any new attempt. Never
+            # persist or automatically replay the original arguments.
+            "manual_reconciliation_required": (
+                summarize_guarded_outcomes(tool_outcomes) in {
+                    "unknown", "partially_completed",
+                } if tool_outcomes is not None else False
+            ),
             "orchestration_plan": public_plan(
                 tool_plan
                 or {
