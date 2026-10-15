@@ -1,6 +1,7 @@
 from difflib import SequenceMatcher
 import math
 import secrets
+import threading
 
 from core.voice_streaming import StreamingTTSCoordinator
 from core.voice_plan_attestation import (
@@ -445,9 +446,28 @@ class VoicePipeline:
         self.pending_confirmation = None
         self.streaming_tts = None
         self.before_assistant = before_assistant
+        # Replacing (never clearing) an Event at explicit restart prevents
+        # late work from the prior stopped session from being revived.
+        self._stop_token = threading.Event()
         # Private per-session HMAC key: never return raw tool args or
         # a dictionary-attackable plain hash in voice diagnostics.
         self._plan_attestation_key = secrets.token_bytes(32)
+
+    def cancel_pending(self):
+        """Revoke in-flight voice tool permission before slow cleanup."""
+        self._stop_token.set()
+        self.pending_confirmation = None
+
+    def resume_after_stop(self):
+        """Only called by a newly and successfully started VoiceSession."""
+        self._stop_token = threading.Event()
+
+    @staticmethod
+    def _cancelled_response():
+        return {
+            "answer": "Röstsessionen avbröts. Inga nya kommandon får utföras.",
+            "tool_dispatch_blocked": True,
+        }
 
     @property
     def voice_settings(self):
@@ -783,18 +803,30 @@ class VoicePipeline:
             or not guarded_stream
         )
 
-    def _respond_and_speak(self, transcript, approved_digest=None, *, risk=None):
+    def _respond_and_speak(self, transcript, approved_digest=None, *,
+                           risk=None, stop_token=None):
+        token = stop_token if stop_token is not None else self._stop_token
+        if token.is_set():
+            return self._cancelled_response()
         # Actual MyAICore dispatch receives only a verifier callback:
         # no private key or raw tool arguments are passed to the LLM.
         # Without approved high-risk consent, only strictly allowlisted
         # read-only tools may run through MyAICore.respond_voice().
         def verify_dispatch_plan(plan, tools):
-            return same_voice_plan(
+            return (not token.is_set() and same_voice_plan(
                 plan, tools, self._plan_attestation_key, approved_digest
-            )
+            ))
+
+        # This signal is checked by allow_voice_dispatch BEFORE its
+        # independent read-only allowlist or approved write policy.
+        # It is part of the callable itself so MyAICore's existing
+        # voice responder signature remains backward compatible.
+        verify_dispatch_plan.voice_stop_requested = token.is_set
 
         if self.before_assistant is not None:
             self.before_assistant()
+        if token.is_set():
+            return self._cancelled_response()
 
         config = self.voice_settings
         tts_enabled = bool(
@@ -848,7 +880,8 @@ class VoicePipeline:
             # no private command content is retained for later retry.
             chunk_callback = (
                 (lambda _chunk: None) if defer_speech
-                else coordinator.feed
+                else (lambda chunk: coordinator.feed(chunk)
+                      if not token.is_set() else None)
             )
             if callable(voice_stream):
                 response = voice_stream(
@@ -862,6 +895,9 @@ class VoicePipeline:
                     on_chunk=chunk_callback,
                 )
             response = self._verified_tool_response(response)
+            if token.is_set():
+                coordinator.stop()
+                return self._cancelled_response()
             answer = response.get("answer", "")
             if defer_speech and answer:
                 coordinator.feed(answer)
@@ -887,6 +923,8 @@ class VoicePipeline:
         else:
             response = self.assistant.respond(transcript)
         response = self._verified_tool_response(response)
+        if token.is_set():
+            return self._cancelled_response()
         answer = response.get(
             "answer",
             "",
@@ -909,7 +947,11 @@ class VoicePipeline:
         self,
         primary,
         audio,
+        stop_token=None,
     ):
+        token = stop_token if stop_token is not None else self._stop_token
+        if token.is_set():
+            return {"status": "clarify", "message": "Röstsessionen avbröts."}
         pending = self.pending_confirmation
 
         if pending is None:
@@ -1113,6 +1155,7 @@ class VoicePipeline:
                     pending["risk"].get("tool_plan_digest")
                 ),
                 risk=pending["risk"],
+                stop_token=token,
             )
 
             feedback = self._public_memory_feedback(response)
@@ -1208,6 +1251,9 @@ class VoicePipeline:
         return confidence < threshold
 
     def process_utterance(self, audio):
+        token = self._stop_token
+        if token.is_set():
+            return {"status": "clarify", "message": "Röstsessionen avbröts."}
         config = self.voice_settings
         stt_started_at = self.clock()
         try:
@@ -1245,6 +1291,7 @@ class VoicePipeline:
         pending_result = self._handle_pending_confirmation(
             primary,
             audio,
+            stop_token=token,
         )
 
         if pending_result is not None:
@@ -1436,6 +1483,9 @@ class VoicePipeline:
                 "consensus": consensus,
             }
 
+        if token.is_set():
+            return {"status": "clarify", "message": "Röstsessionen avbröts."}
+
         if (
             final_risk["level"] == "high"
             and config.get(
@@ -1462,7 +1512,7 @@ class VoicePipeline:
             }
 
         response = self._respond_and_speak(
-            transcript, risk=final_risk
+            transcript, risk=final_risk, stop_token=token,
         )
 
         feedback = self._public_memory_feedback(response)
