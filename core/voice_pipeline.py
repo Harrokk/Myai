@@ -663,6 +663,22 @@ class VoicePipeline:
         self.tts.speak(text)
         return True
 
+    @staticmethod
+    def _public_memory_feedback(response):
+        """Forward only a known status, never memory content or DB errors."""
+        item = response.get("memory_feedback")
+        if not isinstance(item, dict):
+            return None
+        status = item.get("status")
+        allowed = {
+            "not_requested", "saved", "already_present",
+            "retry_required", "not_saved", "pending_review",
+            "not_saved_sensitive", "unverified",
+        }
+        if status not in allowed:
+            status = "unverified"
+        return {"status": status}
+
     def _respond_and_speak(self, transcript, approved_digest=None):
         # Actual MyAICore dispatch receives only a verifier callback:
         # no private key or raw tool arguments are passed to the LLM.
@@ -982,14 +998,25 @@ class VoicePipeline:
                 ),
             )
 
-            if response.get("tool_dispatch_blocked"):
+            feedback = self._public_memory_feedback(response)
+            memory_not_completed = (
+                feedback is not None and feedback["status"] not in {
+                    "not_requested", "saved", "already_present"
+                }
+            )
+            if response.get("tool_dispatch_blocked") or memory_not_completed:
                 return {
                     "status": "clarify",
                     "message": response.get("answer", ""),
                     "transcript": pending["transcript"],
                     "risk": pending["risk"],
                     "assistant": response,
-                    "confirmation": {"confirmed": False},
+                    "confirmation": {
+                        "confirmed": not bool(
+                            response.get("tool_dispatch_blocked")
+                        )
+                    },
+                    **({"memory_feedback": feedback} if feedback else {}),
                 }
 
             return {
@@ -998,6 +1025,7 @@ class VoicePipeline:
                 "risk": pending["risk"],
                 "consensus": pending["consensus"],
                 "assistant": response,
+                **({"memory_feedback": feedback} if feedback else {}),
                 "confirmation": {
                     "confirmed": True,
                     "heard": primary["text"],
@@ -1254,7 +1282,13 @@ class VoicePipeline:
             transcript
         )
 
-        if response.get("tool_dispatch_blocked"):
+        feedback = self._public_memory_feedback(response)
+        memory_not_completed = (
+            feedback is not None and feedback["status"] not in {
+                "not_requested", "saved", "already_present"
+            }
+        )
+        if response.get("tool_dispatch_blocked") or memory_not_completed:
             return {
                 "status": "clarify",
                 "message": response.get("answer", ""),
@@ -1262,6 +1296,7 @@ class VoicePipeline:
                 "risk": final_risk,
                 "consensus": consensus,
                 "assistant": response,
+                **({"memory_feedback": feedback} if feedback else {}),
             }
 
         return {
@@ -1270,6 +1305,7 @@ class VoicePipeline:
             "risk": final_risk,
             "consensus": consensus,
             "assistant": response,
+            **({"memory_feedback": feedback} if feedback else {}),
         }
 
     def interrupt(self):
