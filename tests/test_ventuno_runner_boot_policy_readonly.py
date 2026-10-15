@@ -74,3 +74,18 @@ def test_service_absent_no_secret_error_emitted():
     r = runner.report(executor=os_failure)
     assert r["status"] == "no_go_runner_service_metadata_unverified"
     assert r["runner_service_or_network_modified"] is False
+
+
+def test_optional_restart_dropin_is_not_deployed_by_any_ci_workflow():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    path = root / "deploy/systemd/actions.runner.Harrokk-Myai.ventuno-q.service.d/20-myai-restart-policy.conf"
+    content = path.read_text(encoding="utf-8")
+    assert "[Service]" in content and "Restart=always" in content
+    assert "RestartSec=15s" in content
+    assert "StartLimitIntervalSec=300" in content
+    assert "StartLimitBurst=5" in content
+    assert "ExecStart=" not in content
+    assert "ExecStop=" not in content
+    assert "WantedBy=" not in content
+    assert "REVIEW ONLY" in content
