@@ -47,9 +47,18 @@ def bounded_utterances(value):
 def parse_reply(raw):
     if type(raw) is not bytes or len(raw) > MAX_RESPONSE:
         raise RuntimeError("Invalid persistent STT response")
+    def strict_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate response field")
+            result[key] = value
+        return result
+
     try:
         decoded = json.loads(
             raw,
+            object_pairs_hook=strict_pairs,
             parse_constant=lambda _: (_ for _ in ()).throw(
                 ValueError("Non-finite JSON value")
             ),
