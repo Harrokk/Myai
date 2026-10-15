@@ -193,6 +193,15 @@ def camera_capture():
 TOOLS = {
     "camera_capture": {
         "function": camera_capture,
+        # This action accesses a local camera (and some persist files).
+        # Require explicit spoken consent; never classify as read-only.
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
+        "result_failure_prefixes": (
+            "Kamerabilden kunde inte tas:",
+        ),
         "description": (
             "Tar en enda stillbild från standardkameran, sparar den lokalt "
             "under runtime/captures och stänger kameran direkt."
