@@ -136,3 +136,48 @@ def test_one_shot_timeout_kills_forked_helper_that_holds_stdout(tmp_path):
     with pytest.raises(TimeoutError, match="deadline exceeded"):
         run_deadlined([sys.executable, "-I", "-u", "-c", source], b"pcm", 1)
     assert _wait_helper_file(pid_file) > 1
+
+
+
+def test_persistent_stt_close_cleans_helper_after_valid_leader_reply(tmp_path):
+    """A valid transcript does not excuse a leaked native helper."""
+    from core.voice_stt_persistent import PersistentFasterWhisperSTT
+
+    record = tmp_path / "persistent-orphan-helper-pid"
+    source = (
+        "import json,struct,pathlib,subprocess,sys\n"
+        "stream=sys.stdin.buffer\n"
+        "n=struct.unpack('>I',stream.read(4))[0]\n"
+        "assert len(stream.read(n))==n\n"
+        "helper=subprocess.Popen([sys.executable,'-I','-c',"
+        " 'import time;time.sleep(60)'],"
+        " stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+        " stderr=subprocess.DEVNULL)\n"
+        f"pathlib.Path({str(record)!r}).write_text(str(helper.pid))\n"
+        "answer=json.dumps({'text':'synthetic','language':'sv','confidence':None}).encode()\n"
+        "sys.stdout.buffer.write(struct.pack('>I',len(answer))+answer)\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.exit(0)\n"
+    )
+    model = PersistentFasterWhisperSTT(
+        model_name="tiny", device="cpu", compute_type="int8",
+        language="sv", sample_rate=16000, channels=1, sample_width=2,
+        timeout_seconds=2, max_utterances=4,
+    )
+    model._argv = [sys.executable, "-I", "-u", "-c", source]
+    proc = None
+    try:
+        result = model.transcribe(b"synthetic")
+        assert result["text"] == "synthetic"
+        proc = model._worker
+        assert proc is not None
+        assert proc.wait(timeout=3) == 0
+        _wait_helper_file(record)
+        assert _live_group_members(proc.pid) is True
+        assert model.close() is True
+        assert _live_group_members(proc.pid) is False
+        assert model._worker is None
+    finally:
+        _safe_cleanup_group(proc)
+        if model._worker is not None:
+            model.close()
