@@ -1,4 +1,10 @@
 import json
+import math
+
+
+MAX_TRANSCRIPTS = 8
+MAX_TRANSCRIPT_CHARS = 2048
+MAX_LLM_RESPONSE_CHARS = 8192
 
 
 def _strip_fence(text):
@@ -25,20 +31,33 @@ class SemanticConsensusResolver:
         min_confidence=0.85,
     ):
         self.llm = llm_client
-        self.min_confidence = float(
-            min_confidence
-        )
+        if (
+            type(min_confidence) not in (int, float)
+            or not math.isfinite(min_confidence)
+            or not 0.0 <= min_confidence <= 1.0
+        ):
+            raise ValueError("Invalid semantic consensus threshold")
+        self.min_confidence = float(min_confidence)
 
     def resolve(
         self,
         transcripts,
         timeout=60,
     ):
-        values = [
-            str(item or "").strip()
-            for item in transcripts
-            if str(item or "").strip()
-        ]
+        # Treat STT results as untrusted text. Do not stringify objects,
+        # accept megabyte transcripts or let an unbounded prompt reach
+        # the local LLM. Blank candidates are ignored.
+        if (
+            not isinstance(transcripts, (list, tuple))
+            or len(transcripts) > MAX_TRANSCRIPTS
+            or any(type(item) is not str for item in transcripts)
+            or any(len(item) > MAX_TRANSCRIPT_CHARS for item in transcripts)
+        ):
+            return {
+                "accepted": False,
+                "reason": "Ogiltiga eller för stora STT-transkriptioner.",
+            }
+        values = [item.strip() for item in transcripts if item.strip()]
 
         if len(values) < 2:
             return {
@@ -91,79 +110,84 @@ Regler:
             ],
             timeout=timeout,
         )
-        parsed = json.loads(
-            _strip_fence(raw)
-        )
-
-        if not isinstance(parsed, dict):
-            raise ValueError(
-                "Semantiskt konsensussvar måste vara ett JSON-objekt."
-            )
-
-        same_intent = bool(
-            parsed.get("same_intent", False)
-        )
-        confidence = float(
-            parsed.get("confidence", 0.0)
-        )
-        confidence = max(
-            0.0,
-            min(confidence, 1.0),
-        )
-        selected = parsed.get(
-            "selected_index"
-        )
-        support = parsed.get(
-            "supporting_indices",
-            [],
-        )
-
-        if not isinstance(support, list):
-            support = []
-
-        valid_support = sorted(
-            {
-                item
-                for item in support
-                if isinstance(item, int)
-                and 0 <= item < len(values)
-            }
-        )
-
-        majority = len(values) // 2 + 1
-
-        if (
-            not same_intent
-            or not isinstance(selected, int)
-            or selected < 0
-            or selected >= len(values)
-            or selected not in valid_support
-            or len(valid_support) < majority
-            or confidence < self.min_confidence
-        ):
+        # LLM output is untrusted. Python's permissive casts make
+        # "false" truthy, True equal to index 1, and infinity appear
+        # maximally confident. Every field must match the exact schema.
+        if type(raw) is not str or len(raw) > MAX_LLM_RESPONSE_CHARS:
             return {
                 "accepted": False,
-                "reason": str(
-                    parsed.get(
-                        "reason",
-                        "Semantisk konsensus var otillräcklig.",
-                    )
+                "reason": "Ogiltigt semantiskt konsensussvar.",
+            }
+
+        def unique_pairs(pairs):
+            data = {}
+            for key, value in pairs:
+                if key in data:
+                    raise ValueError("Duplicate JSON field")
+                data[key] = value
+            return data
+
+        try:
+            parsed = json.loads(
+                _strip_fence(raw),
+                object_pairs_hook=unique_pairs,
+                parse_constant=lambda _: (_ for _ in ()).throw(
+                    ValueError("Non-finite JSON value")
                 ),
-                "confidence": confidence,
-                "supporting_indices": valid_support,
+            )
+        except (TypeError, ValueError, RecursionError):
+            return {
+                "accepted": False,
+                "reason": "Ogiltigt semantiskt konsensussvar.",
+            }
+
+        if not isinstance(parsed, dict):
+            return {
+                "accepted": False,
+                "reason": "Ogiltigt semantiskt konsensussvar.",
+            }
+
+        selected = parsed.get("selected_index")
+        support = parsed.get("supporting_indices")
+        confidence = parsed.get("confidence")
+        valid_support = (
+            type(support) is list
+            and len(support) <= len(values)
+            and all(
+                type(item) is int and 0 <= item < len(values)
+                for item in support
+            )
+            and len(set(support)) == len(support)
+        )
+        valid_confidence = (
+            type(confidence) in (int, float)
+            and math.isfinite(confidence)
+            and 0.0 <= confidence <= 1.0
+        )
+        accepted = (
+            parsed.get("same_intent") is True
+            and type(selected) is int
+            and 0 <= selected < len(values)
+            and valid_support
+            and selected in support
+            and len(support) >= len(values) // 2 + 1
+            and valid_confidence
+            and confidence >= self.min_confidence
+        )
+        if not accepted:
+            return {
+                "accepted": False,
+                # Never echo an LLM-generated reason containing private
+                # transcript data or instructions into status surfaces.
+                "reason": "Semantisk konsensus var otillräcklig.",
             }
 
         return {
             "accepted": True,
             "text": values[selected],
             "selected_index": selected,
-            "supporting_indices": valid_support,
-            "support": len(valid_support),
-            "confidence": confidence,
-            "reason": str(
-                parsed.get(
-                    "reason",
-                    "Semantisk majoritetskonsensus.",
-                )
-            ),
+            "supporting_indices": sorted(support),
+            "support": len(support),
+            "confidence": float(confidence),
+            "reason": "Semantisk majoritetskonsensus.",
         }
