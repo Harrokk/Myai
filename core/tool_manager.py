@@ -1396,8 +1396,14 @@ def run_tools(
     error_logger=None,
     tool_inputs=None,
     result_char_limit=None,
+    execution_guard=None,
 ):
-    """Kör flera verktyg sekventiellt och samla varje resultat separat."""
+    """Kör flera verktyg sekventiellt och samla varje resultat separat.
+
+    Optional execution_guard is evaluated immediately before invocation,
+    using the current registry entry and effective input. A guard must
+    return literal True. Failure/exception means NO-GO, never execute.
+    """
 
     results = {}
     per_tool_input = (
@@ -1415,7 +1421,6 @@ def run_tools(
 
         try:
             tool = tools[tool_name]
-            tool_function = tool["function"]
 
             if tool.get("pass_user_input", False):
                 effective_input = per_tool_input.get(
@@ -1428,9 +1433,25 @@ def run_tools(
                         f"{tool_name} kräver användarens fråga som indata."
                     )
 
-                result = tool_function(
-                    effective_input
-                )
+            else:
+                effective_input = None
+
+            if execution_guard is not None:
+                try:
+                    authorized = execution_guard(
+                        tool_name, tool, effective_input
+                    ) is True
+                except Exception:
+                    authorized = False
+                if not authorized:
+                    results[tool_name] = (
+                        "Verktyget blockerades vid säkerhetskontrollen."
+                    )
+                    continue
+
+            tool_function = tool["function"]
+            if tool.get("pass_user_input", False):
+                result = tool_function(effective_input)
             else:
                 result = tool_function()
 
