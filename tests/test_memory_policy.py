@@ -122,3 +122,31 @@ def test_memory_safe_text_still_persists_when_requested():
     )
     assert result["action"] == "save"
     assert result["sensitive"] is False
+
+
+
+def test_quoted_remember_phrase_in_question_is_not_memory_authorization():
+    text = "Vad betyder uttrycket kom ihåg i ett program?"
+    assert memory_policy.is_explicit_memory_request(text) is False
+    decision = memory_policy.assess_memory_candidate(
+        text, settings=settings(),
+    )
+    assert decision["action"] == "ignore"
+
+
+def test_polite_sweden_memory_request_gets_explicit_score_and_clean_content():
+    text = "Kan du komma ihåg att jag föredrar modulär kod?"
+    assert memory_policy.is_explicit_memory_request(text) is True
+    decision = memory_policy.assess_memory_candidate(
+        text, settings=settings(),
+    )
+    assert decision["action"] == "save"
+    assert decision["content"] == "jag föredrar modulär kod?"
+
+
+def test_noninitial_explicit_phrase_still_not_authorized():
+    text = "Jag undrar varför någon sa: lägg på minnet att koden är modulär?"
+    assert memory_policy.is_explicit_memory_request(text) is False
+    assert memory_policy.assess_memory_candidate(
+        text, settings=settings()
+    )["action"] != "save"
