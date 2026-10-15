@@ -82,7 +82,7 @@ jobs:
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Guard-only: no TTY or opt-in means zero privileged operations
+      - name: Verify noninteractive CI blocks all privilege escalation
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
