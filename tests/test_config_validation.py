@@ -1011,3 +1011,32 @@ def test_camera_enabled_invalid_is_reported_once():
     ][
         "code"
     ] == "camera_enabled_invalid"
+
+
+@pytest.mark.parametrize("setting,bad,issue", [
+    ("stt_process_isolation_enabled", "true", "stt_process_isolation_invalid"),
+    ("stt_process_isolation_enabled", 1, "stt_process_isolation_invalid"),
+    ("stt_process_isolation_enabled", None, "stt_process_isolation_invalid"),
+    ("stt_process_timeout_seconds", 0, "stt_process_timeout_invalid"),
+    ("stt_process_timeout_seconds", -5, "stt_process_timeout_invalid"),
+    ("stt_process_timeout_seconds", True, "stt_process_timeout_invalid"),
+    ("stt_process_timeout_seconds", "45", "stt_process_timeout_invalid"),
+    ("stt_process_timeout_seconds", float("inf"), "stt_process_timeout_invalid"),
+    ("stt_process_timeout_seconds", float("nan"), "stt_process_timeout_invalid"),
+    ("stt_process_timeout_seconds", 500, "stt_process_timeout_invalid"),
+])
+def test_invalid_optional_stt_isolation_settings_are_blocking(setting, bad, issue):
+    source = deepcopy(DEFAULT_SETTINGS)
+    source["voice"][setting] = bad
+    report = validate_settings(source)
+    assert report["valid"] is False
+    assert issue in [item["code"] for item in report["errors"]]
+
+
+def test_stt_isolation_default_off_and_valid_bounded_opt_in():
+    source = deepcopy(DEFAULT_SETTINGS)
+    assert source["voice"]["stt_process_isolation_enabled"] is False
+    assert validate_settings(source)["valid"] is True
+    source["voice"]["stt_process_isolation_enabled"] = True
+    source["voice"]["stt_process_timeout_seconds"] = 15.0
+    assert validate_settings(source)["valid"] is True
