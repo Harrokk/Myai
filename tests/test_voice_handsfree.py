@@ -379,7 +379,19 @@ def test_refused_initial_start_does_not_block_later_valid_start():
 
 
 
-def test_failed_microphone_shutdown_preserves_ownership_for_retry():
+def test_failed_microphone_shutdown_preserves_ownership_for_retry(monkeypatch):
+    class DormantThread:
+        def __init__(self, **kwargs):
+            pass
+        def start(self):
+            pass
+        def is_alive(self):
+            return False
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr("core.voice_handsfree.threading.Thread", DormantThread)
+
     class FaultyStop(FakeSession):
         def stop(self):
             self.stop_calls += 1
@@ -394,13 +406,13 @@ def test_failed_microphone_shutdown_preserves_ownership_for_retry():
     errors = []
     runner.on_error = errors.append
     assert runner.start() is True
-    # Give the runner a chance to enter its read loop; stop() will
-    # always attempt shutdown even if the worker is still blocked.
+    # A deterministic non-running fake worker eliminates thread races;
+    # stop must preserve ownership after a real capture-stop error.
     assert runner.stop() is False
     assert errors and "still active" in str(errors[0])
-    # The worker may attempt its own cleanup concurrently and may
-    # succeed. Either way the real provider failure was surfaced.
-    assert session.stop_calls >= 1
+    assert session.stop_calls == 1
+    assert session.running is True
+    assert runner._owns_session is True
     assert runner.stop() is True
     assert session.running is False
     assert runner._owns_session is False
