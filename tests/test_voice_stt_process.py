@@ -137,3 +137,84 @@ def test_environment_is_forced_offline_and_does_not_inherit_secrets(monkeypatch)
     assert captured["start_new_session"] is True
     assert captured["stderr"] == subprocess.DEVNULL
     assert captured["cwd"] == "/"
+
+
+def test_full_duplex_stt_pipe_handles_backpressure_with_maximum_pcm():
+    """Child writes near 8 KiB stdout BEFORE reading 2 MiB stdin.
+
+    A sequential stdin-then-stdout implementation can deadlock if the
+    child first blocks writing; our selector must service both ends.
+    """
+    padded = VALID_JSON.encode()
+    padded += b" " * (MAX_REPLY_BYTES - len(padded))
+    program = (
+        "import sys;"
+        f"sys.stdout.buffer.write({padded!r});"
+        "sys.stdout.buffer.flush();"
+        "got=sys.stdin.buffer.read();"
+        f"assert len(got)=={MAX_PCM_BYTES}"
+    )
+    result = run_deadlined(cmd(program), b"p" * MAX_PCM_BYTES, 5)
+    assert result["text"] == "Hej från isolerad process"
+
+
+def test_oversized_child_output_is_rejected_before_large_allocation():
+    """Native model can spam stdout; consume at most 8193 bytes."""
+    script = (
+        "import sys,time;"
+        "[sys.stdout.buffer.write(b'X'*65536) or "
+        "sys.stdout.buffer.flush() for _ in range(10000)];"
+        "time.sleep(60)"
+    )
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+        run_deadlined(cmd(script), b"some-pcm", 4)
+    assert time.monotonic() - start < 4
+
+
+def test_exactly_max_response_bytes_are_not_false_oversize():
+    padded = VALID_JSON.encode()
+    padded += b" " * (MAX_REPLY_BYTES - len(padded))
+    script = (
+        "import sys;"
+        "sys.stdin.buffer.read();"
+        f"sys.stdout.buffer.write({padded!r})"
+    )
+    result = run_deadlined(cmd(script), b"fake", 4)
+    assert result["text"] == "Hej från isolerad process"
+
+
+def test_one_byte_over_response_limit_must_fail_closed():
+    padded = VALID_JSON.encode()
+    padded += b" " * (MAX_REPLY_BYTES + 1 - len(padded))
+    script = (
+        "import sys;"
+        "sys.stdin.buffer.read();"
+        f"sys.stdout.buffer.write({padded!r})"
+    )
+    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+        run_deadlined(cmd(script), b"fake", 4)
+
+
+def test_child_never_reads_stdin_and_waits_is_killed_by_deadline():
+    script = "import time;time.sleep(60)"
+    start = time.monotonic()
+    with pytest.raises(TimeoutError, match="deadline exceeded"):
+        run_deadlined(cmd(script), b"p" * MAX_PCM_BYTES, 1)
+    assert time.monotonic() - start < 7
+
+
+def test_child_sends_empty_stdout_and_exits_no_false_success():
+    script = "import sys;sys.stdin.buffer.read();sys.exit(0)"
+    with pytest.raises(RuntimeError, match="Invalid isolated STT"):
+        run_deadlined(cmd(script), b"pcm", 4)
+
+
+def test_stt_bounded_io_rejects_invalid_contract_without_process():
+    from core.voice_stt_bounded_io import exchange_bounded
+    for invalid in (b"", b"X" * (MAX_PCM_BYTES + 1), None, "abc"):
+        with pytest.raises(ValueError):
+            exchange_bounded(
+                None, invalid, deadline=time.monotonic() + 1,
+                max_reply_bytes=MAX_REPLY_BYTES,
+            )
