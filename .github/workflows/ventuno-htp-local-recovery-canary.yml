@@ -12,6 +12,7 @@ on:
       - deploy/systemd/myai-htp-staged-restore.timer
       - scripts/ventuno_runner_boot_policy_readonly.py
       - tests/test_ventuno_runner_boot_policy_readonly.py
+      - deploy/systemd/actions.runner.Harrokk-Myai.ventuno-q.service.d/20-myai-restart-policy.conf
   workflow_dispatch:
 permissions:
   contents: read
