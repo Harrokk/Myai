@@ -1196,19 +1196,25 @@ class MemoryStore:
         if not keywords:
             return []
 
+        # LIKE '%' and '_' are wildcards. User-spoken search tokens
+        # must be literal: otherwise a question about "100%" or a
+        # file-like identifier can retrieve unrelated private memories.
+        # Escape '!' itself before the two wildcard characters.
         patterns = [
-            f"%{keyword}%"
+            "%" + keyword.replace("!", "!!").replace(
+                "%", "!%"
+            ).replace("_", "!_") + "%"
             for keyword in keywords
         ]
         score_sql = " + ".join(
             (
-                "CASE WHEN content LIKE ? "
+                "CASE WHEN content LIKE ? ESCAPE '!' "
                 "THEN 1 ELSE 0 END"
             )
             for _ in patterns
         )
         where_sql = " OR ".join(
-            "content LIKE ?"
+            "content LIKE ? ESCAPE '!'"
             for _ in patterns
         )
         limit = max(

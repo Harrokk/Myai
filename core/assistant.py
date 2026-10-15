@@ -1,3 +1,4 @@
+import sqlite3
 import threading
 from pathlib import Path
 
@@ -101,6 +102,7 @@ class MyAICore:
             {},
         ).get("max_turns", 6)
         self.conversation_history = []
+        self._memory_lookup_status = "not_checked"
         intermediate = settings.get(
             "intermediate_results",
             {},
@@ -188,8 +190,21 @@ Använd information från minnessystemet när den är relevant.
         tool_results=None,
         pending_intermediate_results=None,
     ):
-        relevant_memories = self.memory.search(user_message)
-        memory_text = self.memory.format(relevant_memories)
+        try:
+            relevant_memories = self.memory.search(user_message)
+            memory_text = self.memory.format(relevant_memories)
+        except (sqlite3.Error, OSError):
+            # Do not tell the LLM "no relevant memories" when SQLite
+            # cannot be read. Do not export exception text / DB path.
+            # This turn must also avoid new automatic memory writes.
+            self._memory_lookup_status = "unavailable"
+            memory_text = (
+                "Långtidsminnet är tillfälligt otillgängligt. "
+                "Dra inga slutsatser om vad som tidigare sparats. "
+                "Svara med tillgänglig information och ange osäkerhet."
+            )
+        else:
+            self._memory_lookup_status = "available"
 
         system_message = (
             self.system_profile
@@ -386,9 +401,7 @@ Svara kort och tydligt på svenska.
             ] = False
             decision[
                 "review_queue_error"
-            ] = str(
-                error
-            )
+            ] = "Minnesgranskningen kunde inte köas."
             return decision
 
         try:
@@ -427,9 +440,7 @@ Svara kort och tydligt på svenska.
             ] = False
             decision[
                 "review_queue_error"
-            ] = str(
-                error
-            )
+            ] = "Minnesgranskningen kunde inte köas."
             return decision
 
         decision[
@@ -531,9 +542,7 @@ Svara kort och tydligt på svenska.
                 ] = "audit_blocked"
                 decision[
                     "audit_error"
-                ] = str(
-                    error
-                )
+                ] = "Minnesåtgärdens revisionslogg misslyckades."
                 return decision
 
             try:
@@ -575,9 +584,7 @@ Svara kort och tydligt på svenska.
                 ] = "failed"
                 decision[
                     "memory_error"
-                ] = str(
-                    error
-                )
+                ] = "Långtidsminnet kunde inte uppdateras."
                 return decision
 
             decision.update(
@@ -1115,9 +1122,20 @@ Svara kort och tydligt på svenska.
         streamed=False,
         tool_outcomes=None,
     ):
-        memory_decision = self._consider_long_term_memory(
-            user_message
-        )
+        if self._memory_lookup_status == "unavailable":
+            # Memory reads failed: don't attempt automatic writes or
+            # claim that a new user preference has been persisted.
+            memory_decision = {
+                "action": "deferred_memory_unavailable",
+                "saved": False,
+                "reasons": [
+                    "Långtidsminnet kunde inte läsas; inget nytt minne sparades."
+                ],
+            }
+        else:
+            memory_decision = self._consider_long_term_memory(
+                user_message
+            )
 
         self._remember_conversation_turn(
             user_message,
@@ -1156,6 +1174,7 @@ Svara kort och tydligt på svenska.
                 or []
             ),
             "memory_decision": memory_decision,
+            "memory_lookup_status": self._memory_lookup_status,
             "streamed": bool(streamed),
             "llm_runtime": llm_runtime,
             "health": health,
