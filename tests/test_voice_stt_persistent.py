@@ -572,3 +572,89 @@ def test_delayed_previous_response_nonce_never_authorizes_next_utterance():
         assert model.transcribe(b"third-fresh-utterance")["language"] == "sv"
     finally:
         model.close()
+
+
+def test_actual_checked_in_worker_echoes_nonce_without_loading_real_model(monkeypatch):
+    """Exercise the checked-in worker.main protocol using fake native provider.
+
+    This tests production framing/nonce echo, not Whisper inference or board
+    resource limits. No native model is imported or executed.
+    """
+    import io
+    import struct
+    import types
+
+    import core.voice_stt_child_limits as child_limits
+    import core.voice_stt_persistent_worker as actual_worker
+
+    frames = [(b"A" * 16, b"first-PCM"), (b"B" * 16, b"second-PCM")]
+    incoming = b"".join(
+        struct.pack(">I", len(pcm)) + nonce + pcm
+        for nonce, pcm in frames
+    )
+    output = io.BytesIO()
+    seen_audio = []
+    fake_provider_module = types.ModuleType("modules.voice.providers")
+
+    class FakeFasterWhisperSTT:
+        def __init__(self, **settings):
+            assert settings == CONFIG
+
+        def transcribe(self, audio):
+            seen_audio.append(audio)
+            return {"text": "synthetic only", "language": "sv"}
+
+    fake_provider_module.FasterWhisperSTT = FakeFasterWhisperSTT
+    monkeypatch.setitem(sys.modules, "modules.voice.providers", fake_provider_module)
+    monkeypatch.setattr(child_limits, "apply_child_limits", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["worker.py", json.dumps(CONFIG)])
+    monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(buffer=io.BytesIO(incoming)))
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=output))
+
+    assert actual_worker.main() == 0
+    assert seen_audio == [pcm for _, pcm in frames]
+    response = output.getvalue()
+    pos = 0
+    for expected_nonce, _ in frames:
+        assert len(response) - pos >= 4
+        length = struct.unpack(">I", response[pos:pos + 4])[0]
+        pos += 4
+        assert 16 < length <= 16 + 8192
+        framed = response[pos:pos + length]
+        assert len(framed) == length
+        assert framed[:16] == expected_nonce
+        assert json.loads(framed[16:]) == {
+            "text": "synthetic only", "language": "sv", "confidence": None,
+        }
+        pos += length
+    assert pos == len(response)
+
+
+def test_checked_in_worker_truncated_nonce_returns_no_transcript(monkeypatch):
+    """A partial identifier cannot be promoted into a valid STT response."""
+    import io
+    import struct
+    import types
+
+    import core.voice_stt_child_limits as child_limits
+    import core.voice_stt_persistent_worker as actual_worker
+
+    fake_provider_module = types.ModuleType("modules.voice.providers")
+    class FakeFasterWhisperSTT:
+        def __init__(self, **settings):
+            pass
+        def transcribe(self, audio):
+            pytest.fail("Truncated nonce must not reach transcription")
+    fake_provider_module.FasterWhisperSTT = FakeFasterWhisperSTT
+
+    output = io.BytesIO()
+    monkeypatch.setitem(sys.modules, "modules.voice.providers", fake_provider_module)
+    monkeypatch.setattr(child_limits, "apply_child_limits", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["worker.py", json.dumps(CONFIG)])
+    monkeypatch.setattr(
+        sys, "stdin",
+        types.SimpleNamespace(buffer=io.BytesIO(struct.pack(">I", 3) + b"short")),
+    )
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=output))
+    assert actual_worker.main() == 2
+    assert output.getvalue() == b""
