@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: myai-ci-ventuno
+  group: myai-v75-metadata-only-20261015
   cancel-in-progress: false
 jobs:
   real-board-metadata-only:
