@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import pkgutil
 import re
 
@@ -1421,7 +1422,9 @@ def run_tools(
        is invalid or unauthorized, execute NONE.
     2. Re-check each live registry entry at invocation. A changed entry,
        denied guard, or raised tool error stops all remaining steps.
-    3. If Stop arrives while a tool is already running, its result is
+    3. Explicitly opted-in callbacks with a keyword-only
+       cancel_requested parameter can poll the same Stop signal.
+       If Stop arrives while a tool is already running, its result is
        conservatively UNKNOWN, and later steps are blocked. No rollback
        or forced interruption of the executing function is claimed.
 
@@ -1461,6 +1464,31 @@ def run_tools(
         except Exception:
             return False
 
+    def cooperative(tool):
+        """Validate explicit trusted safety opt-in before any batch step.
+
+        Only keyword-only cancellation callbacks are supported so old
+        positional tool signatures cannot silently change meaning.
+        """
+        safety = tool.get("safety", {})
+        if not isinstance(safety, dict):
+            return False
+        enabled = safety.get("voice_cancel_callback", False)
+        if type(enabled) is not bool:
+            return False
+        if not enabled:
+            return True
+        if not guarded or not callable(execution_cancelled):
+            return False
+        try:
+            parameter = inspect.signature(tool["function"]).parameters.get(
+                "cancel_requested"
+            )
+            return (parameter is not None
+                    and parameter.kind == inspect.Parameter.KEYWORD_ONLY)
+        except (ValueError, TypeError):
+            return False
+
     def cancelled():
         if not guarded or execution_cancelled is None:
             return False
@@ -1498,7 +1526,8 @@ def run_tools(
                 ):
                     raise ValueError("invalid-tool-metadata")
                 value = effective(name, tool)
-                authorized = permitted(name, tool, value)
+                authorized = (cooperative(tool)
+                              and permitted(name, tool, value))
             except Exception:
                 authorized = False
             if not authorized:
@@ -1522,6 +1551,7 @@ def run_tools(
                 if (
                     not isinstance(tool, dict)
                     or not callable(tool.get("function"))
+                    or not cooperative(tool)
                     or not permitted(tool_name, tool, value)
                 ):
                     results.update(deny(tool_names[index:]))
@@ -1534,7 +1564,22 @@ def run_tools(
                 break
 
             function = tool["function"]
-            if tool.get("pass_user_input", False):
+            safety = tool.get("safety", {})
+            cooperative_cancel = (
+                guarded and isinstance(safety, dict)
+                and safety.get("voice_cancel_callback") is True
+            )
+            if cooperative_cancel:
+                # The same per-utterance probe is an opt-in hint to the
+                # tool, not an attempt to kill its thread or roll back
+                # native side effects. The post-call check stays in force.
+                if tool.get("pass_user_input", False):
+                    result = function(
+                        value, cancel_requested=execution_cancelled
+                    )
+                else:
+                    result = function(cancel_requested=execution_cancelled)
+            elif tool.get("pass_user_input", False):
                 result = function(value)
             else:
                 result = function()
