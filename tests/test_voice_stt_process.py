@@ -218,3 +218,42 @@ def test_stt_bounded_io_rejects_invalid_contract_without_process():
                 None, invalid, deadline=time.monotonic() + 1,
                 max_reply_bytes=MAX_REPLY_BYTES,
             )
+
+
+@pytest.mark.parametrize("raw", [
+    b'{"text":"hello","text":"DELETE","language":"sv","confidence":null}',
+    b'{"text":"hello","language":"sv","confidence":NaN}',
+    b'{"text":"hello","language":"sv","confidence":Infinity}',
+    b'{"text":"hello","language":"sv","confidence":true}',
+    b'{"text":"hello","language":"sv","confidence":0.4}',
+    b'{"text":"hello","language":"sv","confidence":null,"token":"SECRET"}',
+    b'{"text":"hello","language":"sv","confidence":null}\xff',
+])
+def test_one_shot_worker_rejects_ambiguous_json_without_leaks(raw):
+    script = (
+        "import sys;"
+        "sys.stdin.buffer.read();"
+        "sys.stdout.buffer.write(" + repr(raw) + ")"
+    )
+    with pytest.raises(RuntimeError, match="Invalid isolated STT") as err:
+        run_deadlined(cmd(script), b"some synthetic PCM", 4)
+    assert "SECRET" not in str(err.value)
+    assert "DELETE" not in str(err.value)
+
+
+def test_one_shot_child_startup_failure_is_private_and_no_audio_sent():
+    calls = []
+    def unavailable(argv, **kwargs):
+        calls.append((argv, kwargs))
+        raise FileNotFoundError(
+            "SECRET_STT_FILE /home/arduino/voice-model-password"
+        )
+
+    with pytest.raises(RuntimeError, match="worker start failed") as err:
+        run_deadlined(cmd("pass"), b"PRIVATE_PCM", 4, popen=unavailable)
+    assert "SECRET" not in str(err.value)
+    assert "PRIVATE_PCM" not in str(err.value)
+    assert len(calls) == 1
+    assert calls[0][1]["start_new_session"] is True
+    assert calls[0][1]["stderr"] == subprocess.DEVNULL
+    assert calls[0][1]["cwd"] == "/"
