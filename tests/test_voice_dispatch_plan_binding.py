@@ -394,3 +394,67 @@ def test_stop_during_assistant_response_preserves_partial_outcome():
     assert result["assistant"]["tool_dispatch_blocked"] is True
     assert result["assistant"]["tool_results"]["cpu_status"] == "CPU OK"
     assert "incorrectly claims completion" not in result["message"]
+
+
+def test_toolful_legacy_voice_responder_does_not_execute_unguarded_action():
+    """Only the guarded respond_voice adapter can run a known tool registry."""
+    effects = []
+
+    class LegacyToolAssistant:
+        def __init__(self):
+            self.tools = {"workspace_write": {"function": lambda: effects.append("write")}}
+        def respond(self, text):
+            effects.append("legacy_respond")
+            return {"answer": "Done", "tools": ["workspace_write"]}
+
+    pipeline = VoicePipeline(
+        LegacyToolAssistant(), FakeRecognizer("Vanlig statusfråga"),
+        settings=deepcopy(DEFAULT_SETTINGS), clock=Clock(),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["assistant"]["tool_dispatch_blocked"] is True
+    assert result["assistant"]["tool_execution_status"] == "not_started"
+    assert effects == []
+
+
+def test_toolful_legacy_streamer_does_not_execute_unguarded_action():
+    effects = []
+
+    class LegacyToolAssistant:
+        def __init__(self):
+            self.tools = {"workspace_write": {"function": lambda: effects.append("write")}}
+        def respond_stream(self, text, on_chunk):
+            effects.append("legacy_stream")
+            on_chunk("fake success")
+            return {"answer": "Done", "tools": ["workspace_write"]}
+
+    class SilentTTS:
+        def speak(self, text):
+            effects.append("tts")
+        def stop(self):
+            return True
+
+    config = deepcopy(DEFAULT_SETTINGS)
+    config["voice"]["tts_enabled"] = True
+    config["voice"]["llm_streaming_enabled"] = True
+    pipeline = VoicePipeline(
+        LegacyToolAssistant(), FakeRecognizer("Vanlig statusfråga"),
+        tts=SilentTTS(), settings=config, clock=Clock(),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["assistant"]["tool_dispatch_blocked"] is True
+    assert effects == []
+
+
+def test_legacy_chat_only_without_tool_registry_still_works():
+    class LegacyChat:
+        def respond(self, text):
+            return {"answer": "Hej", "tools": [], "tool_results": {}}
+
+    pipeline = VoicePipeline(LegacyChat(), FakeRecognizer("Hej"),
+                             settings=deepcopy(DEFAULT_SETTINGS), clock=Clock())
+    response = pipeline.process_utterance(b"synthetic")
+    assert response["status"] == "completed"
+    assert response["assistant"]["answer"] == "Hej"
