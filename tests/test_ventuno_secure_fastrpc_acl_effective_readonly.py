@@ -64,7 +64,7 @@ def setup(monkeypatch, *, write=False, acl_payload=None, mode=0o660):
 def test_no_acl_classic_group_dac_denial_is_classified(monkeypatch):
     dev, calls = setup(monkeypatch, mode=0o640)
     r = gate.diagnose(dev)
-    assert r["status"] == "no_go_no_effective_write"
+    assert r["status"] == "metadata_read_only_no_htp_conclusion"
     assert r["acl_state"] == "no_extended_posix_acl"
     assert r["classic_mode_runner_write"] is False
     assert r["posix_effective_runner_write"] is False
@@ -113,7 +113,7 @@ def test_malformed_acl_cannot_manufacture_permission(monkeypatch):
     r = gate.diagnose(dev)
     assert r["acl_state"] == "acl_format_unrecognized"
     assert r["posix_effective_runner_read"] is None
-    assert r["status"] == "no_go_no_effective_write"
+    assert r["status"] == "metadata_read_only_no_htp_conclusion"
     assert "SECRET" not in json.dumps(r)
 
 
