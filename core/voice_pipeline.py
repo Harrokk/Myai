@@ -1,11 +1,12 @@
 from difflib import SequenceMatcher
-import hashlib
-import hmac
-import json
 import math
 import secrets
 
 from core.voice_streaming import StreamingTTSCoordinator
+from core.voice_plan_attestation import (
+    sign_voice_plan,
+    same_voice_plan,
+)
 import re
 import time
 
@@ -505,34 +506,11 @@ class VoicePipeline:
             }
 
         try:
-            # Freeze the planned tools, parameters and current per-tool
-            # safety metadata into a private attestation. Tool names
-            # alone cannot detect changed arguments or write effects.
-            safety_snapshot = []
-            for step in plan["steps"]:
-                if not isinstance(step, dict):
-                    raise ValueError("invalid-step")
-                name = step.get("tool")
-                if not isinstance(name, str) or not name:
-                    raise ValueError("invalid-tool")
-                metadata = tools.get(name, {})
-                if not isinstance(metadata, dict):
-                    raise ValueError("invalid-metadata")
-                safety_snapshot.append({
-                    "tool": name,
-                    "safety": metadata.get("safety", {}),
-                })
-            if len(safety_snapshot) > 16:
-                raise ValueError("oversized-plan")
-            payload = json.dumps({
-                "steps": plan["steps"],
-                "safety": safety_snapshot,
-            }, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            if len(payload) > 32768:
-                raise ValueError("oversized-plan")
-            digest = hmac.new(
-                self._plan_attestation_key, payload, hashlib.sha256
-            ).hexdigest()
+            # Same bounded HMAC attestation used at the actual
+            # MyAICore dispatch boundary, including callback identity.
+            digest = sign_voice_plan(
+                plan, tools, self._plan_attestation_key
+            )
             tool_risk = classify_tool_plan_risk(plan, tools)
         except (TypeError, ValueError, AttributeError, KeyError, OverflowError):
             return {
@@ -685,7 +663,16 @@ class VoicePipeline:
         self.tts.speak(text)
         return True
 
-    def _respond_and_speak(self, transcript):
+    def _respond_and_speak(self, transcript, approved_digest=None):
+        # Actual MyAICore dispatch receives only a verifier callback:
+        # no private key or raw tool arguments are passed to the LLM.
+        # Without approved high-risk consent, only strictly allowlisted
+        # read-only tools may run through MyAICore.respond_voice().
+        def verify_dispatch_plan(plan, tools):
+            return same_voice_plan(
+                plan, tools, self._plan_attestation_key, approved_digest
+            )
+
         if self.before_assistant is not None:
             self.before_assistant()
 
@@ -729,10 +716,20 @@ class VoicePipeline:
             )
             self.streaming_tts = coordinator
 
-            response = self.assistant.respond_stream(
-                transcript,
-                on_chunk=coordinator.feed,
+            voice_stream = getattr(
+                self.assistant, "respond_voice_stream", None
             )
+            if callable(voice_stream):
+                response = voice_stream(
+                    transcript,
+                    on_chunk=coordinator.feed,
+                    plan_verifier=verify_dispatch_plan,
+                )
+            else:
+                response = self.assistant.respond_stream(
+                    transcript,
+                    on_chunk=coordinator.feed,
+                )
             coordinator.finish()
             answer = response.get(
                 "answer",
@@ -749,9 +746,15 @@ class VoicePipeline:
 
             return response
 
-        response = self.assistant.respond(
-            transcript
+        voice_respond = getattr(
+            self.assistant, "respond_voice", None
         )
+        if callable(voice_respond):
+            response = voice_respond(
+                transcript, plan_verifier=verify_dispatch_plan
+            )
+        else:
+            response = self.assistant.respond(transcript)
         answer = response.get(
             "answer",
             "",
@@ -973,8 +976,21 @@ class VoicePipeline:
 
             self.pending_confirmation = None
             response = self._respond_and_speak(
-                pending["transcript"]
+                pending["transcript"],
+                approved_digest=(
+                    pending["risk"].get("tool_plan_digest")
+                ),
             )
+
+            if response.get("tool_dispatch_blocked"):
+                return {
+                    "status": "clarify",
+                    "message": response.get("answer", ""),
+                    "transcript": pending["transcript"],
+                    "risk": pending["risk"],
+                    "assistant": response,
+                    "confirmation": {"confirmed": False},
+                }
 
             return {
                 "status": "completed",
@@ -1237,6 +1253,16 @@ class VoicePipeline:
         response = self._respond_and_speak(
             transcript
         )
+
+        if response.get("tool_dispatch_blocked"):
+            return {
+                "status": "clarify",
+                "message": response.get("answer", ""),
+                "transcript": transcript,
+                "risk": final_risk,
+                "consensus": consensus,
+                "assistant": response,
+            }
 
         return {
             "status": "completed",
