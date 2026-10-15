@@ -1199,10 +1199,17 @@ Svara kort och tydligt på svenska.
                 _voice_plan_verifier is not None
                 and self._tool_dispatch_was_blocked(tool_results)
             ):
-                answer = (
-                    "Verktygsåtgärden stoppades av säkerhetskontrollen. "
-                    "Säg hela kommandot igen om det fortfarande ska köras."
-                )
+                if summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
+                    answer = (
+                        "Flerkommandot stoppades efter att minst ett steg "
+                        "hade genomförts. Tidigare ändringar kan finnas kvar. "
+                        "Kontrollera resultatet innan du försöker igen."
+                    )
+                else:
+                    answer = (
+                        "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                        "Säg hela kommandot igen om det fortfarande ska köras."
+                    )
             else:
                 answer = self.llm.chat(
                     messages,
@@ -1244,10 +1251,17 @@ Svara kort och tydligt på svenska.
                 _voice_plan_verifier is not None
                 and self._tool_dispatch_was_blocked(tool_results)
             ):
-                answer = (
-                    "Verktygsåtgärden stoppades av säkerhetskontrollen. "
-                    "Säg hela kommandot igen om det fortfarande ska köras."
-                )
+                if summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
+                    answer = (
+                        "Flerkommandot stoppades efter att minst ett steg "
+                        "hade genomförts. Tidigare ändringar kan finnas kvar. "
+                        "Kontrollera resultatet innan du försöker igen."
+                    )
+                else:
+                    answer = (
+                        "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                        "Säg hela kommandot igen om det fortfarande ska köras."
+                    )
                 # No model output and no speculative streaming token
                 # may present an unexecuted action as completed.
                 if on_chunk is not None:
