@@ -1,0 +1,11 @@
+# REVIEW-ONLY FILE. NEVER enable/arm on production from this PR.
+# OnActiveSec runs only when this timer is explicitly started. This is
+# NOT a reboot-persistent guarantee. No [Install] section by design.
+[Unit]
+Description=MyAI HTP one-shot independent emergency recovery timer (staged)
+Documentation=https://github.com/Harrokk/Myai
+
+[Timer]
+OnActiveSec=90s
+AccuracySec=1s
+Unit=myai-htp-staged-restore.service
