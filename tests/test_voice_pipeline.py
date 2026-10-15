@@ -1637,3 +1637,59 @@ def test_malformed_planner_arguments_never_make_unverifiable_signature():
     assert result["status"] == "clarify"
     assert pipeline.pending_confirmation is None
     assert planner.messages == []
+
+
+def test_semantic_fallback_cannot_promote_one_dangerous_asr_outlier_to_action():
+    assistant = FakeAssistant()
+    resolver = FakeSemanticResolver({
+        "accepted": True,
+        "text": "Radera filen rapport.txt",
+        "selected_index": 2,
+        "supporting_indices": [0, 2],
+        "support": 2,
+        "confidence": 0.99,
+        "reason": "Same intent",  # This is not a reliable risk vote.
+    })
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT({"text": "Hur mår processorn?", "confidence": 0.2}),
+        backup_stt=[
+            FakeSTT({"text": "Vilket datum är det?", "confidence": 0.2}),
+            FakeSTT({"text": "Radera filen rapport.txt", "confidence": 0.2}),
+        ],
+        settings=settings(semantic_consensus_enabled=True),
+        semantic_resolver=resolver,
+    )
+
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["risk"]["level"] == "high"
+    assert result["consensus"]["method"] == "semantic"
+    assert result["consensus"]["accepted"] is False
+    assert assistant.messages == []
+    assert len(resolver.calls) == 1
+
+
+def test_semantic_low_risk_fallback_remains_available():
+    assistant = FakeAssistant()
+    resolver = FakeSemanticResolver({
+        "accepted": True,
+        "text": "Hur mycket RAM används?",
+        "selected_index": 1,
+        "supporting_indices": [0, 1],
+        "support": 2,
+        "confidence": 0.95,
+    })
+    pipeline = VoicePipeline(
+        assistant,
+        FakeSTT({"text": "Minnets last?", "confidence": 0.2}),
+        backup_stt=[
+            FakeSTT({"text": "Hur mycket RAM används?", "confidence": 0.2}),
+            FakeSTT({"text": "Vilken dag?", "confidence": 0.2}),
+        ],
+        settings=settings(semantic_consensus_enabled=True),
+        semantic_resolver=resolver,
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "completed"
+    assert assistant.messages == ["Hur mycket RAM används?"]
