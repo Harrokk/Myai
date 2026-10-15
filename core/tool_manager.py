@@ -1513,14 +1513,16 @@ def run_tools(
                 tool_name,
                 error,
             )
-            results[tool_name] = (
-                f"Fel vid körning av {tool_name}: {error}"
-            )
             if guarded:
-                # A later write must never run after a preceding
-                # tool raised an error, even if previously preflighted.
+                # Keep exception messages out of voice results; a final
+                # failed step must also trigger deterministic no-success
+                # response in MyAICore (not just subsequent blocked steps).
+                results[tool_name] = EXECUTION_BLOCKED_MESSAGE
                 for remaining in tool_names[index + 1:]:
                     results[remaining] = EXECUTION_BLOCKED_MESSAGE
                 break
+            results[tool_name] = (
+                f"Fel vid körning av {tool_name}: {error}"
+            )
 
     return results
