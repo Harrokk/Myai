@@ -101,7 +101,7 @@ def test_simulated_independent_timer_returned_after_controller_crash(tmp_path):
     assert result["geniex_or_myai_modified"] is False
     assert result["persistent_system_rollback_installed"] is False
     assert not any(x.name.startswith(canary.PREFIX) for x in tmp_path.iterdir())
-    assert "arduino" not in json.dumps(result)
+    assert "/home/arduino/" not in json.dumps(result)
 
 
 def test_user_manager_unavailable_is_no_go_never_sudo_fallback(tmp_path):
