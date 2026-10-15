@@ -79,6 +79,12 @@ def classify(packages, verified_fixture, hostlibs, skel, reader,
     fixture = verified_fixture if isinstance(verified_fixture, dict) else {}
     hostlibs = hostlibs if isinstance(hostlibs, dict) else {}
     reader = reader if isinstance(reader, dict) else {}
+    # Never echo caller-supplied keys or paths from vendor metadata. Only
+    # two fixed, owned library-root classifications can leave this probe.
+    reader = {
+        label: reader.get(label) is True
+        for label in ("usr_lib", "multiarch")
+    }
     runtime = _installed_minor(packages.get("qairt-libs"))
     dsp = _installed_minor(packages.get("qairt-dsp-binaries"))
     ver246 = runtime == "2.46" and dsp == "2.46"
