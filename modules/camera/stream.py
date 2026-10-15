@@ -214,6 +214,16 @@ def camera_stream_status():
 TOOLS = {
     "camera_stream_status": {
         "function": camera_stream_status,
+        # This action accesses a local camera (and some persist files).
+        # Require explicit spoken consent; never classify as read-only.
+        "safety": {
+            "effect": "local_capture",
+            "voice_confirmation_required": True,
+        },
+        "result_failure_prefixes": (
+            "Kamerastream-testet misslyckades:",
+            "Kamerastream är avstängd.",
+        ),
         "description": (
             "Kör ett konfigurerat och hårt begränsat kamerastream-test "
             "och rapporterar om kameran levererar bildrutor stabilt."
