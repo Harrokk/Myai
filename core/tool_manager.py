@@ -1614,6 +1614,13 @@ def run_tools(
                 result_char_limit,
             )
         except Exception as error:
+            if guarded and cancelled():
+                # A raised exception after Stop is not proof the action
+                # failed without effects; do not leak the raw exception.
+                results[tool_name] = EXECUTION_INTERRUPTED_MESSAGE
+                record(tool_name, "unknown", True)
+                results.update(deny(tool_names[index + 1:]))
+                break
             _log_error(
                 error_logger,
                 "tool_error",
