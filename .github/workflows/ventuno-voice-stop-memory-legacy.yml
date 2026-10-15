@@ -29,6 +29,7 @@ on:
       - tests/test_voice_stt_persistent.py
       - tests/test_voice_dispatch_plan_binding.py
       - tests/test_voice_memory_feedback_bridge.py
+      - tests/test_voice_pipeline.py
       - tests/test_voice_factory.py
       - tests/test_config_validation.py
   workflow_dispatch:
@@ -79,6 +80,7 @@ jobs:
             tests/test_voice_stt_persistent.py \
             tests/test_voice_dispatch_plan_binding.py \
             tests/test_voice_memory_feedback_bridge.py \
+            tests/test_voice_pipeline.py \
             tests/test_voice_session.py \
             tests/test_voice_stt_process.py \
             tests/test_voice_factory.py \
