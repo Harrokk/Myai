@@ -76,10 +76,14 @@ class OfflineLLM:
     def __init__(self):
         self.calls = []
     def chat(self, messages, timeout=300):
-        self.calls.append(messages)
+        # MyAI first calls this mock for tool planning. We count only
+        # final dialog responses, not tool-selection LLM queries.
+        if "Relevant information från långtidsminnet:" in messages[0]["content"]:
+            self.calls.append(messages)
         return "Syntetiskt testsvar."
     def chat_stream(self, messages, timeout=300):
-        self.calls.append(messages)
+        if "Relevant information från långtidsminnet:" in messages[0]["content"]:
+            self.calls.append(messages)
         yield "Syntetiskt "
         yield "testsvar."
 
