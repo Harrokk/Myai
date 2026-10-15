@@ -312,7 +312,11 @@ Svara kort och tydligt på svenska.
                 "verifieras."
             )
         else:
-            decision["audit_result_status"] = "recorded"
+            # One decision may emit both auto-save and review audit
+            # events. A later successful event cannot erase the fact
+            # that an earlier completion event was unverified.
+            if decision.get("audit_result_status") != "unverified":
+                decision["audit_result_status"] = "recorded"
 
     def _queue_memory_review(
         self,
