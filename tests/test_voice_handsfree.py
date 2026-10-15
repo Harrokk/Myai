@@ -376,3 +376,59 @@ def test_refused_initial_start_does_not_block_later_valid_start():
     assert runner.start() is True
     assert runner.is_running is True
     assert runner.stop() is True
+
+
+
+def test_failed_microphone_shutdown_preserves_ownership_for_retry():
+    class FaultyStop(FakeSession):
+        def stop(self):
+            self.stop_calls += 1
+            if self.stop_calls == 1:
+                raise RuntimeError("microphone is still active")
+            self.running = False
+            self.block.set()
+            return True
+
+    session = FaultyStop()
+    runner = VoiceHandsfreeRunner(session)
+    errors = []
+    runner.on_error = errors.append
+    assert runner.start() is True
+    # Give the runner a chance to enter its read loop; stop() will
+    # always attempt shutdown even if the worker is still blocked.
+    assert runner.stop() is False
+    assert errors and "still active" in str(errors[0])
+    # The worker may attempt its own cleanup concurrently and may
+    # succeed. Either way the real provider failure was surfaced.
+    assert session.stop_calls >= 1
+    assert runner.stop() is True
+    assert session.running is False
+    assert runner._owns_session is False
+
+
+def test_thread_start_and_provider_cleanup_both_fail_keep_retry_ownership(monkeypatch):
+    class FaultyStop(FakeSession):
+        def stop(self):
+            self.stop_calls += 1
+            if self.stop_calls == 1:
+                raise OSError("cannot stop capture")
+            self.running = False
+            return True
+
+    class UnavailableThread:
+        def __init__(self, **kwargs):
+            pass
+        def start(self):
+            raise RuntimeError("thread unavailable")
+
+    session = FaultyStop()
+    monkeypatch.setattr("core.voice_handsfree.threading.Thread", UnavailableThread)
+    runner = VoiceHandsfreeRunner(session)
+    with pytest.raises(OSError, match="cannot stop capture"):
+        runner.start()
+    assert session.running is True
+    assert runner._owns_session is True
+    assert runner._thread is None
+    assert runner.stop() is True
+    assert session.running is False
+    assert runner._owns_session is False
