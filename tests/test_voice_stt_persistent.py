@@ -26,19 +26,28 @@ def script(mode="reply"):
     # Synthetic isolated child with real POSIX framed pipe I/O, never
     # imports whisper. Only this pytest fixture can set _argv to -c.
     source = """
-import json,struct,sys,time
+import json,os,struct,sys,time
 i=sys.stdin.buffer
 o=sys.stdout.buffer
 while True:
     hdr=i.read(4)
     if not hdr: break
     n=struct.unpack('>I',hdr)[0]
+    if MODE=='early_reply':
+        # Reply is syntactically valid but input has NOT been consumed.
+        payload=json.dumps({'text':'forged','language':'sv','confidence':None}).encode()
+        o.write(struct.pack('>I',len(payload))+payload);o.flush()
+        os.close(0);os.close(1);time.sleep(60)
     data=i.read(n)
     if len(data)!=n: break
     if MODE=='sleep':
         time.sleep(60)
     elif MODE=='invalid':
         o.write(struct.pack('>I',999999));o.flush()
+    elif MODE=='truncated_header':
+        o.write(b'\\x00\\x00');o.flush();sys.exit(0)
+    elif MODE=='truncated_body':
+        o.write(struct.pack('>I',20)+b'{"text":');o.flush();sys.exit(0)
     elif MODE=='die':
         sys.exit(3)
     else:
@@ -406,3 +415,36 @@ def test_persistent_child_resource_env_is_off_by_default_and_opt_in():
     assert worker.cpu_seconds == 10
     assert worker.virtual_memory_mib == 2048
     assert worker._worker is None
+
+
+
+def test_persistent_worker_early_reply_and_stdin_close_never_authorizes_command():
+    from core.voice_stt_process import MAX_PCM_BYTES
+    model = provider(mode="early_reply", deadline=5)
+    started = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            model.transcribe(b"X" * MAX_PCM_BYTES)
+        assert "forged" not in str(exc.value)
+        assert time.monotonic() - started < 4
+        assert model._worker is None
+        assert model._cleanup_required is False
+        # The next independent utterance can start a newly owned child.
+        model._argv = script("reply")
+        assert model.transcribe(b"fresh PCM")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("mode", ["truncated_header", "truncated_body"])
+def test_persistent_worker_partial_frame_is_rejected_and_reaped(mode):
+    model = provider(mode=mode)
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            model.transcribe(b"synthetic_pcm")
+        assert "synthetic_pcm" not in str(exc.value)
+        assert model._worker is None
+        model._argv = script("reply")
+        assert model.transcribe(b"retry")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
