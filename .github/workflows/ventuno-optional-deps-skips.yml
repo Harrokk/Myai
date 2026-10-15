@@ -1,0 +1,85 @@
+name: Optional dependency skipped regressions (isolated x86)
+on:
+  push:
+    branches: [dev/ventuno-isolated-optional-deps-regressions-20261015]
+    paths:
+      - .github/workflows/ventuno-optional-deps-skips.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-optional-deps-skips-20261015
+  cancel-in-progress: false
+jobs:
+  previously-skipped:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact source revision into disposable test directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          test "$(id -u)" != "0"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-deps-skips.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_DEPS_SKIPS_DIR=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install optional CPU-only libraries in disposable Python venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-deps-skips-venv"
+          "$RUNNER_TEMP/myai-deps-skips-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0 \
+            numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1 \
+            cryptography==44.0.3
+      - name: Run EXACT 15 former skips (skip still counts as failure)
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DEPS_SKIPS_DIR"
+          "$RUNNER_TEMP/myai-deps-skips-venv/bin/python" -B -m pytest -q -rs \
+            tests/test_prepare_tiny_qnn_host_sample.py::test_model_generation_only_if_explicit_host_dependency_installed \
+            tests/test_prepare_tiny_qnn_host_sample.py::test_host_generation_writes_small_input_but_never_qnn_context \
+            tests/test_ventuno_htp_offhost_qdq_contract.py::test_tiny_onnx_model_is_not_a_vendor_htp_acceptance_certificate \
+            tests/test_verify_tiny_qnn_host_sample.py::test_full_onnx_reference_oracle_matches \
+            tests/test_verify_tiny_qnn_host_sample.py::test_host_onnx_reference_is_deterministic \
+            tests/test_qairt_245_cpu_reference_trial.py::test_cpu_output_numeric_parity_and_error_are_strict \
+            tests/test_qairt_245_cpu_reference_trial.py::test_wrong_number_of_native_output_values_rejected \
+            tests/test_selfdev_offline_preview_pipeline.py::test_valid_real_signature_with_kernel_peer_and_replay \
+            tests/test_selfdev_offline_preview_pipeline.py::test_signature_tamper_is_denied_without_creating_ledger \
+            tests/test_selfdev_offline_preview_pipeline.py::test_bad_content_hash_does_not_record_ledger \
+            tests/test_selfdev_offline_preview_transport.py::test_real_signed_transport_then_replay_remains_preview_only \
+            tests/test_selfdev_offline_preview_transport.py::test_truncated_signed_transport_does_not_record_preview \
+            tests/test_selfdev_preview_trust_policy.py::test_actual_crypto_key_rotated_and_revoked_denies_its_signed_manifest \
+            tests/test_selfdev_signed_manifest.py::test_real_ed25519_signature_roundtrip_and_tamper_checks \
+            tests/test_selfdev_signed_manifest.py::test_real_ed25519_signed_payload_denies_path_escape_even_with_valid_signature \
+            | tee "$RUNNER_TEMP/myai-deps-skips-results.txt"
+          # Pytest normally exits zero for skipped tests. Our goal is stronger:
+          # require all fifteen to be executed and PASS, not just no failures.
+          grep -Eq '(^|[[:space:]])15 passed in [0-9.]+' "$RUNNER_TEMP/myai-deps-skips-results.txt"
+          echo '15 real passes required. No runtime VENTUNO/QNN/HTP, physical audio, user data or production changes.'
+      - name: Destroy disposable Python environment and checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_DEPS_SKIPS_DIR:-}" ]; then
+            rm -rf -- "$MYAI_DEPS_SKIPS_DIR"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-deps-skips-venv"
+          rm -f -- "$RUNNER_TEMP/myai-deps-skips-results.txt"
