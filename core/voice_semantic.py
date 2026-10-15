@@ -161,8 +161,8 @@ Regler:
         )
         valid_confidence = (
             type(confidence) in (int, float)
-            and math.isfinite(confidence)
             and 0.0 <= confidence <= 1.0
+            and math.isfinite(confidence)
         )
         accepted = (
             parsed.get("same_intent") is True
