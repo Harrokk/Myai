@@ -15,6 +15,9 @@ class VoiceHandsfreeRunner:
         self.max_wait_frames = max_wait_frames
         self._stop_event = threading.Event()
         self._thread = None
+        # A pre-existing voice session may belong to another controller.
+        # Only stop a microphone when this runner actually started it.
+        self._owns_session = False
 
     @property
     def is_running(self):
@@ -33,23 +36,42 @@ class VoiceHandsfreeRunner:
             )
 
         self._stop_event.clear()
-        self.session.start()
+        started = self.session.start()
+        if started is False:
+            # Another controller already owns the microphone. Do not
+            # attach a background reader or take over its cleanup.
+            self._stop_event.set()
+            return False
+
+        self._owns_session = True
         self._thread = threading.Thread(
             target=self._run,
             name="MyAI-VoiceHandsfree",
             daemon=True,
         )
-        self._thread.start()
+        try:
+            self._thread.start()
+        except Exception:
+            # Thread startup can fail after microphone acquisition. If
+            # cleanup also fails, keep ownership so stop() can retry.
+            self._stop_event.set()
+            self._thread = None
+            self.session.stop()
+            self._owns_session = False
+            raise
         return True
 
     def stop(self, timeout=3.0):
         self._stop_event.set()
 
-        try:
-            self.session.stop()
-        except Exception as error:
-            if self.on_error is not None:
-                self.on_error(error)
+        stopped_cleanly = True
+        if self._owns_session:
+            try:
+                self.session.stop()
+            except Exception as error:
+                stopped_cleanly = False
+                if self.on_error is not None:
+                    self.on_error(error)
 
         thread = self._thread
 
@@ -64,7 +86,12 @@ class VoiceHandsfreeRunner:
                 )
             )
 
-        return not self.is_running
+        if not self.is_running and stopped_cleanly:
+            self._owns_session = False
+
+        # A dead thread is NOT a successfully closed microphone if the
+        # capture provider explicitly refused shutdown.
+        return not self.is_running and stopped_cleanly
 
     def _run(self):
         try:
@@ -104,14 +131,18 @@ class VoiceHandsfreeRunner:
                 if self.on_result is not None:
                     self.on_result(result)
         finally:
-            try:
-                self.session.stop()
-            except Exception as error:
-                if (
-                    not self._stop_event.is_set()
-                    and self.on_error is not None
-                ):
-                    self.on_error(error)
+            if self._owns_session:
+                try:
+                    self.session.stop()
+                except Exception as error:
+                    # Keep ownership for a later explicit cleanup retry.
+                    if (
+                        not self._stop_event.is_set()
+                        and self.on_error is not None
+                    ):
+                        self.on_error(error)
+                else:
+                    self._owns_session = False
 
 
 def format_handsfree_result(result):
