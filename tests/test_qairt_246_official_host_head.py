@@ -108,3 +108,21 @@ def test_http_non_success_response_is_no_go():
     opener, _ = fake(Response(status=403))
     result = source.head_probe(machine="x86_64", opener=opener)
     assert result["status"] == "no_go_official_source_unavailable"
+
+
+def test_http_redirect_is_always_head_and_never_off_domain():
+    from urllib.error import URLError
+    from urllib.request import Request
+    handler = source._HeadOnlyAllowedRedirect()
+    origin = Request(source.OFFICIAL_URL, method="HEAD")
+    new_url = "https://download.qualcomm.com/official-archive.zip"
+    redirected = handler.redirect_request(
+        origin, None, 302, "Found", {}, new_url
+    )
+    assert redirected.get_method() == "HEAD"
+    assert redirected.full_url == new_url
+    with pytest.raises(URLError):
+        handler.redirect_request(
+            origin, None, 302, "Found", {},
+            "https://untrusted.invalid/binary"
+        )
