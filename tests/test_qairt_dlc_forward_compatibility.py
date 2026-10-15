@@ -58,8 +58,42 @@ def test_unverified_dlc_is_rejected_even_on_compatible_runtime(verified):
     assert report["vendor_dlc_forward_compatibility_policy_applied"] is False
 
 
+def good():
+    return {
+        "packages": {
+            "qairt-libs": {"status": "installed", "version": "2.46.0-0ubuntu1"},
+            "qairt-dsp-binaries": {
+                "status": "installed", "version": "2.46.0-0ubuntu1"
+            },
+        },
+        "libraries": {name: object() for name in readiness.LIBS},
+        "skel_present": True,
+        "service": {
+            "service_mainpid_present": True,
+            "geniex_process_count": 1,
+            "complete_fast_rpc_fd_scan": True,
+            "complete_process_maps": True,
+            "fast_rpc_secure_fd_open": False,
+        },
+        "available_kib": 12 * 1048576,
+        "fixture": {"file_identity_verified": True},
+        "policy": {"nodes": {
+            "cdsp_secure": {
+                "character_device": True,
+                "runner_effective_read_access": True,
+                "runner_effective_write_access": False,
+            },
+            "dma_heap_system": {
+                "character_device": True,
+                "runner_effective_read_access": True,
+                "runner_effective_write_access": True,
+            },
+        }},
+        "machine": "aarch64",
+    }
+
+
 def test_format_compatibility_never_authorizes_htp_on_live_geniex():
-    from tests.test_ventuno_v75_npu_readiness_readonly import good
     assessment = readiness.evaluate(**good())
     assert assessment["status"] == "no_go"
     assert assessment["qnn_dlc_forward_compatibility"]["compatible_runtime_minor"] is True
@@ -72,7 +106,6 @@ def test_format_compatibility_never_authorizes_htp_on_live_geniex():
 
 
 def test_missing_fixture_stays_no_go_even_with_246_runtime():
-    from tests.test_ventuno_v75_npu_readiness_readonly import good
     values = good()
     values["fixture"] = {"file_identity_verified": False}
     assessment = readiness.evaluate(**values)
@@ -82,7 +115,6 @@ def test_missing_fixture_stays_no_go_even_with_246_runtime():
 
 
 def test_different_runtime_package_minors_reject_forward_evidence():
-    from tests.test_ventuno_v75_npu_readiness_readonly import good
     values = good()
     values["packages"]["qairt-dsp-binaries"]["version"] = "2.45.0"
     assessment = readiness.evaluate(**values)
