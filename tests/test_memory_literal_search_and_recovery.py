@@ -153,3 +153,59 @@ def test_unavailable_memory_does_not_clear_existing_conversation(tmp_path):
         "user", "assistant", "user", "assistant"
     ]
     assert len(llm.calls) == 2
+
+
+
+def test_failed_memory_write_never_exports_sqlite_exception_path(tmp_path):
+    core, mem, llm = create_core(tmp_path)
+    mem.fail = False
+    def broken_write(*_args):
+        raise sqlite3.OperationalError(
+            "SQLITE_PRIVATE_PATH_SECRET /home/arduino/memory.db"
+        )
+    mem.save_if_new = broken_write
+    result = core.respond("Kom ihåg att jag föredrar modulär kod.")
+    decision = result["memory_decision"]
+    assert decision["saved"] is False
+    assert decision["lifecycle_action"] == "failed"
+    assert decision["memory_error"] == (
+        "Långtidsminnet kunde inte uppdateras."
+    )
+    assert "SQLITE_PRIVATE_PATH_SECRET" not in str(result)
+    assert result["memory_lookup_status"] == "available"
+
+
+def test_failed_memory_audit_never_exports_private_exception_path(tmp_path):
+    core, mem, llm = create_core(tmp_path)
+    mem.fail = False
+    def broken_audit(**_kwargs):
+        raise OSError("AUDIT_PRIVATE_DIR_SECRET /private/audit.log")
+    core.audit_logger.write_attempt = broken_audit
+    result = core.respond("Kom ihåg att jag föredrar modulär kod.")
+    decision = result["memory_decision"]
+    assert decision["saved"] is False
+    assert decision["lifecycle_action"] == "audit_blocked"
+    assert decision["audit_error"] == (
+        "Minnesåtgärdens revisionslogg misslyckades."
+    )
+    assert mem.store_calls == []
+    assert "AUDIT_PRIVATE_DIR_SECRET" not in str(result)
+
+
+def test_review_queue_exception_does_not_leak_private_database_path(tmp_path):
+    core, mem, llm = create_core(tmp_path)
+    mem.fail = False
+    def enqueue_fail(*_args, **_kwargs):
+        raise sqlite3.DatabaseError(
+            "REVIEW_QUEUE_PRIVATE_PATH_SECRET /home/arduino/memory.db"
+        )
+    mem.enqueue_review = enqueue_fail
+    result = core._queue_memory_review({
+        "action": "review", "category": "project",
+        "content": "Syntetisk minneskandidat", "reasons": [],
+    })
+    assert result["review_queued"] is False
+    assert result["review_queue_error"] == (
+        "Minnesgranskningen kunde inte köas."
+    )
+    assert "REVIEW_QUEUE_PRIVATE_PATH_SECRET" not in str(result)
