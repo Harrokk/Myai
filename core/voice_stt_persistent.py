@@ -271,6 +271,18 @@ class PersistentFasterWhisperSTT:
                     self._worker, audio, self.timeout_seconds,
                     cancel_event=self._cancel,
                 )
+            except TimeoutError:
+                # TimeoutError is a subclass of OSError. Preserve the
+                # timeout category but never echo a native error/path.
+                self._release()
+                raise TimeoutError("Persistent STT deadline exceeded") from None
+            except (OSError, ValueError):
+                # OS pipe/select failures may contain private paths,
+                # descriptors or native messages. They must never escape
+                # into the voice status, even if teardown itself succeeds.
+                # No partial transcript is trusted after a transport fault.
+                self._release()
+                raise RuntimeError("Persistent STT IPC transfer failed") from None
             except BaseException:
                 # No partial/late transcript is authorized after any
                 # transport error. Try cleanup exactly once per failure.

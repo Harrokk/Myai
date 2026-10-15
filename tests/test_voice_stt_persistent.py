@@ -448,3 +448,30 @@ def test_persistent_worker_partial_frame_is_rejected_and_reaped(mode):
         assert model.transcribe(b"retry")["text"] == "syntetiskt svar"
     finally:
         model.close()
+
+
+
+def test_raw_native_pipe_error_is_redacted_and_child_is_reaped(monkeypatch):
+    """BrokenPipeError from os.write/select cannot disclose OS internals."""
+    import core.voice_stt_persistent as module
+    model = provider(mode="reply")
+    original_exchange = module.exchange
+
+    def fail_on_pipe(*args, **kwargs):
+        raise BrokenPipeError("SECRET_AUDIO_DEVICE /home/arduino/private")
+
+    try:
+        monkeypatch.setattr(module, "exchange", fail_on_pipe)
+        with pytest.raises(RuntimeError, match="Persistent STT IPC transfer failed") as err:
+            model.transcribe(b"SYNTHETIC_PCM")
+        assert "SECRET" not in str(err.value)
+        assert "/home/arduino" not in str(err.value)
+        assert err.value.__cause__ is None
+        assert model._worker is None
+        assert model._cleanup_required is False
+        # Verify the owned worker was not reused after failed transport.
+        monkeypatch.setattr(module, "exchange", original_exchange)
+        assert model.transcribe(b"fresh")["text"] == "syntetiskt svar"
+    finally:
+        monkeypatch.setattr(module, "exchange", original_exchange)
+        model.close()

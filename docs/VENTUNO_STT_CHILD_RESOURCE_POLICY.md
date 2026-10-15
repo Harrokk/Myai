@@ -42,3 +42,34 @@ On error, the worker is killed and reaped using the existing owned-process-group
 safeguards, and no transcript is passed to the assistant. Truncated reply headers
 and bodies likewise fail closed. Synthetic Linux child tests verify all three
 conditions without using a microphone, native model or active Ventuno service.
+
+
+## Startfel i STT-barnet innan talmodellen laddas
+
+Både `core/voice_stt_worker.py` (engångsprocess) och
+`core/voice_stt_persistent_worker.py` (modellcache) sätter eventuella
+`RLIMIT_CPU`/`RLIMIT_AS` **innan** de importerar FasterWhisper.
+Om Linux nekar `resource.setrlimit` returnerar barnprocessen status 2
+och lämnar **ingen** transkription på stdout. Föräldern får ett
+sanitiserat fel och städar sin ägda processgrupp. Inga privata
+enhetssökvägar, modellfel eller ljudbytes ska visas för användaren.
+
+Hostade regressionstester importerar dessa **verkliga worker-main-funktioner**
+i disponibla Linux-subprocesser, injicerar `PermissionError` för
+respektive resursgräns och lägger en importspärr på
+`modules.voice.providers`. Spärren verifierar att ingen talmodell ens
+försöker laddas innan båda resursgränserna är korrekt satta. Testerna
+anropar även one-shot- och persistent-föräldrarnas egna API:er för att
+verifiera att ingen transkription godkänns och att child-handtaget
+reap:as efter avslag.
+
+STT-persistent transport skiljer uttryckligen **timeout** från övriga
+`OSError` (Python ärver `TimeoutError` från `OSError`). Båda
+feltyper returnerar fasta, sanerade felsträngar efter processstädning.
+Detta förhindrar att hemliga native-/filvägsdetaljer från en trasig
+pipe följer med till en statusyta, samtidigt som en faktisk timeout
+fortfarande rapporteras som timeout.
+
+Detta är inte en riktig model-load-, DSP-, prestanda- eller
+driftsättningsverifiering. Båda gränserna förblir standardvärde
+`0` och inga fysiska tester återaktiveras automatiskt.
