@@ -96,6 +96,9 @@ class VoiceWriteAheadMarker:
                 or details.st_nlink != 1
             ):
                 raise OSError("Untrusted voice journal lock")
+            # Make the stable lock inode directory entry durable before
+            # relying on flock for future cooperating writer processes.
+            os.fsync(directory)
             fcntl.flock(fd, fcntl.LOCK_EX)
             try:
                 yield
