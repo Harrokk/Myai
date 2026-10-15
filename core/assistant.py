@@ -12,7 +12,7 @@ from core.intermediate_results import (
 )
 from core.memory import MemoryStore
 from core.memory_lifecycle import apply_memory_lifecycle
-from core.memory_policy import assess_memory_candidate, normalize_memory_text
+from core.memory_policy import assess_memory_candidate, is_explicit_memory_request
 from core.llm_factory import build_llm_client
 from core.health_status import (
     build_health_status,
@@ -1113,17 +1113,9 @@ Svara kort och tydligt på svenska.
 
     @staticmethod
     def _explicit_memory_request(user_message):
-        # A bounded intent gate: ordinary questions mentioning
-        # "kom ihåg" must not have their answers replaced.
-        normalized = normalize_memory_text(user_message)
-        return normalized.startswith((
-            "kom ihåg ",
-            "lägg på minnet ",
-            "spara detta:",
-            "spara att ",
-            "remember this:",
-            "remember that ",
-        ))
+        # Share one strict intent classifier with memory_policy;
+        # quoting the words "kom ihåg" must not authorize writes.
+        return is_explicit_memory_request(user_message)
 
     def _memory_acknowledgement(self, user_message, decision):
         """Actual persistence outcome, never an LLM guess.
