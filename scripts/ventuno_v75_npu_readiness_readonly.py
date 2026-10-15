@@ -1,8 +1,9 @@
 """Read-only VENTUNO V75 NPU readiness report before any new HTP inference.
 
-The QAIRT 2.45 repository DLC is not an attested QAIRT 2.46 artifact.
-A live GenieX process may race a secondary FastRPC client after any /proc
-scan, so no preview can grant concurrent accelerator use. This module
+The QAIRT 2.45 repository DLC is format-forward-compatible with 2.46 per
+Qualcomm's published QAIRT DLC policy; this does NOT establish V75 operator
+support. A live GenieX process may race a secondary FastRPC client after a
+/proc scan, so no preview grants concurrent accelerator use. This module
 reports explicit NO-GO conditions; it NEVER runs QNN or opens a DSP device.
 
 Only bounded, already reviewed metadata probes are used. No model request,
@@ -15,6 +16,9 @@ from pathlib import Path
 import platform
 
 from scripts.qairt_245_dlc_static_audit import DEFAULT_FIXTURE, verify_fixture
+from scripts.qairt_dlc_forward_compatibility import (
+    KNOWN_SOURCE_MINOR, evaluate_forward_compatibility,
+)
 from scripts.ventuno_qairt_v75_package_readonly import package_versions
 from scripts.ventuno_tiny_qnn_htp_once import (
     LIBS, MIN_AVAILABLE_KIB, _find_libraries, _find_v75_skel_directory,
@@ -70,6 +74,10 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
     runtime_246 = rt == "2.46" and dsp == "2.46"
     hostlibs_verified = all(name in libraries for name in LIBS)
     checked_dlc = fixture.get("file_identity_verified") is True
+    compatible_dlc = evaluate_forward_compatibility(
+        KNOWN_SOURCE_MINOR, rt if rt == dsp else None,
+        source_sha_verified=checked_dlc,
+    )
     memory_ok = (
         type(available_kib) is int and available_kib >= MIN_AVAILABLE_KIB
     )
@@ -99,8 +107,13 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
         blockers.append("packaged_v75_dsp_skel_unverified")
     if not checked_dlc:
         blockers.append("existing_245_fixture_integrity_unverified")
-    # Even valid QAIRT 2.45 bytes do not become a 2.46 HTP model.
-    blockers.append("matching_246_htp_artifact_not_attested")
+    # Qualcomm guarantees forward DLC-format compatibility across these
+    # QAIRT minors. But that is not an HTP V75 operator compatibility
+    # certificate or a backend initialization result. No HTP operation
+    # is allowed merely because the DLC format is compatible.
+    if not compatible_dlc["compatible_runtime_minor"]:
+        blockers.append("qnn_dlc_runtime_format_compatibility_unverified")
+    blockers.append("htp_v75_operator_support_unverified")
     if not memory_ok:
         blockers.append("available_ram_below_safe_threshold_or_unknown")
     if concurrency == "no_go_existing_geniex_fastrpc_busy":
@@ -127,6 +140,8 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
         "v75_dsp_skel_vendor_packaged": skel_present is True,
         "repository_245_dlc_integrity_verified": checked_dlc,
         "matching_246_htp_artifact_attested": False,
+        "matching_246_artifact_required_for_dlc_format": False,
+        "qnn_dlc_forward_compatibility": compatible_dlc,
         "available_ram_at_least_safe_threshold": memory_ok,
         "runner_secure_fastrpc_metadata_permits_read": fastrpc_read,
         "runner_dma_heap_metadata_permits_read_write": dma_read_write,

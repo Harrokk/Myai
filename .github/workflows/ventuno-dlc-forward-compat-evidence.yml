@@ -1,0 +1,123 @@
+name: QAIRT QNN DLC forward-compatibility evidence (no HTP)
+on:
+  push:
+    branches: [dev/ventuno-qnn-dlc-forward-compat-evidence-20261015]
+    paths:
+      - .github/workflows/ventuno-dlc-forward-compat-evidence.yml
+      - scripts/qairt_dlc_forward_compatibility.py
+      - scripts/ventuno_v75_npu_readiness_readonly.py
+      - tests/test_qairt_dlc_forward_compatibility.py
+      - tests/test_ventuno_v75_npu_readiness_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-dlc-forward-compat-20261015
+  cancel-in-progress: false
+jobs:
+  targeted-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact SHA in private hosted x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-dlc-forward.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_DLC_FORWARD_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run pure compatibility and hardware fail-closed tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-dlc-forward-venv"
+          "$RUNNER_TEMP/myai-dlc-forward-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_DLC_FORWARD_SCRATCH"
+          "$RUNNER_TEMP/myai-dlc-forward-venv/bin/python" -B -m pytest -q \
+            tests/test_qairt_dlc_forward_compatibility.py \
+            tests/test_ventuno_v75_npu_readiness_readonly.py \
+            tests/test_ventuno_secure_fastrpc_acl_effective_readonly.py
+          echo 'Only simulated metadata: no network vendor SDK, QNN/HTP, audio or physical board.'
+      - name: Destroy disposable checkout and venv
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_DLC_FORWARD_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_DLC_FORWARD_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-dlc-forward-venv"
+
+  ventuno-metadata-only:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact SHA to temporary board workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-dlc-forward-readonly.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_DLC_FORWARD_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Inspect QAIRT/DLC metadata and exclusive HTP no-go only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DLC_FORWARD_BOARD"
+          timeout --signal=TERM --kill-after=3s 70s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_v75_npu_readiness_readonly \
+            | tee "$MYAI_DLC_FORWARD_BOARD/sanitized-report.txt"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          rows = Path("sanitized-report.txt").read_text(encoding="utf-8").splitlines()
+          assert len(rows) == 1 and rows[0].startswith("MYAI_V75_NPU_READINESS_JSON=")
+          observed = json.loads(rows[0].split("=", 1)[1])
+          assert observed["status"] == "no_go"
+          assert observed["qnn_or_htp_attempted"] is False
+          assert observed["npu_inference_verified"] is False
+          assert observed["service_or_packages_modified"] is False
+          assert observed["devices_opened"] is False
+          policy = observed["qnn_dlc_forward_compatibility"]
+          assert policy["npu_placement_verified"] is False
+          assert observed["matching_246_artifact_required_for_dlc_format"] is False
+          print("Format-policy metadata read: never a V75 backend success certificate.")
+          PY
+      - name: Remove temporary board evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_DLC_FORWARD_BOARD:-}" ]; then
+            rm -rf -- "$MYAI_DLC_FORWARD_BOARD"
+          fi

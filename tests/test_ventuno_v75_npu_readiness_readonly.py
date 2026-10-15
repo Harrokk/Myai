@@ -47,7 +47,7 @@ def test_even_all_good_metadata_cannot_authorize_second_live_htp():
     assert report["geniex_fastrpc_state"] == (
         "no_go_geniex_active_concurrent_htp_unsafe"
     )
-    assert "matching_246_htp_artifact_not_attested" in report["blockers"]
+    assert "htp_v75_operator_support_unverified" in report["blockers"]
     assert "active_geniex_concurrency_unsafe" in report["blockers"]
     assert report["npu_inference_verified"] is False
     assert report["qnn_or_htp_attempted"] is False
@@ -163,7 +163,7 @@ def test_secure_group_read_only_is_vendor_normal_not_false_npu_blocker():
     assert "runner_secure_fastrpc_read_access_unverified" not in observed["blockers"]
     assert "runner_dma_heap_read_write_access_unverified" not in observed["blockers"]
     assert observed["status"] == "no_go"
-    assert "matching_246_htp_artifact_not_attested" in observed["blockers"]
+    assert "htp_v75_operator_support_unverified" in observed["blockers"]
     assert "active_geniex_concurrency_unsafe" in observed["blockers"]
 
 
