@@ -52,25 +52,24 @@ class VoiceHandsfreeRunner:
         try:
             self._thread.start()
         except Exception:
-            # Thread startup can fail after a successful microphone start.
-            # Release only this runner's session, then propagate the
-            # original error rather than reporting handsfree as active.
+            # Thread startup can fail after microphone acquisition. If
+            # cleanup also fails, keep ownership so stop() can retry.
             self._stop_event.set()
-            try:
-                self.session.stop()
-            finally:
-                self._owns_session = False
-                self._thread = None
+            self._thread = None
+            self.session.stop()
+            self._owns_session = False
             raise
         return True
 
     def stop(self, timeout=3.0):
         self._stop_event.set()
 
+        stopped_cleanly = True
         if self._owns_session:
             try:
                 self.session.stop()
             except Exception as error:
+                stopped_cleanly = False
                 if self.on_error is not None:
                     self.on_error(error)
 
@@ -87,10 +86,12 @@ class VoiceHandsfreeRunner:
                 )
             )
 
-        if not self.is_running:
+        if not self.is_running and stopped_cleanly:
             self._owns_session = False
 
-        return not self.is_running
+        # A dead thread is NOT a successfully closed microphone if the
+        # capture provider explicitly refused shutdown.
+        return not self.is_running and stopped_cleanly
 
     def _run(self):
         try:
@@ -130,17 +131,18 @@ class VoiceHandsfreeRunner:
                 if self.on_result is not None:
                     self.on_result(result)
         finally:
-            try:
-                if self._owns_session:
+            if self._owns_session:
+                try:
                     self.session.stop()
-            except Exception as error:
-                if (
-                    not self._stop_event.is_set()
-                    and self.on_error is not None
-                ):
-                    self.on_error(error)
-            finally:
-                self._owns_session = False
+                except Exception as error:
+                    # Keep ownership for a later explicit cleanup retry.
+                    if (
+                        not self._stop_event.is_set()
+                        and self.on_error is not None
+                    ):
+                        self.on_error(error)
+                else:
+                    self._owns_session = False
 
 
 def format_handsfree_result(result):
