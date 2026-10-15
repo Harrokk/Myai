@@ -25,7 +25,8 @@ from core.health_status import (
 )
 from core.orchestration import public_plan
 from core.voice_plan_attestation import allow_voice_dispatch
-from core.voice_retry_quarantine import VoiceRetryQuarantine
+from core.voice_retry_quarantine import VoiceRetryQuarantine, known_voice_read_only
+from core.voice_write_journal import VoiceWriteAheadMarker
 from core.tool_outcome import summarize_guarded_outcomes
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
@@ -44,6 +45,7 @@ class MyAICore:
         # Prevent unverified replays of effectful voice commands across
         # Stop -> Start within this MyAICore process. Not crash-durable.
         self._voice_retry_quarantine = VoiceRetryQuarantine()
+        self._voice_write_journal = VoiceWriteAheadMarker(project_root)
         self.project_root = project_root
         self.error_logger = ErrorLogger(
             settings,
@@ -1032,8 +1034,11 @@ Svara kort och tydligt på svenska.
                     # This boundary is rechecked for each invocation,
                     # against actual selected inputs and live tool metadata.
                     def execution_guard(name, entry, actual_input):
-                        return (self._voice_retry_quarantine.permits(name, entry)
-                                and allow_voice_dispatch(
+                        return (
+                            self._voice_retry_quarantine.permits(name, entry)
+                            and (known_voice_read_only(name, entry)
+                                 or not self._voice_write_journal.review_required)
+                            and allow_voice_dispatch(
                                     tool_plan,
                                     self.tools,
                                     name,
@@ -1056,6 +1061,12 @@ Svara kort och tydligt på svenska.
                     outcome_details=tool_outcomes,
                     execution_cancelled=(
                         self._voice_stop_probe(voice_plan_verifier)
+                        if voice_mode else None
+                    ),
+                    execution_before_call=(
+                        (lambda name, entry, _value:
+                            True if known_voice_read_only(name, entry)
+                            else self._voice_write_journal.begin_effect())
                         if voice_mode else None
                     ),
                 )
@@ -1314,7 +1325,8 @@ Svara kort och tydligt på svenska.
                     "unknown", "partially_completed",
                 } if tool_outcomes is not None else False)
                 or (voice_plan_verifier is not None
-                    and self._voice_retry_quarantine.review_required)
+                    and (self._voice_retry_quarantine.review_required
+                         or self._voice_write_journal.review_required))
             ),
             "orchestration_plan": public_plan(
                 tool_plan
@@ -1379,7 +1391,8 @@ Svara kort och tydligt på svenska.
                         "Röstsessionen avbröts. Tidigare verktygsåtgärder "
                         "kan ha genomförts; kontrollera innan du försöker igen."
                     )
-                elif self._voice_retry_quarantine.review_required:
+                elif (self._voice_retry_quarantine.review_required
+                      or self._voice_write_journal.review_required):
                     answer = (
                         "Tidigare röststyrda ändringar har osäkert utfall. "
                         "Tidigare ändringar kan finnas kvar. "
@@ -1451,7 +1464,8 @@ Svara kort och tydligt på svenska.
                         "Röstsessionen avbröts. Tidigare verktygsåtgärder "
                         "kan ha genomförts; kontrollera innan du försöker igen."
                     )
-                elif self._voice_retry_quarantine.review_required:
+                elif (self._voice_retry_quarantine.review_required
+                      or self._voice_write_journal.review_required):
                     answer = (
                         "Tidigare röststyrda ändringar har osäkert utfall. "
                         "Tidigare ändringar kan finnas kvar. "
