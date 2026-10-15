@@ -15,7 +15,6 @@ when isolation is explicitly enabled.
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import select
@@ -26,6 +25,7 @@ import threading
 import time
 
 from core.voice_stt_process_group import terminate_owned_group
+from core.voice_stt_reply import decode_stt_reply
 from core.voice_stt_process import (
     MAX_PCM_BYTES, MAX_REPLY_BYTES, CLEAN_KEYS,
     KNOWN_LANGUAGES, bounded_seconds, worker_argv,
@@ -45,37 +45,11 @@ def bounded_utterances(value):
 
 
 def parse_reply(raw):
-    if type(raw) is not bytes or len(raw) > MAX_RESPONSE:
-        raise RuntimeError("Invalid persistent STT response")
-    def strict_pairs(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("Duplicate response field")
-            result[key] = value
-        return result
-
+    """Decode the same strict IPC reply schema as one-shot STT."""
     try:
-        decoded = json.loads(
-            raw,
-            object_pairs_hook=strict_pairs,
-            parse_constant=lambda _: (_ for _ in ()).throw(
-                ValueError("Non-finite JSON value")
-            ),
-        )
-    except (ValueError, UnicodeError, TypeError, RecursionError):
+        return decode_stt_reply(raw)
+    except ValueError:
         raise RuntimeError("Invalid persistent STT response") from None
-    if (
-        type(decoded) is not dict
-        or set(decoded) != CLEAN_KEYS
-        or type(decoded["text"]) is not str
-        or len(decoded["text"]) > 4096
-        or type(decoded["language"]) is not str
-        or decoded["language"] not in KNOWN_LANGUAGES
-        or decoded["confidence"] is not None
-    ):
-        raise RuntimeError("Invalid persistent STT response")
-    return decoded
 
 
 def persistent_argv(config):
@@ -194,11 +168,16 @@ class PersistentFasterWhisperSTT:
         self._cancel = threading.Event()
 
     def _spawn(self):
-        self._worker = subprocess.Popen(
-            self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, cwd="/", env=offline_environment(),
-            bufsize=0, start_new_session=True,
-        )
+        try:
+            self._worker = subprocess.Popen(
+                self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, cwd="/", env=offline_environment(),
+                bufsize=0, start_new_session=True,
+            )
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # No process handle returned; never expose private native
+            # error text or claim a successfully started worker.
+            raise RuntimeError("Persistent STT worker start failed") from None
         self._count = 0
         try:
             # select() only prevents blocking if the actual pipe fd is
@@ -206,10 +185,11 @@ class PersistentFasterWhisperSTT:
             os.set_blocking(self._worker.stdin.fileno(), False)
             os.set_blocking(self._worker.stdout.fileno(), False)
         except BaseException:
-            # A pipe-configuration failure must not orphan a child with
-            # a loaded (or partially loaded) native model.
+            # A partially initialized worker can still own native RAM.
+            # Retain the handle if reaping fails, so no duplicate model
+            # is launched and no private pipe exception is exposed.
             self._release()
-            raise
+            raise RuntimeError("Persistent STT IPC setup failed") from None
 
     def _release(self):
         proc = self._worker

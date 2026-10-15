@@ -249,8 +249,9 @@ def test_ipc_nonblocking_setup_failure_reaps_child_and_never_reuses(monkeypatch)
                 raise OSError("PRIVATE_FILE_DESCRIPTOR")
             return real_set_blocking(fd, flag)
         monkeypatch.setattr(module.os, "set_blocking", fail_setup)
-        with pytest.raises(OSError):
+        with pytest.raises(RuntimeError, match="IPC setup failed") as err:
             model.transcribe(b"fake")
+        assert "PRIVATE_FILE_DESCRIPTOR" not in str(err.value)
         assert len(call_count) == 2
         assert model._worker is None
         assert model._count == 0
@@ -357,3 +358,33 @@ def test_cancelled_persistent_stt_can_be_resumed_without_worker_leak():
         assert model.transcribe(b"valid-after-resume")["language"] == "sv"
     finally:
         model.close()
+
+
+def test_persistent_stt_startup_failure_is_sanitized_and_retriable(monkeypatch):
+    import core.voice_stt_persistent as module
+    real_popen = module.subprocess.Popen
+    model = provider()
+    try:
+        def blocked(*args, **kwargs):
+            raise PermissionError("SECRET_WORKER_BINARY_PATH /home/arduino")
+        monkeypatch.setattr(module.subprocess, "Popen", blocked)
+        with pytest.raises(RuntimeError, match="worker start failed") as err:
+            model.transcribe(b"synthetic")
+        assert "SECRET" not in str(err.value)
+        assert model._worker is None
+        assert model._cleanup_required is False
+        monkeypatch.setattr(module.subprocess, "Popen", real_popen)
+        assert model.transcribe(b"retry-ok")["text"] == "syntetiskt svar"
+    finally:
+        monkeypatch.setattr(module.subprocess, "Popen", real_popen)
+        model.close()
+
+
+def test_persistent_duplicate_stt_json_is_never_trusted():
+    import core.voice_stt_persistent as module
+    from core.voice_stt_reply import decode_stt_reply
+    contradictory = b'{"text":"safe","text":"delete","language":"sv","confidence":null}'
+    with pytest.raises(ValueError):
+        decode_stt_reply(contradictory)
+    with pytest.raises(RuntimeError, match="Invalid persistent STT response"):
+        module.parse_reply(contradictory)
