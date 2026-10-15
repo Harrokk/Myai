@@ -33,8 +33,8 @@ class SemanticConsensusResolver:
         self.llm = llm_client
         if (
             type(min_confidence) not in (int, float)
-            or not math.isfinite(min_confidence)
             or not 0.0 <= min_confidence <= 1.0
+            or not math.isfinite(min_confidence)
         ):
             raise ValueError("Invalid semantic consensus threshold")
         self.min_confidence = float(min_confidence)
