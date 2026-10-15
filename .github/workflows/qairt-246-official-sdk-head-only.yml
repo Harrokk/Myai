@@ -1,0 +1,69 @@
+name: Official QAIRT 2.46 host SDK HEAD-only availability
+on:
+  push:
+    branches: [dev/qairt246-offhost-official-sdk-head-20261015]
+    paths:
+      - .github/workflows/qairt-246-official-sdk-head-only.yml
+      - scripts/qairt_246_official_host_head.py
+      - tests/test_qairt_246_official_host_head.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-offhost-qairt-246-source-head-20261015
+  cancel-in-progress: false
+jobs:
+  official-metadata-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact source revision on disposable hosted x86
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-qairt246-head.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_QAIRT246_HEAD_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run offline synthetic URL and redirect security tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-qairt246-head-venv"
+          "$RUNNER_TEMP/myai-qairt246-head-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+          cd "$MYAI_QAIRT246_HEAD_SCRATCH"
+          "$RUNNER_TEMP/myai-qairt246-head-venv/bin/python" -B -m pytest -q \
+            tests/test_qairt_246_official_host_head.py
+      - name: Query pinned official Qualcomm SDK HEAD only - NO GET
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_QAIRT246_HEAD_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 40s \
+            "$RUNNER_TEMP/myai-qairt246-head-venv/bin/python" -B \
+            -m scripts.qairt_246_official_host_head
+          echo 'HEAD only. No vendor SDK downloaded, extracted or executed. No device accessed.'
+      - name: Destroy scratch and Python environment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_QAIRT246_HEAD_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_QAIRT246_HEAD_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-qairt246-head-venv"
