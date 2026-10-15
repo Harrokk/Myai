@@ -177,7 +177,7 @@ def test_semantic_invalid_json_or_duplicate_keys_fail_closed(response):
 
 @pytest.mark.parametrize("value", [
     float("nan"), float("inf"), float("-inf"),
-    "0.85", True, -0.1, 1.1, None,
+    "0.85", True, -0.1, 1.1, None, 10 ** 400,
 ])
 def test_semantic_threshold_must_be_finite_unit_interval(value):
     with pytest.raises(ValueError):
