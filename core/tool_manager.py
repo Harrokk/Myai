@@ -4,6 +4,8 @@ import re
 
 import modules
 
+from core.tool_outcome import ToolOutcome, classify_guarded_result
+
 from core.intermediate_results import (
     dependent_visual_research,
 )
@@ -1392,6 +1394,9 @@ def _bounded_tool_result(
 EXECUTION_BLOCKED_MESSAGE = (
     "Verktyget blockerades vid säkerhetskontrollen."
 )
+EXECUTION_FAILED_MESSAGE = (
+    "Verktyget rapporterade ett fel; återstående steg stoppades."
+)
 
 
 def run_tools(
@@ -1402,6 +1407,7 @@ def run_tools(
     tool_inputs=None,
     result_char_limit=None,
     execution_guard=None,
+    outcome_details=None,
 ):
     """Run tools in order; voice-guarded plans fail closed as a unit.
 
@@ -1417,6 +1423,19 @@ def run_tools(
     results = {}
     per_tool_input = tool_inputs if isinstance(tool_inputs, dict) else {}
     guarded = execution_guard is not None
+    status_sink = outcome_details if isinstance(outcome_details, dict) else None
+
+    def record(name, state, attempted):
+        if guarded and status_sink is not None:
+            status_sink[name] = {
+                "state": state,
+                "attempted": attempted is True,
+            }
+
+    def deny(names):
+        for name in names:
+            record(name, "blocked", False)
+        return {name: EXECUTION_BLOCKED_MESSAGE for name in names}
 
     def effective(tool_name, tool):
         if tool.get("pass_user_input", False):
@@ -1445,11 +1464,9 @@ def run_tools(
             or len(set(tool_names)) != len(tool_names)
             or not isinstance(tools, dict)
         ):
-            return {
-                name: EXECUTION_BLOCKED_MESSAGE
-                for name in tool_names
-                if isinstance(name, str)
-            } if isinstance(tool_names, (list, tuple)) else {}
+            return deny([
+                name for name in tool_names if isinstance(name, str)
+            ]) if isinstance(tool_names, (list, tuple)) else {}
 
         for name in tool_names:
             tool = tools.get(name)
@@ -1465,17 +1482,12 @@ def run_tools(
                 authorized = False
             if not authorized:
                 # No step has run; do not even execute earlier reads.
-                return {
-                    planned: EXECUTION_BLOCKED_MESSAGE
-                    for planned in tool_names
-                }
+                return deny(tool_names)
 
     for index, tool_name in enumerate(tool_names):
         if tool_name not in tools:
             if guarded:
-                results[tool_name] = EXECUTION_BLOCKED_MESSAGE
-                for remaining in tool_names[index + 1:]:
-                    results[remaining] = EXECUTION_BLOCKED_MESSAGE
+                results.update(deny(tool_names[index:]))
                 break
             continue
 
@@ -1491,9 +1503,7 @@ def run_tools(
                     or not callable(tool.get("function"))
                     or not permitted(tool_name, tool, value)
                 ):
-                    results[tool_name] = EXECUTION_BLOCKED_MESSAGE
-                    for remaining in tool_names[index + 1:]:
-                        results[remaining] = EXECUTION_BLOCKED_MESSAGE
+                    results.update(deny(tool_names[index:]))
                     break
 
             function = tool["function"]
@@ -1501,6 +1511,22 @@ def run_tools(
                 result = function(value)
             else:
                 result = function()
+
+            if guarded:
+                successful, visible_value = classify_guarded_result(
+                    result, tool
+                )
+                if not successful:
+                    results[tool_name] = EXECUTION_FAILED_MESSAGE
+                    record(tool_name, "failed", True)
+                    results.update(deny(tool_names[index + 1:]))
+                    break
+                result = visible_value
+                record(tool_name, "succeeded", True)
+            elif isinstance(result, ToolOutcome):
+                # Typed adapter results retain ordinary text API
+                # semantics: callers receive the wrapped value.
+                result = result.value
 
             results[tool_name] = _bounded_tool_result(
                 result,
@@ -1514,12 +1540,11 @@ def run_tools(
                 error,
             )
             if guarded:
-                # Keep exception messages out of voice results; a final
-                # failed step must also trigger deterministic no-success
-                # response in MyAICore (not just subsequent blocked steps).
-                results[tool_name] = EXECUTION_BLOCKED_MESSAGE
-                for remaining in tool_names[index + 1:]:
-                    results[remaining] = EXECUTION_BLOCKED_MESSAGE
+                # A raised error may have modified state before failing.
+                # Never claim it did not run; never export its raw text.
+                results[tool_name] = EXECUTION_FAILED_MESSAGE
+                record(tool_name, "failed", True)
+                results.update(deny(tool_names[index + 1:]))
                 break
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
