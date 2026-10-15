@@ -6,6 +6,10 @@ on:
       - .github/workflows/ventuno-htp-local-recovery-canary.yml
       - scripts/ventuno_htp_local_recovery_canary.py
       - tests/test_ventuno_htp_local_recovery_canary.py
+      - scripts/ventuno_htp_system_recovery_staged.py
+      - tests/test_ventuno_htp_system_recovery_staged.py
+      - deploy/systemd/myai-htp-staged-restore.service
+      - deploy/systemd/myai-htp-staged-restore.timer
   workflow_dispatch:
 permissions:
   contents: read
@@ -49,7 +53,8 @@ jobs:
           cd "$MYAI_TIMER_UNIT_TEST"
           "$RUNNER_TEMP/myai-timer-canary-venv/bin/python" -B -m pytest -q \
             tests/test_ventuno_htp_local_recovery_canary.py \
-            tests/test_ventuno_htp_maintenance_recovery_dryrun.py
+            tests/test_ventuno_htp_maintenance_recovery_dryrun.py \
+            tests/test_ventuno_htp_system_recovery_staged.py
       - name: Clear isolated checkout and Python environment
         if: always()
         shell: bash
