@@ -35,3 +35,30 @@ CI använder riktiga Linux-barnprocesser med **syntetiska bytes** för att testa
 Innan aktivering krävs faktisk CPU-/RAM-/latensmätning med representativ talmodell och full duplex. Dessa fysiska moment finns fortsatt parkerade i [Fysiskt närvarande tester](PHYSICAL_PRESENCE_TESTS.md).
 
 **Ingen automation får slå på detta i produktion bara för att testerna är gröna.**
+
+
+## Verifierad processgruppsstädning – även efter avslutad huvudprocess
+
+Både one-shot- och persistent-läget använder nu `core/voice_stt_process_group.py`.
+Tidigare gjordes `SIGKILL` mot processgruppen bara om huvudbarnet fortfarande
+var aktivt. Ett hjälpprogram som hade kvar samma processgrupp men överlevde
+sin huvudprocess kunde därför fortsätta köras efter att huvudbarnet var
+färdigt. Nu undersöks tillhörande Linux-processer i `/proc/*/stat` efter
+deras **processgrupps-ID** och signalen skickas även om ledaren redan
+har avslutats. Städningen verifierar att inga **levande** medlemmar
+återstår och att huvudbarnet är reap:at. Om kontrollen är otillgänglig,
+processgruppen inte går att döda eller resurserna inte kan bekräftas
+frigjorda rapporteras fel och den cachade STT-processen förblir spärrad.
+
+Testerna är syntetiska: en verklig Python-hjälpprocess sover i 60 sekunder,
+medan dess huvudprocess avslutas; nedstängning av processgruppen kontrolleras
+på hosted x86 utan mikrofon, talmodell, sudo eller driftsättning på Ventuno.
+
+**Begränsning:** Linux-zombies räknas inte som levande CPU-/RAM-arbete men
+kan behöva reap:as av sin nya förälder. Processer som avsiktligt lämnar
+sin ursprungliga processgrupp med `setsid()` eller `setpgid()` omfattas
+inte av denna mekanism. Inte heller garanteras avslut av processer som
+fastnat i kernel D-state. Om MyAI senare måste isolera godtyckliga
+barnbarn eller strikt begränsa totala minnet krävs en särskilt granskad
+cgroup-v2-lösning och ett separat, säkert distributionstest. Grön CI får
+inte förväxlas med den garantin.

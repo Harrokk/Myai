@@ -19,13 +19,13 @@ import json
 import os
 from pathlib import Path
 import select
-import signal
 import struct
 import subprocess
 import sys
 import threading
 import time
 
+from core.voice_stt_process_group import terminate_owned_group
 from core.voice_stt_process import (
     MAX_PCM_BYTES, MAX_REPLY_BYTES, CLEAN_KEYS,
     KNOWN_LANGUAGES, bounded_seconds, worker_argv,
@@ -175,30 +175,9 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
 
 
 def terminate_owned(proc):
-    """Try to terminate the owned process group, reap, no false success."""
-    if proc is None:
-        return
-    if proc.poll() is None:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-    try:
-        proc.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("Persistent STT process cleanup incomplete") from None
-    finally:
-        for name in ("stdin", "stdout"):
-            stream = getattr(proc, name, None)
-            if stream is not None:
-                try:
-                    stream.close()
-                except OSError:
-                    pass
+    """Also kill group descendants after the STT leader has exited."""
+    return terminate_owned_group(proc)
+
 
 
 class PersistentFasterWhisperSTT:
