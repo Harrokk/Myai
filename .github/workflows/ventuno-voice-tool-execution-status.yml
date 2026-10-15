@@ -1,0 +1,65 @@
+name: Voice tool execution status synthetic CI
+on:
+  push:
+    branches: [dev/ventuno-voice-tool-execution-status-20261015]
+    paths:
+      - .github/workflows/ventuno-voice-tool-execution-status.yml
+      - core/voice_pipeline.py
+      - tests/test_voice_tool_execution_status_bridge.py
+      - tests/test_voice_memory_feedback_bridge.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-voice-tool-status-20261015
+  cancel-in-progress: false
+jobs:
+  synthetic-voice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Exact SHA detached in disposable directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-voice-tool-status.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_VOICE_TOOL_STATUS_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install pinned Python test tools into disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-voice-tool-status-venv"
+          "$RUNNER_TEMP/myai-voice-tool-status-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
+      - name: Run fake-only voice UI regressions
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_TOOL_STATUS_SCRATCH"
+          "$RUNNER_TEMP/myai-voice-tool-status-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_tool_execution_status_bridge.py \
+            tests/test_voice_memory_feedback_bridge.py \
+            tests/test_voice_pipeline.py
+          echo 'No VENTUNO device, live SQLite, GPIO, actual microphone or NPU.'
+      - name: Remove disposable test data
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_VOICE_TOOL_STATUS_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_VOICE_TOOL_STATUS_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-voice-tool-status-venv"

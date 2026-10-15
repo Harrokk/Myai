@@ -679,6 +679,34 @@ class VoicePipeline:
             status = "unverified"
         return {"status": status}
 
+    @staticmethod
+    def _public_tool_execution(response):
+        """Expose a bounded execution status, never raw results or errors."""
+        if "tool_execution_status" not in response:
+            # Older assistant implementations do not have this contract.
+            return None
+        status = response["tool_execution_status"]
+        allowed = {
+            "completed", "not_started", "not_applicable",
+            "partially_completed", "failed", "unknown",
+        }
+        if not isinstance(status, str) or status not in allowed:
+            status = "unknown"
+        return {"status": status}
+
+    @staticmethod
+    def _tool_execution_incomplete(response, public_execution):
+        if public_execution is None:
+            return False
+        status = public_execution["status"]
+        if status in {"partially_completed", "failed", "unknown"}:
+            return True
+        if status in {"not_started", "not_applicable"}:
+            # No tool action was requested: an ordinary chat answer can
+            # complete. A selected tool with no verified execution cannot.
+            return bool(response.get("tools"))
+        return False
+
     def _respond_and_speak(self, transcript, approved_digest=None):
         # Actual MyAICore dispatch receives only a verifier callback:
         # no private key or raw tool arguments are passed to the LLM.
@@ -1004,7 +1032,12 @@ class VoicePipeline:
                     "not_requested", "saved", "already_present"
                 }
             )
-            if response.get("tool_dispatch_blocked") or memory_not_completed:
+            tool_execution = self._public_tool_execution(response)
+            tool_not_completed = self._tool_execution_incomplete(
+                response, tool_execution
+            )
+            if (response.get("tool_dispatch_blocked") or
+                    memory_not_completed or tool_not_completed):
                 return {
                     "status": "clarify",
                     "message": response.get("answer", ""),
@@ -1017,6 +1050,7 @@ class VoicePipeline:
                         )
                     },
                     **({"memory_feedback": feedback} if feedback else {}),
+                    **({"tool_execution": tool_execution} if tool_execution else {}),
                 }
 
             return {
@@ -1026,6 +1060,7 @@ class VoicePipeline:
                 "consensus": pending["consensus"],
                 "assistant": response,
                 **({"memory_feedback": feedback} if feedback else {}),
+                **({"tool_execution": tool_execution} if tool_execution else {}),
                 "confirmation": {
                     "confirmed": True,
                     "heard": primary["text"],
@@ -1288,7 +1323,12 @@ class VoicePipeline:
                 "not_requested", "saved", "already_present"
             }
         )
-        if response.get("tool_dispatch_blocked") or memory_not_completed:
+        tool_execution = self._public_tool_execution(response)
+        tool_not_completed = self._tool_execution_incomplete(
+            response, tool_execution
+        )
+        if (response.get("tool_dispatch_blocked") or
+                memory_not_completed or tool_not_completed):
             return {
                 "status": "clarify",
                 "message": response.get("answer", ""),
@@ -1297,6 +1337,7 @@ class VoicePipeline:
                 "consensus": consensus,
                 "assistant": response,
                 **({"memory_feedback": feedback} if feedback else {}),
+                **({"tool_execution": tool_execution} if tool_execution else {}),
             }
 
         return {
@@ -1306,6 +1347,7 @@ class VoicePipeline:
             "consensus": consensus,
             "assistant": response,
             **({"memory_feedback": feedback} if feedback else {}),
+            **({"tool_execution": tool_execution} if tool_execution else {}),
         }
 
     def interrupt(self):
