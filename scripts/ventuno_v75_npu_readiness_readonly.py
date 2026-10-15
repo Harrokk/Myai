@@ -115,6 +115,22 @@ def evaluate(packages, libraries, skel_present, service, available_kib,
         "matching_246_htp_artifact_attested": False,
         "available_ram_at_least_safe_threshold": memory_ok,
         "runner_secure_fastrpc_metadata_permits_rw": fastrpc_access,
+        "runner_fastrpc_group_member": policy.get(
+            "runner_in_fastrpc_group"
+        ) if type(policy.get("runner_in_fastrpc_group")) is bool else None,
+        "secure_fastrpc_char_device_present": (
+            secure.get("character_device") is True
+        ),
+        "runner_secure_fastrpc_effective_read": (
+            secure.get("runner_effective_read_access")
+            if type(secure.get("runner_effective_read_access")) is bool
+            else None
+        ),
+        "runner_secure_fastrpc_effective_write": (
+            secure.get("runner_effective_write_access")
+            if type(secure.get("runner_effective_write_access")) is bool
+            else None
+        ),
         "geniex_fastrpc_state": (
             concurrency if concurrency in {
                 "no_go_existing_geniex_fastrpc_busy",
