@@ -1389,6 +1389,11 @@ def _bounded_tool_result(
     )
 
 
+EXECUTION_BLOCKED_MESSAGE = (
+    "Verktyget blockerades vid säkerhetskontrollen."
+)
+
+
 def run_tools(
     tool_names,
     tools,
@@ -1444,9 +1449,7 @@ def run_tools(
                 except Exception:
                     authorized = False
                 if not authorized:
-                    results[tool_name] = (
-                        "Verktyget blockerades vid säkerhetskontrollen."
-                    )
+                    results[tool_name] = EXECUTION_BLOCKED_MESSAGE
                     continue
 
             tool_function = tool["function"]
