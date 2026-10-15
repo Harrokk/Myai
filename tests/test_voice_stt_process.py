@@ -120,16 +120,16 @@ def test_no_arbitrary_argv_or_custom_worker_in_public_wrapper():
 def test_environment_is_forced_offline_and_does_not_inherit_secrets(monkeypatch):
     monkeypatch.setenv("HF_HUB_TOKEN", "SECRET_TOKEN_DO_NOT_EXPORT")
     captured = {}
-    class DummyProc:
-        pid = 1000000000
-        returncode = 0
-        def communicate(self, input=None, timeout=None):
-            return VALID_JSON.encode(), b""
-        def wait(self, timeout=None):
-            return self.returncode
     def popen(argv, **kwargs):
         captured.update(kwargs)
-        return DummyProc()
+        return subprocess.Popen(
+            cmd(
+                "import sys;"
+                "sys.stdin.buffer.read();"
+                f"sys.stdout.write({VALID_JSON!r})"
+            ),
+            **kwargs,
+        )
     assert run_deadlined(cmd("pass"), b"sample", 1, popen=popen)["text"]
     assert captured["env"]["HF_HUB_OFFLINE"] == "1"
     assert captured["env"]["TRANSFORMERS_OFFLINE"] == "1"
