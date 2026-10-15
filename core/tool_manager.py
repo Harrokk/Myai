@@ -1414,6 +1414,7 @@ def run_tools(
     execution_guard=None,
     outcome_details=None,
     execution_cancelled=None,
+    execution_before_call=None,
 ):
     """Run tools in order; voice-guarded plans fail closed as a unit.
 
@@ -1422,7 +1423,9 @@ def run_tools(
        is invalid or unauthorized, execute NONE.
     2. Re-check each live registry entry at invocation. A changed entry,
        denied guard, or raised tool error stops all remaining steps.
-    3. Explicitly opted-in callbacks with a keyword-only
+    3. Optionally require a durable before-invocation authorization
+       hook; on failure, execute no tool and block later steps.
+    4. Explicitly opted-in callbacks with a keyword-only
        cancel_requested parameter can poll the same Stop signal.
        If Stop arrives while a tool is already running, its result is
        conservatively UNKNOWN, and later steps are blocked. No rollback
@@ -1562,6 +1565,23 @@ def run_tools(
             if guarded and cancelled():
                 results.update(deny(tool_names[index:]))
                 break
+
+            if guarded and execution_before_call is not None:
+                try:
+                    if (not callable(execution_before_call)
+                            or execution_before_call(
+                                tool_name, tool, value
+                            ) is not True):
+                        results.update(deny(tool_names[index:]))
+                        break
+                except BaseException:
+                    results.update(deny(tool_names[index:]))
+                    break
+                # An fsync/marker may take time. Stop before entering
+                # a callback even when its durable marker was created.
+                if cancelled():
+                    results.update(deny(tool_names[index:]))
+                    break
 
             function = tool["function"]
             safety = tool.get("safety", {})
