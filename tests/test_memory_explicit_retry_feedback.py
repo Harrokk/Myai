@@ -175,3 +175,31 @@ def test_review_and_sensitive_memory_feedback_never_claims_persistence():
     )
     assert refused["status"] == "not_saved_sensitive"
     assert "privata information" not in refused["message"]
+
+
+
+def test_database_outage_does_not_invite_repeat_of_sensitive_secret(tmp_path):
+    core, store = make_core(tmp_path)
+    store.outage = True
+    answer = core.respond(
+        "Kom ihåg att mitt lösenord är FAKE_ONLY_TEST_PASSWORD."
+    )
+    assert answer["memory_feedback"]["status"] == "not_saved_sensitive"
+    assert "integritetsskäl" in answer["answer"]
+    assert "Upprepa" not in answer["answer"]
+    assert "FAKE_ONLY_TEST_PASSWORD" not in answer["answer"]
+    assert store.write_calls == 0
+
+
+def test_sensitive_outage_stream_does_not_read_secret_aloud(tmp_path):
+    core, store = make_core(tmp_path)
+    store.outage = True
+    heard = []
+    result = core.respond_stream(
+        "Spara detta: mitt lösenord är FAKE_ONLY_TEST_PASSWORD.",
+        on_chunk=heard.append,
+    )
+    assert result["memory_feedback"]["status"] == "not_saved_sensitive"
+    assert heard == [result["answer"]]
+    assert "FAKE_ONLY_TEST_PASSWORD" not in "".join(heard)
+    assert "Upprepa" not in "".join(heard)
