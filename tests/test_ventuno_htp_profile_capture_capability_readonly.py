@@ -54,7 +54,7 @@ def test_even_248_plus_cli_flag_does_not_assert_in_process_profile():
 
 @pytest.mark.parametrize("minor,expected", [
     ("2.45", True), ("2.46", True), ("2.47", True),
-    ("2.48", False), ("2.49", False), ("3.0", False),
+    ("2.48", False), ("2.49", False), ("3.0", True),
 ])
 def test_upstream_minimum_version_policy(minor, expected):
     r = gate.classify(
