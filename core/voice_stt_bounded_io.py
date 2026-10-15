@@ -61,7 +61,7 @@ def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
                         if data:
                             output.extend(data)
                             if len(output) > max_reply_bytes:
-                                raise RuntimeError("Isolated STT output exceeds limit")
+                                raise OversizedSTTOutput("Invalid isolated STT output")
                         else:
                             selector.unregister(stdout_fd)
                     else:
