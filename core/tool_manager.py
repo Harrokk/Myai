@@ -1397,6 +1397,10 @@ EXECUTION_BLOCKED_MESSAGE = (
 EXECUTION_FAILED_MESSAGE = (
     "Verktyget rapporterade ett fel; återstående steg stoppades."
 )
+EXECUTION_INTERRUPTED_MESSAGE = (
+    "Avbrott under verktygskörning; utfallet är osäkert och "
+    "återstående steg stoppades."
+)
 
 
 def run_tools(
@@ -1408,6 +1412,7 @@ def run_tools(
     result_char_limit=None,
     execution_guard=None,
     outcome_details=None,
+    execution_cancelled=None,
 ):
     """Run tools in order; voice-guarded plans fail closed as a unit.
 
@@ -1416,6 +1421,9 @@ def run_tools(
        is invalid or unauthorized, execute NONE.
     2. Re-check each live registry entry at invocation. A changed entry,
        denied guard, or raised tool error stops all remaining steps.
+    3. If Stop arrives while a tool is already running, its result is
+       conservatively UNKNOWN, and later steps are blocked. No rollback
+       or forced interruption of the executing function is claimed.
 
     Already completed calls cannot be rolled back. Unguarded typed-text
     behavior remains backward compatible with its per-tool error results.
@@ -1453,6 +1461,16 @@ def run_tools(
         except Exception:
             return False
 
+    def cancelled():
+        if not guarded or execution_cancelled is None:
+            return False
+        if not callable(execution_cancelled):
+            return True
+        try:
+            return execution_cancelled() is not False
+        except BaseException:
+            return True
+
     if guarded:
         # Duplicate names collapse in the results dict and in
         # tool_inputs, so two independently approved arguments cannot
@@ -1467,6 +1485,9 @@ def run_tools(
             return deny([
                 name for name in tool_names if isinstance(name, str)
             ]) if isinstance(tool_names, (list, tuple)) else {}
+
+        if cancelled():
+            return deny(tool_names)
 
         for name in tool_names:
             tool = tools.get(name)
@@ -1506,11 +1527,26 @@ def run_tools(
                     results.update(deny(tool_names[index:]))
                     break
 
+            # An explicit Stop can arrive after the live verifier but
+            # before invocation. Fail closed without starting the step.
+            if guarded and cancelled():
+                results.update(deny(tool_names[index:]))
+                break
+
             function = tool["function"]
             if tool.get("pass_user_input", False):
                 result = function(value)
             else:
                 result = function()
+
+            if guarded and cancelled():
+                # The callback returned, but Stop raced with execution.
+                # It may already have changed state; do not convert its
+                # late return value to verified completion or reveal it.
+                results[tool_name] = EXECUTION_INTERRUPTED_MESSAGE
+                record(tool_name, "unknown", True)
+                results.update(deny(tool_names[index + 1:]))
+                break
 
             if guarded:
                 successful, visible_value = classify_guarded_result(
