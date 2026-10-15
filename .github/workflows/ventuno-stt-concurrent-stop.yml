@@ -5,7 +5,9 @@ on:
     paths:
       - .github/workflows/ventuno-stt-concurrent-stop.yml
       - core/voice_stt_persistent.py
+      - core/voice_session.py
       - core/voice_stt_persistent_worker.py
+      - tests/test_voice_session.py
       - core/voice_factory.py
       - core/config.py
       - core/config_validation.py
