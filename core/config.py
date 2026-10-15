@@ -136,6 +136,8 @@ DEFAULT_SETTINGS = {
         "stt_provider": "faster_whisper",
         "stt_process_isolation_enabled": False,
         "stt_process_timeout_seconds": 45.0,
+        "stt_persistent_worker_enabled": False,
+        "stt_persistent_worker_max_utterances": 4,
         "backup_stt_provider": "faster_whisper",
         "tts_provider": "pyttsx3",
         "sample_rate": 16000,
