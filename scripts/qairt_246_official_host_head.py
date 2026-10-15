@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import platform
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.error import HTTPError, URLError
 
 SDK_RELEASE = "2.46.0.260424"
@@ -41,7 +41,27 @@ def source_allowed(url):
     )
 
 
-def head_probe(*, machine=None, opener=urlopen):
+class _HeadOnlyAllowedRedirect(HTTPRedirectHandler):
+    """Keep HEAD across redirects; reject off-domain before any request."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not source_allowed(newurl):
+            raise URLError("untrusted-redirect")
+        prior = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if prior is None:
+            return None
+        # Never inherit a redirected GET method, Authorization or cookies.
+        return Request(
+            newurl,
+            method="HEAD",
+            headers={"User-Agent": "MyAI-QAIRT246-Host-Source-Preflight/1.0"},
+        )
+
+
+def _safe_head_only_open(req, timeout):
+    return build_opener(_HeadOnlyAllowedRedirect()).open(req, timeout=timeout)
+
+
+def head_probe(*, machine=None, opener=None):
     result = {
         "probe": "qairt_246_official_host_source_head_only",
         "status": "no_go",
@@ -70,7 +90,7 @@ def head_probe(*, machine=None, opener=urlopen):
         headers={"User-Agent": "MyAI-QAIRT246-Host-Source-Preflight/1.0"},
     )
     try:
-        with opener(req, timeout=20) as response:
+        with (opener or _safe_head_only_open)(req, timeout=20) as response:
             target = response.geturl()
             if not source_allowed(target):
                 result["status"] = "reject_untrusted_redirect"
