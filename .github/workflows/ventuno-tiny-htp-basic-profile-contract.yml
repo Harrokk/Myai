@@ -1,0 +1,116 @@
+name: VENTUNO tiny QNN HTP basic-profile execution contract - NO INFERENCE
+on:
+  push:
+    branches: [dev/ventuno-tiny-htp-basic-profile-contract-20261015]
+    paths:
+      - .github/workflows/ventuno-tiny-htp-basic-profile-contract.yml
+      - scripts/ventuno_tiny_htp_basic_profile_contract_readonly.py
+      - tests/test_ventuno_tiny_htp_basic_profile_contract_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-tiny-htp-profile-contract-20261015
+  cancel-in-progress: false
+jobs:
+  fake-only-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Fetch exact source SHA in private disposable host checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-htp-profile-contract-host.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_PROFILE_CONTRACT_HOST=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify vendor reader, profiling flags and no concurrent HTP assumptions
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-htp-profile-contract-venv"
+          "$RUNNER_TEMP/myai-htp-profile-contract-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_PROFILE_CONTRACT_HOST"
+          "$RUNNER_TEMP/myai-htp-profile-contract-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_tiny_htp_basic_profile_contract_readonly.py \
+            tests/test_ventuno_htp_profile_capture_capability_readonly.py \
+            tests/test_ventuno_tiny_qnn_htp_once.py
+      - name: Wipe disposable host checkout and environment
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_PROFILE_CONTRACT_HOST:-}" ]; then rm -rf -- "$MYAI_PROFILE_CONTRACT_HOST"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-htp-profile-contract-venv"
+
+  real-ventuno-no-qnn:
+    name: Inspect vendor HTP profiling reader and current concurrency - no execution
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    needs: fake-only-regressions
+    steps:
+      - name: Fetch exact source SHA to private temporary board workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-tiny-htp-contract-board.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_PROFILE_CONTRACT_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Report safe versioned 16K DLC profile contract - NEVER launch HTP
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PROFILE_CONTRACT_BOARD"
+          timeout --signal=TERM --kill-after=3s 70s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_tiny_htp_basic_profile_contract_readonly \
+            | tee "$MYAI_PROFILE_CONTRACT_BOARD/sanitized.jsonl"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          lines = Path("sanitized.jsonl").read_text(encoding="utf-8").splitlines()
+          assert len(lines) == 1
+          assert lines[0].startswith("MYAI_TINY_HTP_BASIC_PROFILE_CONTRACT_JSON=")
+          report = json.loads(lines[0].split("=", 1)[1])
+          assert report["status"].startswith("no_go")
+          assert report["qnn_or_htp_executed"] is False
+          assert report["model_or_device_file_opened"] is False
+          assert report["systemd_service_or_permissions_modified"] is False
+          assert report["htp_per_operator_placement_verified"] is False
+          assert report["npu_execution_measured"] is False
+          assert report["personal_or_vendor_log_data_exported"] is False
+          print("Tiny vendor HTP profiling contract read-only; NO-GO is NOT a profiler run.")
+          PY
+      - name: Erase private temporary board checkout and report
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_PROFILE_CONTRACT_BOARD:-}" ]; then rm -rf -- "$MYAI_PROFILE_CONTRACT_BOARD"; fi
