@@ -23,9 +23,13 @@ class Memory:
 
 
 class LLM:
+    def __init__(self):
+        self.calls = []
     def chat(self, *_args, **_kwargs):
+        self.calls.append("chat")
         return "syntetiskt testsvar"
     def chat_stream(self, *_args, **_kwargs):
+        self.calls.append("chat_stream")
         return iter(["syntetiskt ", "testsvar"])
 
 
@@ -105,6 +109,9 @@ def test_unconfirmed_voice_write_blocked_but_typed_text_still_works(tmp_path):
     )
     assert effects == []
     assert "blockerades" in denied["tool_results"]["workspace_write"]
+    assert denied["tool_dispatch_blocked"] is True
+    assert denied["answer"].startswith("Verktygsåtgärden stoppades")
+    assert core.llm.calls == []
     result = core.respond(WRITE)
     assert effects == [("write", WRITE)]
     assert "blockerades" not in str(result["tool_results"])
@@ -158,6 +165,7 @@ def test_changed_tool_argument_after_speech_preview_is_denied(tmp_path, monkeypa
     )
     assert effects == []
     assert "blockerades" in result["tool_results"]["workspace_write"]
+    assert core.llm.calls == []
 
 
 def test_modified_callable_after_speech_preview_is_denied(tmp_path):
@@ -220,7 +228,9 @@ def test_unapproved_voice_stream_write_is_blocked(tmp_path):
     )
     assert effects == []
     assert "blockerades" in result["tool_results"]["workspace_write"]
-    assert result["streamed"] is True
+    assert result["streamed"] is False
+    assert result["tool_dispatch_blocked"] is True
+    assert core.llm.calls == []
 
 
 def test_spoken_intermediate_confirmation_cannot_bypass_dispatch(tmp_path, monkeypatch):
@@ -273,3 +283,25 @@ def test_read_only_tool_with_mutated_write_effect_not_allowed(tmp_path):
     )
     assert effects == []
     assert "blockerades" in result["tool_results"]["cpu_status"]
+
+
+
+def test_unconfirmed_dangerous_voice_never_claims_completed(tmp_path):
+    core, effects = make_core(tmp_path)
+    recognizer = FakeRecognizer(WRITE)
+    backup1 = FakeRecognizer(WRITE)
+    backup2 = FakeRecognizer(WRITE)
+    cfg = deepcopy(DEFAULT_SETTINGS)
+    cfg["memory"]["auto_assess_enabled"] = False
+    cfg["voice"]["high_risk_confirmation_enabled"] = False
+    pipeline = VoicePipeline(
+        core, recognizer,
+        backup_stt=[backup1, backup2],
+        settings=cfg, clock=Clock(),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["assistant"]["tool_dispatch_blocked"] is True
+    assert "stoppades" in result["message"]
+    assert effects == []
+    assert core.llm.calls == []
