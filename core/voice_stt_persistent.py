@@ -95,21 +95,33 @@ def offline_environment():
     }
 
 
-def _ready(fd, write, deadline, clock):
+def _ready(fd, write, deadline, clock, cancel_event=None):
+    # select() is a deadline guard, not a cancellation primitive.
+    # Bound each wait to 100 ms so an explicit stop can interrupt a
+    # sleeping native STT child without waiting for 45–300 seconds.
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("Persistent STT request cancelled")
     remaining = deadline - clock()
     if remaining <= 0:
         raise TimeoutError("Persistent STT deadline exceeded")
     readable, writable, _ = select.select(
-        [] if write else [fd], [fd] if write else [], [], remaining,
+        [] if write else [fd], [fd] if write else [], [],
+        min(remaining, 0.1) if cancel_event is not None else remaining,
     )
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("Persistent STT request cancelled")
     if not (writable if write else readable):
+        if cancel_event is not None and clock() < deadline:
+            return False
         raise TimeoutError("Persistent STT deadline exceeded")
+    return True
 
 
-def _send_all(fd, data, deadline, clock):
+def _send_all(fd, data, deadline, clock, cancel_event=None):
     pos = 0
     while pos < len(data):
-        _ready(fd, True, deadline, clock)
+        if not _ready(fd, True, deadline, clock, cancel_event):
+            continue
         try:
             written = os.write(fd, data[pos:pos + 65536])
         except BlockingIOError:
@@ -119,10 +131,11 @@ def _send_all(fd, data, deadline, clock):
         pos += written
 
 
-def _recv_exact(fd, length, deadline, clock):
+def _recv_exact(fd, length, deadline, clock, cancel_event=None):
     data = bytearray()
     while len(data) < length:
-        _ready(fd, False, deadline, clock)
+        if not _ready(fd, False, deadline, clock, cancel_event):
+            continue
         try:
             piece = os.read(fd, min(length - len(data), 65536))
         except BlockingIOError:
@@ -133,7 +146,7 @@ def _recv_exact(fd, length, deadline, clock):
     return bytes(data)
 
 
-def exchange(proc, audio, timeout, *, clock=time.monotonic):
+def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
     """One request/response. Caller owns exclusive worker access."""
     bounded_seconds(timeout)
     if type(audio) not in (bytes, bytearray) or not 0 < len(audio) <= MAX_REQUEST:
@@ -143,15 +156,21 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic):
     deadline = clock() + timeout
     _send_all(
         proc.stdin.fileno(), struct.pack(">I", len(audio)) + bytes(audio),
-        deadline, clock,
+        deadline, clock, cancel_event,
     )
-    header = _recv_exact(proc.stdout.fileno(), FRAME_HEADER, deadline, clock)
+    header = _recv_exact(
+        proc.stdout.fileno(), FRAME_HEADER, deadline, clock, cancel_event,
+    )
     size = struct.unpack(">I", header)[0]
     if size < 1 or size > MAX_RESPONSE:
         raise RuntimeError("Oversized persistent STT response")
     result = parse_reply(_recv_exact(
-        proc.stdout.fileno(), size, deadline, clock,
+        proc.stdout.fileno(), size, deadline, clock, cancel_event,
     ))
+    if cancel_event is not None and cancel_event.is_set():
+        # A reply racing with a user's Stop must not authorize an
+        # assistant/tool invocation after the stop request.
+        raise RuntimeError("Persistent STT request cancelled")
     return result
 
 
@@ -193,6 +212,7 @@ class PersistentFasterWhisperSTT:
         self._count = 0
         self._cleanup_required = False
         self._lock = threading.Lock()
+        self._cancel = threading.Event()
 
     def _spawn(self):
         self._worker = subprocess.Popen(
@@ -234,6 +254,8 @@ class PersistentFasterWhisperSTT:
 
     def transcribe(self, audio):
         with self._lock:
+            if self._cancel.is_set():
+                raise RuntimeError("Persistent STT request cancelled")
             # Reject malformed audio BEFORE spawning or touching a model.
             if (type(audio) not in (bytes, bytearray)
                     or not 0 < len(audio) <= MAX_REQUEST):
@@ -246,13 +268,19 @@ class PersistentFasterWhisperSTT:
             if self._worker is None:
                 self._spawn()
             try:
-                result = exchange(self._worker, audio, self.timeout_seconds)
+                result = exchange(
+                    self._worker, audio, self.timeout_seconds,
+                    cancel_event=self._cancel,
+                )
             except BaseException:
                 # No partial/late transcript is authorized after any
                 # transport error. Try cleanup exactly once per failure.
                 self._release()
                 raise
 
+            if self._cancel.is_set():
+                self._release()
+                raise RuntimeError("Persistent STT request cancelled")
             self._count += 1
             # Cleanup errors AFTER a successful reply still block its
             # use by the caller and retain the process for retry; do
@@ -260,6 +288,17 @@ class PersistentFasterWhisperSTT:
             if self._count >= self.max_utterances:
                 self._release()
             return result
+
+    def request_cancel(self):
+        """Nonblocking stop signal safe to issue from the control thread."""
+        self._cancel.set()
+
+    def resume(self):
+        """Explicitly re-arm only after a newly started voice session."""
+        with self._lock:
+            if self._cleanup_required:
+                raise RuntimeError("Persistent STT cleanup pending")
+            self._cancel.clear()
 
     def release_for_inference(self):
         """Free model/RAM before switching to a heavier local LLM."""
@@ -270,4 +309,5 @@ class PersistentFasterWhisperSTT:
             return was_running
 
     def close(self):
+        self.request_cancel()
         return self.release_for_inference()
