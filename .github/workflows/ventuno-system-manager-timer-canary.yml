@@ -1,0 +1,121 @@
+name: VENTUNO system manager fake recovery - one gated transient timer
+on:
+  push:
+    branches: [dev/ventuno-system-timer-controller-canary-20261015]
+    paths:
+      - .github/workflows/ventuno-system-manager-timer-canary.yml
+      - scripts/ventuno_system_manager_timer_canary.py
+      - tests/test_ventuno_system_manager_timer_canary.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ventuno-one-system-manager-fake-timer-20261015
+  cancel-in-progress: false
+jobs:
+  mock-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Private exact-SHA checkout on hosted x86
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-systemtimer-x86.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_SYSTEMTIMER_X86=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Test privilege no-go, transient user isolation, fake recovery and failure
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-systemtimer-venv"
+          "$RUNNER_TEMP/myai-systemtimer-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_SYSTEMTIMER_X86"
+          "$RUNNER_TEMP/myai-systemtimer-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_system_manager_timer_canary.py \
+            tests/test_ventuno_htp_local_recovery_canary.py \
+            tests/test_ventuno_htp_system_recovery_staged.py
+      - name: Remove private hosted checkout and environment
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_SYSTEMTIMER_X86:-}" ]; then rm -rf -- "$MYAI_SYSTEMTIMER_X86"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-systemtimer-venv"
+
+  ventuno-system-timer-canary:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    needs: mock-safety
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact SHA in temporary board checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-systemtimer-board.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_SYSTEMTIMER_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: One bounded safe timer retry with fixed sanitized launch-error classification
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          MYAI_ALLOW_SYSTEM_MANAGER_FAKE_CANARY: "yes"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SYSTEMTIMER_BOARD"
+          timeout --signal=TERM --kill-after=3s 55s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_system_manager_timer_canary \
+            | tee "$MYAI_SYSTEMTIMER_BOARD/result.jsonl"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          lines = Path("result.jsonl").read_text(encoding="utf-8").splitlines()
+          assert len(lines) == 1
+          assert lines[0].startswith("MYAI_SYSTEM_TIMER_FAKE_CANARY_JSON=")
+          r = json.loads(lines[0].split("=", 1)[1])
+          assert r["probe"] == "ventuno_system_manager_timer_synthetic_recovery_once"
+          assert r["runner_service_stopped_or_changed"] is False
+          assert r["geniex_or_myai_services_changed"] is False
+          assert r["systemd_manager_reconfigured"] is False
+          assert r["persistent_system_timer_installed"] is False
+          assert r["sudoers_modified"] is False
+          assert r["htp_qnn_or_inference_executed"] is False
+          assert r["runner_disconnect_recovery_verified"] is False
+          assert r["reboot_recovery_verified"] is False
+          assert r["private_paths_logs_or_credentials_exported"] is False
+          assert (r["launch_failure_classification"] is None or
+                  r["launch_failure_classification"].startswith("no_go_"))
+          print("One bounded canary or classified NO-GO; no original services touched.")
+          PY
+      - name: Delete temporary on-board checkout and sanitized output
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_SYSTEMTIMER_BOARD:-}" ]; then rm -rf -- "$MYAI_SYSTEMTIMER_BOARD"; fi
