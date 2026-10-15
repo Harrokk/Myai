@@ -157,23 +157,34 @@ def build_voice_components(
             2,
         ),
     }
-    primary_stt = stt_class(
-        model_name=config.get(
-            "stt_model",
-            "small",
-        ),
+    isolate_stt = config.get("stt_process_isolation_enabled", False)
+    if type(isolate_stt) is not bool:
+        raise ValueError("Invalid STT isolation toggle")
+    if isolate_stt:
+        # Do not pass arbitrary injected provider classes or additional
+        # plugin code through an isolated worker. Only our built-in,
+        # fixed FasterWhisper worker is supported and opt-in.
+        if stt_class is not FasterWhisperSTT or backup_stt_class is not FasterWhisperSTT:
+            raise ValueError("STT isolation supports built-in FasterWhisper only")
+        provider_type = IsolatedFasterWhisperSTT
+        timeout = config.get("stt_process_timeout_seconds", 45.0)
+        isolation_kwargs = {"timeout_seconds": timeout}
+    else:
+        provider_type = stt_class
+        isolation_kwargs = {}
+
+    primary_stt = provider_type(
+        model_name=config.get("stt_model", "small"),
         **common_stt,
+        **isolation_kwargs,
     )
 
+    backup_stt_type = provider_type if isolate_stt else backup_stt_class
     backup_stt = [
-        backup_stt_class(
-            model_name=model_name,
-            **common_stt,
+        backup_stt_type(
+            model_name=model_name, **common_stt, **isolation_kwargs,
         )
-        for model_name in config.get(
-            "backup_stt_models",
-            [],
-        )
+        for model_name in config.get("backup_stt_models", [])
     ]
 
     tts = None
