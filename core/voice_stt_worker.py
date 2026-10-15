@@ -25,6 +25,10 @@ def main():
         config = json.loads(sys.argv[1])
         # Reuse exactly the same schema check as the parent.
         worker_argv(config)
+        from core.voice_stt_child_limits import apply_child_limits
+        # Applies only inside this isolated child BEFORE model/native
+        # dependencies load; leaves the parent/GenieX entirely untouched.
+        apply_child_limits()
         data = sys.stdin.buffer.read(MAX_PCM_BYTES + 1)
         if not 0 < len(data) <= MAX_PCM_BYTES:
             return 2
