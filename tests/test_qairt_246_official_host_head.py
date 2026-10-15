@@ -97,7 +97,7 @@ def test_unavailable_source_sanitizes_error_and_exposes_no_sensitive_data():
         raise OSError("SECRET_FAKE_TOKEN at /private/sdk-cache")
     result = source.head_probe(machine="x86_64", opener=unavailable)
     encoded = json.dumps(result)
-    assert result["status"] == "no_go_official_head_unavailable"
+    assert result["status"] == "no_go_official_transport_unavailable"
     assert "SECRET" not in encoded
     assert "/private/" not in encoded
     assert result["sdk_downloaded"] is False
@@ -126,3 +126,21 @@ def test_http_redirect_is_always_head_and_never_off_domain():
             origin, None, 302, "Found", {},
             "https://untrusted.invalid/binary"
         )
+
+
+@pytest.mark.parametrize("code,reason", [
+    (401, "no_go_official_http_auth_required"),
+    (403, "no_go_official_http_forbidden"),
+    (404, "no_go_official_http_not_found"),
+    (405, "no_go_official_head_not_allowed"),
+    (429, "no_go_official_http_rate_limited"),
+    (503, "no_go_official_http_unavailable"),
+])
+def test_http_error_status_is_sanitized_without_raw_server_data(code, reason):
+    from urllib.error import HTTPError
+    def unavailable(*args, **kwargs):
+        raise HTTPError(source.OFFICIAL_URL, code, "SECRET HEADER", {}, None)
+    result = source.head_probe(machine="x86_64", opener=unavailable)
+    assert result["status"] == reason
+    assert "SECRET" not in json.dumps(result)
+    assert result["sdk_downloaded"] is False
