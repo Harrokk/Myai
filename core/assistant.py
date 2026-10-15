@@ -1379,6 +1379,12 @@ Svara kort och tydligt på svenska.
                         "Röstsessionen avbröts. Tidigare verktygsåtgärder "
                         "kan ha genomförts; kontrollera innan du försöker igen."
                     )
+                elif self._voice_retry_quarantine.review_required:
+                    answer = (
+                        "Tidigare röststyrda ändringar har osäkert utfall. "
+                        "Nya skrivkommandon är spärrade tills resultatet "
+                        "har kontrollerats manuellt. Försök inte igen automatiskt."
+                    )
                 elif summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
                     answer = (
                         "Flerkommandot stoppades efter att minst ett steg "
@@ -1443,6 +1449,12 @@ Svara kort och tydligt på svenska.
                     answer = (
                         "Röstsessionen avbröts. Tidigare verktygsåtgärder "
                         "kan ha genomförts; kontrollera innan du försöker igen."
+                    )
+                elif self._voice_retry_quarantine.review_required:
+                    answer = (
+                        "Tidigare röststyrda ändringar har osäkert utfall. "
+                        "Nya skrivkommandon är spärrade tills resultatet "
+                        "har kontrollerats manuellt. Försök inte igen automatiskt."
                     )
                 elif summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
                     answer = (
