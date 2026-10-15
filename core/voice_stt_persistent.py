@@ -168,11 +168,16 @@ class PersistentFasterWhisperSTT:
         self._cancel = threading.Event()
 
     def _spawn(self):
-        self._worker = subprocess.Popen(
-            self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, cwd="/", env=offline_environment(),
-            bufsize=0, start_new_session=True,
-        )
+        try:
+            self._worker = subprocess.Popen(
+                self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, cwd="/", env=offline_environment(),
+                bufsize=0, start_new_session=True,
+            )
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # No process handle returned; never expose private native
+            # error text or claim a successfully started worker.
+            raise RuntimeError("Persistent STT worker start failed") from None
         self._count = 0
         try:
             # select() only prevents blocking if the actual pipe fd is
@@ -180,10 +185,11 @@ class PersistentFasterWhisperSTT:
             os.set_blocking(self._worker.stdin.fileno(), False)
             os.set_blocking(self._worker.stdout.fileno(), False)
         except BaseException:
-            # A pipe-configuration failure must not orphan a child with
-            # a loaded (or partially loaded) native model.
+            # A partially initialized worker can still own native RAM.
+            # Retain the handle if reaping fails, so no duplicate model
+            # is launched and no private pipe exception is exposed.
             self._release()
-            raise
+            raise RuntimeError("Persistent STT IPC setup failed") from None
 
     def _release(self):
         proc = self._worker
