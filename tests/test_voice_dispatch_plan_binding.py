@@ -368,3 +368,29 @@ def test_stop_signal_does_not_revoke_read_only_normal_voice_flow(tmp_path):
     result = pipeline.process_utterance(b"synthetic")
     assert result["status"] == "completed"
     assert effects == [("read",)]
+
+
+def test_stop_during_assistant_response_preserves_partial_outcome():
+    """A Stop cannot erase evidence of a tool that ran before cancellation."""
+    class InterruptedAssistant:
+        def respond_voice(self, text, *, plan_verifier):
+            pipeline.cancel_pending()
+            return {
+                "answer": "incorrectly claims completion",
+                "tools": ["cpu_status", "ram_status"],
+                "tool_results": {"cpu_status": "CPU OK"},
+                "tool_execution_status": "partially_completed",
+                "tool_dispatch_blocked": False,
+            }
+
+    pipeline = VoicePipeline(
+        InterruptedAssistant(), FakeRecognizer(READ),
+        settings=deepcopy(DEFAULT_SETTINGS), clock=Clock(),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["tool_execution"]["status"] == "partially_completed"
+    assert result["assistant"]["tool_execution_status"] == "partially_completed"
+    assert result["assistant"]["tool_dispatch_blocked"] is True
+    assert result["assistant"]["tool_results"]["cpu_status"] == "CPU OK"
+    assert "incorrectly claims completion" not in result["message"]
