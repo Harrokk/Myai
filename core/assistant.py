@@ -21,6 +21,7 @@ from core.health_status import (
 from core.orchestration import public_plan
 from core.voice_plan_attestation import allow_voice_dispatch
 from core.tool_manager import (
+    EXECUTION_BLOCKED_MESSAGE,
     load_tools,
     run_tools,
     select_tool_plan,
@@ -1089,6 +1090,14 @@ Svara kort och tydligt på svenska.
         except Exception:
             return False
 
+    @staticmethod
+    def _tool_dispatch_was_blocked(tool_results):
+        return isinstance(tool_results, dict) and any(
+            value == EXECUTION_BLOCKED_MESSAGE
+            for value in tool_results.values()
+            if isinstance(value, str)
+        )
+
     def _finalize_response(
         self,
         user_message,
@@ -1120,6 +1129,9 @@ Svara kort och tydligt på svenska.
             "answer": answer,
             "tools": tool_names,
             "tool_results": tool_results or {},
+            "tool_dispatch_blocked": self._tool_dispatch_was_blocked(
+                tool_results
+            ),
             "orchestration_plan": public_plan(
                 tool_plan
                 or {
@@ -1167,10 +1179,22 @@ Svara kort och tydligt på svenska.
                 user_message, voice_plan_verifier=_voice_plan_verifier
             )
 
-            answer = self.llm.chat(
-                messages,
-                timeout=300,
-            )
+            # Never let an LLM invent a success report for a denied
+            # voice side effect. Return a deterministic blocked answer
+            # without invoking the model.
+            if (
+                _voice_plan_verifier is not None
+                and self._tool_dispatch_was_blocked(tool_results)
+            ):
+                answer = (
+                    "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                    "Säg hela kommandot igen om det fortfarande ska köras."
+                )
+            else:
+                answer = self.llm.chat(
+                    messages,
+                    timeout=300,
+                )
 
             return self._finalize_response(
                 user_message,
@@ -1201,6 +1225,28 @@ Svara kort och tydligt på svenska.
             ) = self._prepare_response(
                 user_message, voice_plan_verifier=_voice_plan_verifier
             )
+
+            if (
+                _voice_plan_verifier is not None
+                and self._tool_dispatch_was_blocked(tool_results)
+            ):
+                answer = (
+                    "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                    "Säg hela kommandot igen om det fortfarande ska köras."
+                )
+                # No model output and no speculative streaming token
+                # may present an unexecuted action as completed.
+                if on_chunk is not None:
+                    on_chunk(answer)
+                return self._finalize_response(
+                    user_message,
+                    answer,
+                    tool_names,
+                    tool_results,
+                    tool_plan=tool_plan,
+                    pending_intermediate_results=pending_intermediate_results,
+                    streamed=False,
+                )
 
             stream = getattr(
                 self.llm,
