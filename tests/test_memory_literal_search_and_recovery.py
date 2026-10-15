@@ -104,7 +104,8 @@ def test_memory_read_failure_preserves_normal_chat_and_defer_save(
         tmp_path, error_type):
     core, mem, llm = create_core(tmp_path, error_type=error_type)
     response = core.respond("Kom ihåg mitt syntetiska projekt.")
-    assert response["answer"] == "Syntetiskt testsvar."
+    assert response["answer"].startswith("Uppgiften sparades inte.")
+    assert "Försök igen" in response["answer"]
     assert response["memory_lookup_status"] == "unavailable"
     assert response["memory_decision"]["saved"] is False
     assert response["memory_decision"]["action"] == (
@@ -125,7 +126,8 @@ def test_memory_read_failure_streaming_works_and_skips_auto_save(tmp_path):
     result = core.respond_stream(
         "Kom ihåg ett test.", on_chunk=emitted.append,
     )
-    assert result["answer"] == "Syntetiskt testsvar."
+    assert result["answer"].startswith("Uppgiften sparades inte.")
+    assert emitted == [result["answer"]]
     assert result["memory_lookup_status"] == "unavailable"
     assert result["streamed"] is True
     assert "".join(emitted) == result["answer"]
