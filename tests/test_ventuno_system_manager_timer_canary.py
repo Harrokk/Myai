@@ -198,3 +198,51 @@ def test_probe_exposes_no_sensitive_service_or_sudo_output(tmp_path, monkeypatch
     assert result["private_paths_logs_or_credentials_exported"] is False
     assert result["runner_service_stopped_or_changed"] is False
     assert result["htp_qnn_or_inference_executed"] is False
+
+
+def test_exact_timer_command_authorization_is_non_executing_sudo_listing(tmp_path, monkeypatch):
+    monkeypatch.setenv("MYAI_ALLOW_SYSTEM_MANAGER_FAKE_CANARY", "yes")
+    calls = []
+    def fake(args, **kwargs):
+        calls.append(args)
+        assert args[:4] == [gate.SUDO, "-n", "-l", gate.SYSTEMD_RUN]
+        assert "--system" in args and "--property=User=arduino" in args
+        assert "--on-active=5s" in args and "--fire" in args
+        assert kwargs["timeout"] == 6
+        return SimpleNamespace(returncode=0, stdout=b"PRIVATE POLICY TEXT")
+    result = gate.inspect_exact_sudo_command(
+        runner_temp=tmp_path, arch="aarch64", user="arduino", run=fake
+    )
+    assert result["status"] == "exact_timer_command_sudo_policy_lists_allowed"
+    assert result["exact_systemd_timer_command_allowed_by_sudo_policy"] is True
+    assert result["actual_systemd_timer_submitted"] is False
+    assert result["systemd_or_service_modified"] is False
+    assert "PRIVATE" not in json.dumps(result)
+    assert not list(tmp_path.iterdir()) and len(calls) == 1
+
+
+def test_exact_policy_denial_never_tries_systemd_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("MYAI_ALLOW_SYSTEM_MANAGER_FAKE_CANARY", "yes")
+    recorded = []
+    def denied(args, **kwargs):
+        recorded.append(args)
+        assert args[2] == "-l"
+        return SimpleNamespace(returncode=1, stderr=b"SECRET DENIAL")
+    result = gate.inspect_exact_sudo_command(
+        runner_temp=tmp_path, arch="aarch64", user="arduino", run=denied
+    )
+    assert result["status"] == "no_go_exact_timer_command_sudo_policy_denied"
+    assert not result["actual_systemd_timer_submitted"]
+    assert not result["exact_systemd_timer_command_allowed_by_sudo_policy"]
+    assert "SECRET" not in json.dumps(result)
+    assert len(recorded) == 1
+
+
+def test_missing_exact_inspection_optin_prohibits_even_sudo_list(tmp_path, monkeypatch):
+    monkeypatch.delenv("MYAI_ALLOW_SYSTEM_MANAGER_FAKE_CANARY", raising=False)
+    result = gate.inspect_exact_sudo_command(
+        runner_temp=tmp_path, arch="aarch64", user="arduino",
+        run=lambda *a, **k: pytest.fail("no sudo in inspection")
+    )
+    assert result["status"] == "no_go_not_opted_in"
+    assert not list(tmp_path.iterdir())
