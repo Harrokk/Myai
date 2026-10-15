@@ -1243,9 +1243,12 @@ Svara kort och tydligt på svenska.
         health = self._health_status(
             llm_runtime
         )
-        self._persist_health_status(
-            health
-        )
+        # The background health snapshot is also a local file write.
+        # Do not persist it for a cancelled voice turn.
+        if not cancelled:
+            self._persist_health_status(
+                health
+            )
 
         return {
             "answer": answer,
