@@ -133,3 +133,36 @@ def test_high_risk_confirmation_never_marks_partially_executed_tool_complete():
     assert after["tool_execution"] == {"status": "partially_completed"}
     assert after["confirmation"]["confirmed"] is True
     assert assistant.calls == 1
+
+
+def test_manual_reconciliation_hint_is_sanitized_for_uncertain_voice_outcome():
+    class ReconciliationAssistant(ToolStatusAssistant):
+        def respond(self, text):
+            result = super().respond(text)
+            result["manual_reconciliation_required"] = True
+            result["raw_private_arguments"] = "DO_NOT_FORWARD"
+            return result
+
+    assistant = ReconciliationAssistant("unknown", tools=["disk_status"])
+    result = VoicePipeline(
+        assistant, FakeSTT("Kontrollera disken"), settings=settings()
+    ).process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["tool_execution"] == {
+        "status": "unknown", "manual_reconciliation_required": True,
+    }
+    assert "DO_NOT_FORWARD" not in str(result["tool_execution"])
+
+
+def test_manual_reconciliation_hint_never_overrides_a_completed_status():
+    class ReconciliationAssistant(ToolStatusAssistant):
+        def respond(self, text):
+            value = super().respond(text)
+            value["manual_reconciliation_required"] = True
+            return value
+
+    assistant = ReconciliationAssistant("completed", tools=["disk_status"])
+    result = VoicePipeline(
+        assistant, FakeSTT("Systemstatus"), settings=settings()
+    ).process_utterance(b"synthetic")
+    assert result["tool_execution"] == {"status": "completed"}
