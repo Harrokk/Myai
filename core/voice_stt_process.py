@@ -20,6 +20,7 @@ import time
 
 from core.voice_stt_bounded_io import exchange_bounded, OversizedSTTOutput
 from core.voice_stt_process_group import terminate_owned_group
+from core.voice_stt_reply import decode_stt_reply
 
 MAX_PCM_BYTES = 2 * 1024 * 1024
 MAX_REPLY_BYTES = 8192
@@ -79,11 +80,17 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
         "PYTHONDONTWRITEBYTECODE": "1",
         "OMP_NUM_THREADS": "2",
     }
-    proc = popen(
-        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL, start_new_session=True,
-        cwd="/", env=environment,
-    )
+    try:
+        proc = popen(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, start_new_session=True,
+            cwd="/", env=environment,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        # Startup failure may contain a private executable path, tokens
+        # or native error text. Never expose or chain that exception.
+        # Popen did not return an owned process handle for cleanup.
+        raise RuntimeError("Isolated STT worker start failed") from None
     deadline = time.monotonic() + timeout
     try:
         output = exchange_bounded(
@@ -115,20 +122,12 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
     terminate_owned_group(proc)
     if proc.returncode != 0:
         raise RuntimeError("Isolated STT worker failed")
-    if type(output) is not bytes or len(output) > MAX_REPLY_BYTES:
-        raise RuntimeError("Invalid isolated STT output")
     try:
-        result = json.loads(output)
-    except (ValueError, UnicodeError, TypeError):
-        raise RuntimeError("Invalid isolated STT JSON") from None
-    if (type(result) is not dict or set(result) != CLEAN_KEYS
-            or type(result["text"]) is not str
-            or len(result["text"]) > 4096
-            or type(result["language"]) is not str
-            or result["language"] not in KNOWN_LANGUAGES
-            or result["confidence"] is not None):
-        raise RuntimeError("Invalid isolated STT schema")
-    return result
+        return decode_stt_reply(output)
+    except ValueError:
+        # Always expose only a fixed category, never invalid JSON,
+        # duplicate field values or private child output.
+        raise RuntimeError("Invalid isolated STT JSON or schema") from None
 
 
 class IsolatedFasterWhisperSTT:
