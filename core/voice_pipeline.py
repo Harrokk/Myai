@@ -463,11 +463,16 @@ class VoicePipeline:
         self._stop_token = threading.Event()
 
     @staticmethod
-    def _cancelled_response():
-        return {
-            "answer": "Röstsessionen avbröts. Inga nya kommandon får utföras.",
-            "tool_dispatch_blocked": True,
-        }
+    def _cancelled_response(previous=None):
+        # Keep authoritative outcomes if a tool already ran BEFORE Stop.
+        # Do not incorrectly describe a partially executed batch as none.
+        result = dict(previous) if isinstance(previous, dict) else {}
+        result["answer"] = (
+            "Röstsessionen avbröts. Redan påbörjade åtgärder kan ha "
+            "genomförts; kontrollera resultatet innan du försöker igen."
+        )
+        result["tool_dispatch_blocked"] = True
+        return result
 
     @property
     def voice_settings(self):
@@ -897,7 +902,7 @@ class VoicePipeline:
             response = self._verified_tool_response(response)
             if token.is_set():
                 coordinator.stop()
-                return self._cancelled_response()
+                return self._cancelled_response(response)
             answer = response.get("answer", "")
             if defer_speech and answer:
                 coordinator.feed(answer)
@@ -924,7 +929,7 @@ class VoicePipeline:
             response = self.assistant.respond(transcript)
         response = self._verified_tool_response(response)
         if token.is_set():
-            return self._cancelled_response()
+            return self._cancelled_response(response)
         answer = response.get(
             "answer",
             "",
