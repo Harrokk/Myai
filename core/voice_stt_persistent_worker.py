@@ -19,11 +19,17 @@ from core.voice_stt_persistent import (
 )
 
 
-def read_exact(stream, length):
+def read_exact(stream, length, *, allow_clean_eof=False):
+    """Only an empty stream at a frame boundary is normal shutdown.
+
+    Partial headers, nonces and audio are all protocol failures.
+    """
     data = bytearray()
     while len(data) < length:
         piece = stream.read(length - len(data))
         if not piece:
+            if allow_clean_eof and not data:
+                return None
             raise EOFError()
         data.extend(piece)
     return bytes(data)
@@ -45,8 +51,12 @@ def main():
         # also have its own hard maximum, independent of parent health.
         for _ in range(MAX_UTTERANCES_PER_CHILD):
             try:
-                header = read_exact(sys.stdin.buffer, 4)
+                header = read_exact(
+                    sys.stdin.buffer, 4, allow_clean_eof=True,
+                )
             except EOFError:
+                return 2
+            if header is None:
                 return 0
             length = struct.unpack(">I", header)[0]
             if length < 1 or length > MAX_PCM_BYTES:
