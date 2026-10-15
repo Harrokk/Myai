@@ -209,3 +209,111 @@ def test_review_queue_exception_does_not_leak_private_database_path(tmp_path):
         "Minnesgranskningen kunde inte köas."
     )
     assert "REVIEW_QUEUE_PRIVATE_PATH_SECRET" not in str(result)
+
+
+
+def test_completed_memory_save_survives_final_audit_failure(tmp_path):
+    core, mem, _ = create_core(tmp_path)
+    mem.fail = False
+    def final_audit_fails(**_kwargs):
+        raise OSError("PRIVATE_AUDIT_PATH_SECRET /private/audit.jsonl")
+    core.audit_logger.write_result = final_audit_fails
+    result = core.respond("Kom ihåg att jag föredrar modulär kod.")
+    decision = result["memory_decision"]
+    assert result["answer"] == "Syntetiskt testsvar."
+    assert decision["saved"] is True
+    assert decision["lifecycle_action"] == "saved_legacy_store"
+    assert decision["audit_result_status"] == "unverified"
+    assert "PRIVATE_AUDIT_PATH_SECRET" not in str(result)
+    assert len(mem.store_calls) == 1
+    assert [m["role"] for m in core.conversation_history] == [
+        "user", "assistant"
+    ]
+
+
+def test_failed_memory_save_and_failed_result_log_preserve_original_failure(
+        tmp_path):
+    core, mem, _ = create_core(tmp_path)
+    mem.fail = False
+    def memory_fails(*_args):
+        raise sqlite3.OperationalError("PRIVATE_MEMORY_SECRET")
+    def final_audit_fails(**_kwargs):
+        raise OSError("PRIVATE_AUDIT_SECRET")
+    mem.save_if_new = memory_fails
+    core.audit_logger.write_result = final_audit_fails
+    response = core.respond("Kom ihåg att jag föredrar modulär kod.")
+    decision = response["memory_decision"]
+    assert decision["saved"] is False
+    assert decision["lifecycle_action"] == "failed"
+    assert decision["audit_result_status"] == "unverified"
+    assert decision["memory_error"] == "Långtidsminnet kunde inte uppdateras."
+    assert "PRIVATE_MEMORY_SECRET" not in str(response)
+    assert "PRIVATE_AUDIT_SECRET" not in str(response)
+
+
+def test_successfully_enqueued_review_keeps_id_when_final_audit_fails(
+        tmp_path):
+    core, mem, _ = create_core(tmp_path)
+    queued = []
+    def enqueue(*args, **kwargs):
+        queued.append((args, kwargs))
+        return {"review_id": 42, "created": True}
+    def final_audit_fails(**_kwargs):
+        raise sqlite3.OperationalError("PRIVATE_REVIEW_LOG_SECRET")
+    mem.enqueue_review = enqueue
+    core.audit_logger.write_result = final_audit_fails
+    status = core._queue_memory_review({
+        "action": "review", "category": "project",
+        "content": "Syntetiskt föreslaget minne",
+        "reasons": ["kräver granskning"],
+    })
+    assert status["review_queued"] is True
+    assert status["review_id"] == 42
+    assert status["review_created"] is True
+    assert status["audit_result_status"] == "unverified"
+    assert len(queued) == 1
+    assert "PRIVATE_REVIEW_LOG_SECRET" not in str(status)
+
+
+def test_review_enqueue_failure_not_masked_by_final_audit_failure(tmp_path):
+    core, mem, _ = create_core(tmp_path)
+    attempted = []
+    def enqueue(*_args, **_kwargs):
+        attempted.append(True)
+        raise sqlite3.DatabaseError("PRIVATE_REVIEW_QUEUE_SECRET")
+    def final_audit_fails(**_kwargs):
+        raise OSError("PRIVATE_REVIEW_AUDIT_SECRET")
+    mem.enqueue_review = enqueue
+    core.audit_logger.write_result = final_audit_fails
+    status = core._queue_memory_review({
+        "action": "review", "category": "project",
+        "content": "Syntetiskt föreslaget minne", "reasons": [],
+    })
+    assert attempted == [True]
+    assert status["review_queued"] is False
+    assert status["audit_result_status"] == "unverified"
+    assert status["review_queue_error"] == "Minnesgranskningen kunde inte köas."
+    assert "PRIVATE_REVIEW_QUEUE_SECRET" not in str(status)
+    assert "PRIVATE_REVIEW_AUDIT_SECRET" not in str(status)
+
+
+def test_successful_final_memory_audit_reports_recorded(tmp_path):
+    core, mem, _ = create_core(tmp_path)
+    mem.fail = False
+    result = core.respond("Kom ihåg att jag föredrar modulär kod.")
+    assert result["memory_decision"]["saved"] is True
+    assert result["memory_decision"]["audit_result_status"] == "recorded"
+    assert len(mem.store_calls) == 1
+
+
+def test_successfully_queued_review_audit_reports_recorded(tmp_path):
+    core, mem, _ = create_core(tmp_path)
+    mem.enqueue_review = lambda *_args, **_kwargs: {
+        "review_id": 3, "created": True
+    }
+    status = core._queue_memory_review({
+        "action": "review", "category": "project",
+        "content": "Syntetisk granskningspost", "reasons": [],
+    })
+    assert status["review_queued"] is True
+    assert status["audit_result_status"] == "recorded"
