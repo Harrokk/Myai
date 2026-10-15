@@ -57,6 +57,11 @@ while True:
         # Two replies in a single flush: the second would be wrongly
         # accepted as the transcript for a later unrelated utterance.
         o.write(frame+frame);o.flush()
+    elif MODE=='legacy_reply':
+        # Older worker omitted the nonce entirely: never accept its
+        # transcript after the protocol changes.
+        payload=json.dumps({'text':'legacy transcript','language':'sv','confidence':None}).encode()
+        o.write(struct.pack('>I',len(payload))+payload);o.flush()
     elif MODE=='die':
         sys.exit(3)
     else:
@@ -657,4 +662,108 @@ def test_checked_in_worker_truncated_nonce_returns_no_transcript(monkeypatch):
     )
     monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=output))
     assert actual_worker.main() == 2
+    assert output.getvalue() == b""
+
+
+def test_stop_during_final_child_reap_drops_completed_transcript(monkeypatch):
+    """A final-utterance cleanup may race with the user's Stop."""
+    import core.voice_stt_persistent as module
+
+    model = provider(cap=1)
+    original_terminate = module.terminate_owned
+    cleaned = []
+
+    def cancel_during_reap(proc):
+        # Inject Stop only when the successful reply has already
+        # passed its first cancellation check.
+        model.request_cancel()
+        original_terminate(proc)
+        cleaned.append(proc)
+
+    try:
+        monkeypatch.setattr(module, "terminate_owned", cancel_during_reap)
+        with pytest.raises(RuntimeError, match="request cancelled"):
+            model.transcribe(b"completed-but-now-stopped")
+        assert len(cleaned) == 1
+        assert cleaned[0].poll() is not None
+        assert model._worker is None
+        assert model._cancel.is_set()
+        with pytest.raises(RuntimeError, match="request cancelled"):
+            model.transcribe(b"no-relaunch")
+        monkeypatch.setattr(module, "terminate_owned", original_terminate)
+        model.resume()
+        assert model.transcribe(b"explicit-new-session")["text"] == "syntetiskt svar"
+    finally:
+        monkeypatch.setattr(module, "terminate_owned", original_terminate)
+        model.close()
+
+
+def test_legacy_worker_reply_without_nonce_is_rejected_and_reaped():
+    """Mixed versions fail closed rather than authorizing old JSON frames."""
+    model = provider(mode="legacy_reply")
+    try:
+        with pytest.raises(RuntimeError):
+            model.transcribe(b"current-protocol-PCM")
+        assert model._worker is None
+        assert model._cleanup_required is False
+        model._argv = script("reply")
+        assert model.transcribe(b"new-version-PCM")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+
+
+@pytest.mark.parametrize("partial_header", [b"\x00", b"\x00\x00", b"\x00\x00\x00"])
+def test_actual_worker_partial_frame_header_is_error_not_clean_shutdown(
+    monkeypatch, partial_header,
+):
+    import io
+    import types
+
+    import core.voice_stt_child_limits as child_limits
+    import core.voice_stt_persistent_worker as actual_worker
+
+    stub = types.ModuleType("modules.voice.providers")
+    class FakeFasterWhisperSTT:
+        def __init__(self, **config):
+            pass
+        def transcribe(self, audio):
+            pytest.fail("Partial frame must not invoke STT")
+    stub.FasterWhisperSTT = FakeFasterWhisperSTT
+
+    output = io.BytesIO()
+    monkeypatch.setitem(sys.modules, "modules.voice.providers", stub)
+    monkeypatch.setattr(child_limits, "apply_child_limits", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["worker.py", json.dumps(CONFIG)])
+    monkeypatch.setattr(
+        sys, "stdin", types.SimpleNamespace(buffer=io.BytesIO(partial_header)),
+    )
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=output))
+    assert actual_worker.main() == 2
+    assert output.getvalue() == b""
+
+
+def test_worker_empty_stream_at_frame_boundary_is_clean_shutdown(monkeypatch):
+    import io
+    import types
+
+    import core.voice_stt_child_limits as child_limits
+    import core.voice_stt_persistent_worker as actual_worker
+
+    stub = types.ModuleType("modules.voice.providers")
+    class FakeFasterWhisperSTT:
+        def __init__(self, **config):
+            pass
+        def transcribe(self, audio):
+            pytest.fail("Empty stream must not invoke STT")
+    stub.FasterWhisperSTT = FakeFasterWhisperSTT
+
+    output = io.BytesIO()
+    monkeypatch.setitem(sys.modules, "modules.voice.providers", stub)
+    monkeypatch.setattr(child_limits, "apply_child_limits", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["worker.py", json.dumps(CONFIG)])
+    monkeypatch.setattr(
+        sys, "stdin", types.SimpleNamespace(buffer=io.BytesIO(b"")),
+    )
+    monkeypatch.setattr(sys, "stdout", types.SimpleNamespace(buffer=output))
+    assert actual_worker.main() == 0
     assert output.getvalue() == b""

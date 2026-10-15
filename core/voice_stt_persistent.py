@@ -326,6 +326,11 @@ class PersistentFasterWhisperSTT:
             # not mask or retry cleanup a second time in this handler.
             if self._count >= self.max_utterances:
                 self._release()
+            # The final child reap may take time, during which Stop can
+            # arrive AFTER our earlier cancellation check. Never deliver
+            # that completed transcript following a cancelled session.
+            if self._cancel.is_set():
+                raise RuntimeError("Persistent STT request cancelled")
             return result
 
     def request_cancel(self):
