@@ -175,3 +175,13 @@ def test_typed_text_does_not_create_voice_marker(tmp_path, monkeypatch):
     assert result["tool_results"]["workspace_write"] == "DONE"
     assert calls == [1]
     assert not (tmp_path / "runtime" / MARKER).exists()
+
+
+def test_platform_without_secure_posix_directory_api_refuses_effect(monkeypatch, tmp_path):
+    # Simulate Windows/unsupported marker primitives without needing
+    # a real Windows runner or touching any user hardware.
+    monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+    journal = VoiceWriteAheadMarker(tmp_path)
+    assert journal.begin_effect() is False
+    assert journal.review_required
+    assert not (tmp_path / "runtime" / MARKER).exists()
