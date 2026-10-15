@@ -773,3 +773,36 @@ def test_resume_pending_reap_blocks_microphone_activation():
         s.start()
     assert mic.started is False
     assert s.running is False
+
+
+def test_stop_then_restart_never_revives_old_voice_request():
+    """A previously captured token stays cancelled after new session starts."""
+    mic = FakeMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(),
+        components=components(mic, FakeVAD([])),
+    )
+    session.start()
+    old_token = session.pipeline._stop_token
+    session.stop()
+    assert old_token.is_set()
+    session.start()
+    assert old_token.is_set()
+    assert session.pipeline._stop_token is not old_token
+    assert not session.pipeline._stop_token.is_set()
+    session.stop()
+
+
+def test_barge_in_tts_interrupt_does_not_cancel_new_voice_command():
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(tts=True),
+        components=components(FakeMicrophone([]), FakeVAD([]), tts=FakeTTS()),
+    )
+    session.start()
+    token = session.pipeline._stop_token
+    session.pipeline.interrupt()
+    assert not token.is_set()
+    assert session.stop() is True
+    assert token.is_set()
