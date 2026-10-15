@@ -1423,6 +1423,7 @@ class ChangingVoiceToolPlanner(FakeAssistant):
         self.selected = "workspace_write"
         self.fail = False
         self.invalid = False
+        self.plan_input = None
         self.preview_calls = 0
         self.expire_on_preview = None
         self.clock = clock
@@ -1443,7 +1444,9 @@ class ChangingVoiceToolPlanner(FakeAssistant):
             raise RuntimeError("SECRET_SENSITIVE_PLANNER_ERROR")
         if self.invalid:
             return {"steps": None}
-        return {"steps": [{"tool": self.selected, "input": message}]}
+        return {"steps": [{"tool": self.selected,
+                            "input": message if self.plan_input is None
+                            else self.plan_input}]}
 
 
 def make_voice_planner_confirmation(planner, clock=None):
@@ -1517,19 +1520,14 @@ def test_planner_downgraded_to_readonly_before_confirmation_is_not_accepted():
     assert planner.messages == []
 
 
-def test_same_tools_but_new_risk_requirement_cancels_pending():
+def test_same_tool_but_safety_effect_mutation_cancels_pending():
     planner = ChangingVoiceToolPlanner()
     pipeline = make_voice_planner_confirmation(planner)
+    # Risk still classifies high and the tool NAME is unchanged.
     planner.tools["workspace_write"]["safety"]["effect"] = "destructive"
-    # The existing reason encodes only the tool name, not effect. A
-    # destructive->write shift is the same confirmation class; the
-    # cross-actor mutation is documented separately in the plan hash.
-    # This test checks a safety-class change that affects risk level.
-    planner.tools["workspace_write"]["safety"] = {
-        "effect": "read_only", "voice_confirmation_required": False
-    }
     result = pipeline.process_utterance(b"synthetic-confirm")
     assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
     assert planner.messages == []
 
 
@@ -1590,3 +1588,52 @@ def test_lowrisk_question_without_planner_still_works():
     result = pipeline.process_utterance(b"synthetic-lowrisk")
     assert result["status"] == "completed"
     assert assistant.messages == ["Hur är vädret"]
+
+
+
+def test_same_tool_but_changed_target_argument_cancels_pending():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    planner.plan_input = "Radera filen annan-anvandare"
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+    assert "annan-anvandare" not in str(result)
+
+
+def test_private_tool_plan_signature_does_not_publish_arguments():
+    planner = ChangingVoiceToolPlanner()
+    planner.plan_input = "private confidential value test@example.invalid"
+    pipeline = make_voice_planner_confirmation(planner)
+    pending = pipeline.pending_confirmation
+    assert pending is not None
+    risk = pending["risk"]
+    assert len(risk["tool_plan_digest"]) == 64
+    assert "test@example.invalid" not in str(risk)
+    assert "private confidential" not in str(risk)
+    # Different sessions use distinct secret HMAC keys for same plan.
+    planner2 = ChangingVoiceToolPlanner()
+    planner2.plan_input = planner.plan_input
+    another = make_voice_planner_confirmation(planner2)
+    assert risk["tool_plan_digest"] != another.pending_confirmation[
+        "risk"
+    ]["tool_plan_digest"]
+
+
+def test_malformed_planner_arguments_never_make_unverifiable_signature():
+    planner = ChangingVoiceToolPlanner()
+    planner.plan_input = object()
+    primary = FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99})
+    pipeline = VoicePipeline(
+        planner, primary,
+        backup_stt=[
+            FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+            FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+        ],
+        settings=settings(high_risk_confirmation_enabled=True),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
