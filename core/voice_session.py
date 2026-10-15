@@ -261,12 +261,18 @@ class VoiceSession:
                 "Mikrofonen kunde inte startas för röstsessionen."
             )
 
+        if self.pipeline is not None:
+            self.pipeline.resume_after_stop()
         self.running = True
         return True
 
     def stop(self):
         if not self.enabled:
             return False
+
+        # Revoke pending permission before waiting on STT, VAD or TTS.
+        if self.pipeline is not None:
+            self.pipeline.cancel_pending()
 
         if self.voice.get("stt_persistent_worker_enabled", False) is True:
             # Send cancellation BEFORE waiting for any control path or

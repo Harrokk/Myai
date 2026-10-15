@@ -75,6 +75,18 @@ def allow_voice_dispatch(plan, tools, tool_name, tool, effective_input,
     """
     from core.orchestration import SAFE_READ_ONLY_TOOLS
 
+    # Only the VoicePipeline attaches this per-request Stop callback.
+    # A fail/exception must block even allowlisted read-only tools.
+    stopped = getattr(plan_verifier, "voice_stop_requested", None)
+    if stopped is not None:
+        if not callable(stopped):
+            return False
+        try:
+            if stopped() is not False:
+                return False
+        except BaseException:
+            return False
+
     if (
         not isinstance(plan, dict)
         or not isinstance(tools, dict)

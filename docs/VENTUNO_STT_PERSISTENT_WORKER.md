@@ -105,3 +105,28 @@ från färdig STT till tal-/verktygsåtgärd atomär. Den överordnade
 röstsessionens egna interrupt-/stoppspärrar krävs fortsatt. Tester
 använder isolerad källkod och syntetiska bytes; varken mic, riktig
 modell, NPU eller driftkonfiguration aktiveras.
+
+
+## Röst-Stop vid verktygsgränsen (kodgranskning efter PR #224)
+
+En explicit `VoiceSession.stop()` återkallar nu den pågående
+röstförfrågans tillstånd **innan** tidskrävande STT/TTS-städning.
+`VoicePipeline` använder en unik `threading.Event` per session.
+`start()` skapar en ny signal i stället för att nollställa den gamla:
+en gammal transkription får därför inte verktygsbehörighet efter
+Stop följt av en snabb ny Start.
+
+Verifieraren för verklig MyAICore-verktygskörning bär
+`voice_stop_requested`, som läses av
+`allow_voice_dispatch()` **före** dess read-only-undantag.
+Testerna säkerställer att ett Stop som kommer under planering
+avvisar även ett annars tillåtet CPU-läsverktyg samt att
+vanliga röstförfrågningar fortfarande fungerar. Ljud-barge-in
+(`interrupt()` för TTS) förblir separat från explicit Stop.
+
+**Begränsningar:** Detta kan stoppa **nya** verktygsanrop;
+ett verktyg som redan körs kan ha ändrat något och kan inte
+alltid avbrytas eller rullas tillbaka. En äldre assistent
+som endast implementerar `respond()`, eller förändringar i
+minneslagring innan signalen observeras, kräver separat
+granskning. Inga tjänster eller modellprov på VENTUNO är aktiverade.

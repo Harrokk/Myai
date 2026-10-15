@@ -305,3 +305,92 @@ def test_unconfirmed_dangerous_voice_never_claims_completed(tmp_path):
     assert "stoppades" in result["message"]
     assert effects == []
     assert core.llm.calls == []
+
+
+def test_stop_during_planning_blocks_read_only_tool_at_invocation(tmp_path, monkeypatch):
+    """Even allowlisted reads cannot execute when Stop arrives in planning."""
+    import core.assistant as assistant_module
+
+    core, effects = make_core(tmp_path)
+    pipeline = VoicePipeline(core, FakeRecognizer(READ),
+                             settings=deepcopy(DEFAULT_SETTINGS), clock=Clock())
+    normal_plan = assistant_module.select_tool_plan
+    seen = []
+    def slow_plan(*args, **kwargs):
+        result = normal_plan(*args, **kwargs)
+        # First call is the voice safety preview; cancel at actual
+        # MyAICore planner invocation instead.
+        seen.append(1)
+        if len(seen) == 2:
+            pipeline.cancel_pending()
+        return result
+    monkeypatch.setattr(assistant_module, "select_tool_plan", slow_plan)
+
+    response = pipeline.process_utterance(b"synthetic")
+    assert response["status"] == "clarify"
+    # Cancellation before dispatch needs no assistant response at all.
+    assert response["message"] == "Röstsessionen avbröts."
+    assert effects == []
+    assert core.llm.calls == []
+    assert len(seen) >= 2
+
+
+def test_stop_during_guarded_multitool_prevents_next_call():
+    executed = []
+    tools = {
+        "cpu_status": {"function": lambda: executed.append("cpu") or "ok"},
+        "ram_status": {"function": lambda: executed.append("ram") or "ok"},
+    }
+    # Preflight must pass for BOTH tools. Stop arrives only after the
+    # first tool has run; the second invocation must then be denied.
+    stop = False
+    def cpu():
+        nonlocal stop
+        executed.append("cpu")
+        stop = True
+        return "ok"
+    tools["cpu_status"]["function"] = cpu
+    def guard(tool_name, tool, value):
+        return not stop
+    details = {}
+    result = run_tools(["cpu_status", "ram_status"], tools,
+                       execution_guard=guard, outcome_details=details)
+    assert executed == ["cpu"]
+    assert "blockerades" in result["ram_status"]
+    assert details["cpu_status"]["attempted"] is True
+    assert details["ram_status"]["attempted"] is False
+
+
+def test_stop_signal_does_not_revoke_read_only_normal_voice_flow(tmp_path):
+    core, effects = make_core(tmp_path)
+    pipeline = VoicePipeline(core, FakeRecognizer(READ),
+                             settings=deepcopy(DEFAULT_SETTINGS), clock=Clock())
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "completed"
+    assert effects == [("read",)]
+
+
+def test_stop_during_assistant_response_preserves_partial_outcome():
+    """A Stop cannot erase evidence of a tool that ran before cancellation."""
+    class InterruptedAssistant:
+        def respond_voice(self, text, *, plan_verifier):
+            pipeline.cancel_pending()
+            return {
+                "answer": "incorrectly claims completion",
+                "tools": ["cpu_status", "ram_status"],
+                "tool_results": {"cpu_status": "CPU OK"},
+                "tool_execution_status": "partially_completed",
+                "tool_dispatch_blocked": False,
+            }
+
+    pipeline = VoicePipeline(
+        InterruptedAssistant(), FakeRecognizer(READ),
+        settings=deepcopy(DEFAULT_SETTINGS), clock=Clock(),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert result["tool_execution"]["status"] == "partially_completed"
+    assert result["assistant"]["tool_execution_status"] == "partially_completed"
+    assert result["assistant"]["tool_dispatch_blocked"] is True
+    assert result["assistant"]["tool_results"]["cpu_status"] == "CPU OK"
+    assert "incorrectly claims completion" not in result["message"]
