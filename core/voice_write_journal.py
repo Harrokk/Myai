@@ -5,13 +5,20 @@ A conservative single marker also blocks a second write after a success
 until explicit out-of-band state reconciliation. Never auto-remove on exit.
 """
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import stat
+
+try:
+    import fcntl
+except ImportError:  # Windows must fail closed for effectful voice writes.
+    fcntl = None
 
 
 MARKER = "voice-write-unreconciled.v1"
 BODY = b"MYAI-VOICE-WRITE-UNRECONCILED-v1\n"
 RUNTIME = "runtime"
+LOCK = ".voice-write-safety.lock.v1"
 
 
 class VoiceWriteAheadMarker:
@@ -30,7 +37,8 @@ class VoiceWriteAheadMarker:
         # dirfd+no-follow protocol. Deny voice writes rather than falling
         # back to an unsafe non-exclusive path operation.
         if not (
-            hasattr(os, "O_DIRECTORY")
+            fcntl is not None
+            and hasattr(os, "O_DIRECTORY")
             and hasattr(os, "O_NOFOLLOW")
             and hasattr(os, "geteuid")
             and os.mkdir in os.supports_dir_fd
@@ -68,6 +76,37 @@ class VoiceWriteAheadMarker:
         finally:
             os.close(rootfd)
 
+    @contextmanager
+    def _locked_directory(self, directory):
+        """Serialize cooperative writers and operator reconciliation.
+
+        Never unlink or replace the lock itself: its inode must remain
+        stable across process restarts and marker releases.
+        """
+        fd = os.open(
+            LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            0o600, dir_fd=directory,
+        )
+        try:
+            details = os.fstat(fd)
+            if (
+                not stat.S_ISREG(details.st_mode)
+                or details.st_uid != os.geteuid()
+                or details.st_mode & 0o077
+                or details.st_nlink != 1
+            ):
+                raise OSError("Untrusted voice journal lock")
+            # Make the stable lock inode directory entry durable before
+            # relying on flock for future cooperating writer processes.
+            os.fsync(directory)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
     @property
     def review_required(self):
         if self._blocked:
@@ -75,12 +114,13 @@ class VoiceWriteAheadMarker:
         try:
             directory = self._open_directory()
             try:
-                try:
-                    os.stat(MARKER, dir_fd=directory, follow_symlinks=False)
-                except FileNotFoundError:
-                    return False
-                self._blocked = True
-                return True
+                with self._locked_directory(directory):
+                    try:
+                        os.stat(MARKER, dir_fd=directory, follow_symlinks=False)
+                    except FileNotFoundError:
+                        return False
+                    self._blocked = True
+                    return True
             finally:
                 os.close(directory)
         except (OSError, ValueError, TypeError):
@@ -99,21 +139,32 @@ class VoiceWriteAheadMarker:
         try:
             directory = self._open_directory()
             try:
-                flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                         | os.O_NOFOLLOW)
-                descriptor = os.open(
-                    MARKER, flags, 0o600, dir_fd=directory
-                )
-                try:
-                    written = os.write(descriptor, BODY)
-                    if written != len(BODY):
-                        raise OSError("Incomplete private marker")
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
-                os.fsync(directory)
-                self._blocked = True
-                return True
+                with self._locked_directory(directory):
+                    # No separate-process writer may race the last check
+                    # and marker creation while using this lock protocol.
+                    try:
+                        os.stat(MARKER, dir_fd=directory,
+                                follow_symlinks=False)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        self._blocked = True
+                        return False
+                    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                             | os.O_NOFOLLOW)
+                    descriptor = os.open(
+                        MARKER, flags, 0o600, dir_fd=directory
+                    )
+                    try:
+                        written = os.write(descriptor, BODY)
+                        if written != len(BODY):
+                            raise OSError("Incomplete private marker")
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                    os.fsync(directory)
+                    self._blocked = True
+                    return True
             finally:
                 os.close(directory)
         except (OSError, ValueError, TypeError):
