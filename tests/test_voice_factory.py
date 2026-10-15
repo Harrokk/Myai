@@ -202,3 +202,62 @@ def test_isolation_refuses_injected_provider_classes_or_untrusted_settings():
         voice_factory.build_voice_components(
             settings=value, provider_classes=classes(),
         )
+
+
+def test_persistent_worker_requires_explicit_isolation_toggle():
+    import pytest
+    cfg = settings()
+    cfg["voice"]["stt_persistent_worker_enabled"] = True
+    with pytest.raises(ValueError, match="requires process isolation"):
+        voice_factory.build_voice_components(
+            settings=cfg, provider_classes=classes()
+        )
+
+
+def test_persistent_worker_constructs_with_fake_audio_components_only():
+    from modules.voice.providers import FasterWhisperSTT
+    from core.voice_stt_persistent import PersistentFasterWhisperSTT
+    cfg = settings()
+    cfg["voice"].update(
+        stt_process_isolation_enabled=True,
+        stt_persistent_worker_enabled=True,
+        stt_persistent_worker_max_utterances=3,
+        stt_process_timeout_seconds=12,
+        stt_model="tiny",
+        backup_stt_models=["base"],
+    )
+    fake_hardware = classes()
+    fake_hardware["stt"] = {"faster_whisper": FasterWhisperSTT}
+    result = voice_factory.build_voice_components(
+        settings=cfg, provider_classes=fake_hardware,
+    )
+    assert isinstance(result["primary_stt"], PersistentFasterWhisperSTT)
+    assert result["primary_stt"].timeout_seconds == 12
+    assert result["primary_stt"].max_utterances == 3
+    assert isinstance(result["backup_stt"][0], PersistentFasterWhisperSTT)
+    assert result["primary_stt"]._worker is None
+    assert result["backup_stt"][0]._worker is None
+
+
+def test_persistent_worker_cap_and_bool_validation_is_failclosed():
+    import pytest
+    from modules.voice.providers import FasterWhisperSTT
+    fake_hardware = classes()
+    fake_hardware["stt"] = {"faster_whisper": FasterWhisperSTT}
+    for patch in [
+        {"stt_persistent_worker_enabled": "false"},
+        {"stt_persistent_worker_enabled": True,
+         "stt_process_isolation_enabled": False},
+        {"stt_persistent_worker_enabled": True,
+         "stt_process_isolation_enabled": True,
+         "stt_persistent_worker_max_utterances": True},
+        {"stt_persistent_worker_enabled": True,
+         "stt_process_isolation_enabled": True,
+         "stt_persistent_worker_max_utterances": 9},
+    ]:
+        cfg = settings()
+        cfg["voice"].update(patch)
+        with pytest.raises(ValueError):
+            voice_factory.build_voice_components(
+                settings=cfg, provider_classes=fake_hardware
+            )
