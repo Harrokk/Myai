@@ -1,5 +1,9 @@
 from difflib import SequenceMatcher
+import hashlib
+import hmac
+import json
 import math
+import secrets
 
 from core.voice_streaming import StreamingTTSCoordinator
 import re
@@ -440,6 +444,9 @@ class VoicePipeline:
         self.pending_confirmation = None
         self.streaming_tts = None
         self.before_assistant = before_assistant
+        # Private per-session HMAC key: never return raw tool args or
+        # a dictionary-attackable plain hash in voice diagnostics.
+        self._plan_attestation_key = secrets.token_bytes(32)
 
     @property
     def voice_settings(self):
@@ -459,7 +466,7 @@ class VoicePipeline:
         )
 
         if not callable(preview) or not isinstance(tools, dict):
-            return phrase_risk
+            return {**phrase_risk, "tool_plan_checked": False}
 
         try:
             plan = preview(text)
@@ -478,12 +485,65 @@ class VoicePipeline:
                 "reasons": reasons,
                 "tool_names": [],
                 "tool_plan_error": type(error).__name__,
+                "tool_plan_checked": False,
             }
 
-        tool_risk = classify_tool_plan_risk(
-            plan,
-            tools,
-        )
+        # Invalid plans must never silently become empty/read-only
+        # evidence when a planner was expected.
+        if (
+            not isinstance(plan, dict)
+            or not isinstance(plan.get("steps"), list)
+        ):
+            return {
+                "level": "high",
+                "reasons": list(phrase_risk["reasons"]) + [
+                    "verktygsplanen kunde inte säkerhetsbedömas"
+                ],
+                "tool_names": [],
+                "tool_plan_error": "invalid_plan",
+                "tool_plan_checked": False,
+            }
+
+        try:
+            # Freeze the planned tools, parameters and current per-tool
+            # safety metadata into a private attestation. Tool names
+            # alone cannot detect changed arguments or write effects.
+            safety_snapshot = []
+            for step in plan["steps"]:
+                if not isinstance(step, dict):
+                    raise ValueError("invalid-step")
+                name = step.get("tool")
+                if not isinstance(name, str) or not name:
+                    raise ValueError("invalid-tool")
+                metadata = tools.get(name, {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("invalid-metadata")
+                safety_snapshot.append({
+                    "tool": name,
+                    "safety": metadata.get("safety", {}),
+                })
+            if len(safety_snapshot) > 16:
+                raise ValueError("oversized-plan")
+            payload = json.dumps({
+                "steps": plan["steps"],
+                "safety": safety_snapshot,
+            }, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            if len(payload) > 32768:
+                raise ValueError("oversized-plan")
+            digest = hmac.new(
+                self._plan_attestation_key, payload, hashlib.sha256
+            ).hexdigest()
+            tool_risk = classify_tool_plan_risk(plan, tools)
+        except (TypeError, ValueError, AttributeError, KeyError, OverflowError):
+            return {
+                "level": "high",
+                "reasons": list(phrase_risk["reasons"]) + [
+                    "verktygsplanen kunde inte säkerhetsbedömas"
+                ],
+                "tool_names": [],
+                "tool_plan_error": "invalid_plan",
+                "tool_plan_checked": False,
+            }
         reasons = list(
             dict.fromkeys(
                 list(
@@ -515,6 +575,8 @@ class VoicePipeline:
                 "tool_names",
                 [],
             ),
+            "tool_plan_checked": True,
+            "tool_plan_digest": digest,
         }
 
     def _transcribe(self, provider, audio):
@@ -860,38 +922,53 @@ class VoicePipeline:
             current_risk = self._classify_risk(
                 pending["transcript"]
             )
-            pending_tools = set(
-                pending["risk"].get(
-                    "tool_names",
-                    [],
-                )
-            )
-            current_tools = set(
-                current_risk.get(
-                    "tool_names",
-                    [],
-                )
-            )
 
-            if (
-                current_risk.get("level") == "high"
-                and current_tools != pending_tools
-            ):
-                self.pending_confirmation = {
-                    **pending,
-                    "risk": current_risk,
-                    "created_at": self.clock(),
-                }
+            # A refreshed planner failure or a change in selected
+            # tools, safety classification, or reasons invalidates the
+            # ORIGINAL permission. Simply asking for another "yes"
+            # would authorize a plan the user never initially heard.
+            previous_risk = pending.get("risk", {})
+            plan_drift = (
+                current_risk.get("tool_plan_error") is not None
+                or previous_risk.get("tool_plan_error") is not None
+                or current_risk.get("tool_plan_checked", False)
+                   != previous_risk.get("tool_plan_checked", False)
+                or current_risk.get("tool_plan_digest")
+                   != previous_risk.get("tool_plan_digest")
+                or current_risk.get("level") != previous_risk.get("level")
+                or set(current_risk.get("tool_names", []))
+                   != set(previous_risk.get("tool_names", []))
+                or current_risk.get("reasons", [])
+                   != previous_risk.get("reasons", [])
+            )
+            if plan_drift:
+                self.pending_confirmation = None
                 message = (
-                    "Den valda verktygsplanen ändrades efter bekräftelsen. "
-                    'Säg "bekräfta" igen för den nya planen eller "avbryt".'
+                    "Verktygsplanen kunde inte bekräftas oförändrad. "
+                    "Säg hela kommandot igen om det fortfarande ska köras."
                 )
                 self._speak_control_message(message)
                 return {
-                    "status": "confirmation_required",
+                    "status": "confirmation_cancelled",
                     "message": message,
                     "transcript": pending["transcript"],
-                    "risk": current_risk,
+                }
+
+            # The re-check itself may be slow or blocked. Do not allow
+            # stale consent merely because the STT stage finished on time.
+            final_age = self.clock() - pending["created_at"]
+            if final_age < 0 or final_age > window:
+                self.pending_confirmation = None
+                message = (
+                    "Bekräftelsetiden gick ut. "
+                    "Säg högriskkommandot igen om det fortfarande ska köras."
+                )
+                self._speak_control_message(message)
+                return {
+                    "status": "confirmation_expired",
+                    "message": message,
+                    "transcript": primary["text"],
+                    "pending_transcript": pending["transcript"],
                 }
 
             self.pending_confirmation = None
@@ -1120,6 +1197,17 @@ class VoicePipeline:
         final_risk = self._classify_risk(
             transcript
         )
+
+        if final_risk.get("tool_plan_error") is not None:
+            return {
+                "status": "clarify",
+                "message": (
+                    "Verktygsplanen kunde inte kontrolleras. "
+                    "Försök igen utan att verkställa kommandot."
+                ),
+                "risk": final_risk,
+                "consensus": consensus,
+            }
 
         if (
             final_risk["level"] == "high"

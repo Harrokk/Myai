@@ -1414,3 +1414,226 @@ def test_primary_cancel_still_immediately_clears_pending_action():
     assert result["status"] == "confirmation_cancelled"
     assert pipeline.pending_confirmation is None
     assert assistant.messages == []
+
+
+
+class ChangingVoiceToolPlanner(FakeAssistant):
+    def __init__(self, clock=None):
+        super().__init__()
+        self.selected = "workspace_write"
+        self.fail = False
+        self.invalid = False
+        self.plan_input = None
+        self.preview_calls = 0
+        self.expire_on_preview = None
+        self.clock = clock
+        self.tools = {
+            "workspace_write": {
+                "safety": {"effect": "write", "voice_confirmation_required": True}
+            },
+            "workspace_delete": {
+                "safety": {"effect": "destructive", "voice_confirmation_required": True}
+            },
+        }
+
+    def preview_tool_plan(self, message):
+        self.preview_calls += 1
+        if self.expire_on_preview == self.preview_calls and self.clock:
+            self.clock.advance(16)
+        if self.fail:
+            raise RuntimeError("SECRET_SENSITIVE_PLANNER_ERROR")
+        if self.invalid:
+            return {"steps": None}
+        return {"steps": [{"tool": self.selected,
+                            "input": message if self.plan_input is None
+                            else self.plan_input}]}
+
+
+def make_voice_planner_confirmation(planner, clock=None):
+    primary = FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99})
+    backups = [
+        FakeSTT({"text": "Skapa filen test txt", "confidence": 0.98}),
+        FakeSTT({"text": "Skapa filen test txt", "confidence": 0.97}),
+    ]
+    pipeline = VoicePipeline(
+        planner, primary, backup_stt=backups,
+        clock=clock,
+        settings=settings(high_risk_confirmation_enabled=True),
+    )
+    initial = pipeline.process_utterance(b"synthetic-command")
+    assert initial["status"] == "confirmation_required"
+    assert planner.messages == []
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    for backup in backups:
+        backup.result = {"text": "bekräfta", "confidence": 0.99}
+    return pipeline
+
+
+def test_highrisk_planner_error_at_first_command_must_not_create_pending():
+    planner = ChangingVoiceToolPlanner()
+    planner.fail = True
+    primary = FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99})
+    backups = [
+        FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+        FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+    ]
+    pipeline = VoicePipeline(
+        planner, primary, backup_stt=backups,
+        settings=settings(high_risk_confirmation_enabled=True),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+    assert "SECRET" not in str(result)
+
+
+def test_planner_failing_at_confirm_never_reuses_empty_tool_lists():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    planner.fail = True
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+    assert "SECRET" not in str(result)
+
+
+def test_tool_switch_after_initial_voice_consent_cancels_not_reconfirms():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    planner.selected = "workspace_delete"
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+
+
+def test_planner_downgraded_to_readonly_before_confirmation_is_not_accepted():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    planner.tools["workspace_write"]["safety"] = {
+        "effect": "read_only", "voice_confirmation_required": False
+    }
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert planner.messages == []
+
+
+def test_same_tool_but_safety_effect_mutation_cancels_pending():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    # Risk still classifies high and the tool NAME is unchanged.
+    planner.tools["workspace_write"]["safety"]["effect"] = "destructive"
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+
+
+def test_planner_disappearing_after_first_command_cancels_pending():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    planner.preview_tool_plan = None
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert planner.messages == []
+
+
+def test_planner_malformed_first_result_requires_clarification():
+    planner = ChangingVoiceToolPlanner()
+    planner.invalid = True
+    primary = FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99})
+    pipeline = VoicePipeline(
+        planner, primary,
+        backup_stt=[
+            FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+            FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+        ],
+        settings=settings(high_risk_confirmation_enabled=True),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+
+
+def test_confirmation_expiring_during_plan_recheck_never_executes():
+    clock = FakeClock()
+    planner = ChangingVoiceToolPlanner(clock=clock)
+    pipeline = make_voice_planner_confirmation(planner, clock=clock)
+    assert planner.preview_calls == 2
+    planner.expire_on_preview = 3
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_expired"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+
+
+def test_unchanged_planner_with_independent_confirmation_executes_once():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "completed"
+    assert planner.messages == ["Skapa filen test txt"]
+    assert result["confirmation"]["confirmed"] is True
+
+
+def test_lowrisk_question_without_planner_still_works():
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant, FakeSTT({"text": "Hur är vädret", "confidence": 0.99}),
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"synthetic-lowrisk")
+    assert result["status"] == "completed"
+    assert assistant.messages == ["Hur är vädret"]
+
+
+
+def test_same_tool_but_changed_target_argument_cancels_pending():
+    planner = ChangingVoiceToolPlanner()
+    pipeline = make_voice_planner_confirmation(planner)
+    planner.plan_input = "Radera filen annan-anvandare"
+    result = pipeline.process_utterance(b"synthetic-confirm")
+    assert result["status"] == "confirmation_cancelled"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
+    assert "annan-anvandare" not in str(result)
+
+
+def test_private_tool_plan_signature_does_not_publish_arguments():
+    planner = ChangingVoiceToolPlanner()
+    planner.plan_input = "private confidential value test@example.invalid"
+    pipeline = make_voice_planner_confirmation(planner)
+    pending = pipeline.pending_confirmation
+    assert pending is not None
+    risk = pending["risk"]
+    assert len(risk["tool_plan_digest"]) == 64
+    assert "test@example.invalid" not in str(risk)
+    assert "private confidential" not in str(risk)
+    # Different sessions use distinct secret HMAC keys for same plan.
+    planner2 = ChangingVoiceToolPlanner()
+    planner2.plan_input = planner.plan_input
+    another = make_voice_planner_confirmation(planner2)
+    assert risk["tool_plan_digest"] != another.pending_confirmation[
+        "risk"
+    ]["tool_plan_digest"]
+
+
+def test_malformed_planner_arguments_never_make_unverifiable_signature():
+    planner = ChangingVoiceToolPlanner()
+    planner.plan_input = object()
+    primary = FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99})
+    pipeline = VoicePipeline(
+        planner, primary,
+        backup_stt=[
+            FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+            FakeSTT({"text": "Skapa filen test txt", "confidence": 0.99}),
+        ],
+        settings=settings(high_risk_confirmation_enabled=True),
+    )
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert pipeline.pending_confirmation is None
+    assert planner.messages == []
