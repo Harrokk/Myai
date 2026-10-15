@@ -93,16 +93,16 @@ class VoiceWriteReconciliation:
                 # A crash immediately after O_EXCL file creation can
                 # leave an empty or truncated ticket. Never present it
                 # as an actionable, valid operator review.
-                match = re.fullmatch(
-                    rb"MYAI-VOICE-REVIEW-TICKET-v1\\n"
-                    rb"token=([0-9a-f]{32})\\n"
-                    rb"dev=[0-9]+\\ninode=[0-9]+\\n"
-                    rb"ctime_ns=[0-9]+\\n",
-                    ticket,
-                )
-                if (match is None or ticket != _ticket_bytes(
-                    match.group(1).decode("ascii"), marker
-                )):
+                lines = ticket.splitlines()
+                if (len(lines) != 5
+                        or lines[0] != TICKET_HEADER.rstrip(bytes([10]))
+                        or not lines[1].startswith(b"token=")):
+                    raise OSError("Invalid voice review ticket")
+                token_bytes = lines[1][len(b"token="):]
+                if not re.fullmatch(rb"[0-9a-f]{32}", token_bytes):
+                    raise OSError("Invalid voice review ticket token")
+                token = token_bytes.decode("ascii")
+                if ticket != _ticket_bytes(token, marker):
                     raise OSError("Incomplete or stale voice review ticket")
                 return {"status": "review_ticket_pending"}
         finally:
