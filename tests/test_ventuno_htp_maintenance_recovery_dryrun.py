@@ -244,3 +244,25 @@ def test_dependency_trouble_exposes_only_fixed_unit_and_property_labels():
 def test_normal_known_dependencies_need_no_review():
     report = gate.decide(good(), supervisor())
     assert report["dependency_review_needed"] == {}
+
+
+@pytest.mark.parametrize("implicit", [
+    "sysinit.target", "basic.target", "system.slice", "-.mount",
+])
+def test_ordinary_systemd_base_requirement_is_known_but_never_permission(implicit):
+    x = gate.parse_unit(unit_bytes(requires=implicit))
+    assert x["dependencies"]["Requires"] == "known"
+    assert x["standard_base_requirements_observed"] == [implicit]
+    assert x["unrecognized_requirements_count"] == 0
+    assert gate.decide(good(), supervisor())["service_changes_authorized"] is False
+
+
+def test_untrusted_requires_hidden_but_counted_not_automatically_allowed():
+    x = gate.parse_unit(unit_bytes(
+        requires="sysinit.target private-secret-alpha.service private-secret-beta.target"
+    ))
+    assert x["dependencies"]["Requires"] == "unknown"
+    assert x["unrecognized_requirements_count"] == 2
+    assert x["standard_base_requirements_observed"] == ["sysinit.target"]
+    encoded = json.dumps(x)
+    assert "private-secret" not in encoded
