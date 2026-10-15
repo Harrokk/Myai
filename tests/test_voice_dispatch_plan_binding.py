@@ -305,3 +305,62 @@ def test_unconfirmed_dangerous_voice_never_claims_completed(tmp_path):
     assert "stoppades" in result["message"]
     assert effects == []
     assert core.llm.calls == []
+
+
+def test_stop_during_planning_blocks_read_only_tool_at_invocation(tmp_path, monkeypatch):
+    """Even allowlisted reads cannot execute when Stop arrives in planning."""
+    import core.assistant as assistant_module
+
+    core, effects = make_core(tmp_path)
+    pipeline = VoicePipeline(core, FakeRecognizer(READ),
+                             settings=deepcopy(DEFAULT_SETTINGS), clock=Clock())
+    normal_plan = assistant_module.select_tool_plan
+    seen = []
+    def slow_plan(*args, **kwargs):
+        result = normal_plan(*args, **kwargs)
+        # First call is the voice safety preview; cancel at actual
+        # MyAICore planner invocation instead.
+        seen.append(1)
+        if len(seen) == 2:
+            pipeline.cancel_pending()
+        return result
+    monkeypatch.setattr(assistant_module, "select_tool_plan", slow_plan)
+
+    response = pipeline.process_utterance(b"synthetic")
+    assert response["status"] == "clarify"
+    assert response["assistant"]["tool_dispatch_blocked"] is True
+    assert effects == []
+    assert core.llm.calls == []
+
+
+def test_stop_during_guarded_multitool_prevents_next_call():
+    executed = []
+    tools = {
+        "cpu_status": {"function": lambda: executed.append("cpu") or "ok"},
+        "ram_status": {"function": lambda: executed.append("ram") or "ok"},
+    }
+    stop = False
+    def guard(tool_name, tool, value):
+        nonlocal stop
+        if stop:
+            return False
+        if tool_name == "ram_status":
+            stop = True
+            return False
+        return True
+    details = {}
+    result = run_tools(["cpu_status", "ram_status"], tools,
+                       execution_guard=guard, outcome_details=details)
+    assert executed == ["cpu"]
+    assert "blockerades" in result["ram_status"]
+    assert details["cpu_status"]["attempted"] is True
+    assert details["ram_status"]["attempted"] is False
+
+
+def test_stop_signal_does_not_revoke_read_only_normal_voice_flow(tmp_path):
+    core, effects = make_core(tmp_path)
+    pipeline = VoicePipeline(core, FakeRecognizer(READ),
+                             settings=deepcopy(DEFAULT_SETTINGS), clock=Clock())
+    result = pipeline.process_utterance(b"synthetic")
+    assert result["status"] == "completed"
+    assert effects == [("read",)]
