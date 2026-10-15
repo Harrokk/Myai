@@ -54,6 +54,13 @@ class ToolPlanningAssistant(FakeAssistant):
             ]
         }
 
+    def respond_voice(self, message, *, plan_verifier):
+        # Synthetic tool-planner adapter: a high-risk tool never passes
+        # through unguarded respond() after confirmation.
+        if plan_verifier(self.preview_tool_plan(message), self.tools) is not True:
+            return {"answer": "blocked", "tool_dispatch_blocked": True}
+        return self.respond(message)
+
 
 class FakeTTS:
     def __init__(self):
@@ -1447,6 +1454,18 @@ class ChangingVoiceToolPlanner(FakeAssistant):
         return {"steps": [{"tool": self.selected,
                             "input": message if self.plan_input is None
                             else self.plan_input}]}
+
+    def respond_voice(self, message, *, plan_verifier):
+        # Build the already-previewed plan without advancing the
+        # independent slow/racing preview counter again. Verify it
+        # against the captured voice HMAC before recording a response.
+        candidate = {"steps": [{
+            "tool": self.selected,
+            "input": message if self.plan_input is None else self.plan_input,
+        }]}
+        if plan_verifier(candidate, self.tools) is not True:
+            return {"answer": "blocked", "tool_dispatch_blocked": True}
+        return self.respond(message)
 
 
 def make_voice_planner_confirmation(planner, clock=None):
