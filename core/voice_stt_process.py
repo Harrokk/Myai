@@ -14,9 +14,10 @@ import json
 import math
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
+
+from core.voice_stt_process_group import terminate_owned_group
 
 MAX_PCM_BYTES = 2 * 1024 * 1024
 MAX_REPLY_BYTES = 8192
@@ -84,21 +85,13 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
     try:
         output, _ = proc.communicate(input=bytes(audio), timeout=timeout)
     except subprocess.TimeoutExpired:
-        # Kill the entire process group, including possible native helpers.
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        try:
-            proc.communicate(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            # A stuck uninterruptible child is an incomplete cleanup.
-            raise RuntimeError("Isolated STT cleanup incomplete") from None
+        # A helper may outlive its leader and keep the pipe open.
+        # Reap/verify the FULL owned process group, not just proc.pid.
+        terminate_owned_group(proc)
         raise TimeoutError("Isolated STT process deadline exceeded") from None
+    # Even successful or failed worker exits may have forked helpers;
+    # no result can be trusted until the owned group is inert.
+    terminate_owned_group(proc)
     if proc.returncode != 0:
         raise RuntimeError("Isolated STT worker failed")
     if type(output) is not bytes or len(output) > MAX_REPLY_BYTES:
