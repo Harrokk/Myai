@@ -13,6 +13,10 @@ from core.intermediate_results import (
 from core.memory import MemoryStore
 from core.memory_lifecycle import apply_memory_lifecycle
 from core.memory_policy import assess_memory_candidate
+from core.memory_feedback import (
+    explicit_memory_request,
+    memory_write_feedback,
+)
 from core.llm_factory import build_llm_client
 from core.health_status import (
     build_health_status,
@@ -1148,6 +1152,7 @@ Svara kort och tydligt på svenska.
         pending_intermediate_results=None,
         streamed=False,
         tool_outcomes=None,
+        on_finalized_chunk=None,
     ):
         if self._memory_lookup_status == "unavailable":
             # Memory reads failed: don't attempt automatic writes or
@@ -1163,6 +1168,22 @@ Svara kort och tydligt på svenska.
             memory_decision = self._consider_long_term_memory(
                 user_message
             )
+
+        feedback = memory_write_feedback(
+            user_message, memory_decision, self._memory_lookup_status
+        )
+        if feedback["message"] and not self._tool_dispatch_was_blocked(tool_results):
+            if tool_names:
+                # A mixed memory+tool command must keep the other
+                # answer, but finish with an authoritative memory notice.
+                answer = (str(answer or "") + "\n\n" + feedback["message"])
+            else:
+                # A pure spoken "kom ihåg" request must not be left
+                # with a hallucinated claim that it was saved.
+                answer = feedback["message"]
+
+        if on_finalized_chunk is not None:
+            on_finalized_chunk(answer)
 
         self._remember_conversation_turn(
             user_message,
@@ -1202,6 +1223,7 @@ Svara kort och tydligt på svenska.
             ),
             "memory_decision": memory_decision,
             "memory_lookup_status": self._memory_lookup_status,
+            "memory_feedback": feedback,
             "streamed": bool(streamed),
             "llm_runtime": llm_runtime,
             "health": health,
@@ -1283,6 +1305,11 @@ Svara kort och tydligt på svenska.
         _voice_plan_verifier=None,
     ):
         with self._response_lock:
+            # Buffer explicit memory requests until the persistence
+            # decision is known. Never stream an early speculative
+            # "saved" claim into voice or a chat UI.
+            delayed_memory_feedback = explicit_memory_request(user_message)
+            callback = on_chunk if delayed_memory_feedback else None
             (
                 tool_plan,
                 tool_names,
@@ -1311,7 +1338,7 @@ Svara kort och tydligt på svenska.
                     )
                 # No model output and no speculative streaming token
                 # may present an unexecuted action as completed.
-                if on_chunk is not None:
+                if on_chunk is not None and not delayed_memory_feedback:
                     on_chunk(answer)
                 return self._finalize_response(
                     user_message,
@@ -1322,6 +1349,7 @@ Svara kort och tydligt på svenska.
                     pending_intermediate_results=pending_intermediate_results,
                     streamed=False,
                     tool_outcomes=tool_outcomes,
+                    on_finalized_chunk=callback,
                 )
 
             stream = getattr(
@@ -1336,7 +1364,7 @@ Svara kort och tydligt på svenska.
                     timeout=300,
                 )
 
-                if on_chunk is not None and answer:
+                if on_chunk is not None and answer and not delayed_memory_feedback:
                     on_chunk(answer)
 
                 return self._finalize_response(
@@ -1350,6 +1378,7 @@ Svara kort och tydligt på svenska.
                     ),
                     streamed=False,
                     tool_outcomes=tool_outcomes,
+                    on_finalized_chunk=callback,
                 )
 
             chunks = []
@@ -1365,7 +1394,7 @@ Svara kort och tydligt på svenska.
 
                 chunks.append(value)
 
-                if on_chunk is not None:
+                if on_chunk is not None and not delayed_memory_feedback:
                     on_chunk(value)
 
             answer = "".join(chunks)
@@ -1381,6 +1410,7 @@ Svara kort och tydligt på svenska.
                 ),
                 streamed=True,
                 tool_outcomes=tool_outcomes,
+                on_finalized_chunk=callback,
             )
 
     def _remember_conversation_turn(self, user_message, answer):
