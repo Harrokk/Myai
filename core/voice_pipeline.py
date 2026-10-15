@@ -562,6 +562,29 @@ class VoicePipeline:
             provider.transcribe(audio)
         )
 
+    def _stt_deadline_expired(self, started_at):
+        """Fail closed AFTER an STT call returns; never claim to cancel it.
+
+        A provider blocking inside transcribe() still needs its own
+        hardware/process timeout; this guards a late recognition result
+        from dispatching a now-stale voice command.
+        """
+        seconds = self.voice_settings.get(
+            "stt_observed_budget_seconds", 45.0
+        )
+        if (
+            type(seconds) not in (int, float)
+            or not 1.0 <= seconds <= 300.0
+            or not math.isfinite(seconds)
+        ):
+            return True
+        elapsed = self.clock() - started_at
+        return (
+            type(elapsed) not in (int, float)
+            or not 0.0 <= elapsed <= seconds
+            or not math.isfinite(elapsed)
+        )
+
     def _probable_tts_echo(
         self,
         transcript,
@@ -955,13 +978,13 @@ class VoicePipeline:
                     continue
                 confirmation_seen.add(id(provider))
                 try:
-                    confirmation_transcripts.append(
-                        self._transcribe(provider, audio)
-                    )
+                    candidate = self._transcribe(provider, audio)
                 except Exception:
-                    # No raw exception, audio or backend details exposed.
                     # An unreadable vote cannot authorize the command.
-                    break
+                    # Continue to try any other INDEPENDENT backup STT.
+                    continue
+                if candidate["text"]:
+                    confirmation_transcripts.append(candidate)
 
             normalized_confirmations = [
                 normalize_transcript(item["text"])
@@ -1186,10 +1209,28 @@ class VoicePipeline:
 
     def process_utterance(self, audio):
         config = self.voice_settings
-        primary = self._transcribe(
-            self.primary_stt,
-            audio,
-        )
+        stt_started_at = self.clock()
+        try:
+            primary = self._transcribe(
+                self.primary_stt,
+                audio,
+            )
+        except Exception:
+            # A failing primary must not kill the handsfree listener or
+            # authorize any tool. Do not surface ASR internals/audio.
+            return {
+                "status": "clarify",
+                "message": (
+                    "Taligenkänningen kunde inte slutföras. Försök igen."
+                ),
+            }
+        if self._stt_deadline_expired(stt_started_at):
+            # A stale confirmation may not survive a timed-out capture.
+            self.pending_confirmation = None
+            return {
+                "status": "clarify",
+                "message": "Taligenkänningen tog för lång tid. Försök igen.",
+            }
 
         if not primary["text"]:
             return {
@@ -1246,12 +1287,24 @@ class VoicePipeline:
                     continue
                 seen_providers.add(id(provider))
 
-                transcripts.append(
-                    self._transcribe(
-                        provider,
-                        audio,
+                try:
+                    candidate = self._transcribe(
+                        provider, audio
                     )
-                )
+                except Exception:
+                    # A failed recognition cannot be counted as a vote.
+                    # Other independent STT providers may still work.
+                    continue
+                if candidate["text"]:
+                    transcripts.append(candidate)
+
+            if self._stt_deadline_expired(stt_started_at):
+                return {
+                    "status": "clarify",
+                    "message": (
+                        "Taligenkänningen tog för lång tid. Försök igen."
+                    ),
+                }
 
             if len(transcripts) < desired:
                 return {
@@ -1338,6 +1391,14 @@ class VoicePipeline:
                 "reason": "Primär STT var tillräcklig.",
             }
             transcript = primary["text"]
+
+        # No late recognizer or slow semantic fallback can authorize
+        # a command outside the original bounded recognition window.
+        if self._stt_deadline_expired(stt_started_at):
+            return {
+                "status": "clarify",
+                "message": "Taligenkänningen tog för lång tid. Försök igen.",
+            }
 
         final_risk = self._classify_risk(
             transcript
