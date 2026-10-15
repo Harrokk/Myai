@@ -1693,3 +1693,179 @@ def test_semantic_low_risk_fallback_remains_available():
     result = pipeline.process_utterance(b"synthetic")
     assert result["status"] == "completed"
     assert assistant.messages == ["Hur mycket RAM används?"]
+
+
+
+def test_primary_asr_provider_exception_is_clarify_not_handsfree_crash():
+    class BrokenPrimary:
+        def transcribe(self, audio):
+            raise RuntimeError("SECRET_MICROPHONE_CREDENTIAL")
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant, BrokenPrimary(),
+        backup_stt=[
+            FakeSTT({"text": "Radera filen", "confidence": 1.0}),
+            FakeSTT({"text": "Radera filen", "confidence": 1.0}),
+        ],
+        settings=settings(high_risk_confirmation_enabled=True),
+    )
+    result = pipeline.process_utterance(b"PRIVATE_AUDIO")
+    assert result["status"] == "clarify"
+    assert assistant.messages == []
+    assert pipeline.pending_confirmation is None
+    assert "SECRET" not in str(result)
+    assert "PRIVATE_AUDIO" not in str(result)
+
+
+def test_one_failed_independent_stt_skipped_when_other_valid_backups_exist():
+    class BrokenBackup:
+        def transcribe(self, audio):
+            raise TimeoutError("SECRET_STT_DEBUG_STACK")
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant, FakeSTT({"text": "Visa RAM-status", "confidence": 0.1}),
+        backup_stt=[
+            BrokenBackup(),
+            FakeSTT({"text": "Visa RAM-status", "confidence": 0.85}),
+            FakeSTT({"text": "Visa RAM-status", "confidence": 0.8}),
+        ],
+        settings=settings(redundant_transcript_count=3),
+    )
+    result = pipeline.process_utterance(b"fake")
+    assert result["status"] == "completed"
+    assert result["consensus"]["support"] == 3
+    assert assistant.messages == ["Visa RAM-status"]
+    assert "SECRET" not in str(result)
+
+
+def test_high_risk_empty_backup_cannot_count_as_independent_vote():
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant, FakeSTT({"text": "Radera rapporten", "confidence": 1.0}),
+        backup_stt=[
+            FakeSTT({"text": "", "confidence": 1.0}),
+            FakeSTT({"text": "Radera rapporten", "confidence": 1.0}),
+        ],
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"fake")
+    assert result["status"] == "clarify"
+    assert "inte tillräckligt många" in result["message"]
+    assert assistant.messages == []
+
+
+def test_failed_backup_without_replacement_does_not_authorize_action():
+    class BrokenBackup:
+        def transcribe(self, audio):
+            raise OSError("SECRET_DEVICE_ID")
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant, FakeSTT({"text": "Radera rapporten", "confidence": 1.0}),
+        backup_stt=[
+            FakeSTT({"text": "Radera rapporten", "confidence": 1.0}),
+            BrokenBackup(),
+        ],
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"fake")
+    assert result["status"] == "clarify"
+    assert assistant.messages == []
+    assert "SECRET" not in str(result)
+
+
+def test_confirmation_skip_failed_backup_but_require_three_valid_votes():
+    class BrokenBackup:
+        def transcribe(self, audio):
+            raise OSError("PRIVATE_STT_FAILURE")
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    first = pipeline.process_utterance(b"danger")
+    assert first["status"] == "confirmation_required"
+    primary.result = {"text": "bekräfta", "confidence": 1.0}
+    pipeline.backup_stt = [
+        BrokenBackup(),
+        FakeSTT({"text": "bekräfta", "confidence": 0.99}),
+        FakeSTT({"text": "bekräfta", "confidence": 0.99}),
+    ]
+    confirm = pipeline.process_utterance(b"confirm")
+    assert confirm["status"] == "completed"
+    assert confirm["confirmation"]["support"] == 3
+    assert assistant.messages == ["Radera filen rapport txt"]
+    assert "PRIVATE_STT_FAILURE" not in str(confirm)
+
+
+def test_confirmation_blank_backup_does_not_authorize_with_only_two_votes():
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=FakeClock())
+    assert pipeline.process_utterance(b"danger")["status"] == "confirmation_required"
+    primary.result = {"text": "bekräfta", "confidence": 0.99}
+    pipeline.backup_stt = [
+        FakeSTT({"text": "", "confidence": 1.0}),
+        FakeSTT({"text": "bekräfta", "confidence": 1.0}),
+    ]
+    confirm = pipeline.process_utterance(b"confirm")
+    assert confirm["status"] == "confirmation_required"
+    assert pipeline.pending_confirmation is not None
+    assert assistant.messages == []
+
+
+def test_primary_stt_late_return_cannot_dispatch_or_retain_consent():
+    clock = FakeClock()
+    pipeline, assistant, primary, _ = high_risk_pipeline(clock=clock)
+    assert pipeline.process_utterance(b"danger")["status"] == "confirmation_required"
+
+    class SlowPrimary:
+        def transcribe(self, audio):
+            clock.advance(46)
+            return {"text": "bekräfta", "confidence": 1.0}
+    pipeline.primary_stt = SlowPrimary()
+    confirm = pipeline.process_utterance(b"confirm")
+    assert confirm["status"] == "clarify"
+    assert "för lång tid" in confirm["message"]
+    assert pipeline.pending_confirmation is None
+    assert assistant.messages == []
+
+
+def test_backup_stt_late_return_cannot_dispatch_nonconfirmed_tool_action():
+    clock = FakeClock()
+    assistant = FakeAssistant()
+    class SlowBackup:
+        def transcribe(self, audio):
+            clock.advance(46)
+            return {"text": "Visa RAM", "confidence": 0.99}
+    pipeline = VoicePipeline(
+        assistant, FakeSTT({"text": "Visa RAM", "confidence": 0.1}),
+        backup_stt=[
+            SlowBackup(),
+            FakeSTT({"text": "Visa RAM", "confidence": 0.99}),
+        ],
+        clock=clock,
+        settings=settings(),
+    )
+    result = pipeline.process_utterance(b"fake")
+    assert result["status"] == "clarify"
+    assert assistant.messages == []
+
+
+def test_small_configured_stt_budget_prevents_stale_highrisk_action():
+    clock = FakeClock()
+    class SlowPrimary:
+        def transcribe(self, audio):
+            clock.advance(2)
+            return {"text": "Radera filen", "confidence": 1.0}
+    assistant = FakeAssistant()
+    pipeline = VoicePipeline(
+        assistant, SlowPrimary(), clock=clock,
+        settings=settings(stt_observed_budget_seconds=1.0),
+    )
+    assert pipeline.process_utterance(b"fake")["status"] == "clarify"
+    assert assistant.messages == []
+
+
+def test_invalid_stt_deadline_setting_always_blocks_dispatch():
+    assistant = FakeAssistant()
+    for bad in (None, False, "45", float("nan"), float("inf"), -1, 0, 1000):
+        pipeline = VoicePipeline(
+            assistant, FakeSTT({"text": "Hej", "confidence": 1.0}),
+            settings=settings(stt_observed_budget_seconds=bad),
+        )
+        assert pipeline.process_utterance(b"fake")["status"] == "clarify"
+    assert assistant.messages == []
