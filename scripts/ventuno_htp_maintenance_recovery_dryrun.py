@@ -165,6 +165,9 @@ def decide(units, supervisor):
     units = units if isinstance(units, dict) else {}
     supervisor = supervisor if isinstance(supervisor, dict) else {}
     reasons = []
+    # Unit identifiers are a fixed allowlist, not device- or user-derived.
+    # Reveal which dependency *category* needs review, never raw targets.
+    dependency_review = {}
     for name in OBSERVED:
         row = units.get(name)
         if not isinstance(row, dict):
@@ -180,14 +183,20 @@ def decide(units, supervisor):
             reasons.append("unit_not_safely_controllable")
             break
         deps = row.get("dependencies")
-        if not isinstance(deps, dict) or any(
-            deps.get(key) != "known" for key in (
-                "PartOf", "BindsTo", "TriggeredBy", "OnFailure",
-                "Requires", "Wants",
-            )
-        ):
+        relevant = (
+            "PartOf", "BindsTo", "TriggeredBy", "OnFailure",
+            "Requires", "Wants",
+        )
+        review = [
+            key for key in relevant
+            if not isinstance(deps, dict) or deps.get(key) != "known"
+        ]
+        if review:
+            dependency_review[name] = review
             reasons.append("service_dependency_or_activation_unverified")
-            break
+        # Do not break here: safe, bounded reporting should cover all
+        # four units to identify the real source of the false-positive.
+        # None of these observations grants actual stop permission.
     if supervisor.get("installed_profile_parseable") is not True:
         reasons.append("installed_supervisor_config_unverified")
     if supervisor.get("automatic_geniex_restart_enabled") is not False:
@@ -204,6 +213,7 @@ def decide(units, supervisor):
         "observed_units_count": sum(
             isinstance(units.get(n), dict) for n in OBSERVED
         ),
+        "dependency_review_needed": dependency_review,
         "required_unit_states_all_active": all(
             isinstance(units.get(n), dict)
             and units[n].get("service_appears_running") is True
