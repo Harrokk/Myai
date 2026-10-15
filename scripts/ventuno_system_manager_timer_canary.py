@@ -116,6 +116,36 @@ def inspect_exact_sudo_command(*, runner_temp, arch=None, user=None,
     return result
 
 
+def classify_launch_failure(result):
+    """Strictly fixed codes; NEVER output stderr, stdout, unit or sudo path."""
+    if result is None:
+        return "no_go_launch_process_unavailable"
+    stderr = getattr(result, "stderr", b"")
+    if not isinstance(stderr, bytes) or len(stderr) > 16384:
+        return "no_go_unclassified_launch_error"
+    msg = stderr.decode("utf-8", "replace").lower()
+    if "sudo:" in msg and ("password" in msg or "terminal is required" in msg):
+        return "no_go_sudo_interactive_authorization_required"
+    if "sudo:" in msg and (
+        "not allowed" in msg or "not permitted" in msg
+        or "may not run" in msg or "command not found" in msg
+    ):
+        return "no_go_sudo_exact_execution_not_permitted"
+    if ("failed to connect to bus" in msg
+            or "connection refused" in msg
+            or "transport endpoint is not connected" in msg):
+        return "no_go_systemd_manager_bus_unavailable"
+    if ("access denied" in msg or "permission denied" in msg
+            or "interactive authentication required" in msg):
+        return "no_go_systemd_manager_authorization_rejected"
+    if ("invalid argument" in msg or "unknown assignment" in msg
+            or "invalid unit" in msg or "not supported" in msg):
+        return "no_go_systemd_unit_property_rejected"
+    if "already exists" in msg:
+        return "no_go_transient_unit_name_conflict"
+    return "no_go_unclassified_launch_error"
+
+
 def command(argv, *, timeout):
     return subprocess.run(
         argv, capture_output=True, check=False, timeout=timeout,
@@ -131,6 +161,7 @@ def run_canary(*, runner_temp, arch=None, user=None,
         "status": "no_go",
         "system_manager_permission_available": False,
         "transient_system_timer_submitted": False,
+        "launch_failure_classification": None,
         "transient_service_drops_to_arduino": True,
         "disposable_controller_exit_observed": False,
         "independent_system_timer_restored_fake_marker": False,
@@ -175,6 +206,9 @@ def run_canary(*, runner_temp, arch=None, user=None,
             launched = None
         if launched is None or launched.returncode != 0:
             report["status"] = "no_go_system_manager_timer_launch_denied"
+            report["launch_failure_classification"] = classify_launch_failure(
+                launched
+            )
             return report
         report["transient_system_timer_submitted"] = True
 
