@@ -194,7 +194,7 @@ def test_probe_exposes_no_sensitive_service_or_sudo_output(tmp_path, monkeypatch
         check=lambda: False,
     )
     encoded = json.dumps(result)
-    assert "/home/" not in encoded and "sudoers" not in encoded
+    assert "/home/" not in encoded and "secret" not in encoded
     assert result["private_paths_logs_or_credentials_exported"] is False
     assert result["runner_service_stopped_or_changed"] is False
     assert result["htp_qnn_or_inference_executed"] is False
