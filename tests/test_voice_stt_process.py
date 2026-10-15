@@ -302,3 +302,26 @@ def test_truncated_reply_then_closed_stdout_is_never_authorized():
     )
     with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
         run_deadlined(cmd(script), b"y" * MAX_PCM_BYTES, 3)
+
+
+def test_one_shot_child_resource_env_is_child_only_and_default_off():
+    from core.voice_stt_child_limits import CPU_ENV, AS_ENV
+    captured = {}
+    def spawn(argv, **kwargs):
+        captured["env"] = kwargs["env"]
+        return subprocess.Popen(
+            cmd(
+                "import sys;"
+                "sys.stdin.buffer.read();"
+                f"sys.stdout.write({VALID_JSON!r})"
+            ), **kwargs,
+        )
+    result = run_deadlined(
+        cmd("pass"), b"fake", 4, popen=spawn,
+        cpu_seconds=5, virtual_memory_mib=1024,
+    )
+    assert result["text"] == "Hej från isolerad process"
+    assert captured["env"][CPU_ENV] == "5"
+    assert captured["env"][AS_ENV] == "1024"
+    assert "HF_HUB_TOKEN" not in captured["env"]
+    assert CPU_ENV not in os.environ and AS_ENV not in os.environ
