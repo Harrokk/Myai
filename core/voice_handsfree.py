@@ -15,6 +15,9 @@ class VoiceHandsfreeRunner:
         self.max_wait_frames = max_wait_frames
         self._stop_event = threading.Event()
         self._thread = None
+        # A pre-existing voice session may belong to another controller.
+        # Only stop a microphone when this runner actually started it.
+        self._owns_session = False
 
     @property
     def is_running(self):
@@ -33,23 +36,43 @@ class VoiceHandsfreeRunner:
             )
 
         self._stop_event.clear()
-        self.session.start()
+        started = self.session.start()
+        if started is False:
+            # Another controller already owns the microphone. Do not
+            # attach a background reader or take over its cleanup.
+            self._stop_event.set()
+            return False
+
+        self._owns_session = True
         self._thread = threading.Thread(
             target=self._run,
             name="MyAI-VoiceHandsfree",
             daemon=True,
         )
-        self._thread.start()
+        try:
+            self._thread.start()
+        except Exception:
+            # Thread startup can fail after a successful microphone start.
+            # Release only this runner's session, then propagate the
+            # original error rather than reporting handsfree as active.
+            self._stop_event.set()
+            try:
+                self.session.stop()
+            finally:
+                self._owns_session = False
+                self._thread = None
+            raise
         return True
 
     def stop(self, timeout=3.0):
         self._stop_event.set()
 
-        try:
-            self.session.stop()
-        except Exception as error:
-            if self.on_error is not None:
-                self.on_error(error)
+        if self._owns_session:
+            try:
+                self.session.stop()
+            except Exception as error:
+                if self.on_error is not None:
+                    self.on_error(error)
 
         thread = self._thread
 
@@ -63,6 +86,9 @@ class VoiceHandsfreeRunner:
                     float(timeout),
                 )
             )
+
+        if not self.is_running:
+            self._owns_session = False
 
         return not self.is_running
 
@@ -105,13 +131,16 @@ class VoiceHandsfreeRunner:
                     self.on_result(result)
         finally:
             try:
-                self.session.stop()
+                if self._owns_session:
+                    self.session.stop()
             except Exception as error:
                 if (
                     not self._stop_event.is_set()
                     and self.on_error is not None
                 ):
                     self.on_error(error)
+            finally:
+                self._owns_session = False
 
 
 def format_handsfree_result(result):
