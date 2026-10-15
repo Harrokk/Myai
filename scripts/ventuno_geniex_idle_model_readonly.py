@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from scripts.ventuno_existing_geniex_npu_backend_reasons_readonly import classify
 from scripts.ventuno_geniex_runtime_attestation import (
@@ -91,13 +91,19 @@ def service_startup_hint():
         return startup_hint(None)
 
 
+class _NoRedirects(HTTPRedirectHandler):
+    """Never follow a model API redirect off the local device."""
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
 def fixed_loopback_catalog():
     """No proxy, redirects or requests to user-controlled endpoints."""
     result = "unavailable_or_unverified"
     request = Request(BASE_URL + "/models", method="GET")
     try:
         # No inherited proxy environment; no calls outside localhost.
-        opener = build_opener(ProxyHandler({}))
+        opener = build_opener(ProxyHandler({}), _NoRedirects())
         with opener.open(request, timeout=5) as response:
             # The response must come from the fixed local loopback endpoint.
             if response.geturl() != BASE_URL + "/models":
