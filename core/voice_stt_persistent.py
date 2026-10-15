@@ -96,11 +96,37 @@ def _ready(fd, write, deadline, clock, cancel_event=None):
     return True
 
 
-def _send_all(fd, data, deadline, clock, cancel_event=None):
+def _send_all(fd, data, deadline, clock, cancel_event=None,
+              reply_fd=None):
+    """Write all PCM or reject a worker replying/closing stdout early.
+
+    Native worker protocol requires FULL PCM before any response. A
+    half-closed child can otherwise leave the writer waiting until the
+    entire 45-300s deadline, even though it has already answered.
+    """
     pos = 0
     while pos < len(data):
-        if not _ready(fd, True, deadline, clock, cancel_event):
-            continue
+        if reply_fd is None:
+            if not _ready(fd, True, deadline, clock, cancel_event):
+                continue
+        else:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Persistent STT request cancelled")
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise TimeoutError("Persistent STT deadline exceeded")
+            read_ready, write_ready, _ = select.select(
+                [reply_fd], [fd], [],
+                min(remaining, 0.1) if cancel_event is not None else remaining,
+            )
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Persistent STT request cancelled")
+            if read_ready:
+                # Readable also covers EOF, even with zero reply bytes.
+                # Never accept a forged transcript before full PCM.
+                raise RuntimeError("Persistent STT reply before PCM complete")
+            if not write_ready:
+                continue
         try:
             written = os.write(fd, data[pos:pos + 65536])
         except BlockingIOError:
@@ -136,6 +162,7 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
     _send_all(
         proc.stdin.fileno(), struct.pack(">I", len(audio)) + bytes(audio),
         deadline, clock, cancel_event,
+        reply_fd=proc.stdout.fileno(),
     )
     header = _recv_exact(
         proc.stdout.fileno(), FRAME_HEADER, deadline, clock, cancel_event,

@@ -51,6 +51,35 @@ def add_limit_environment(base, *, cpu_seconds=0, virtual_memory_mib=0):
     return result
 
 
+def tighten_inherited_rlimit(current, requested, infinity):
+    """Never raise the inherited soft or hard resource ceiling.
+
+    In particular, an inherited strict SOFT limit with a permissive
+    HARD limit must not be raised by the STT profile. The kernel allows
+    that adjustment, so relying on setrlimit() to reject it is unsafe.
+    """
+    if (type(current) is not tuple or len(current) != 2
+            or type(requested) is not int or requested <= 0):
+        raise ValueError("Invalid inherited STT resource limit")
+    soft, hard = current
+    if (type(soft) is not int or type(hard) is not int
+            or type(infinity) is not int):
+        raise ValueError("Invalid inherited STT resource limit")
+
+    def stricter(previous):
+        if previous == infinity:
+            return requested
+        if previous < 0:
+            raise ValueError("Invalid inherited STT resource limit")
+        return min(previous, requested)
+
+    updated_soft = stricter(soft)
+    updated_hard = stricter(hard)
+    if updated_soft > updated_hard:
+        raise ValueError("Invalid inherited STT resource limit")
+    return updated_soft, updated_hard
+
+
 def apply_child_limits():
     """Run only in fixed child Python worker, BEFORE native model import.
 
@@ -71,13 +100,25 @@ def apply_child_limits():
         int(raw_cpu) if raw_cpu is not None else 0,
         int(raw_mem) if raw_mem is not None else 0,
     )
-    # Unix resource imported only by child; do not load on the parent.
+    # Unix resource is imported only in the child. Read BOTH inherited
+    # ceilings before making any modifications. A stricter inherited
+    # SOFT limit must never be relaxed, even when its hard limit would
+    # allow it. Fail closed before applying any limit if inspection
+    # reveals invalid or inconsistent values.
     import resource
-    # Use soft=hard for a fixed ceiling. If current inherited hard cap
-    # is stricter, setrlimit fails closed instead of loosening it.
-    if cpu:
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
-    if mem:
-        addr_bytes = mem * MIB
-        resource.setrlimit(resource.RLIMIT_AS, (addr_bytes, addr_bytes))
-    return bool(cpu or mem)
+    changes = []
+    for kind, requested in (
+        (resource.RLIMIT_CPU, cpu),
+        (resource.RLIMIT_AS, mem * MIB if mem else 0),
+    ):
+        if requested:
+            current = resource.getrlimit(kind)
+            changes.append((
+                kind,
+                tighten_inherited_rlimit(
+                    current, requested, resource.RLIM_INFINITY,
+                ),
+            ))
+    for kind, limits in changes:
+        resource.setrlimit(kind, limits)
+    return bool(changes)
