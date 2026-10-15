@@ -44,7 +44,14 @@ PROPERTIES = (
     "CanStop", "CanStart", "PartOf", "BindsTo", "TriggeredBy",
     "OnFailure", "Requires", "Wants",
 )
-KNOWN_DEPENDENCIES = frozenset((*UNITS, "network-online.target"))
+# Normal implicit systemd requirements are safe to RECOGNIZE, not a
+# license to stop system targets. Unexpected requirements remain NO-GO.
+BUILTIN_BASE = frozenset({
+    "sysinit.target", "basic.target", "system.slice", "-.mount",
+})
+KNOWN_DEPENDENCIES = frozenset(
+    (*UNITS, "network-online.target", *BUILTIN_BASE)
+)
 SAFE_RESTART_SETTINGS = frozenset({"no", "on-failure"})
 ACTIVE = "active"
 
@@ -78,8 +85,17 @@ def parse_unit(raw):
     # Never export raw dependency names. Reject unknown dependencies
     # instead of assuming they are safe to manipulate in maintenance.
     dependencies = {}
+    core_requirements = []
+    unknown_requires = 0
     for key in ("PartOf", "BindsTo", "TriggeredBy", "OnFailure", "Requires", "Wants"):
         tokens = values[key].split() if values[key] else []
+        if key == "Requires":
+            core_requirements = sorted(
+                name for name in BUILTIN_BASE if name in tokens
+            )
+            unknown_requires = sum(
+                name not in KNOWN_DEPENDENCIES for name in tokens
+            )
         dependencies[key] = (
             "known" if set(tokens) <= KNOWN_DEPENDENCIES else "unknown"
         )
@@ -98,6 +114,8 @@ def parse_unit(raw):
         "can_start": values["CanStart"] == "yes",
         "can_stop": values["CanStop"] == "yes",
         "dependencies": dependencies,
+        "standard_base_requirements_observed": core_requirements,
+        "unrecognized_requirements_count": min(unknown_requires, 128),
     }
 
 
@@ -214,6 +232,14 @@ def decide(units, supervisor):
             isinstance(units.get(n), dict) for n in OBSERVED
         ),
         "dependency_review_needed": dependency_review,
+        "baseline_base_requirements_observed": {
+            name: units[name].get("standard_base_requirements_observed", [])
+            for name in OBSERVED if isinstance(units.get(name), dict)
+        },
+        "baseline_unrecognized_requirements_count": {
+            name: units[name].get("unrecognized_requirements_count", 0)
+            for name in OBSERVED if isinstance(units.get(name), dict)
+        },
         "required_unit_states_all_active": all(
             isinstance(units.get(n), dict)
             and units[n].get("service_appears_running") is True
