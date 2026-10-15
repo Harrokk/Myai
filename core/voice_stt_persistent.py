@@ -16,7 +16,6 @@ when isolation is explicitly enabled.
 from __future__ import annotations
 
 import json
-import math
 import os
 from pathlib import Path
 import select
@@ -192,6 +191,10 @@ class PersistentFasterWhisperSTT:
             bufsize=0, start_new_session=True,
         )
         self._count = 0
+        # select() only prevents blocking if the actual pipe fd is also
+        # O_NONBLOCK. Linux pipe writes larger than PIPE_BUF could stall.
+        os.set_blocking(self._worker.stdin.fileno(), False)
+        os.set_blocking(self._worker.stdout.fileno(), False)
 
     def _release(self):
         proc = self._worker
