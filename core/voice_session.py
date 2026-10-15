@@ -276,6 +276,28 @@ class VoiceSession:
             self.microphone_paused_for_inference = False
             changed = True
 
+        # Persistent STT caches native memory in another process. Close
+        # owned cached model workers when the voice session ends, even
+        # if the microphone had already been released for inference.
+        if self.voice.get("stt_persistent_worker_enabled", False) is True:
+            providers = [
+                self.components.get("primary_stt"),
+                *self.components.get("backup_stt", []),
+            ]
+            visited = set()
+            for provider in providers:
+                if provider is None or id(provider) in visited:
+                    continue
+                visited.add(id(provider))
+                closer = getattr(provider, "close", None)
+                if callable(closer):
+                    try:
+                        closer()
+                    except Exception:
+                        raise RuntimeError(
+                            "Isolerad STT-process kunde inte frigöras."
+                        ) from None
+
         self.gate.reset()
         return changed
 
