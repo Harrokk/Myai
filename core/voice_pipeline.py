@@ -697,7 +697,10 @@ class VoicePipeline:
     @staticmethod
     def _tool_execution_incomplete(response, public_execution):
         if public_execution is None:
-            return False
+            # A legacy assistant with no tools is fully compatible.
+            # An assistant that DID select tools cannot prove completion
+            # by simply omitting its structured outcome contract.
+            return bool(response.get("tools"))
         status = public_execution["status"]
         if status in {"partially_completed", "failed", "unknown"}:
             return True
@@ -707,7 +710,57 @@ class VoicePipeline:
             return bool(response.get("tools"))
         return False
 
-    def _respond_and_speak(self, transcript, approved_digest=None):
+    @classmethod
+    def _verified_tool_response(cls, response):
+        """Never say speculative tool success after a reported failure.
+
+        Copy only the response mapping and replace the optimistic answer
+        with a fixed statement. Do not replay arguments or expose errors.
+        """
+        outcome = cls._public_tool_execution(response)
+        if not (
+            response.get("tool_dispatch_blocked")
+            or cls._tool_execution_incomplete(response, outcome)
+        ):
+            return response
+
+        status = outcome["status"] if outcome else "unknown"
+        if status == "partially_completed":
+            answer = (
+                "Flerkommandot blev bara delvis genomfört. Tidigare "
+                "ändringar kan finnas kvar. Kontrollera resultatet innan "
+                "du försöker igen."
+            )
+        elif response.get("tool_dispatch_blocked"):
+            answer = (
+                "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                "Kontrollera vad som redan utförts innan du försöker igen."
+            )
+        elif status == "failed":
+            answer = (
+                "Verktygsåtgärden misslyckades. Vissa ändringar kan "
+                "redan ha utförts. Kontrollera resultatet innan du försöker igen."
+            )
+        else:
+            answer = (
+                "Verktygsåtgärden kunde inte bekräftas som slutförd. "
+                "Kontrollera resultatet innan du försöker igen."
+            )
+        return {**response, "answer": answer}
+
+    @staticmethod
+    def _defer_streamed_speech(risk, guarded_stream):
+        """Buffer potential tool speech until authoritative outcomes exist."""
+        if not isinstance(risk, dict):
+            return True
+        return (
+            risk.get("level") == "high"
+            or risk.get("tool_plan_checked") is not True
+            or bool(risk.get("tool_names"))
+            or not guarded_stream
+        )
+
+    def _respond_and_speak(self, transcript, approved_digest=None, *, risk=None):
         # Actual MyAICore dispatch receives only a verifier callback:
         # no private key or raw tool arguments are passed to the LLM.
         # Without approved high-risk consent, only strictly allowlisted
@@ -763,22 +816,33 @@ class VoicePipeline:
             voice_stream = getattr(
                 self.assistant, "respond_voice_stream", None
             )
+            defer_speech = self._defer_streamed_speech(
+                risk, callable(voice_stream)
+            )
+            # For planned tools, unsafe/unverified previews and older
+            # streaming assistants, never enqueue speculative LLM chunks.
+            # The assistant still computes its result in the normal way;
+            # no private command content is retained for later retry.
+            chunk_callback = (
+                (lambda _chunk: None) if defer_speech
+                else coordinator.feed
+            )
             if callable(voice_stream):
                 response = voice_stream(
                     transcript,
-                    on_chunk=coordinator.feed,
+                    on_chunk=chunk_callback,
                     plan_verifier=verify_dispatch_plan,
                 )
             else:
                 response = self.assistant.respond_stream(
                     transcript,
-                    on_chunk=coordinator.feed,
+                    on_chunk=chunk_callback,
                 )
+            response = self._verified_tool_response(response)
+            answer = response.get("answer", "")
+            if defer_speech and answer:
+                coordinator.feed(answer)
             coordinator.finish()
-            answer = response.get(
-                "answer",
-                "",
-            )
 
             if answer:
                 self.last_tts_text = answer
@@ -799,6 +863,7 @@ class VoicePipeline:
             )
         else:
             response = self.assistant.respond(transcript)
+        response = self._verified_tool_response(response)
         answer = response.get(
             "answer",
             "",
@@ -1024,6 +1089,7 @@ class VoicePipeline:
                 approved_digest=(
                     pending["risk"].get("tool_plan_digest")
                 ),
+                risk=pending["risk"],
             )
 
             feedback = self._public_memory_feedback(response)
@@ -1314,7 +1380,7 @@ class VoicePipeline:
             }
 
         response = self._respond_and_speak(
-            transcript
+            transcript, risk=final_risk
         )
 
         feedback = self._public_memory_feedback(response)
