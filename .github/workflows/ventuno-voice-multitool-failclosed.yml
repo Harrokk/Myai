@@ -1,0 +1,61 @@
+name: Voice multi-tool fail-closed dispatch (fake only)
+on:
+  push:
+    branches: [dev/ventuno-voice-multitool-atomic-preflight-20261015]
+    paths:
+      - .github/workflows/ventuno-voice-multitool-failclosed.yml
+      - core/tool_manager.py
+      - tests/test_voice_multitool_preflight.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-voice-multitool-failclosed-20261015
+  cancel-in-progress: false
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Exact SHA disposable GitHub-hosted x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-voice-multi.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_VOICE_MULTI_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install pinned pytest and existing runtime deps in disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-voice-multi-venv"
+          "$RUNNER_TEMP/myai-voice-multi-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
+      - name: Test fake registry mutations and multi-tool voice refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_VOICE_MULTI_SCRATCH"
+          "$RUNNER_TEMP/myai-voice-multi-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_multitool_preflight.py \
+            tests/test_voice_dispatch_plan_binding.py
+          echo 'No real workspace operations, microphone, QNN, HTP, GenieX or production changes.'
+      - name: Clean disposable test directory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_VOICE_MULTI_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_VOICE_MULTI_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-voice-multi-venv"

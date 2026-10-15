@@ -1403,64 +1403,106 @@ def run_tools(
     result_char_limit=None,
     execution_guard=None,
 ):
-    """Kör flera verktyg sekventiellt och samla varje resultat separat.
+    """Run tools in order; voice-guarded plans fail closed as a unit.
 
-    Optional execution_guard is evaluated immediately before invocation,
-    using the current registry entry and effective input. A guard must
-    return literal True. Failure/exception means NO-GO, never execute.
+    Guarded execution has two checks:
+    1. Preflight every proposed tool/input before any call. If one step
+       is invalid or unauthorized, execute NONE.
+    2. Re-check each live registry entry at invocation. A changed entry,
+       denied guard, or raised tool error stops all remaining steps.
+
+    Already completed calls cannot be rolled back. Unguarded typed-text
+    behavior remains backward compatible with its per-tool error results.
     """
-
     results = {}
-    per_tool_input = (
-        tool_inputs
-        if isinstance(
-            tool_inputs,
-            dict,
-        )
-        else {}
-    )
+    per_tool_input = tool_inputs if isinstance(tool_inputs, dict) else {}
+    guarded = execution_guard is not None
 
-    for tool_name in tool_names:
+    def effective(tool_name, tool):
+        if tool.get("pass_user_input", False):
+            value = per_tool_input.get(tool_name, user_input)
+            if value is None:
+                raise ValueError(
+                    f"{tool_name} kräver användarens fråga som indata."
+                )
+            return value
+        return None
+
+    def permitted(tool_name, tool, value):
+        try:
+            return execution_guard(tool_name, tool, value) is True
+        except Exception:
+            return False
+
+    if guarded:
+        # Duplicate names collapse in the results dict and in
+        # tool_inputs, so two independently approved arguments cannot
+        # be represented safely. Deny malformed or oversized batches.
+        if (
+            not isinstance(tool_names, (list, tuple))
+            or len(tool_names) > 16
+            or any(not isinstance(name, str) for name in tool_names)
+            or len(set(tool_names)) != len(tool_names)
+            or not isinstance(tools, dict)
+        ):
+            return {
+                name: EXECUTION_BLOCKED_MESSAGE
+                for name in tool_names
+                if isinstance(name, str)
+            } if isinstance(tool_names, (list, tuple)) else {}
+
+        for name in tool_names:
+            tool = tools.get(name)
+            try:
+                if (
+                    not isinstance(tool, dict)
+                    or not callable(tool.get("function"))
+                ):
+                    raise ValueError("invalid-tool-metadata")
+                value = effective(name, tool)
+                authorized = permitted(name, tool, value)
+            except Exception:
+                authorized = False
+            if not authorized:
+                # No step has run; do not even execute earlier reads.
+                return {
+                    planned: EXECUTION_BLOCKED_MESSAGE
+                    for planned in tool_names
+                }
+
+    for index, tool_name in enumerate(tool_names):
         if tool_name not in tools:
+            if guarded:
+                results[tool_name] = EXECUTION_BLOCKED_MESSAGE
+                for remaining in tool_names[index + 1:]:
+                    results[remaining] = EXECUTION_BLOCKED_MESSAGE
+                break
             continue
 
         try:
             tool = tools[tool_name]
+            value = effective(tool_name, tool)
 
-            if tool.get("pass_user_input", False):
-                effective_input = per_tool_input.get(
-                    tool_name,
-                    user_input,
-                )
-
-                if effective_input is None:
-                    raise ValueError(
-                        f"{tool_name} kräver användarens fråga som indata."
-                    )
-
-            else:
-                effective_input = None
-
-            if execution_guard is not None:
-                try:
-                    authorized = execution_guard(
-                        tool_name, tool, effective_input
-                    ) is True
-                except Exception:
-                    authorized = False
-                if not authorized:
+            if guarded:
+                # Preflight cannot eliminate mutation between steps.
+                # Re-evaluate the current callable and risk metadata.
+                if (
+                    not isinstance(tool, dict)
+                    or not callable(tool.get("function"))
+                    or not permitted(tool_name, tool, value)
+                ):
                     results[tool_name] = EXECUTION_BLOCKED_MESSAGE
-                    continue
+                    for remaining in tool_names[index + 1:]:
+                        results[remaining] = EXECUTION_BLOCKED_MESSAGE
+                    break
 
-            tool_function = tool["function"]
+            function = tool["function"]
             if tool.get("pass_user_input", False):
-                result = tool_function(effective_input)
+                result = function(value)
             else:
-                result = tool_function()
+                result = function()
 
-            results[
-                tool_name
-            ] = _bounded_tool_result(
+            results[tool_name] = _bounded_tool_result(
                 result,
                 result_char_limit,
             )
@@ -1471,7 +1513,14 @@ def run_tools(
                 tool_name,
                 error,
             )
-
+            if guarded:
+                # Keep exception messages out of voice results; a final
+                # failed step must also trigger deterministic no-success
+                # response in MyAICore (not just subsequent blocked steps).
+                results[tool_name] = EXECUTION_BLOCKED_MESSAGE
+                for remaining in tool_names[index + 1:]:
+                    results[remaining] = EXECUTION_BLOCKED_MESSAGE
+                break
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
             )
