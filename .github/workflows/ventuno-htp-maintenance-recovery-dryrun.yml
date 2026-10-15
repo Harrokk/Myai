@@ -1,0 +1,116 @@
+name: VENTUNO HTP maintenance recovery rehearsal - never stops services
+on:
+  push:
+    branches: [dev/ventuno-htp-maintenance-recovery-dryrun-20261015]
+    paths:
+      - .github/workflows/ventuno-htp-maintenance-recovery-dryrun.yml
+      - scripts/ventuno_htp_maintenance_recovery_dryrun.py
+      - tests/test_ventuno_htp_maintenance_recovery_dryrun.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-maintenance-recovery-simulation-20261015
+  cancel-in-progress: false
+jobs:
+  fake-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact revision to private temporary x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-maintenance-unit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_MAINTENANCE_UNIT=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Test independent failure/rollback path for every service
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-maintenance-venv"
+          "$RUNNER_TEMP/myai-maintenance-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_MAINTENANCE_UNIT"
+          "$RUNNER_TEMP/myai-maintenance-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_htp_maintenance_recovery_dryrun.py \
+            tests/test_ventuno_tiny_htp_basic_profile_contract_readonly.py
+      - name: Erase disposable x86 environment
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_MAINTENANCE_UNIT:-}" ]; then rm -rf -- "$MYAI_MAINTENANCE_UNIT"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-maintenance-venv"
+
+  physical-readonly:
+    name: Observe installed VENTUNO systemd states and MyAI watchdog config only
+    needs: fake-only
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Checkout exact SHA to temporary private runner workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-maintenance-readonly.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_MAINTENANCE_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: No service changes; analyze systemd and watchdog in process memory
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_MAINTENANCE_BOARD"
+          timeout --signal=TERM --kill-after=3s 70s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_htp_maintenance_recovery_dryrun \
+            | tee "$MYAI_MAINTENANCE_BOARD/sanitized.jsonl"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          rows = Path("sanitized.jsonl").read_text(encoding="utf-8").splitlines()
+          assert len(rows) == 1 and rows[0].startswith("MYAI_HTP_MAINTENANCE_DRYRUN_JSON=")
+          report = json.loads(rows[0].split("=", 1)[1])
+          assert report["status"] == "no_go_dry_run_only"
+          assert report["runner_must_never_be_stopped"] is True
+          assert report["service_changes_authorized"] is False
+          assert report["automatic_rollback_armed"] is False
+          assert report["out_of_band_recovery_verified"] is False
+          assert report["service_control_commands_executed"] is False
+          assert report["qnn_htp_executed"] is False
+          assert report["npu_profile_measured"] is False
+          assert report["private_unit_or_profile_values_exported"] is False
+          print("Real-unit metadata read-only; this workflow NEVER stops or restarts GenieX/MyAI.")
+          PY
+      - name: Delete private temp checkout and safe metadata
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_MAINTENANCE_BOARD:-}" ]; then rm -rf -- "$MYAI_MAINTENANCE_BOARD"; fi
