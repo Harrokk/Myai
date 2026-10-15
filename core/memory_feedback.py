@@ -6,6 +6,8 @@ and SQLite deduplication then run again.
 """
 import re
 
+from core.memory_policy import contains_sensitive_memory_data
+
 
 _EXPLICIT_MEMORY_START = re.compile(
     r"^\s*(?:"
@@ -47,6 +49,14 @@ def memory_write_feedback(message, decision, lookup_status):
     """Return only fixed public status strings; never raw content/errors."""
     if not explicit_memory_request(message):
         return {"status": "not_requested", "message": ""}
+
+    # The database may be offline so no memory policy assessment ran.
+    # Do not encourage the user to repeat passwords or other secrets.
+    if contains_sensitive_memory_data(message):
+        return {
+            "status": "not_saved_sensitive",
+            "message": "Den informationen sparades inte av integritetsskäl.",
+        }
 
     if lookup_status == "unavailable":
         return {"status": "retry_required", "message": _RETRY}
