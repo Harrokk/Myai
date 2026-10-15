@@ -1,4 +1,5 @@
 from copy import deepcopy
+import math
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -1047,6 +1048,24 @@ def validate_settings(
         "voice",
         {},
     )
+
+    # Process isolation is a separate opt-in; an untrusted voice profile
+    # must never be able to turn it on via truthy strings or invalid
+    # timer values. Factory performs the same checks at construction.
+    iso = voice.get("stt_process_isolation_enabled", False)
+    timeout = voice.get("stt_process_timeout_seconds", 45.0)
+    if type(iso) is not bool:
+        issues.append(_issue(
+            "error", "stt_process_isolation_invalid",
+            "voice.stt_process_isolation_enabled måste vara boolesk.",
+        ))
+    if (type(timeout) not in (int, float)
+            or not 1 <= timeout <= 300
+            or not math.isfinite(timeout)):
+        issues.append(_issue(
+            "error", "stt_process_timeout_invalid",
+            "voice.stt_process_timeout_seconds måste vara mellan 1 och 300.",
+        ))
 
     if (
         voice.get(
