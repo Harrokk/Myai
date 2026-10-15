@@ -982,6 +982,16 @@ class VoicePipeline:
                 ),
             )
 
+            if response.get("tool_dispatch_blocked"):
+                return {
+                    "status": "clarify",
+                    "message": response.get("answer", ""),
+                    "transcript": pending["transcript"],
+                    "risk": pending["risk"],
+                    "assistant": response,
+                    "confirmation": {"confirmed": False},
+                }
+
             return {
                 "status": "completed",
                 "transcript": pending["transcript"],
@@ -1243,6 +1253,16 @@ class VoicePipeline:
         response = self._respond_and_speak(
             transcript
         )
+
+        if response.get("tool_dispatch_blocked"):
+            return {
+                "status": "clarify",
+                "message": response.get("answer", ""),
+                "transcript": transcript,
+                "risk": final_risk,
+                "consensus": consensus,
+                "assistant": response,
+            }
 
         return {
             "status": "completed",
