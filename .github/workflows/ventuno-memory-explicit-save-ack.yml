@@ -1,0 +1,64 @@
+name: Explicit memory persistence acknowledgement (synthetic only)
+on:
+  push:
+    branches: [dev/ventuno-memory-explicit-save-ack-20261015]
+    paths:
+      - .github/workflows/ventuno-memory-explicit-save-ack.yml
+      - core/assistant.py
+      - tests/test_memory_explicit_save_ack.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-memory-explicit-ack-20261015
+  cancel-in-progress: false
+jobs:
+  fake-memory-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact SHA into disposable hosted x86 directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-memory-ack.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_MEMORY_ACK_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Pinned existing dependencies in disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-memory-ack-venv"
+          "$RUNNER_TEMP/myai-memory-ack-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
+      - name: Test actual save results, streaming, failures and privacy
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_MEMORY_ACK_SCRATCH"
+          "$RUNNER_TEMP/myai-memory-ack-venv/bin/python" -B -m pytest -q \
+            tests/test_memory_explicit_save_ack.py \
+            tests/test_memory_literal_search_and_recovery.py \
+            tests/test_assistant_core.py
+          echo 'Temporary test SQLite and fake LLM only; no real memory or hardware.'
+      - name: Clean all temporary artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_MEMORY_ACK_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_MEMORY_ACK_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-memory-ack-venv"
