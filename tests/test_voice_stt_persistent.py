@@ -258,3 +258,102 @@ def test_ipc_nonblocking_setup_failure_reaps_child_and_never_reuses(monkeypatch)
     finally:
         monkeypatch.setattr(module.os, "set_blocking", real_set_blocking)
         model.close()
+
+
+
+def test_concurrent_close_cancels_real_stalled_child_before_long_deadline(monkeypatch):
+    """A user Stop must not wait for the 45–300s STT provider timeout."""
+    import threading
+    model = provider(mode="sleep", deadline=30)
+    spawned = threading.Event()
+    original_spawn = model._spawn
+    pid_holder = {}
+    caught = []
+
+    def report_spawn():
+        original_spawn()
+        pid_holder["child"] = model._worker
+        spawned.set()
+
+    monkeypatch.setattr(model, "_spawn", report_spawn)
+
+    def decode():
+        try:
+            model.transcribe(b"PRIVATE_SYNTHETIC_PCM")
+        except Exception as exc:
+            caught.append(str(exc))
+
+    t = threading.Thread(target=decode, daemon=True)
+    started = time.monotonic()
+    t.start()
+    try:
+        assert spawned.wait(timeout=3)
+        # The in-flight worker will either be in IPC or just about to
+        # enter it, but a late result may never be authorized.
+        model.close()
+        t.join(timeout=3)
+        assert not t.is_alive()
+        assert time.monotonic() - started < 6
+        assert any("cancelled" in item for item in caught)
+        assert "PRIVATE_SYNTHETIC_PCM" not in repr(caught)
+        assert pid_holder["child"].poll() is not None
+        assert model._worker is None
+        assert model._cancel.is_set()
+        with pytest.raises(RuntimeError, match="cancelled"):
+            model.transcribe(b"must-not-relaunch")
+        assert model._worker is None
+        model.resume()
+        model._argv = script("reply")
+        assert model.transcribe(b"new-voice-session")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+        t.join(timeout=3)
+
+
+def test_cancel_signal_is_nonblocking_even_if_decode_owns_worker_mutex(monkeypatch):
+    import threading
+    model = provider()
+    owns_lock = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lock():
+        with model._lock:
+            owns_lock.set()
+            assert release_lock.wait(timeout=3)
+
+    holder = threading.Thread(target=hold_lock, daemon=True)
+    holder.start()
+    try:
+        assert owns_lock.wait(timeout=2)
+        start = time.monotonic()
+        model.request_cancel()
+        assert time.monotonic() - start < 0.2
+        assert model._cancel.is_set()
+    finally:
+        release_lock.set()
+        holder.join(timeout=3)
+        model.close()
+
+
+def test_release_for_inference_is_not_a_permanent_user_stop():
+    model = provider()
+    try:
+        model.transcribe(b"synthetic")
+        assert model.release_for_inference() is True
+        assert model._cancel.is_set() is False
+        assert model.transcribe(b"second-request")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+
+
+def test_cancelled_persistent_stt_can_be_resumed_without_worker_leak():
+    model = provider()
+    model.request_cancel()
+    with pytest.raises(RuntimeError, match="cancelled"):
+        model.transcribe(b"synthetic")
+    assert model._worker is None
+    model.resume()
+    try:
+        assert model.transcribe(b"valid-after-resume")["language"] == "sv"
+    finally:
+        model.close()
