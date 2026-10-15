@@ -615,3 +615,45 @@ def test_no_cooperative_keyword_is_passed_to_typical_existing_tool():
     )
     assert effects == ["synthetic"]
     assert result["workspace_write"] == "legacy tool okay"
+
+
+def test_core_cooperative_voice_tool_requires_real_stop_hook(tmp_path, monkeypatch):
+    calls = []
+    def operation(*, cancel_requested):
+        calls.append("unwanted")
+        return "done"
+    tools = {"workspace_write": {
+        "function": operation,
+        "safety": {"effect": "write", "voice_cancel_callback": True},
+    }}
+    plan = {"steps": [{"tool": "workspace_write", "input": "synthetic"}]}
+    core = core_with_plan(tmp_path, monkeypatch, tools, plan)
+
+    # A bare verifier can approve a plan, but cannot actually supply
+    # live cancellation for a callback claiming cooperative safety.
+    result = core.respond_voice("synthetic", plan_verifier=lambda *_: True)
+    assert calls == []
+    assert result["tool_dispatch_blocked"] is True
+    assert result["tool_results"]["workspace_write"] == EXECUTION_BLOCKED_MESSAGE
+    assert core.llm.calls == []
+
+
+def test_core_cooperative_voice_tool_works_with_real_stop_hook(tmp_path, monkeypatch):
+    calls = []
+    def operation(*, cancel_requested):
+        calls.append(cancel_requested())
+        return "done"
+    tools = {"workspace_write": {
+        "function": operation,
+        "safety": {"effect": "write", "voice_cancel_callback": True},
+    }}
+    plan = {"steps": [{"tool": "workspace_write", "input": "synthetic"}]}
+    core = core_with_plan(tmp_path, monkeypatch, tools, plan)
+
+    def verifier(*_):
+        return True
+    verifier.voice_stop_requested = lambda: False
+    result = core.respond_voice("synthetic", plan_verifier=verifier)
+    assert calls == [False]
+    assert result["tool_execution_status"] == "completed"
+    assert result["manual_reconciliation_required"] is False
