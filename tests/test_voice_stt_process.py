@@ -264,10 +264,10 @@ def test_child_forged_early_transcript_without_consuming_pcm_is_rejected():
     """A plausible answer before complete audio transfer is not a vote."""
     fake_answer = VALID_JSON.encode()
     script = (
-        "import sys,time;"
+        "import os,sys,time;"
         f"sys.stdout.buffer.write({fake_answer!r});"
         "sys.stdout.buffer.flush();"
-        "sys.stdout.close();"
+        "os.close(1);"
         "time.sleep(60)"
     )
     start = time.monotonic()
@@ -285,7 +285,7 @@ def test_child_closes_stdin_without_processing_audio_is_not_authorized():
         "os.close(0);"
         f"sys.stdout.buffer.write({fake_answer!r});"
         "sys.stdout.buffer.flush();"
-        "sys.stdout.close();"
+        "os.close(1);"
         "time.sleep(60)"
     )
     with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
@@ -294,10 +294,10 @@ def test_child_closes_stdin_without_processing_audio_is_not_authorized():
 
 def test_truncated_reply_then_closed_stdout_is_never_authorized():
     script = (
-        "import sys,time;"
+        "import os,sys,time;"
         "sys.stdout.buffer.write(b'{\\\"text\\\":\\\"private\\\"');"
         "sys.stdout.buffer.flush();"
-        "sys.stdout.close();"
+        "os.close(1);"
         "time.sleep(60)"
     )
     with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
