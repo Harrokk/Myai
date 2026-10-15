@@ -33,6 +33,10 @@ def main():
             return 2
         config = json.loads(sys.argv[1])
         worker_argv(config)
+        from core.voice_stt_child_limits import apply_child_limits
+        # Applies only inside this isolated child BEFORE model/native
+        # dependencies load; leaves the parent/GenieX entirely untouched.
+        apply_child_limits()
         from modules.voice.providers import FasterWhisperSTT
         provider = FasterWhisperSTT(**config)
         # Parent enforces a lower configurable cap, but the child must
