@@ -6,6 +6,7 @@ from core.assistant import MyAICore
 from core.config import DEFAULT_SETTINGS
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
+    EXECUTION_FAILED_MESSAGE,
     run_tools,
 )
 from core.voice_plan_attestation import (
@@ -149,7 +150,7 @@ def test_guarded_read_then_failed_tool_blocks_later_mutation():
     )
     assert calls == ["read", "fails"]
     assert result["cpu_status"] == "CPU OK"
-    assert result["workspace_write"] == EXECUTION_BLOCKED_MESSAGE
+    assert result["workspace_write"] == EXECUTION_FAILED_MESSAGE
     assert result["ram_status"] == EXECUTION_BLOCKED_MESSAGE
     assert "SECRET_PRIVATE" not in str(result)
 
@@ -169,7 +170,7 @@ def test_guarded_last_step_exception_returns_denied_instead_of_success():
         execution_guard=lambda *_: True,
     )
     assert calls == ["tried"]
-    assert result["workspace_write"] == EXECUTION_BLOCKED_MESSAGE
+    assert result["workspace_write"] == EXECUTION_FAILED_MESSAGE
     assert "SECRET" not in str(result)
 
 

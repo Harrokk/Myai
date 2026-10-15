@@ -871,6 +871,7 @@ TOOLS = {
     },
     "excel_create_sheet": {
         "function": excel_create_sheet,
+        "result_failure_prefixes": ("Kunde inte skapa Excel-bladet:",),
         "description": (
             "Skapar ett nytt namngivet arbetsblad i en befintlig "
             ".xlsx-fil när Excel-skrivning är aktiverad."
@@ -883,6 +884,7 @@ TOOLS = {
     },
     "excel_create": {
         "function": excel_create,
+        "result_failure_prefixes": ("Kunde inte skapa Excel-filen:",),
         "description": (
             "Skapar en .xlsx-tabell i workspace från kolumner och rader "
             "som anges i användarens instruktion."
@@ -902,6 +904,7 @@ TOOLS = {
     },
     "excel_append": {
         "function": excel_append,
+        "result_failure_prefixes": ("Kunde inte lägga till Excel-raden:",),
         "description": (
             "Lägger till en rad i en befintlig .xlsx-fil i workspace."
         ),
@@ -913,6 +916,7 @@ TOOLS = {
     },
     "excel_set_cell": {
         "function": excel_set_cell,
+        "result_failure_prefixes": ("Kunde inte ändra Excel-cellen:",),
         "description": (
             "Ändrar en namngiven cell i A1-format i en befintlig .xlsx-fil "
             "och kan bevara Excel-formler som börjar med =."

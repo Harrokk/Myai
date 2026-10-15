@@ -32,6 +32,11 @@ def sign_voice_plan(plan, tools, secret):
         safety.append({
             "tool": name,
             "safety": metadata.get("safety", {}),
+            # Failure classification is part of the authorization:
+            # changing it mid-batch must invalidate the HMAC.
+            "result_failure_prefixes": metadata.get(
+                "result_failure_prefixes", ()
+            ),
             # A swapped callback is not equivalent even if it claims
             # the same name/effect/input. Internal object IDs are HMACed,
             # never directly exposed or used as durable identifiers.

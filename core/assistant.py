@@ -20,8 +20,10 @@ from core.health_status import (
 )
 from core.orchestration import public_plan
 from core.voice_plan_attestation import allow_voice_dispatch
+from core.tool_outcome import summarize_guarded_outcomes
 from core.tool_manager import (
     EXECUTION_BLOCKED_MESSAGE,
+    EXECUTION_FAILED_MESSAGE,
     load_tools,
     run_tools,
     select_tool_plan,
@@ -878,6 +880,8 @@ Svara kort och tydligt på svenska.
             voice_mode=voice_mode,
         )
 
+        tool_outcomes = {} if voice_mode else None
+
         if confirmed is not None:
             (
                 tool_plan,
@@ -946,6 +950,7 @@ Svara kort och tydligt på svenska.
                         6000,
                     ),
                     execution_guard=execution_guard,
+                    outcome_details=tool_outcomes,
                 )
 
             pending_intermediate_results = (
@@ -983,6 +988,7 @@ Svara kort och tydligt på svenska.
             tool_results,
             pending_intermediate_results,
             messages,
+            tool_outcomes,
         )
 
     def _llm_runtime_metadata(self):
@@ -1093,7 +1099,7 @@ Svara kort och tydligt på svenska.
     @staticmethod
     def _tool_dispatch_was_blocked(tool_results):
         return isinstance(tool_results, dict) and any(
-            value == EXECUTION_BLOCKED_MESSAGE
+            value in (EXECUTION_BLOCKED_MESSAGE, EXECUTION_FAILED_MESSAGE)
             for value in tool_results.values()
             if isinstance(value, str)
         )
@@ -1107,6 +1113,7 @@ Svara kort och tydligt på svenska.
         tool_plan=None,
         pending_intermediate_results=None,
         streamed=False,
+        tool_outcomes=None,
     ):
         memory_decision = self._consider_long_term_memory(
             user_message
@@ -1131,6 +1138,11 @@ Svara kort och tydligt på svenska.
             "tool_results": tool_results or {},
             "tool_dispatch_blocked": self._tool_dispatch_was_blocked(
                 tool_results
+            ),
+            "tool_outcomes": tool_outcomes or {},
+            "tool_execution_status": (
+                summarize_guarded_outcomes(tool_outcomes)
+                if tool_outcomes is not None else "not_applicable"
             ),
             "orchestration_plan": public_plan(
                 tool_plan
@@ -1175,6 +1187,7 @@ Svara kort och tydligt på svenska.
                 tool_results,
                 pending_intermediate_results,
                 messages,
+                tool_outcomes,
             ) = self._prepare_response(
                 user_message, voice_plan_verifier=_voice_plan_verifier
             )
@@ -1186,10 +1199,17 @@ Svara kort och tydligt på svenska.
                 _voice_plan_verifier is not None
                 and self._tool_dispatch_was_blocked(tool_results)
             ):
-                answer = (
-                    "Verktygsåtgärden stoppades av säkerhetskontrollen. "
-                    "Säg hela kommandot igen om det fortfarande ska köras."
-                )
+                if summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
+                    answer = (
+                        "Flerkommandot stoppades efter att minst ett steg "
+                        "hade genomförts. Tidigare ändringar kan finnas kvar. "
+                        "Kontrollera resultatet innan du försöker igen."
+                    )
+                else:
+                    answer = (
+                        "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                        "Säg hela kommandot igen om det fortfarande ska köras."
+                    )
             else:
                 answer = self.llm.chat(
                     messages,
@@ -1206,6 +1226,7 @@ Svara kort och tydligt på svenska.
                     pending_intermediate_results
                 ),
                 streamed=False,
+                tool_outcomes=tool_outcomes,
             )
 
     def respond_stream(
@@ -1222,6 +1243,7 @@ Svara kort och tydligt på svenska.
                 tool_results,
                 pending_intermediate_results,
                 messages,
+                tool_outcomes,
             ) = self._prepare_response(
                 user_message, voice_plan_verifier=_voice_plan_verifier
             )
@@ -1230,10 +1252,17 @@ Svara kort och tydligt på svenska.
                 _voice_plan_verifier is not None
                 and self._tool_dispatch_was_blocked(tool_results)
             ):
-                answer = (
-                    "Verktygsåtgärden stoppades av säkerhetskontrollen. "
-                    "Säg hela kommandot igen om det fortfarande ska köras."
-                )
+                if summarize_guarded_outcomes(tool_outcomes) == "partially_completed":
+                    answer = (
+                        "Flerkommandot stoppades efter att minst ett steg "
+                        "hade genomförts. Tidigare ändringar kan finnas kvar. "
+                        "Kontrollera resultatet innan du försöker igen."
+                    )
+                else:
+                    answer = (
+                        "Verktygsåtgärden stoppades av säkerhetskontrollen. "
+                        "Säg hela kommandot igen om det fortfarande ska köras."
+                    )
                 # No model output and no speculative streaming token
                 # may present an unexecuted action as completed.
                 if on_chunk is not None:
@@ -1246,6 +1275,7 @@ Svara kort och tydligt på svenska.
                     tool_plan=tool_plan,
                     pending_intermediate_results=pending_intermediate_results,
                     streamed=False,
+                    tool_outcomes=tool_outcomes,
                 )
 
             stream = getattr(
@@ -1273,6 +1303,7 @@ Svara kort och tydligt på svenska.
                         pending_intermediate_results
                     ),
                     streamed=False,
+                    tool_outcomes=tool_outcomes,
                 )
 
             chunks = []
@@ -1303,6 +1334,7 @@ Svara kort och tydligt på svenska.
                     pending_intermediate_results
                 ),
                 streamed=True,
+                tool_outcomes=tool_outcomes,
             )
 
     def _remember_conversation_turn(self, user_message, answer):

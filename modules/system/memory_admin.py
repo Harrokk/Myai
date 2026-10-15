@@ -558,6 +558,14 @@ TOOLS = {
     },
     "memory_review_action": {
         "function": memory_review_action,
+        "result_failure_prefixes": (
+            "Minnesgranskningen kunde inte godkännas:",
+            "Minnesgranskningen kunde inte avvisas:",
+            "Minnet kunde inte ersättas:",
+            "Minnet kunde inte raderas:",
+            "Permanent minnesradering är avstängd",
+            "Ingen minnesändring gjordes.",
+        ),
         "description": (
             "Utför endast exakta, auditerade minnesadministrationskommandon "
             "för godkännande, avvisning, ersättning eller permanent radering."
