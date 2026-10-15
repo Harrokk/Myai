@@ -1243,6 +1243,7 @@ Svara kort och tydligt på svenska.
                 tool_results,
                 pending_intermediate_results,
                 messages,
+                tool_outcomes,
             ) = self._prepare_response(
                 user_message, voice_plan_verifier=_voice_plan_verifier
             )
