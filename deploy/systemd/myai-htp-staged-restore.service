@@ -1,0 +1,22 @@
+# REVIEW-ONLY FILE. NOT INSTALLED, ENABLED OR STARTED BY GITHUB CI.
+# Install only with a separately approved root-owned, audited maintenance
+# lease arming procedure, atomic lease creation, and verified watchdog plan.
+[Unit]
+Description=MyAI HTP emergency restoration (staged, root-owned lease only)
+Documentation=https://github.com/Harrokk/Myai
+ConditionPathExists=/run/myai-htp-restore/lease.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/myai/ventuno_htp_system_recovery_staged.py --restore
+TimeoutStartSec=75
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
