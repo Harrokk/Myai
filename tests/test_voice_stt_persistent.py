@@ -48,6 +48,12 @@ while True:
         o.write(b'\\x00\\x00');o.flush();sys.exit(0)
     elif MODE=='truncated_body':
         o.write(struct.pack('>I',20)+b'{"text":');o.flush();sys.exit(0)
+    elif MODE=='double_reply':
+        payload=json.dumps({'text':'syntetiskt svar','language':'sv','confidence':None}).encode()
+        frame=struct.pack('>I',len(payload))+payload
+        # Two replies in a single flush: the second would be wrongly
+        # accepted as the transcript for a later unrelated utterance.
+        o.write(frame+frame);o.flush()
     elif MODE=='die':
         sys.exit(3)
     else:
@@ -474,4 +480,54 @@ def test_raw_native_pipe_error_is_redacted_and_child_is_reaped(monkeypatch):
         assert model.transcribe(b"fresh")["text"] == "syntetiskt svar"
     finally:
         monkeypatch.setattr(module, "exchange", original_exchange)
+        model.close()
+
+
+def test_persistent_stt_rejects_two_responses_for_one_audio_frame():
+    model = provider(mode="double_reply")
+    try:
+        with pytest.raises(RuntimeError, match="unsolicited reply data"):
+            model.transcribe(b"first-and-only-audio")
+        assert model._worker is None
+        assert model._count == 0
+        assert model._cleanup_required is False
+        # A genuinely NEW independent child can serve the next frame.
+        model._argv = script("reply")
+        assert model.transcribe(b"new-audio")["text"] == "syntetiskt svar"
+    finally:
+        model.close()
+
+
+def test_interrupted_reap_poison_flag_prevents_reuse_of_unknown_worker(monkeypatch):
+    import core.voice_stt_persistent as module
+    model = provider(cap=1)
+    normal_cleanup = module.terminate_owned
+    try:
+        def interrupt_reap(_proc):
+            raise KeyboardInterrupt("PRIVATE_KERNEL_REAP_STATE")
+        monkeypatch.setattr(module, "terminate_owned", interrupt_reap)
+        with pytest.raises(RuntimeError, match="cleanup incomplete") as err:
+            model.transcribe(b"synthetic")
+        assert "PRIVATE" not in str(err.value)
+        assert model._worker is not None
+        assert model._cleanup_required is True
+        with pytest.raises(RuntimeError, match="cleanup pending"):
+            model.transcribe(b"must-not-reuse")
+        with pytest.raises(RuntimeError, match="cleanup pending"):
+            model.resume()
+        monkeypatch.setattr(module, "terminate_owned", normal_cleanup)
+        assert model.close() is True
+        assert model._worker is None
+        assert model._cleanup_required is False
+    finally:
+        monkeypatch.setattr(module, "terminate_owned", normal_cleanup)
+        model.close()
+
+
+def test_buffered_stt_reply_boundary_allows_normal_end_of_file():
+    # After a valid reply, worker EOF is not an extra transcript.
+    model = provider(mode="reply")
+    try:
+        assert model.transcribe(b"valid-frame")["text"] == "syntetiskt svar"
+    finally:
         model.close()
