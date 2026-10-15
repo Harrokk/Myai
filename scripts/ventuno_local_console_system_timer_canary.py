@@ -26,7 +26,7 @@ import time
 
 from scripts import ventuno_htp_local_recovery_canary as marker
 from scripts.ventuno_system_manager_timer_canary import (
-    FIXED_USER, MAX_WAIT_SECONDS, PREFIX, SYSTEMD_RUN,
+    FIXED_USER, MAX_WAIT_SECONDS, SYSTEMD_RUN,
     system_timer_argv,
 )
 
@@ -136,10 +136,10 @@ def exercise_local(*, root=None, arch=None, username=None, uid=None,
         return result
     temp = None
     try:
-        temp = Path(tempfile.mkdtemp(prefix=PREFIX, dir=root))
+        temp = Path(tempfile.mkdtemp(prefix=marker.PREFIX, dir=root))
         temp.chmod(0o700)
         callback = Path(marker.__file__).resolve()
-        unit = PREFIX + secrets.token_hex(6)
+        unit = marker.PREFIX + secrets.token_hex(6)
         argv = _sudo_argv(unit, temp, callback)
         try:
             launch = timer_call(argv, timeout=MAX_LAUNCH_SECONDS)
