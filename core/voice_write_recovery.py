@@ -83,13 +83,27 @@ class VoiceWriteReconciliation:
         try:
             with self.journal._locked_directory(directory):
                 try:
-                    _marker_info(directory)
+                    marker = _marker_info(directory)
                 except FileNotFoundError:
                     return {"status": "no_marker"}
                 try:
-                    _read_private(directory, PENDING)
+                    ticket, _ = _read_private(directory, PENDING)
                 except FileNotFoundError:
                     return {"status": "needs_external_review"}
+                # A crash immediately after O_EXCL file creation can
+                # leave an empty or truncated ticket. Never present it
+                # as an actionable, valid operator review.
+                match = re.fullmatch(
+                    rb"MYAI-VOICE-REVIEW-TICKET-v1\\n"
+                    rb"token=([0-9a-f]{32})\\n"
+                    rb"dev=[0-9]+\\ninode=[0-9]+\\n"
+                    rb"ctime_ns=[0-9]+\\n",
+                    ticket,
+                )
+                if (match is None or ticket != _ticket_bytes(
+                    match.group(1).decode("ascii"), marker
+                )):
+                    raise OSError("Incomplete or stale voice review ticket")
                 return {"status": "review_ticket_pending"}
         finally:
             os.close(directory)
