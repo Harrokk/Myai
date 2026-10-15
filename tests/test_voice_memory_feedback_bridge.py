@@ -43,10 +43,13 @@ class StubMemoryAssistant:
     def respond_voice(self, text, *, plan_verifier):
         return self.respond(text)
 
-    def respond_voice_stream(self, text, *, plan_verifier, on_chunk):
+    def respond_stream(self, text, on_chunk):
         result = self.respond(text)
         on_chunk(result["answer"])
         return {**result, "streamed": True}
+
+    def respond_voice_stream(self, text, *, plan_verifier, on_chunk):
+        return self.respond_stream(text, on_chunk)
 
 
 def voice_config(*, stream=False, confirmation=False):
