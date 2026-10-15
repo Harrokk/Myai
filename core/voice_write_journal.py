@@ -26,6 +26,17 @@ class VoiceWriteAheadMarker:
         self._blocked = False
 
     def _open_directory(self):
+        # Windows/unsupported local filesystems do not expose this POSIX
+        # dirfd+no-follow protocol. Deny voice writes rather than falling
+        # back to an unsafe non-exclusive path operation.
+        if not (
+            hasattr(os, "O_DIRECTORY")
+            and hasattr(os, "O_NOFOLLOW")
+            and hasattr(os, "geteuid")
+            and os.mkdir in os.supports_dir_fd
+            and os.stat in os.supports_dir_fd
+        ):
+            raise OSError("Durable voice marker unsupported on this platform")
         # Fail closed on errors and symlinks; never create an arbitrary
         # destination supplied by a transcript or a tool argument.
         rootfd = os.open(
