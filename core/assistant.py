@@ -295,6 +295,25 @@ Svara kort och tydligt på svenska.
             if item.get("role") == "user"
         ]
 
+    def _record_memory_audit_result(self, decision, **event):
+        """Record a completed/failed memory attempt without losing its outcome.
+
+        The memory write or queue operation has already been attempted.
+        An audit-log failure here must NOT trigger a retry, hide a
+        successful write, or raise a second exception over the first.
+        Whether the event was physically persisted is then unverified.
+        """
+        try:
+            self.audit_logger.write_result(**event)
+        except Exception:
+            decision["audit_result_status"] = "unverified"
+            decision["audit_result_error"] = (
+                "Minnesåtgärdens slutliga revisionslogg kunde inte "
+                "verifieras."
+            )
+        else:
+            decision["audit_result_status"] = "recorded"
+
     def _queue_memory_review(
         self,
         decision,
@@ -420,7 +439,8 @@ Svara kort och tydligt på svenska.
                 conflict_ids=conflicts,
             )
         except Exception as error:
-            self.audit_logger.write_result(
+            self._record_memory_audit_result(
+                decision,
                 action="memory_review_enqueue",
                 component="memory",
                 outcome=(
@@ -458,7 +478,8 @@ Svara kort och tydligt på svenska.
                 "created"
             )
         )
-        self.audit_logger.write_result(
+        self._record_memory_audit_result(
+            decision,
             action="memory_review_enqueue",
             component="memory",
             outcome="success",
@@ -553,7 +574,8 @@ Svara kort och tydligt på svenska.
                     settings=self.settings,
                 )
             except Exception as error:
-                self.audit_logger.write_result(
+                self._record_memory_audit_result(
+                    decision,
                     action="memory_auto_store",
                     component="memory",
                     outcome=(
@@ -590,7 +612,8 @@ Svara kort och tydligt på svenska.
             decision.update(
                 lifecycle
             )
-            self.audit_logger.write_result(
+            self._record_memory_audit_result(
+                decision,
                 action="memory_auto_store",
                 component="memory",
                 outcome="success",
