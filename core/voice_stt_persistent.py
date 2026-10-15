@@ -15,8 +15,10 @@ when isolation is explicitly enabled.
 """
 from __future__ import annotations
 
+import hmac
 import os
 from pathlib import Path
+import secrets
 import select
 import struct
 import subprocess
@@ -37,6 +39,8 @@ MAX_UTTERANCES_PER_CHILD = 8
 FRAME_HEADER = 4
 MAX_REQUEST = MAX_PCM_BYTES
 MAX_RESPONSE = MAX_REPLY_BYTES
+# Random token binds each persistent response to its corresponding PCM frame.
+REQUEST_NONCE_BYTES = 16
 
 
 def bounded_utterances(value):
@@ -159,9 +163,10 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
     if proc.poll() is not None:
         raise RuntimeError("Persistent STT worker is not running")
     reject_buffered_stt_reply(proc, allow_eof=False)
+    nonce = secrets.token_bytes(REQUEST_NONCE_BYTES)
     deadline = clock() + timeout
     _send_all(
-        proc.stdin.fileno(), struct.pack(">I", len(audio)) + bytes(audio),
+        proc.stdin.fileno(), struct.pack(">I", len(audio)) + nonce + bytes(audio),
         deadline, clock, cancel_event,
         reply_fd=proc.stdout.fileno(),
     )
@@ -169,11 +174,15 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
         proc.stdout.fileno(), FRAME_HEADER, deadline, clock, cancel_event,
     )
     size = struct.unpack(">I", header)[0]
-    if size < 1 or size > MAX_RESPONSE:
+    if size <= REQUEST_NONCE_BYTES or size > MAX_RESPONSE + REQUEST_NONCE_BYTES:
         raise RuntimeError("Oversized persistent STT response")
-    result = parse_reply(_recv_exact(
+    framed = _recv_exact(
         proc.stdout.fileno(), size, deadline, clock, cancel_event,
-    ))
+    )
+    if not hmac.compare_digest(framed[:REQUEST_NONCE_BYTES], nonce):
+        # A delayed response for another utterance is never trusted.
+        raise RuntimeError("Persistent STT response request mismatch")
+    result = parse_reply(framed[REQUEST_NONCE_BYTES:])
     if cancel_event is not None and cancel_event.is_set():
         # A reply racing with a user's Stop must not authorize an
         # assistant/tool invocation after the stop request.
