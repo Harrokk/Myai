@@ -1,5 +1,9 @@
 from difflib import SequenceMatcher
+import hashlib
+import hmac
+import json
 import math
+import secrets
 
 from core.voice_streaming import StreamingTTSCoordinator
 import re
@@ -440,6 +444,9 @@ class VoicePipeline:
         self.pending_confirmation = None
         self.streaming_tts = None
         self.before_assistant = before_assistant
+        # Private per-session HMAC key: never return raw tool args or
+        # a dictionary-attackable plain hash in voice diagnostics.
+        self._plan_attestation_key = secrets.token_bytes(32)
 
     @property
     def voice_settings(self):
@@ -498,8 +505,36 @@ class VoicePipeline:
             }
 
         try:
+            # Freeze the planned tools, parameters and current per-tool
+            # safety metadata into a private attestation. Tool names
+            # alone cannot detect changed arguments or write effects.
+            safety_snapshot = []
+            for step in plan["steps"]:
+                if not isinstance(step, dict):
+                    raise ValueError("invalid-step")
+                name = step.get("tool")
+                if not isinstance(name, str) or not name:
+                    raise ValueError("invalid-tool")
+                metadata = tools.get(name, {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("invalid-metadata")
+                safety_snapshot.append({
+                    "tool": name,
+                    "safety": metadata.get("safety", {}),
+                })
+            if len(safety_snapshot) > 16:
+                raise ValueError("oversized-plan")
+            payload = json.dumps({
+                "steps": plan["steps"],
+                "safety": safety_snapshot,
+            }, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            if len(payload) > 32768:
+                raise ValueError("oversized-plan")
+            digest = hmac.new(
+                self._plan_attestation_key, payload, hashlib.sha256
+            ).hexdigest()
             tool_risk = classify_tool_plan_risk(plan, tools)
-        except (TypeError, ValueError, AttributeError, KeyError):
+        except (TypeError, ValueError, AttributeError, KeyError, OverflowError):
             return {
                 "level": "high",
                 "reasons": list(phrase_risk["reasons"]) + [
@@ -541,6 +576,7 @@ class VoicePipeline:
                 [],
             ),
             "tool_plan_checked": True,
+            "tool_plan_digest": digest,
         }
 
     def _transcribe(self, provider, audio):
@@ -897,6 +933,8 @@ class VoicePipeline:
                 or previous_risk.get("tool_plan_error") is not None
                 or current_risk.get("tool_plan_checked", False)
                    != previous_risk.get("tool_plan_checked", False)
+                or current_risk.get("tool_plan_digest")
+                   != previous_risk.get("tool_plan_digest")
                 or current_risk.get("level") != previous_risk.get("level")
                 or set(current_risk.get("tool_names", []))
                    != set(previous_risk.get("tool_names", []))
