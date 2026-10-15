@@ -69,8 +69,18 @@ def test_structured_tool_status_controls_ui(status, selected, expected):
     assert assistant.calls == 1
 
 
-def test_legacy_assistant_without_structured_field_remains_compatible():
+def test_legacy_assistant_without_outcomes_cannot_assert_tool_success():
     assistant = ToolStatusAssistant(tools=["read_only_legacy_tool"])
+    result = VoicePipeline(
+        assistant, FakeSTT("Hur mår systemet"), settings=settings()
+    ).process_utterance(b"synthetic")
+    assert result["status"] == "clarify"
+    assert "tool_execution" not in result
+    assert "kunde inte bekräftas" in result["message"]
+
+
+def test_legacy_assistant_without_tools_remains_compatible():
+    assistant = ToolStatusAssistant(tools=[])
     result = VoicePipeline(
         assistant, FakeSTT("Hur mår systemet"), settings=settings()
     ).process_utterance(b"synthetic")
