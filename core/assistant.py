@@ -19,6 +19,7 @@ from core.health_status import (
     write_health_state,
 )
 from core.orchestration import public_plan
+from core.voice_plan_attestation import allow_voice_dispatch
 from core.tool_manager import (
     load_tools,
     run_tools,
@@ -710,6 +711,8 @@ Svara kort och tydligt på svenska.
     def _confirmed_intermediate_response(
         self,
         user_message,
+        *,
+        voice_mode=False,
     ):
         if not self._intermediate_enabled():
             return None
@@ -720,6 +723,27 @@ Svara kort och tydligt på svenska.
 
         if identifier is None:
             return None
+
+        if voice_mode:
+            # An old typed intermediate confirmation has no matching
+            # independent spoken-consent attestation. Never route it to
+            # the legacy unguarded run_tools path from VoicePipeline.
+            return (
+                {
+                    "source": "intermediate_voice_blocked",
+                    "steps": [],
+                    "deferred_steps": [],
+                    "blocked_tools": [],
+                },
+                [],
+                {
+                    "intermediate_protocol": (
+                        "Mellanresultatets bekräftelse kan inte "
+                        "utföras med röst utan separat verifiering."
+                    ),
+                },
+                [],
+            )
 
         item = self.intermediate_results.get(
             identifier
@@ -846,9 +870,11 @@ Svara kort och tydligt på svenska.
                 settings=self.settings,
             )
 
-    def _prepare_response(self, user_message):
+    def _prepare_response(self, user_message, *, voice_plan_verifier=None):
+        voice_mode = voice_plan_verifier is not None
         confirmed = self._confirmed_intermediate_response(
-            user_message
+            user_message,
+            voice_mode=voice_mode,
         )
 
         if confirmed is not None:
@@ -894,6 +920,20 @@ Svara kort och tydligt på svenska.
                     "orchestration",
                     {},
                 )
+                execution_guard = None
+                if voice_mode:
+                    # This boundary is rechecked for each invocation,
+                    # against actual selected inputs and live tool metadata.
+                    def execution_guard(name, entry, actual_input):
+                        return allow_voice_dispatch(
+                            tool_plan,
+                            self.tools,
+                            name,
+                            entry,
+                            actual_input,
+                            voice_plan_verifier,
+                        )
+
                 tool_results = run_tools(
                     tool_names,
                     self.tools,
@@ -904,6 +944,7 @@ Svara kort och tydligt på svenska.
                         "max_result_chars_per_tool",
                         6000,
                     ),
+                    execution_guard=execution_guard,
                 )
 
             pending_intermediate_results = (
@@ -1096,7 +1137,25 @@ Svara kort och tydligt på svenska.
             "health": health,
         }
 
-    def respond(self, user_message):
+    def respond_voice(self, user_message, *, plan_verifier):
+        if not callable(plan_verifier):
+            raise ValueError("voice-plan-verifier-required")
+        return self.respond(
+            user_message, _voice_plan_verifier=plan_verifier
+        )
+
+    def respond_voice_stream(
+        self, user_message, *, on_chunk=None, plan_verifier
+    ):
+        if not callable(plan_verifier):
+            raise ValueError("voice-plan-verifier-required")
+        return self.respond_stream(
+            user_message,
+            on_chunk=on_chunk,
+            _voice_plan_verifier=plan_verifier,
+        )
+
+    def respond(self, user_message, *, _voice_plan_verifier=None):
         with self._response_lock:
             (
                 tool_plan,
@@ -1104,7 +1163,9 @@ Svara kort och tydligt på svenska.
                 tool_results,
                 pending_intermediate_results,
                 messages,
-            ) = self._prepare_response(user_message)
+            ) = self._prepare_response(
+                user_message, voice_plan_verifier=_voice_plan_verifier
+            )
 
             answer = self.llm.chat(
                 messages,
@@ -1127,6 +1188,8 @@ Svara kort och tydligt på svenska.
         self,
         user_message,
         on_chunk=None,
+        *,
+        _voice_plan_verifier=None,
     ):
         with self._response_lock:
             (
@@ -1135,7 +1198,9 @@ Svara kort och tydligt på svenska.
                 tool_results,
                 pending_intermediate_results,
                 messages,
-            ) = self._prepare_response(user_message)
+            ) = self._prepare_response(
+                user_message, voice_plan_verifier=_voice_plan_verifier
+            )
 
             stream = getattr(
                 self.llm,
