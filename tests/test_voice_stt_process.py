@@ -125,6 +125,8 @@ def test_environment_is_forced_offline_and_does_not_inherit_secrets(monkeypatch)
         returncode = 0
         def communicate(self, input=None, timeout=None):
             return VALID_JSON.encode(), b""
+        def wait(self, timeout=None):
+            return self.returncode
     def popen(argv, **kwargs):
         captured.update(kwargs)
         return DummyProc()
