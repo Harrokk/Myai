@@ -58,6 +58,13 @@ def memory_write_feedback(message, decision, lookup_status):
             "message": "Den informationen sparades inte av integritetsskäl.",
         }
 
+    if (isinstance(decision, dict)
+            and decision.get("action") == "deferred_voice_cancelled"):
+        return {
+            "status": "not_saved",
+            "message": "Minnesinstruktionen avbröts före lagring.",
+        }
+
     if lookup_status == "unavailable":
         return {"status": "retry_required", "message": _RETRY}
 

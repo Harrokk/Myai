@@ -130,3 +130,28 @@ alltid avbrytas eller rullas tillbaka. En äldre assistent
 som endast implementerar `respond()`, eller förändringar i
 minneslagring innan signalen observeras, kräver separat
 granskning. Inga tjänster eller modellprov på VENTUNO är aktiverade.
+
+
+## Stop före långtidsminne och äldre röstgränssnitt
+
+`MyAICore` läser nu samma förfrågningsbundna
+`voice_stop_requested`-signal under röstläge. Minnesbedömning,
+revisionsförsök, faktisk SQLite-livscykel och köning för
+minnesgranskning granskas vid separata avbrottsgränser.
+Vid avbrott **före** lagring får en uttrycklig minnesinstruktion
+den fasta återkopplingen `not_saved`, utan rått tal eller sökvägar.
+Avbrutna röstförfrågningar förs inte in i normalt samtalshistorik.
+Även strömmade slutmeddelanden spärras efter Stop och AI-kärnan
+avstår från nytt LLM-anrop när avbrottet redan observerats.
+
+Ett äldre assistentobjekt med ett icke-tomt verktygsregister
+men **utan** `respond_voice`/`respond_voice_stream` nekas nu
+röstverktyg helt, även för läsverktyg; äldre enkla chattobjekt
+utan känt verktygsregister kan fortfarande svara. Den sista
+typen är inte en generellt verifierad sandlåda.
+
+**Icke-atomisk gräns:** En SQLite-skrivning som hunnit starta
+före Stop kan inte avbrytas eller rullas tillbaka automatiskt.
+Likaså kan verktyg som startat redan ha orsakat sidoeffekter.
+Testerna använder endast syntetisk transkription och lokal,
+temporär SQLite, utan verklig mikrofon, modell eller driftsättning.

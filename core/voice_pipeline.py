@@ -808,6 +808,25 @@ class VoicePipeline:
             or not guarded_stream
         )
 
+    def _legacy_tool_dispatch_unverified(self, risk):
+        """Without the guarded voice adapter, a toolful legacy core is unsafe."""
+        selected = risk.get("tool_names") if isinstance(risk, dict) else None
+        registry = getattr(self.assistant, "tools", None)
+        return bool(selected or (isinstance(registry, dict) and registry))
+
+    @staticmethod
+    def _legacy_blocked_response():
+        return {
+            "answer": (
+                "Äldre röstgränssnitt kan inte verifiera verktygskörningen. "
+                "Kommandot utfördes inte."
+            ),
+            "tool_dispatch_blocked": True,
+            "tool_execution_status": "not_started",
+            "tools": [],
+            "tool_results": {},
+        }
+
     def _respond_and_speak(self, transcript, approved_digest=None, *,
                            risk=None, stop_token=None):
         token = stop_token if stop_token is not None else self._stop_token
@@ -888,6 +907,9 @@ class VoicePipeline:
                 else (lambda chunk: coordinator.feed(chunk)
                       if not token.is_set() else None)
             )
+            if not callable(voice_stream) and self._legacy_tool_dispatch_unverified(risk):
+                coordinator.stop()
+                return self._legacy_blocked_response()
             if callable(voice_stream):
                 response = voice_stream(
                     transcript,
@@ -926,6 +948,8 @@ class VoicePipeline:
                 transcript, plan_verifier=verify_dispatch_plan
             )
         else:
+            if self._legacy_tool_dispatch_unverified(risk):
+                return self._legacy_blocked_response()
             response = self.assistant.respond(transcript)
         response = self._verified_tool_response(response)
         if token.is_set():
