@@ -148,6 +148,8 @@ def test_persistent_stt_close_cleans_helper_after_valid_leader_reply(tmp_path):
         "import json,struct,pathlib,subprocess,sys\n"
         "stream=sys.stdin.buffer\n"
         "n=struct.unpack('>I',stream.read(4))[0]\n"
+        "nonce=stream.read(16)\n"
+        "assert len(nonce)==16\n"
         "assert len(stream.read(n))==n\n"
         "helper=subprocess.Popen([sys.executable,'-I','-c',"
         " 'import time;time.sleep(60)'],"
@@ -155,7 +157,7 @@ def test_persistent_stt_close_cleans_helper_after_valid_leader_reply(tmp_path):
         " stderr=subprocess.DEVNULL)\n"
         f"pathlib.Path({str(record)!r}).write_text(str(helper.pid))\n"
         "answer=json.dumps({'text':'synthetic','language':'sv','confidence':None}).encode()\n"
-        "sys.stdout.buffer.write(struct.pack('>I',len(answer))+answer)\n"
+        "sys.stdout.buffer.write(struct.pack('>I',len(answer)+16)+nonce+answer)\n"
         "sys.stdout.buffer.flush()\n"
         "sys.exit(0)\n"
     )

@@ -62,3 +62,24 @@ fastnat i kernel D-state. Om MyAI senare måste isolera godtyckliga
 barnbarn eller strikt begränsa totala minnet krävs en särskilt granskad
 cgroup-v2-lösning och ett separat, säkert distributionstest. Grön CI får
 inte förväxlas med den garantin.
+
+
+## Svarsbundenhet för cachad STT (begärande-ID)
+
+Varje isolerad PCM-förfrågan får ett unikt 16-byte slumpmässigt ID
+(128 bitar från `secrets.token_bytes`). Föräldern skickar fyra bytes
+PCM-längd, följt av ID och exakt angivet antal PCM-bytes. Arbetaren ekar
+ID i svaret (fyra bytes svarsramlängd, 16 bytes ID och högst 8192 bytes
+strikt validerad JSON). Föräldern jämför ID med `hmac.compare_digest`
+**innan** transkriptet tolkas.
+
+Om ett tidigare eller felaktigt ID anländer, avvisas transkriptet och
+den ägda processen avslutas och reap:as innan en ny kan startas.
+Syntetiska Linux-tester provar fel ID, en fördröjd svarsruta med
+föregående fras-ID, dubbla svar och säker återstart. Funktionen är fortsatt
+avstängd som standard och inte driftsatt på VENTUNO.
+
+**Begränsning:** ID:t hindrar inte en illvillig arbetare som själv läser
+ett nytt ID från att fabricera ett transkript med det ID:t. Detta är
+begärandebindning, inte kryptografisk autentisering av arbetaren eller
+ett bevis på STT-kvalitet.
