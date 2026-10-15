@@ -1,0 +1,110 @@
+name: VENTUNO existing GenieX backend NO-POST diagnostic
+on:
+  push:
+    branches: [dev/ventuno-existing-geniex-npu-backend-diagnostic-20261015]
+    paths:
+      - .github/workflows/ventuno-existing-geniex-backend-reasons-readonly.yml
+      - scripts/ventuno_existing_geniex_npu_backend_reasons_readonly.py
+      - tests/test_ventuno_existing_geniex_npu_backend_reasons_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-geniex-backend-no-post-20261015
+  cancel-in-progress: false
+jobs:
+  mocked-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Exact-SHA disposable x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-geniex-reason-unit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_GENIEX_REASON_UNIT=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run NO NETWORK mocked regressions
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-geniex-reason-venv"
+          "$RUNNER_TEMP/myai-geniex-reason-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_GENIEX_REASON_UNIT"
+          "$RUNNER_TEMP/myai-geniex-reason-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_existing_geniex_npu_backend_reasons_readonly.py \
+            tests/test_ventuno_existing_geniex_synthetic_once.py
+      - name: Cleanup isolated unit environment
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_GENIEX_REASON_UNIT:-}" ]; then rm -rf -- "$MYAI_GENIEX_REASON_UNIT"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-geniex-reason-venv"
+
+  real-board-readonly:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    needs: mocked-regressions
+    steps:
+      - name: Exact-SHA temporary VENTUNO checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-geniex-reason-readonly.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_GENIEX_REASON_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Read bounded current GenieX /proc reasons - NO HTTP POST
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_GENIEX_REASON_BOARD"
+          timeout --signal=TERM --kill-after=3s 40s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_existing_geniex_npu_backend_reasons_readonly \
+            | tee "$MYAI_GENIEX_REASON_BOARD/sanitized.txt"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          rows = Path("sanitized.txt").read_text(encoding="utf-8").splitlines()
+          assert len(rows) == 1 and rows[0].startswith("MYAI_EXISTING_GENIEX_BACKEND_REASONS_JSON=")
+          r = json.loads(rows[0].split("=", 1)[1])
+          assert r["synthetic_prompt_posted"] is False
+          assert r["qnn_backend_executed"] is False
+          assert r["device_opened"] is False
+          assert r["model_or_service_modified"] is False
+          assert r["actual_htp_npu_execution_proven"] is False
+          print("Only redacted process metadata: no HTP or model inference.")
+          PY
+      - name: Cleanup one-time board report and temp checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_GENIEX_REASON_BOARD:-}" ]; then rm -rf -- "$MYAI_GENIEX_REASON_BOARD"; fi
