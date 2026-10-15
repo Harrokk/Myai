@@ -14,6 +14,10 @@ import selectors
 import time
 
 
+class OversizedSTTOutput(RuntimeError):
+    """Fixed public error category, no private child data."""
+
+
 def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
                      clock=time.monotonic):
     """Send fixed bounded PCM, receive raw EOF-terminated answer.
