@@ -44,6 +44,8 @@ def summarize_guarded_outcomes(outcomes):
         entry.get("state") for entry in outcomes.values()
         if isinstance(entry, dict)
     ]
+    if len(states) != len(outcomes):
+        return "unknown"
     if any(state not in ("succeeded", "failed", "blocked") for state in states):
         return "unknown"
     if all(state == "succeeded" for state in states):
