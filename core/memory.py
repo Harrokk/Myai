@@ -497,6 +497,25 @@ class MemoryStore:
             :20
         ]
 
+    @staticmethod
+    def _pending_review_key(category, content):
+        """Compare equivalent review candidates without editing saved text.
+
+        SQLite lower()/trim() is ASCII-only and ignores only outer spaces.
+        NFC, casefold and collapsed Unicode whitespace avoid repeat
+        review entries for logically identical Swedish user phrases.
+        """
+        import unicodedata
+
+        return (
+            unicodedata.normalize(
+                "NFC", " ".join(str(category or "").split())
+            ).casefold(),
+            unicodedata.normalize(
+                "NFC", " ".join(str(content or "").split())
+            ).casefold(),
+        )
+
     def enqueue_review(
         self,
         category,
@@ -538,18 +557,33 @@ class MemoryStore:
             # Later conflict discoveries must also strengthen an existing
             # review, never silently downgrade it to "no conflicts".
             conn.execute("BEGIN IMMEDIATE")
-            existing = conn.execute(
+            # SQLite lower()/trim() misses Swedish Unicode casefold and
+            # interior whitespace changes. Compare candidate rows using
+            # one shared normalized key under the SAME IMMEDIATE lock.
+            # Refuse to enqueue rather than silently create duplicates
+            # when the review backlog exceeds the inspection budget.
+            pending = conn.execute(
                 """
-                SELECT id, conflicts_json
+                SELECT id, category, content, conflicts_json
                 FROM memory_reviews
                 WHERE status = 'pending'
-                  AND lower(category) = lower(?)
-                  AND lower(trim(content)) = lower(trim(?))
                 ORDER BY id DESC
-                LIMIT 1
-                """,
-                (category_value, value),
-            ).fetchone()
+                LIMIT 4097
+                """
+            ).fetchall()
+            if len(pending) > 4096:
+                raise ValueError(
+                    "Minnesgranskningskön behöver kontrolleras innan fler poster skapas."
+                )
+            wanted_key = self._pending_review_key(category_value, value)
+            existing = next(
+                (
+                    (row[0], row[3])
+                    for row in pending
+                    if self._pending_review_key(row[1], row[2]) == wanted_key
+                ),
+                None,
+            )
 
             if existing is not None:
                 current_ids = self._validated_review_conflicts(existing[1])

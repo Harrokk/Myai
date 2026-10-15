@@ -1,0 +1,64 @@
+name: Memory review Unicode dedupe synthetic CI
+on:
+  push:
+    branches: [dev/ventuno-memory-review-unicode-whitespace-dedupe-20261015]
+    paths:
+      - .github/workflows/ventuno-memory-review-unicode-dedupe.yml
+      - core/memory.py
+      - tests/test_memory_review_unicode_dedupe.py
+permissions:
+  contents: read
+concurrency:
+  group: myai-memory-review-unicode-20261015
+  cancel-in-progress: false
+jobs:
+  synthetic-sqlite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Exact commit in isolated hosted x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-review-dedupe.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_REVIEW_DEDUPE_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Pin pytest inside disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-review-dedupe-venv"
+          "$RUNNER_TEMP/myai-review-dedupe-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
+      - name: Test review queue concurrency with synthetic SQLite only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_REVIEW_DEDUPE_SCRATCH"
+          "$RUNNER_TEMP/myai-review-dedupe-venv/bin/python" -B -m pytest -q \
+            tests/test_memory_review_unicode_dedupe.py \
+            tests/test_memory_admin.py \
+            tests/test_memory_lifecycle.py
+          echo 'No VENTUNO memory DB, live tool actions, mic, camera, QNN or GenieX.'
+      - name: Remove disposable test data
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_REVIEW_DEDUPE_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_REVIEW_DEDUPE_SCRATCH"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-review-dedupe-venv"
