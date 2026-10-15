@@ -15,7 +15,6 @@ when isolation is explicitly enabled.
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import select
@@ -26,6 +25,7 @@ import threading
 import time
 
 from core.voice_stt_process_group import terminate_owned_group
+from core.voice_stt_reply import decode_stt_reply
 from core.voice_stt_process import (
     MAX_PCM_BYTES, MAX_REPLY_BYTES, CLEAN_KEYS,
     KNOWN_LANGUAGES, bounded_seconds, worker_argv,
@@ -45,37 +45,11 @@ def bounded_utterances(value):
 
 
 def parse_reply(raw):
-    if type(raw) is not bytes or len(raw) > MAX_RESPONSE:
-        raise RuntimeError("Invalid persistent STT response")
-    def strict_pairs(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("Duplicate response field")
-            result[key] = value
-        return result
-
+    """Decode the same strict IPC reply schema as one-shot STT."""
     try:
-        decoded = json.loads(
-            raw,
-            object_pairs_hook=strict_pairs,
-            parse_constant=lambda _: (_ for _ in ()).throw(
-                ValueError("Non-finite JSON value")
-            ),
-        )
-    except (ValueError, UnicodeError, TypeError, RecursionError):
+        return decode_stt_reply(raw)
+    except ValueError:
         raise RuntimeError("Invalid persistent STT response") from None
-    if (
-        type(decoded) is not dict
-        or set(decoded) != CLEAN_KEYS
-        or type(decoded["text"]) is not str
-        or len(decoded["text"]) > 4096
-        or type(decoded["language"]) is not str
-        or decoded["language"] not in KNOWN_LANGUAGES
-        or decoded["confidence"] is not None
-    ):
-        raise RuntimeError("Invalid persistent STT response")
-    return decoded
 
 
 def persistent_argv(config):
