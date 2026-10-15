@@ -251,6 +251,15 @@ def camera_sample_video_frames():
 TOOLS = {
     "camera_sample_video_frames": {
         "function": camera_sample_video_frames,
+        # This action accesses a local camera (and some persist files).
+        # Require explicit spoken consent; never classify as read-only.
+        "safety": {
+            "effect": "write",
+            "voice_confirmation_required": True,
+        },
+        "result_failure_prefixes": (
+            "Bildrutor kunde inte plockas ut ur videon:",
+        ),
         "description": (
             "Plockar ut ett konfigurerat antal jämnt fördelade "
             "representativa bildrutor från den senast sparade videon."
