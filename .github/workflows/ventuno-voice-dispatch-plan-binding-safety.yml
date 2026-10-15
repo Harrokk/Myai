@@ -43,7 +43,8 @@ jobs:
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/myai-voice-dispatch-venv"
           "$RUNNER_TEMP/myai-voice-dispatch-venv/bin/python" -m pip install \
-            --disable-pip-version-check --only-binary=:all: pytest==8.3.5
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 requests==2.32.5 psutil==7.1.0
       - name: Mock dispatch and voice approval regressions only
         shell: bash
         run: |
