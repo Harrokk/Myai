@@ -647,3 +647,57 @@ def test_stop_while_paused_never_reopens_microphone(monkeypatch):
     assert session._after_inference() is False
     assert session.running is False
     assert session.microphone_paused_for_inference is False
+
+
+def test_voice_session_stop_releases_only_opted_in_persistent_stt():
+    class CachedSTT(FakeSTT):
+        def __init__(self):
+            super().__init__()
+            self.close_calls = 0
+        def close(self):
+            self.close_calls += 1
+
+    fake = CachedSTT()
+    mic = FakeMicrophone([])
+    components_dict = components(mic, FakeVAD([]), stt=fake)
+    # Duplicate reference in backups must not be closed twice.
+    components_dict["backup_stt"] = [fake]
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(stt_persistent_worker_enabled=True),
+        components=components_dict,
+    )
+    assert session.start() is True
+    assert session.stop() is True
+    assert fake.close_calls == 1
+    assert not session.running
+
+
+def test_default_voice_stop_does_not_touch_direct_stt_model():
+    class DirectSTT(FakeSTT):
+        def close(self):
+            pytest.fail("Direct STT should not be auto-closed")
+    s = VoiceSession(
+        FakeAssistant(), settings=settings(),
+        components=components(FakeMicrophone([]), FakeVAD([]), stt=DirectSTT())
+    )
+    s.start()
+    assert s.stop() is True
+
+
+def test_failing_persistent_cleanup_reports_generic_error_not_secret():
+    class BrokenCachedSTT(FakeSTT):
+        def close(self):
+            raise OSError("SECRET_PRIVATE_CACHE_PATH")
+    s = VoiceSession(
+        FakeAssistant(),
+        settings=settings(stt_persistent_worker_enabled=True),
+        components=components(
+            FakeMicrophone([]), FakeVAD([]), stt=BrokenCachedSTT()
+        ),
+    )
+    s.start()
+    with pytest.raises(RuntimeError) as exc:
+        s.stop()
+    assert "SECRET" not in str(exc.value)
+    assert s.running is False

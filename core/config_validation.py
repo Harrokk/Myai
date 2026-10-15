@@ -1067,6 +1067,24 @@ def validate_settings(
             "voice.stt_process_timeout_seconds måste vara mellan 1 och 300.",
         ))
 
+    persistent = voice.get("stt_persistent_worker_enabled", False)
+    cap = voice.get("stt_persistent_worker_max_utterances", 4)
+    if type(persistent) is not bool:
+        issues.append(_issue(
+            "error", "stt_persistent_worker_invalid",
+            "voice.stt_persistent_worker_enabled måste vara boolesk.",
+        ))
+    elif persistent and iso is not True:
+        issues.append(_issue(
+            "error", "stt_persistent_requires_isolation",
+            "Persistent STT kräver stt_process_isolation_enabled=true.",
+        ))
+    if type(cap) is not int or not 1 <= cap <= 8:
+        issues.append(_issue(
+            "error", "stt_persistent_utterance_cap_invalid",
+            "voice.stt_persistent_worker_max_utterances måste vara 1–8.",
+        ))
+
     if (
         voice.get(
             "release_stt_before_model",
