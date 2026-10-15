@@ -220,3 +220,27 @@ def test_simulated_restore_failure_is_explicit_not_false_success():
     )
     assert result["status"] == "simulated_recovery_failure"
     assert "injected_recovery_failure" in result["events"]
+
+
+def test_dependency_trouble_exposes_only_fixed_unit_and_property_labels():
+    units = good()
+    units["myai-geniex-watchdog.service"] = gate.parse_unit(
+        unit_bytes(partof="HIDDEN_SECRET.private.service",
+                   triggered="HIDDEN_ACTIVATION.timer"))
+    units[gate.RUNNER_UNIT] = gate.parse_unit(
+        unit_bytes(wants="HIDDEN_INTEGRATION.target"))
+    report = gate.decide(units, supervisor())
+    assert report["dependency_review_needed"] == {
+        "myai-geniex-watchdog.service": ["PartOf", "TriggeredBy"],
+        gate.RUNNER_UNIT: ["Wants"],
+    }
+    encoded = json.dumps(report)
+    assert "HIDDEN_SECRET" not in encoded
+    assert "HIDDEN_ACTIVATION" not in encoded
+    assert "HIDDEN_INTEGRATION" not in encoded
+    assert report["service_control_commands_executed"] is False
+
+
+def test_normal_known_dependencies_need_no_review():
+    report = gate.decide(good(), supervisor())
+    assert report["dependency_review_needed"] == {}
