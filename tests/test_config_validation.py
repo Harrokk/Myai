@@ -1040,3 +1040,30 @@ def test_stt_isolation_default_off_and_valid_bounded_opt_in():
     source["voice"]["stt_process_isolation_enabled"] = True
     source["voice"]["stt_process_timeout_seconds"] = 15.0
     assert validate_settings(source)["valid"] is True
+
+
+@pytest.mark.parametrize("field,value,code", [
+    ("stt_persistent_worker_enabled", 1, "stt_persistent_worker_invalid"),
+    ("stt_persistent_worker_enabled", "true", "stt_persistent_worker_invalid"),
+    ("stt_persistent_worker_enabled", None, "stt_persistent_worker_invalid"),
+    ("stt_persistent_worker_max_utterances", 0, "stt_persistent_utterance_cap_invalid"),
+    ("stt_persistent_worker_max_utterances", 9, "stt_persistent_utterance_cap_invalid"),
+    ("stt_persistent_worker_max_utterances", True, "stt_persistent_utterance_cap_invalid"),
+    ("stt_persistent_worker_max_utterances", 2.0, "stt_persistent_utterance_cap_invalid"),
+])
+def test_invalid_persistent_stt_settings_are_blocking(field, value, code):
+    cfg = deepcopy(DEFAULT_SETTINGS)
+    cfg["voice"][field] = value
+    report = validate_settings(cfg)
+    assert report["valid"] is False
+    assert code in [item["code"] for item in report["errors"]]
+
+
+def test_persistent_stt_enabled_requires_parent_process_isolation():
+    cfg = deepcopy(DEFAULT_SETTINGS)
+    cfg["voice"]["stt_persistent_worker_enabled"] = True
+    assert "stt_persistent_requires_isolation" in [
+        row["code"] for row in validate_settings(cfg)["errors"]
+    ]
+    cfg["voice"]["stt_process_isolation_enabled"] = True
+    assert validate_settings(cfg)["valid"] is True
