@@ -1,0 +1,71 @@
+name: VENTUNO V75 NPU readiness - metadata NO-GO only
+on:
+  push:
+    branches: [dev/ventuno-v75-npu-readiness-20261015]
+    paths:
+      - .github/workflows/ventuno-v75-npu-readiness-readonly.yml
+      - scripts/ventuno_v75_npu_readiness_readonly.py
+      - tests/test_ventuno_v75_npu_readiness_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ci-ventuno
+  cancel-in-progress: false
+jobs:
+  real-board-metadata-only:
+    name: Real VENTUNO metadata preflight - NEVER launches NPU
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Verify target and fetch exact source SHA to private temp dir
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-v75-npu-readonly.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_NPU_READONLY_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Read installed QAIRT V75, live GenieX and FastRPC metadata ONLY
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_NPU_READONLY_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 70s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_v75_npu_readiness_readonly \
+            | tee "$MYAI_NPU_READONLY_SCRATCH/sanitized-result.txt"
+          /home/arduino/MyAI/.venv/bin/python -B -c '
+          import json
+          from pathlib import Path
+          lines = Path("sanitized-result.txt").read_text(encoding="utf-8").splitlines()
+          assert len(lines) == 1 and lines[0].startswith("MYAI_V75_NPU_READINESS_JSON=")
+          result = json.loads(lines[0].split("=", 1)[1])
+          assert result["status"] == "no_go"
+          assert result["qnn_or_htp_attempted"] is False
+          assert result["npu_inference_verified"] is False
+          assert result["devices_opened"] is False
+          assert result["service_or_packages_modified"] is False
+          print("Read-only NPU readiness evidence recorded: NO-GO is NOT an NPU success.")
+          '
+      - name: Clean temporary checkout and sanitized result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_NPU_READONLY_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_NPU_READONLY_SCRATCH"
+          fi
