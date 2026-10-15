@@ -63,7 +63,12 @@ def main(argv=None):
         print("Review receipt stored. Restart MyAI deliberately if appropriate.")
         return 0
     except (OSError, ValueError, TypeError):
-        print("Local reconciliation denied; manual review remains required.")
+        # A storage error can occur AFTER the old marker has been
+        # unlinked. Do not falsely assert it is still present.
+        print(
+            "Reconciliation outcome uncertain. Inspect marker and "
+            "receipt before any further action; do not retry the write."
+        )
         return 2
 
 

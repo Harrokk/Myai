@@ -21,7 +21,7 @@ TOKEN_PATTERN = re.compile(r"[0-9a-f]{32}\Z")
 ATTESTATION_PREFIX = "I VERIFIED EXTERNAL EFFECTS AND STOPPED ALL MYAI WRITERS "
 
 
-def _read_private(directory, name, expected=None):
+def _read_private(directory, name, expected=None, *, links=1):
     fd = os.open(
         name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory
     )
@@ -31,7 +31,7 @@ def _read_private(directory, name, expected=None):
             not stat.S_ISREG(info.st_mode)
             or info.st_uid != os.geteuid()
             or info.st_mode & 0o077
-            or info.st_nlink != 1
+            or info.st_nlink != links
         ):
             raise OSError("Unsafe voice recovery file")
         body = os.read(fd, 1025)
@@ -83,13 +83,27 @@ class VoiceWriteReconciliation:
         try:
             with self.journal._locked_directory(directory):
                 try:
-                    _marker_info(directory)
+                    marker = _marker_info(directory)
                 except FileNotFoundError:
                     return {"status": "no_marker"}
                 try:
-                    _read_private(directory, PENDING)
+                    ticket, _ = _read_private(directory, PENDING)
                 except FileNotFoundError:
                     return {"status": "needs_external_review"}
+                # A crash immediately after O_EXCL file creation can
+                # leave an empty or truncated ticket. Never present it
+                # as an actionable, valid operator review.
+                lines = ticket.splitlines()
+                if (len(lines) != 5
+                        or lines[0] != TICKET_HEADER.rstrip(bytes([10]))
+                        or not lines[1].startswith(b"token=")):
+                    raise OSError("Invalid voice review ticket")
+                token_bytes = lines[1][len(b"token="):]
+                if not re.fullmatch(rb"[0-9a-f]{32}", token_bytes):
+                    raise OSError("Invalid voice review ticket token")
+                token = token_bytes.decode("ascii")
+                if ticket != _ticket_bytes(token, marker):
+                    raise OSError("Incomplete or stale voice review ticket")
                 return {"status": "review_ticket_pending"}
         finally:
             os.close(directory)
@@ -122,24 +136,55 @@ class VoiceWriteReconciliation:
         try:
             with self.journal._locked_directory(directory):
                 marker = _marker_info(directory)
-                ticket, _ = _read_private(directory, PENDING)
-                if ticket != _ticket_bytes(token, marker):
-                    return False
+                expected = _ticket_bytes(token, marker)
                 receipt = RECEIPT_PREFIX + token + RECEIPT_SUFFIX
-                # Hard-link no-overwrite prevents replacing old receipts.
-                os.link(
-                    PENDING, receipt,
-                    src_dir_fd=directory, dst_dir_fd=directory,
-                    follow_symlinks=False,
-                )
-                os.fsync(directory)
-                # The old pending ticket's link count is now two; it was
-                # validated BEFORE linking and no other callers can
-                # change these paths while holding the shared lock.
-                os.unlink(PENDING, dir_fd=directory)
-                os.fsync(directory)
-                # Only after receipt durability do we unlock this
-                # previously attempted voice write for a *new* core.
+                # Recover conservatively across a crash at EACH previous
+                # release boundary. No release happens without the
+                # operator presenting the same ticket and attestation.
+                try:
+                    try:
+                        ticket, ticket_info = _read_private(directory, PENDING)
+                    except OSError as error:
+                        if not isinstance(error, FileNotFoundError):
+                            # Only allow a 2-link ticket if its matching
+                            # private receipt exists and has the same inode.
+                            ticket, ticket_info = _read_private(
+                                directory, PENDING, links=2,
+                            )
+                            linked, receipt_info = _read_private(
+                                directory, receipt, links=2,
+                            )
+                            if (ticket != expected or linked != expected
+                                    or ticket_info.st_dev != receipt_info.st_dev
+                                    or ticket_info.st_ino != receipt_info.st_ino):
+                                return False
+                        else:
+                            raise
+                except FileNotFoundError:
+                    # Crash after removing the pending name, but before
+                    # removing the marker. A durable, private receipt
+                    # bound to THIS marker must still exist.
+                    saved, _ = _read_private(directory, receipt, links=1)
+                    if saved != expected:
+                        return False
+                else:
+                    if ticket != expected:
+                        return False
+                    if ticket_info.st_nlink == 1:
+                        # Normal case: create a no-overwrite receipt, then
+                        # sync it BEFORE releasing the marker.
+                        os.link(
+                            PENDING, receipt,
+                            src_dir_fd=directory, dst_dir_fd=directory,
+                            follow_symlinks=False,
+                        )
+                    elif ticket_info.st_nlink != 2:
+                        raise OSError("Unexpected pending ticket links")
+                    os.fsync(directory)
+                    os.unlink(PENDING, dir_fd=directory)
+                    os.fsync(directory)
+                # A receipt exists and the pending name is gone. This
+                # is the ONLY permitted point for unmarking an effect.
                 os.unlink(MARKER, dir_fd=directory)
                 os.fsync(directory)
                 return True
