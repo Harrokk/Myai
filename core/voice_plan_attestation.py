@@ -58,3 +58,63 @@ def same_voice_plan(plan, tools, secret, approved_digest):
     except (ValueError, TypeError, AttributeError, KeyError):
         return False
     return hmac.compare_digest(current, approved_digest)
+
+
+def allow_voice_dispatch(plan, tools, tool_name, tool, effective_input,
+                         plan_verifier):
+    """Authorize only an unchanged approved plan, or known safe reads.
+
+    Called by run_tools *at the invocation boundary*, not merely during
+    voice preview. Unknown/unmarked tools are never implicitly read-only
+    for voice, and an old approval cannot authorize changed arguments.
+    """
+    from core.orchestration import SAFE_READ_ONLY_TOOLS
+
+    if (
+        not isinstance(plan, dict)
+        or not isinstance(tools, dict)
+        or not isinstance(tool, dict)
+        or not callable(tool.get("function"))
+        or not isinstance(tool_name, str)
+    ):
+        return False
+
+    steps = plan.get("steps")
+    if not isinstance(steps, list):
+        return False
+    matching = [
+        step for step in steps
+        if isinstance(step, dict) and step.get("tool") == tool_name
+    ]
+    if len(matching) != 1:
+        return False
+    expected_input = matching[0].get("input")
+    if tool.get("pass_user_input", False):
+        if type(expected_input) is not str or expected_input != effective_input:
+            return False
+    elif effective_input is not None:
+        return False
+
+    metadata = tool.get("safety", {})
+    if not isinstance(metadata, dict):
+        return False
+    effect = metadata.get("effect", "read_only")
+    if not isinstance(effect, str):
+        return False
+    effect = effect.strip().lower()
+    if (
+        tool_name in SAFE_READ_ONLY_TOOLS
+        and effect == "read_only"
+        and metadata.get("voice_confirmation_required", False) is False
+    ):
+        return True
+
+    # All local-capture and effectful/unknown tools need original,
+    # immutable voice consent. Re-evaluate against the live registry
+    # every time, not against the previously examined snapshot.
+    if not callable(plan_verifier):
+        return False
+    try:
+        return plan_verifier(plan, tools) is True
+    except Exception:
+        return False
