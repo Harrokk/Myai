@@ -240,6 +240,21 @@ class VoiceSession:
         if self.running:
             return False
 
+        if self.voice.get("stt_persistent_worker_enabled", False) is True:
+            # Stop cancellation is sticky across sessions. Only an
+            # explicit fresh start can re-arm an isolated STT provider.
+            seen = set()
+            for provider in [
+                self.components.get("primary_stt"),
+                *self.components.get("backup_stt", []),
+            ]:
+                if provider is None or id(provider) in seen:
+                    continue
+                seen.add(id(provider))
+                resume = getattr(provider, "resume", None)
+                if callable(resume):
+                    resume()
+
         started = self.components["microphone"].start()
         if started is False:
             raise RuntimeError(
@@ -252,6 +267,22 @@ class VoiceSession:
     def stop(self):
         if not self.enabled:
             return False
+
+        if self.voice.get("stt_persistent_worker_enabled", False) is True:
+            # Send cancellation BEFORE waiting for any control path or
+            # cached-worker lock. A blocked STT read polls for this
+            # event, drops its late result and reaps its own child.
+            seen = set()
+            for provider in [
+                self.components.get("primary_stt"),
+                *self.components.get("backup_stt", []),
+            ]:
+                if provider is None or id(provider) in seen:
+                    continue
+                seen.add(id(provider))
+                cancel = getattr(provider, "request_cancel", None)
+                if callable(cancel):
+                    cancel()
 
         changed = False
 
