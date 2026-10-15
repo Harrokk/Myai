@@ -191,6 +191,7 @@ class PersistentFasterWhisperSTT:
         self._argv = persistent_argv(dict(config))
         self._worker = None
         self._count = 0
+        self._cleanup_required = False
         self._lock = threading.Lock()
 
     def _spawn(self):
@@ -213,9 +214,23 @@ class PersistentFasterWhisperSTT:
 
     def _release(self):
         proc = self._worker
+        if proc is None:
+            self._count = 0
+            self._cleanup_required = False
+            return
+        try:
+            terminate_owned(proc)
+        except Exception:
+            # A failed reap must NEVER discard the last process handle,
+            # or let a new worker load a second native model next time.
+            # Retain it for an explicit close()/retry. Hide OS details.
+            self._cleanup_required = True
+            raise RuntimeError(
+                "Persistent STT process cleanup incomplete"
+            ) from None
         self._worker = None
         self._count = 0
-        terminate_owned(proc)
+        self._cleanup_required = False
 
     def transcribe(self, audio):
         with self._lock:
@@ -223,21 +238,28 @@ class PersistentFasterWhisperSTT:
             if (type(audio) not in (bytes, bytearray)
                     or not 0 < len(audio) <= MAX_REQUEST):
                 raise ValueError("Invalid persistent STT PCM")
+            if self._cleanup_required:
+                # The previous child could not be confirmed reaped. A
+                # new process would double-load the model and may make
+                # memory pressure much worse on the 16 GB board.
+                raise RuntimeError("Persistent STT cleanup pending")
             if self._worker is None:
                 self._spawn()
             try:
                 result = exchange(self._worker, audio, self.timeout_seconds)
-                self._count += 1
-                # A fresh worker after N uses avoids unbounded cached
-                # model/resource accumulation between long conversations.
-                if self._count >= self.max_utterances:
-                    self._release()
-                return result
             except BaseException:
-                # Includes timeout, failed IPC, and interrupted caller.
-                # A broken worker MUST NOT be reused on next request.
+                # No partial/late transcript is authorized after any
+                # transport error. Try cleanup exactly once per failure.
                 self._release()
                 raise
+
+            self._count += 1
+            # Cleanup errors AFTER a successful reply still block its
+            # use by the caller and retain the process for retry; do
+            # not mask or retry cleanup a second time in this handler.
+            if self._count >= self.max_utterances:
+                self._release()
+            return result
 
     def release_for_inference(self):
         """Free model/RAM before switching to a heavier local LLM."""

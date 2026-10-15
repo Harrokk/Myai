@@ -173,3 +173,88 @@ def test_child_environment_does_not_inherit_access_tokens(monkeypatch):
     assert "HTTP_PROXY" not in env
     assert "HF_HUB_TOKEN" not in env
     assert "PRIVATE" not in json.dumps(env)
+
+
+
+def test_failed_reap_keeps_child_handle_and_blocks_duplicate_model(monkeypatch):
+    """Incomplete kill/reap cannot authorize spawning a second child."""
+    import core.voice_stt_persistent as module
+    model = provider(cap=1)
+    real_terminate = module.terminate_owned
+    try:
+        def interrupted_reap(proc):
+            assert proc is model._worker
+            raise RuntimeError("SECRET_CHILD_PID_OR_CACHE_PATH")
+        monkeypatch.setattr(module, "terminate_owned", interrupted_reap)
+        with pytest.raises(RuntimeError, match="cleanup incomplete") as err:
+            model.transcribe(b"first-synthetic-frame")
+        assert "SECRET" not in str(err.value)
+        original = model._worker
+        assert original is not None
+        assert model._cleanup_required is True
+
+        monkeypatch.setattr(
+            model, "_spawn",
+            lambda: pytest.fail("A second native model must not be loaded"),
+        )
+        with pytest.raises(RuntimeError, match="cleanup pending"):
+            model.transcribe(b"another-synthetic-frame")
+        assert model._worker is original
+
+        monkeypatch.setattr(module, "terminate_owned", real_terminate)
+        assert model.close() is True
+        assert model._worker is None
+        assert model._cleanup_required is False
+    finally:
+        monkeypatch.setattr(module, "terminate_owned", real_terminate)
+        model.close()
+
+
+def test_failed_reap_after_invalid_result_still_blocks_new_child(monkeypatch):
+    import core.voice_stt_persistent as module
+    model = provider(mode="invalid")
+    original_cleanup = module.terminate_owned
+    def broken_cleanup(proc):
+        raise OSError("SECRET_NATIVE_CLEANUP_FAILURE")
+    try:
+        monkeypatch.setattr(module, "terminate_owned", broken_cleanup)
+        with pytest.raises(RuntimeError, match="cleanup incomplete") as error:
+            model.transcribe(b"synthetic-private-audio")
+        assert "SECRET" not in str(error.value)
+        assert model._worker is not None
+        assert model._cleanup_required is True
+        model._argv = script("reply")
+        with pytest.raises(RuntimeError, match="cleanup pending"):
+            model.transcribe(b"valid-second-audio")
+
+        monkeypatch.setattr(module, "terminate_owned", original_cleanup)
+        assert model.release_for_inference() is True
+        assert model._worker is None
+        assert model._cleanup_required is False
+        assert model.transcribe(b"third-audio")["text"] == "syntetiskt svar"
+    finally:
+        monkeypatch.setattr(module, "terminate_owned", original_cleanup)
+        model.close()
+
+
+def test_ipc_nonblocking_setup_failure_reaps_child_and_never_reuses(monkeypatch):
+    import core.voice_stt_persistent as module
+    model = provider()
+    real_set_blocking = module.os.set_blocking
+    call_count = []
+    try:
+        def fail_setup(fd, flag):
+            call_count.append(fd)
+            if len(call_count) == 2:
+                raise OSError("PRIVATE_FILE_DESCRIPTOR")
+            return real_set_blocking(fd, flag)
+        monkeypatch.setattr(module.os, "set_blocking", fail_setup)
+        with pytest.raises(OSError):
+            model.transcribe(b"fake")
+        assert len(call_count) == 2
+        assert model._worker is None
+        assert model._count == 0
+        assert model._cleanup_required is False
+    finally:
+        monkeypatch.setattr(module.os, "set_blocking", real_set_blocking)
+        model.close()
