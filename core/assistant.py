@@ -12,7 +12,7 @@ from core.intermediate_results import (
 )
 from core.memory import MemoryStore
 from core.memory_lifecycle import apply_memory_lifecycle
-from core.memory_policy import assess_memory_candidate
+from core.memory_policy import assess_memory_candidate, normalize_memory_text
 from core.llm_factory import build_llm_client
 from core.health_status import (
     build_health_status,
@@ -1111,6 +1111,67 @@ Svara kort och tydligt på svenska.
             if isinstance(value, str)
         )
 
+    @staticmethod
+    def _explicit_memory_request(user_message):
+        # A bounded intent gate: ordinary questions mentioning
+        # "kom ihåg" must not have their answers replaced.
+        normalized = normalize_memory_text(user_message)
+        return normalized.startswith((
+            "kom ihåg ",
+            "lägg på minnet ",
+            "spara detta:",
+            "spara att ",
+            "remember this:",
+            "remember that ",
+        ))
+
+    def _memory_acknowledgement(self, user_message, decision):
+        """Actual persistence outcome, never an LLM guess.
+
+        No stored user content, DB path or raw exception is echoed.
+        """
+        if not self._explicit_memory_request(user_message):
+            return None
+        if decision.get("saved") is True:
+            return "Uppgiften har sparats i långtidsminnet."
+        if decision.get("lifecycle_action") == "duplicate":
+            return "Uppgiften finns redan i långtidsminnet."
+        if decision.get("sensitive"):
+            return (
+                "Uppgiften sparades inte eftersom den kan innehålla "
+                "känslig information."
+            )
+        if decision.get("action") == "deferred_memory_unavailable":
+            return (
+                "Uppgiften sparades inte. Långtidsminnet är tillfälligt "
+                "otillgängligt. Försök igen när minnet fungerar."
+            )
+        if decision.get("action") == "review":
+            if decision.get("review_queued"):
+                return (
+                    "Uppgiften har inte sparats i långtidsminnet. "
+                    "Den väntar på granskning."
+                )
+            return (
+                "Uppgiften har inte sparats. "
+                "Minnesgranskningen kunde inte slutföras."
+            )
+        if decision.get("action") == "disabled":
+            return "Uppgiften sparades inte. Automatisk minneshantering är avstängd."
+        if (
+            decision.get("lifecycle_action") == "audit_blocked"
+            or decision.get("lifecycle_action") == "failed"
+            or decision.get("memory_error")
+            or decision.get("audit_error")
+        ):
+            return (
+                "Uppgiften kunde inte sparas i långtidsminnet. "
+                "Försök igen senare."
+            )
+        return (
+            "Jag kan inte bekräfta att uppgiften sparades i långtidsminnet."
+        )
+
     def _finalize_response(
         self,
         user_message,
@@ -1121,6 +1182,7 @@ Svara kort och tydligt på svenska.
         pending_intermediate_results=None,
         streamed=False,
         tool_outcomes=None,
+        memory_response_callback=None,
     ):
         if self._memory_lookup_status == "unavailable":
             # Memory reads failed: don't attempt automatic writes or
@@ -1136,6 +1198,25 @@ Svara kort och tydligt på svenska.
             memory_decision = self._consider_long_term_memory(
                 user_message
             )
+
+        acknowledgement = self._memory_acknowledgement(
+            user_message, memory_decision
+        )
+        if acknowledgement:
+            # A direct "remember this" is a persistence request,
+            # not evidence that the model actually saved anything.
+            # If tools also ran, preserve their answer but make the
+            # independent memory status unambiguous.
+            if tool_names or self._tool_dispatch_was_blocked(tool_results):
+                answer = f"{answer}\n\n{acknowledgement}"
+            else:
+                answer = acknowledgement
+
+        # Explicit memory requests have their streamed response held
+        # until the actual save status is known. Only the final truthful
+        # output may be emitted and stored as short-term history.
+        if memory_response_callback is not None and answer:
+            memory_response_callback(answer)
 
         self._remember_conversation_turn(
             user_message,
@@ -1175,6 +1256,7 @@ Svara kort och tydligt på svenska.
             ),
             "memory_decision": memory_decision,
             "memory_lookup_status": self._memory_lookup_status,
+            "memory_acknowledgement": acknowledgement,
             "streamed": bool(streamed),
             "llm_runtime": llm_runtime,
             "health": health,
@@ -1256,6 +1338,7 @@ Svara kort och tydligt på svenska.
         _voice_plan_verifier=None,
     ):
         with self._response_lock:
+            buffer_memory_reply = self._explicit_memory_request(user_message)
             (
                 tool_plan,
                 tool_names,
@@ -1284,7 +1367,7 @@ Svara kort och tydligt på svenska.
                     )
                 # No model output and no speculative streaming token
                 # may present an unexecuted action as completed.
-                if on_chunk is not None:
+                if on_chunk is not None and not buffer_memory_reply:
                     on_chunk(answer)
                 return self._finalize_response(
                     user_message,
@@ -1295,6 +1378,9 @@ Svara kort och tydligt på svenska.
                     pending_intermediate_results=pending_intermediate_results,
                     streamed=False,
                     tool_outcomes=tool_outcomes,
+                    memory_response_callback=(
+                        on_chunk if buffer_memory_reply else None
+                    ),
                 )
 
             stream = getattr(
@@ -1309,7 +1395,7 @@ Svara kort och tydligt på svenska.
                     timeout=300,
                 )
 
-                if on_chunk is not None and answer:
+                if on_chunk is not None and answer and not buffer_memory_reply:
                     on_chunk(answer)
 
                 return self._finalize_response(
@@ -1323,6 +1409,9 @@ Svara kort och tydligt på svenska.
                     ),
                     streamed=False,
                     tool_outcomes=tool_outcomes,
+                    memory_response_callback=(
+                        on_chunk if buffer_memory_reply else None
+                    ),
                 )
 
             chunks = []
@@ -1338,7 +1427,7 @@ Svara kort och tydligt på svenska.
 
                 chunks.append(value)
 
-                if on_chunk is not None:
+                if on_chunk is not None and not buffer_memory_reply:
                     on_chunk(value)
 
             answer = "".join(chunks)
@@ -1354,6 +1443,9 @@ Svara kort och tydligt på svenska.
                 ),
                 streamed=True,
                 tool_outcomes=tool_outcomes,
+                memory_response_callback=(
+                    on_chunk if buffer_memory_reply else None
+                ),
             )
 
     def _remember_conversation_turn(self, user_message, answer):
