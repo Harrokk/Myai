@@ -712,7 +712,7 @@ def test_legacy_worker_reply_without_nonce_is_rejected_and_reaped():
         model.close()
 
 
-@pytest.mark.parametrize("partial_header", [b"\\x00", b"\\x00\\x00", b"\\x00\\x00\\x00"])
+@pytest.mark.parametrize("partial_header", [b"\x00", b"\x00\x00", b"\x00\x00\x00"])
 def test_actual_worker_partial_frame_header_is_error_not_clean_shutdown(
     monkeypatch, partial_header,
 ):
