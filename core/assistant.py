@@ -512,7 +512,35 @@ Svara kort och tydligt på svenska.
         )
         return decision
 
-    def _consider_long_term_memory(self, user_message):
+
+    @staticmethod
+    def _voice_stop_requested(voice_plan_verifier):
+        """Fail closed on malformed or failing per-utterance Stop tokens.
+
+        Typed-text responders and historical verifier callbacks without
+        cancellation metadata keep their existing behavior.
+        """
+        if voice_plan_verifier is None:
+            return False
+        try:
+            check = getattr(voice_plan_verifier, "voice_stop_requested", None)
+            if check is None:
+                return False
+            return not callable(check) or check() is not False
+        except BaseException:
+            return True
+
+    @staticmethod
+    def _voice_cancelled_memory_decision():
+        return {
+            "action": "deferred_voice_cancelled",
+            "saved": False,
+            "reasons": ["Röstsessionen avbröts före minneslagring."],
+        }
+
+    def _consider_long_term_memory(self, user_message, *, voice_plan_verifier=None):
+        if self._voice_stop_requested(voice_plan_verifier):
+            return self._voice_cancelled_memory_decision()
         config = self.settings.get("memory", {})
 
         if not config.get("auto_assess_enabled", True):
@@ -535,6 +563,9 @@ Svara kort och tydligt på svenska.
         )
         decision = dict(decision)
         decision["saved"] = False
+
+        if self._voice_stop_requested(voice_plan_verifier):
+            return self._voice_cancelled_memory_decision()
 
         if (
             decision.get("action") == "save"
@@ -573,6 +604,10 @@ Svara kort och tydligt på svenska.
                     "audit_error"
                 ] = "Minnesåtgärdens revisionslogg misslyckades."
                 return decision
+
+            # An audit attempt does not authorize a write after Stop.
+            if self._voice_stop_requested(voice_plan_verifier):
+                return self._voice_cancelled_memory_decision()
 
             try:
                 lifecycle = apply_memory_lifecycle(
@@ -656,6 +691,12 @@ Svara kort och tydligt på svenska.
                 decision[
                     "action"
                 ] = "review"
+
+        if self._voice_stop_requested(voice_plan_verifier):
+            # A store already completed cannot be rolled back. Preserve
+            # its actual saved/review state instead of falsely denying it.
+            return (decision if decision.get("saved")
+                    else self._voice_cancelled_memory_decision())
 
         if (
             decision.get(
@@ -1153,8 +1194,12 @@ Svara kort och tydligt på svenska.
         streamed=False,
         tool_outcomes=None,
         on_finalized_chunk=None,
+        voice_plan_verifier=None,
     ):
-        if self._memory_lookup_status == "unavailable":
+        cancelled = self._voice_stop_requested(voice_plan_verifier)
+        if cancelled:
+            memory_decision = self._voice_cancelled_memory_decision()
+        elif self._memory_lookup_status == "unavailable":
             # Memory reads failed: don't attempt automatic writes or
             # claim that a new user preference has been persisted.
             memory_decision = {
@@ -1166,9 +1211,10 @@ Svara kort och tydligt på svenska.
             }
         else:
             memory_decision = self._consider_long_term_memory(
-                user_message
+                user_message, voice_plan_verifier=voice_plan_verifier,
             )
 
+        cancelled = self._voice_stop_requested(voice_plan_verifier)
         feedback = memory_write_feedback(
             user_message, memory_decision, self._memory_lookup_status
         )
@@ -1182,13 +1228,16 @@ Svara kort och tydligt på svenska.
                 # with a hallucinated claim that it was saved.
                 answer = feedback["message"]
 
-        if on_finalized_chunk is not None:
+        if not cancelled and on_finalized_chunk is not None:
             on_finalized_chunk(answer)
 
-        self._remember_conversation_turn(
-            user_message,
-            answer,
-        )
+        # A cancelled voice request must not be appended as an ordinary
+        # completed dialogue. Typed text remains unchanged.
+        if not cancelled:
+            self._remember_conversation_turn(
+                user_message,
+                answer,
+            )
 
         llm_runtime = self._llm_runtime_metadata()
         health = self._health_status(
@@ -1202,8 +1251,8 @@ Svara kort och tydligt på svenska.
             "answer": answer,
             "tools": tool_names,
             "tool_results": tool_results or {},
-            "tool_dispatch_blocked": self._tool_dispatch_was_blocked(
-                tool_results
+            "tool_dispatch_blocked": (
+                cancelled or self._tool_dispatch_was_blocked(tool_results)
             ),
             "tool_outcomes": tool_outcomes or {},
             "tool_execution_status": (
@@ -1295,6 +1344,7 @@ Svara kort och tydligt på svenska.
                 ),
                 streamed=False,
                 tool_outcomes=tool_outcomes,
+                voice_plan_verifier=_voice_plan_verifier,
             )
 
     def respond_stream(
