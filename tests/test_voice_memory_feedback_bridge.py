@@ -306,3 +306,31 @@ def test_stream_stop_does_not_emit_saved_claim_or_write_memory(tmp_path, monkeyp
     assert store.get_all() == []
     assert core.conversation_history == []
     assert not tts.spoken
+
+
+def test_stale_voice_memory_request_not_revived_by_stop_then_new_start(
+        tmp_path, monkeypatch):
+    """A new session must not reset the old in-flight verifier token."""
+    core, store = make_real_core(tmp_path, monkeypatch)
+    phrase = "Kom ihåg att jag föredrar modulär kod."
+    pipeline = VoicePipeline(core, FakeSTT(phrase), settings=voice_config())
+
+    class StopAndRestartDuringChat(MockLLM):
+        def chat(self, *args, **kwargs):
+            previous = pipeline._stop_token
+            pipeline.cancel_pending()
+            pipeline.resume_after_stop()
+            assert previous.is_set()
+            assert pipeline._stop_token is not previous
+            assert not pipeline._stop_token.is_set()
+            return "Jag har sparat det."
+
+    core.llm = StopAndRestartDuringChat()
+    previous = pipeline._stop_token
+    response = pipeline.process_utterance(b"old-utterance")
+    assert previous.is_set()
+    assert response["status"] == "clarify"
+    assert response["memory_feedback"] == {"status": "not_saved"}
+    assert store.write_count == 0
+    assert store.get_all() == []
+    assert core.conversation_history == []
