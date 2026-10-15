@@ -137,6 +137,7 @@ def test_default_optin_off_is_not_model_execution():
     b'{"text":"x","language":"sv","confidence":null,"raw_audio":"SECRET"}',
     b'{"text":"x","language":"nl","confidence":null}',
     b'{"text":"x","language":"sv","confidence":NaN}',
+    b'{"text":"safe","text":"unsafe","language":"sv","confidence":null}',
 ])
 def test_untrusted_child_reply_never_authorizes_vote(malformed):
     with pytest.raises(RuntimeError):
