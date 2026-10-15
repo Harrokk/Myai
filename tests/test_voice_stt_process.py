@@ -167,7 +167,7 @@ def test_oversized_child_output_is_rejected_before_large_allocation():
         "time.sleep(60)"
     )
     start = time.monotonic()
-    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+    with pytest.raises(RuntimeError, match="Invalid isolated STT output"):
         run_deadlined(cmd(script), b"some-pcm", 4)
     assert time.monotonic() - start < 4
 
@@ -192,7 +192,7 @@ def test_one_byte_over_response_limit_must_fail_closed():
         "sys.stdin.buffer.read();"
         f"sys.stdout.buffer.write({padded!r})"
     )
-    with pytest.raises(RuntimeError, match="Isolated STT worker failed"):
+    with pytest.raises(RuntimeError, match="Invalid isolated STT output"):
         run_deadlined(cmd(script), b"fake", 4)
 
 
