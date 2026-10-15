@@ -1,0 +1,117 @@
+name: VENTUNO local interactive timer - offline tests and no-TTY denial
+on:
+  push:
+    branches: [dev/ventuno-local-console-system-timer-canary-20261015]
+    paths:
+      - .github/workflows/ventuno-local-console-system-timer-canary.yml
+      - scripts/ventuno_local_console_system_timer_canary.py
+      - tests/test_ventuno_local_console_system_timer_canary.py
+      - docs/VENTUNO_LOCAL_SYSTEM_TIMER_OPERATOR.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-local-console-only-sudo-canary-20261015
+  cancel-in-progress: false
+jobs:
+  hosted-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Fetch exact revision into disposable x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-local-console-x86.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_LOCAL_CONSOLE_X86=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Test local-only sudo prompt, fake marker, subprocess isolation
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-local-console-venv"
+          "$RUNNER_TEMP/myai-local-console-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_LOCAL_CONSOLE_X86"
+          "$RUNNER_TEMP/myai-local-console-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_local_console_system_timer_canary.py \
+            tests/test_ventuno_system_manager_timer_canary.py \
+            tests/test_ventuno_htp_local_recovery_canary.py
+      - name: Cleanup x86 checkout and isolated test venv
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_LOCAL_CONSOLE_X86:-}" ]; then rm -rf -- "$MYAI_LOCAL_CONSOLE_X86"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-local-console-venv"
+
+  real-board-negative-guard:
+    name: Verify runner CANNOT make interactive sudo prompt
+    needs: hosted-tests
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact branch SHA to disposable board workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-local-console-board.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_LOCAL_CONSOLE_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify noninteractive CI blocks all privilege escalation
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          GITHUB_ACTIONS: "true"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_LOCAL_CONSOLE_BOARD"
+          timeout --signal=TERM --kill-after=3s 20s \
+            /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from scripts.ventuno_local_console_system_timer_canary import exercise_local
+          def reject_sudo(*args, **kwargs):
+              raise AssertionError("GitHub runner attempted privilege escalation")
+          result = exercise_local(
+              opt_in=True, timer_call=reject_sudo,
+              interactive=False, github_actions=True,
+          )
+          assert result["status"] == "no_go_local_board_tty_and_explicit_opt_in_required"
+          assert result["one_system_timer_armed"] is False
+          assert result["real_services_changed"] is False
+          assert result["github_runner_changed_or_stopped"] is False
+          assert result["independent_fake_restoration_observed"] is False
+          assert result["runner_disconnect_recovery_verified"] is False
+          assert result["private_paths_secrets_or_logs_exported"] is False
+          print("MYAI_LOCAL_CONSOLE_SAFETY_JSON=" + json.dumps(result, sort_keys=True))
+          PY
+      - name: Delete temp board checkout and metadata
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_LOCAL_CONSOLE_BOARD:-}" ]; then rm -rf -- "$MYAI_LOCAL_CONSOLE_BOARD"; fi
