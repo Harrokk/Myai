@@ -16,7 +16,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
+from core.voice_stt_bounded_io import exchange_bounded, OversizedSTTOutput
 from core.voice_stt_process_group import terminate_owned_group
 
 MAX_PCM_BYTES = 2 * 1024 * 1024
@@ -82,15 +84,34 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen):
         stderr=subprocess.DEVNULL, start_new_session=True,
         cwd="/", env=environment,
     )
+    deadline = time.monotonic() + timeout
     try:
-        output, _ = proc.communicate(input=bytes(audio), timeout=timeout)
-    except subprocess.TimeoutExpired:
-        # A helper may outlive its leader and keep the pipe open.
-        # Reap/verify the FULL owned process group, not just proc.pid.
+        output = exchange_bounded(
+            proc, bytes(audio), deadline=deadline,
+            max_reply_bytes=MAX_REPLY_BYTES,
+        )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Isolated STT process deadline exceeded")
+        proc.wait(timeout=remaining)
+    except (TimeoutError, subprocess.TimeoutExpired):
+        # A helper may keep stdout open after its leader exits. Always
+        # verify the FULL group is stopped before surfacing a timeout.
         terminate_owned_group(proc)
         raise TimeoutError("Isolated STT process deadline exceeded") from None
-    # Even successful or failed worker exits may have forked helpers;
-    # no result can be trusted until the owned group is inert.
+    except OversizedSTTOutput:
+        # Surface only a fixed category; the child's actual output is
+        # never echoed or stored and the group must first be reaped.
+        terminate_owned_group(proc)
+        raise RuntimeError("Invalid isolated STT output") from None
+    except BaseException:
+        # Even a broken pipe may leave a native child alive.
+        # Refuse the reply unless its group is fully cleaned up.
+        terminate_owned_group(proc)
+        raise RuntimeError("Isolated STT worker failed") from None
+
+    # Successful pipe EOF/leader exit are not sufficient: native helper
+    # descendants could still retain RAM inside the same group.
     terminate_owned_group(proc)
     if proc.returncode != 0:
         raise RuntimeError("Isolated STT worker failed")
