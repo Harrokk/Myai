@@ -102,20 +102,39 @@ def contains_sensitive_memory_data(text):
     )
 
 
+# Only intentional requests at the beginning of the utterance
+# receive the explicit-memory score. A question ABOUT the phrase
+# "kom ihåg" is not permission to store the question.
+_EXPLICIT_MEMORY_PREFIXES = (
+    "kom ihåg att ",
+    "kom ihåg ",
+    "lägg på minnet att ",
+    "lägg på minnet ",
+    "spara detta: ",
+    "spara detta:",
+    "spara att ",
+    "remember that ",
+    "remember this: ",
+    "remember this:",
+    "kan du komma ihåg att ",
+    "kan du lägga på minnet att ",
+    "jag vill att du kommer ihåg att ",
+)
+
+
+def is_explicit_memory_request(text):
+    normalized = normalize_memory_text(text)
+    return any(
+        normalized.startswith(prefix)
+        for prefix in _EXPLICIT_MEMORY_PREFIXES
+    )
+
+
 def _strip_explicit_prefix(text):
     value = (text or "").strip()
     lowered = value.lower()
 
-    prefixes = (
-        "kom ihåg att ",
-        "kom ihåg ",
-        "lägg på minnet att ",
-        "lägg på minnet ",
-        "spara detta: ",
-        "spara att ",
-        "remember that ",
-        "remember this: ",
-    )
+    prefixes = _EXPLICIT_MEMORY_PREFIXES
 
     for prefix in prefixes:
         if lowered.startswith(prefix):
@@ -180,10 +199,7 @@ def assess_memory_candidate(
     score = 10
     category = "other"
 
-    explicit = any(
-        phrase in normalized
-        for phrase in EXPLICIT_MEMORY_PHRASES
-    )
+    explicit = is_explicit_memory_request(text)
 
     if explicit:
         score += 70
