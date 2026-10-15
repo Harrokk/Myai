@@ -675,7 +675,7 @@ class VoicePipeline:
             "retry_required", "not_saved", "pending_review",
             "not_saved_sensitive", "unverified",
         }
-        if status not in allowed:
+        if not isinstance(status, str) or status not in allowed:
             status = "unverified"
         return {"status": status}
 
