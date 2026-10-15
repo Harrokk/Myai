@@ -6,6 +6,8 @@ on:
       - .github/workflows/ventuno-secure-fastrpc-acl-readonly.yml
       - scripts/ventuno_secure_fastrpc_acl_effective_readonly.py
       - tests/test_ventuno_secure_fastrpc_acl_effective_readonly.py
+      - scripts/ventuno_v75_npu_readiness_readonly.py
+      - tests/test_ventuno_v75_npu_readiness_readonly.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -46,7 +48,8 @@ jobs:
           cd "$MYAI_ACL_UNIT_SCRATCH"
           "$RUNNER_TEMP/myai-secure-acl-unit-venv/bin/python" -B -m pytest -q \
             tests/test_ventuno_secure_fastrpc_acl_effective_readonly.py \
-            tests/test_ventuno_dma_acl_effective_readonly.py
+            tests/test_ventuno_dma_acl_effective_readonly.py \
+            tests/test_ventuno_v75_npu_readiness_readonly.py
       - name: Delete fake-only workspace and virtualenv
         if: always()
         shell: bash
@@ -103,6 +106,31 @@ jobs:
           assert r["qnn_or_htp_executed"] is False
           assert r["npu_inference_verified"] is False
           print("Read-only FastRPC ACL attribution completed; no HTP inference.")
+          '
+      - name: Recheck NPU metadata without assuming secure node write is required
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_ACL_METADATA_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 60s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_v75_npu_readiness_readonly \
+            | tee "$MYAI_ACL_METADATA_SCRATCH/npu-readiness.txt"
+          /home/arduino/MyAI/.venv/bin/python -B -c '
+          import json
+          from pathlib import Path
+          rows = Path("npu-readiness.txt").read_text(encoding="utf-8").splitlines()
+          assert len(rows) == 1 and rows[0].startswith("MYAI_V75_NPU_READINESS_JSON=")
+          r = json.loads(rows[0].split("=", 1)[1])
+          assert r["status"] == "no_go"
+          assert r["secure_fastrpc_write_not_assumed_required"] is True
+          assert r["qnn_or_htp_attempted"] is False
+          assert r["npu_inference_verified"] is False
+          assert r["devices_opened"] is False
+          print("Separate secure FastRPC read and DMA heap read/write metadata checked.")
           '
       - name: Destroy temporary checkout and metadata files
         if: always()
