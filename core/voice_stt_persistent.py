@@ -158,6 +158,7 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
         raise ValueError("Invalid persistent STT PCM")
     if proc.poll() is not None:
         raise RuntimeError("Persistent STT worker is not running")
+    reject_buffered_stt_reply(proc, allow_eof=False)
     deadline = clock() + timeout
     _send_all(
         proc.stdin.fileno(), struct.pack(">I", len(audio)) + bytes(audio),
@@ -177,6 +178,9 @@ def exchange(proc, audio, timeout, *, clock=time.monotonic, cancel_event=None):
         # A reply racing with a user's Stop must not authorize an
         # assistant/tool invocation after the stop request.
         raise RuntimeError("Persistent STT request cancelled")
+    # A correct worker emits exactly one frame per utterance.
+    # Never leave a queued second frame for the next utterance.
+    reject_buffered_stt_reply(proc, allow_eof=True)
     return result
 
 
@@ -184,6 +188,20 @@ def terminate_owned(proc):
     """Also kill group descendants after the STT leader has exited."""
     return terminate_owned_group(proc)
 
+
+def reject_buffered_stt_reply(proc, *, allow_eof):
+    """Reject data queued outside a single complete request/reply frame.
+
+    This is a defensive *boundary* check, not authentication of a native
+    model. It prevents a child from queueing multiple responses and
+    later satisfying a new request with stale bytes. EOF is permitted
+    only after the current complete reply, not before a new request.
+    """
+    readable, _, _ = select.select([proc.stdout.fileno()], [], [], 0)
+    if readable:
+        data = os.read(proc.stdout.fileno(), 1)
+        if data or not allow_eof:
+            raise RuntimeError("Persistent STT unsolicited reply data")
 
 
 class PersistentFasterWhisperSTT:
@@ -239,10 +257,11 @@ class PersistentFasterWhisperSTT:
             return
         try:
             terminate_owned(proc)
-        except Exception:
-            # A failed reap must NEVER discard the last process handle,
-            # or let a new worker load a second native model next time.
-            # Retain it for an explicit close()/retry. Hide OS details.
+        except BaseException:
+            # Even KeyboardInterrupt/SystemExit injected during wait/reap
+            # must poison this handle; otherwise a later call might
+            # reuse a worker whose native cleanup was interrupted.
+            # Keep original handle, never expose the underlying error.
             self._cleanup_required = True
             raise RuntimeError(
                 "Persistent STT process cleanup incomplete"
