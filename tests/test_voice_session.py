@@ -701,3 +701,72 @@ def test_failing_persistent_cleanup_reports_generic_error_not_secret():
         s.stop()
     assert "SECRET" not in str(exc.value)
     assert s.running is False
+
+
+
+def test_voice_stop_signals_cached_stt_before_waiting_for_pipeline_cleanup():
+    class Cancellable(FakeSTT):
+        def __init__(self):
+            super().__init__()
+            self.cancel_requests = 0
+            self.resume_requests = 0
+            self.close_calls = 0
+        def request_cancel(self):
+            self.cancel_requests += 1
+        def resume(self):
+            self.resume_requests += 1
+        def close(self):
+            self.close_calls += 1
+
+    model = Cancellable()
+    components_dict = components(FakeMicrophone([]), FakeVAD([]), stt=model)
+    components_dict["backup_stt"] = [model]
+    s = VoiceSession(
+        FakeAssistant(),
+        settings=settings(stt_persistent_worker_enabled=True),
+        components=components_dict,
+    )
+    assert s.start() is True
+    assert model.resume_requests == 1
+    original_interrupt = s.pipeline.interrupt
+    def guarded_interrupt():
+        assert model.cancel_requests == 1
+        return original_interrupt()
+    s.pipeline.interrupt = guarded_interrupt
+    assert s.stop() is True
+    assert model.close_calls == 1
+    assert model.cancel_requests == 1
+    assert not s.running
+    assert s.start() is True
+    assert model.resume_requests == 2
+    assert s.stop() is True
+
+
+def test_default_voice_never_requests_cancel_or_resume_on_unisolated_stt():
+    class DirectProvider(FakeSTT):
+        def request_cancel(self):
+            pytest.fail("Direct model unexpectedly signalled")
+        def resume(self):
+            pytest.fail("Direct model unexpectedly resumed")
+    mic = FakeMicrophone([])
+    s = VoiceSession(
+        FakeAssistant(), settings=settings(),
+        components=components(mic, FakeVAD([]), stt=DirectProvider()),
+    )
+    assert s.start() is True
+    assert s.stop() is True
+
+
+def test_resume_pending_reap_blocks_microphone_activation():
+    class PendingCleanup(FakeSTT):
+        def resume(self):
+            raise RuntimeError("Persistent STT cleanup pending")
+    mic = FakeMicrophone([])
+    s = VoiceSession(
+        FakeAssistant(), settings=settings(stt_persistent_worker_enabled=True),
+        components=components(mic, FakeVAD([]), stt=PendingCleanup()),
+    )
+    with pytest.raises(RuntimeError, match="cleanup pending"):
+        s.start()
+    assert mic.started is False
+    assert s.running is False
