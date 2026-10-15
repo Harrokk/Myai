@@ -1,0 +1,116 @@
+name: VENTUNO GenieX idle model catalog GET-only diagnosis
+on:
+  push:
+    branches: [dev/ventuno-geniex-idle-model-readiness-20261015]
+    paths:
+      - .github/workflows/ventuno-geniex-idle-model-readonly.yml
+      - scripts/ventuno_geniex_idle_model_readonly.py
+      - tests/test_ventuno_geniex_idle_model_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-ventuno-idle-geniex-catalog-readonly-20261015
+  cancel-in-progress: false
+jobs:
+  mocked-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Fetch exact commit in private hosted x86 checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-geniex-idle-x86.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_GENIEX_IDLE_X86=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Test no-POST GET-only backend and model-catalog diagnosis
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-geniex-idle-venv"
+          "$RUNNER_TEMP/myai-geniex-idle-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_GENIEX_IDLE_X86"
+          "$RUNNER_TEMP/myai-geniex-idle-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_geniex_idle_model_readonly.py \
+            tests/test_ventuno_existing_geniex_npu_backend_reasons_readonly.py \
+            tests/test_ventuno_geniex_runtime_attestation.py
+      - name: Clean disposable checkout and virtual environment
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_GENIEX_IDLE_X86:-}" ]; then rm -rf -- "$MYAI_GENIEX_IDLE_X86"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-geniex-idle-venv"
+
+  ventuno-read-only:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    needs: mocked-safety
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact SHA in private on-board temporary directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-geniex-idle-board.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_GENIEX_IDLE_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Read systemd unit hints, existing backend and fixed local model list ONLY
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_GENIEX_IDLE_BOARD"
+          timeout --signal=TERM --kill-after=3s 45s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_geniex_idle_model_readonly \
+            | tee "$MYAI_GENIEX_IDLE_BOARD/safe-report.txt"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          rows = Path("safe-report.txt").read_text(encoding="utf-8").splitlines()
+          assert len(rows) == 1 and rows[0].startswith("MYAI_GENIEX_IDLE_CATALOG_JSON=")
+          observed = json.loads(rows[0].split("=", 1)[1])
+          assert observed["http_methods_used"] == ["GET"]
+          assert observed["http_post_performed"] is False
+          assert observed["model_inference_executed"] is False
+          assert observed["htp_graph_placement_verified"] is False
+          assert observed["npu_utilization_measured"] is False
+          assert observed["second_qnn_htp_client_started"] is False
+          assert observed["model_service_or_permissions_modified"] is False
+          assert observed["command_lines_or_service_environment_exported"] is False
+          assert observed["api_model_id_or_response_body_exported"] is False
+          assert observed["private_model_data_or_user_prompts_accessed"] is False
+          print("Read-only idle backend catalog classification completed. No model activation.")
+          PY
+      - name: Delete on-board temporary checkout and reports
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_GENIEX_IDLE_BOARD:-}" ]; then rm -rf -- "$MYAI_GENIEX_IDLE_BOARD"; fi
