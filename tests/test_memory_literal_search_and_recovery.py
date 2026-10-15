@@ -222,7 +222,8 @@ def test_completed_memory_save_survives_final_audit_failure(tmp_path):
     core.audit_logger.write_result = final_audit_fails
     result = core.respond("Kom ihåg att jag föredrar modulär kod.")
     decision = result["memory_decision"]
-    assert result["answer"] == "Syntetiskt testsvar."
+    assert "kan redan vara genomförd" in result["answer"]
+    assert result["memory_feedback"]["status"] == "unverified"
     assert decision["saved"] is True
     assert decision["lifecycle_action"] == "saved_legacy_store"
     assert decision["audit_result_status"] == "unverified"
