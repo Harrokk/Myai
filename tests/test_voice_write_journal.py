@@ -137,6 +137,9 @@ def test_preexisting_symlink_marker_denied_without_following(tmp_path):
 
 
 def test_writing_marker_failure_fails_closed(monkeypatch, tmp_path):
+    # Precreate runtime so the injected fsync failure occurs AFTER
+    # exclusive marker creation, not at the earlier mkdir parent sync.
+    (tmp_path / "runtime").mkdir(mode=0o700)
     original = os.fsync
     def fail_fsync(fd):
         raise OSError("SYNTHETIC_PRIVATE_IO_ERROR")
