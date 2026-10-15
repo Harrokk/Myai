@@ -456,6 +456,7 @@ def test_voice_core_stop_mid_tool_cannot_claim_full_completion(tmp_path, monkeyp
     }
     assert summarize_guarded_outcomes(result["tool_outcomes"]) == "unknown"
     assert result["tool_execution_status"] == "unknown"
+    assert result["manual_reconciliation_required"] is True
     assert result["tool_dispatch_blocked"] is True
     assert core.llm.calls == []
     assert core.conversation_history == []
