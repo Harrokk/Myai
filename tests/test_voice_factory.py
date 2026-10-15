@@ -176,7 +176,12 @@ def test_opted_in_isolation_builds_only_trusted_builtin_worker_without_launch():
     value["voice"]["stt_process_timeout_seconds"] = 8
     value["voice"]["stt_model"] = "tiny"
     value["voice"]["backup_stt_models"] = ["base", "small"]
-    result = voice_factory.build_voice_components(settings=value)
+    from modules.voice.providers import FasterWhisperSTT
+    mock_devices = classes()
+    mock_devices["stt"] = {"faster_whisper": FasterWhisperSTT}
+    result = voice_factory.build_voice_components(
+        settings=value, provider_classes=mock_devices
+    )
     assert isinstance(result["primary_stt"], IsolatedFasterWhisperSTT)
     assert result["primary_stt"].timeout_seconds == 8.0
     assert len(result["backup_stt"]) == 2
