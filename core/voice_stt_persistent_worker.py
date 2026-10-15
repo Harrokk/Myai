@@ -14,7 +14,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.voice_stt_process import MAX_PCM_BYTES, worker_argv
-from core.voice_stt_persistent import MAX_RESPONSE, MAX_UTTERANCES_PER_CHILD
+from core.voice_stt_persistent import (
+    MAX_RESPONSE, MAX_UTTERANCES_PER_CHILD, REQUEST_NONCE_BYTES,
+)
 
 
 def read_exact(stream, length):
@@ -49,6 +51,7 @@ def main():
             length = struct.unpack(">I", header)[0]
             if length < 1 or length > MAX_PCM_BYTES:
                 return 2
+            nonce = read_exact(sys.stdin.buffer, REQUEST_NONCE_BYTES)
             audio = read_exact(sys.stdin.buffer, length)
             answer = provider.transcribe(audio)
             text = answer.get("text")
@@ -62,7 +65,8 @@ def main():
             }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(encoded) > MAX_RESPONSE:
                 return 2
-            sys.stdout.buffer.write(struct.pack(">I", len(encoded)))
+            sys.stdout.buffer.write(struct.pack(">I", REQUEST_NONCE_BYTES + len(encoded)))
+            sys.stdout.buffer.write(nonce)
             sys.stdout.buffer.write(encoded)
             sys.stdout.buffer.flush()
         return 0
