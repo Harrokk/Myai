@@ -1,3 +1,5 @@
+import pytest
+
 from core.voice_session import VoiceSession
 
 
@@ -507,3 +509,141 @@ def test_default_profile_does_not_release_stt_provider_before_llm():
 
     assert result["status"] == "utterance_complete"
     assert stt.release_calls == 0
+
+
+
+def test_microphone_start_false_never_marks_voice_running(monkeypatch):
+    mic = TrackingMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(),
+        components=components(mic, FakeVAD([])),
+    )
+    monkeypatch.setattr(mic, "start", lambda: False)
+
+    with pytest.raises(RuntimeError, match="kunde inte startas"):
+        session.start()
+
+    assert session.running is False
+    assert session.status()["running"] is False
+    assert session.microphone_paused_for_inference is False
+
+
+def test_run_once_never_reads_frames_when_microphone_start_fails(monkeypatch):
+    mic = FakeMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(),
+        components=components(mic, FakeVAD([])),
+    )
+    monkeypatch.setattr(mic, "start", lambda: False)
+    monkeypatch.setattr(mic, "read_frame", lambda: pytest.fail(
+        "Cannot read frames from a microphone that never started"
+    ))
+
+    with pytest.raises(RuntimeError, match="kunde inte startas"):
+        session.run_once(max_wait_frames=1)
+
+    assert session.running is False
+    assert session.frame_count == 0
+
+
+def test_microphone_start_exception_does_not_mark_session_running(monkeypatch):
+    mic = FakeMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(), settings=settings(),
+        components=components(mic, FakeVAD([])),
+    )
+    def fail():
+        raise OSError("hardware disconnected")
+    monkeypatch.setattr(mic, "start", fail)
+
+    with pytest.raises(OSError, match="hardware disconnected"):
+        session.start()
+
+    assert session.running is False
+
+
+def test_microphone_stop_false_does_not_claim_stopped(monkeypatch):
+    mic = FakeMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(), settings=settings(),
+        components=components(mic, FakeVAD([])),
+    )
+    session.start()
+    original_stop = mic.stop
+    monkeypatch.setattr(mic, "stop", lambda: False)
+
+    with pytest.raises(RuntimeError, match="kunde inte stoppas"):
+        session.stop()
+
+    assert session.running is True
+    assert session.status()["running"] is True
+    # A working stop call can still finish cleanup after this failure.
+    monkeypatch.setattr(mic, "stop", original_stop)
+    assert session.stop() is True
+    assert session.running is False
+
+
+def test_microphone_failed_restart_keeps_paused_state_until_cleanup(monkeypatch):
+    mic = TrackingMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(release_microphone_during_inference=True),
+        components=components(mic, FakeVAD([])),
+    )
+    session.start()
+    assert session._before_inference() is True
+    assert mic.stopped is True
+    monkeypatch.setattr(mic, "start", lambda: False)
+
+    with pytest.raises(RuntimeError, match="kunde inte återstartas"):
+        session._after_inference()
+
+    assert session.running is True
+    assert session.microphone_paused_for_inference is True
+    # No duplicate stop call against an already closed microphone.
+    assert session.stop() is True
+    assert mic.stop_calls == 1
+    assert session.running is False
+    assert session.microphone_paused_for_inference is False
+
+
+def test_microphone_restart_exception_preserves_paused_state(monkeypatch):
+    mic = FakeMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(release_microphone_during_inference=True),
+        components=components(mic, FakeVAD([])),
+    )
+    session.start()
+    session._before_inference()
+    def fail():
+        raise OSError("device removed")
+    monkeypatch.setattr(mic, "start", fail)
+
+    with pytest.raises(OSError, match="device removed"):
+        session._after_inference()
+
+    assert session.microphone_paused_for_inference is True
+    assert session.stop() is True
+    assert session.running is False
+
+
+def test_stop_while_paused_never_reopens_microphone(monkeypatch):
+    mic = TrackingMicrophone([])
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(release_microphone_during_inference=True),
+        components=components(mic, FakeVAD([])),
+    )
+    session.start()
+    session._before_inference()
+    session.stop()
+    monkeypatch.setattr(mic, "start", lambda: pytest.fail(
+        "Stopped session must never restart a microphone"
+    ))
+
+    assert session._after_inference() is False
+    assert session.running is False
+    assert session.microphone_paused_for_inference is False
