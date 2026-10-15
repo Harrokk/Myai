@@ -67,6 +67,55 @@ def system_timer_argv(unit, scratch, source):
     ]
 
 
+def inspect_exact_sudo_command(*, runner_temp, arch=None, user=None,
+                               run=subprocess.run):
+    """Read-only sudo -n -l for the EXACT systemd-run argv. Never runs it."""
+    result = {
+        "probe": "ventuno_exact_systemd_timer_sudo_policy_readonly",
+        "status": "no_go",
+        "exact_systemd_timer_command_allowed_by_sudo_policy": False,
+        "actual_systemd_timer_submitted": False,
+        "sudoers_modified": False,
+        "systemd_or_service_modified": False,
+        "runner_or_geniex_or_myai_modified": False,
+        "raw_sudo_policy_or_paths_exported": False,
+    }
+    arch = arch if arch is not None else platform.machine().lower()
+    user = user if user is not None else os.environ.get("USER")
+    if arch != "aarch64" or user != FIXED_USER or os.geteuid() == 0:
+        result["status"] = "no_go_untrusted_runner"
+        return result
+    if os.environ.get("MYAI_ALLOW_SYSTEM_MANAGER_FAKE_CANARY") != "yes":
+        result["status"] = "no_go_not_opted_in"
+        return result
+    root = Path(runner_temp)
+    if not root.is_dir() or root.is_symlink():
+        result["status"] = "no_go_untrusted_temp_dir"
+        return result
+    scratch = None
+    try:
+        scratch = Path(tempfile.mkdtemp(prefix=marker.PREFIX, dir=root))
+        scratch.chmod(0o700)
+        unit = marker.PREFIX + secrets.token_hex(6)
+        launch = system_timer_argv(unit, scratch, marker.__file__)
+        # Drop sudo and -n from launch, then prepend the non-executing
+        # sudo -n -l command-listing mode. No root operation can occur.
+        query = [SUDO, "-n", "-l", *launch[2:]]
+        response = run(query, capture_output=True, timeout=6, check=False)
+        allowed = response.returncode == 0
+        result["exact_systemd_timer_command_allowed_by_sudo_policy"] = allowed
+        result["status"] = (
+            "exact_timer_command_sudo_policy_lists_allowed"
+            if allowed else "no_go_exact_timer_command_sudo_policy_denied"
+        )
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
+        result["status"] = "no_go_sudo_policy_probe_failed"
+    finally:
+        if scratch is not None and marker._private_sandbox(scratch):
+            shutil.rmtree(scratch)
+    return result
+
+
 def command(argv, *, timeout):
     return subprocess.run(
         argv, capture_output=True, check=False, timeout=timeout,
@@ -164,7 +213,14 @@ def run_canary(*, runner_temp, arch=None, user=None,
 
 if __name__ == "__main__":
     try:
-        result = run_canary(runner_temp=os.environ.get("RUNNER_TEMP", ""))
+        if sys.argv[1:] == ["--inspect-exact-sudo-policy"]:
+            result = inspect_exact_sudo_command(
+                runner_temp=os.environ.get("RUNNER_TEMP", "")
+            )
+        elif not sys.argv[1:]:
+            result = run_canary(runner_temp=os.environ.get("RUNNER_TEMP", ""))
+        else:
+            sys.exit(2)
     except Exception:
         result = {
             "probe": "ventuno_system_manager_timer_synthetic_recovery_once",
