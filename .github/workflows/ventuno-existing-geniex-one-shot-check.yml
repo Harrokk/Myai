@@ -1,0 +1,126 @@
+name: VENTUNO existing GenieX one synthetic HTP association check
+on:
+  push:
+    branches: [dev/ventuno-existing-geniex-one-shot-htp-evidence-20261015]
+    paths:
+      - .github/workflows/ventuno-existing-geniex-one-shot-check.yml
+      - scripts/ventuno_existing_geniex_synthetic_once.py
+      - tests/test_ventuno_existing_geniex_synthetic_once.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-existing-geniex-one-shot-20261015
+  cancel-in-progress: false
+jobs:
+  synthetic-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Verify exact revision on disposable x86 host
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-geniex-one-unit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_GENIEX_ONE_TEST=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run mocked-only system backend and request tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-geniex-one-venv"
+          "$RUNNER_TEMP/myai-geniex-one-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_GENIEX_ONE_TEST"
+          "$RUNNER_TEMP/myai-geniex-one-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_existing_geniex_synthetic_once.py \
+            tests/test_ventuno_live_qairt_synthetic_once.py \
+            tests/test_ventuno_geniex_runtime_attestation.py
+      - name: Clean isolated test checkout and env
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_GENIEX_ONE_TEST:-}" ]; then
+            rm -rf -- "$MYAI_GENIEX_ONE_TEST"
+          fi
+          rm -rf -- "$RUNNER_TEMP/myai-geniex-one-venv"
+
+  board-single-existing-request:
+    name: On-device existing service ONLY; never a second HTP client
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    needs: synthetic-safety
+    steps:
+      - name: Fetch exact source in separate temporary board workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-one-existing-geniex.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_GENIEX_ONE_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: One bounded synthetic request IF same live backend is fully attested
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          MYAI_ALLOW_EXISTING_GENIEX_SYNTHETIC_ONCE: "yes"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_GENIEX_ONE_BOARD"
+          timeout --signal=TERM --kill-after=3s 55s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_existing_geniex_synthetic_once \
+            | tee "$MYAI_GENIEX_ONE_BOARD/sanitized-result.txt"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          lines = Path("sanitized-result.txt").read_text(encoding="utf-8").splitlines()
+          assert len(lines) == 1 and lines[0].startswith("MYAI_EXISTING_GENIEX_SYNTHETIC_JSON=")
+          observed = json.loads(lines[0].split("=", 1)[1])
+          assert observed["secondary_qnn_htp_client_started"] is False
+          assert observed["model_started_or_reloaded"] is False
+          assert observed["existing_service_or_permissions_modified"] is False
+          assert observed["npu_per_op_profile_measured"] is False
+          assert observed["htp_operator_placement_verified"] is False
+          assert observed["actual_response_text_logged"] is False
+          assert observed["user_content_read_or_logged"] is False
+          if observed["synthetic_response_received"]:
+              assert observed["http_post_performed"] is True
+              assert observed["sample"]["returned_text_logged"] is False
+          else:
+              print("NO-GO or inconclusive: no validated response, never NPU certified.")
+          print("One existing-service synthetic gate finished, without service modification.")
+          PY
+      - name: Delete isolated temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_GENIEX_ONE_BOARD:-}" ]; then
+            rm -rf -- "$MYAI_GENIEX_ONE_BOARD"
+          fi
