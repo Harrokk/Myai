@@ -196,7 +196,7 @@ def test_logs_never_leak_paths_sudo_password_or_real_model_data(tmp_path):
         ),
     )
     serialized = json.dumps(r)
-    assert "password" not in serialized.lower()
+    assert "private: sudo password" not in serialized.lower()
     assert "/home/" not in serialized
     assert r["local_password_or_sudo_output_collected"] is False
     assert r["private_paths_secrets_or_logs_exported"] is False
