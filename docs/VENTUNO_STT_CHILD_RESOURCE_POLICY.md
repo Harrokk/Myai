@@ -17,6 +17,8 @@ Hosted Linux regression tests start disposable synthetic children that intention
 
 When both values are zero, the worker does **not** change inherited OS limits. Nonzero caps are allowed only with `stt_process_isolation_enabled=true`. `core/voice_stt_child_limits.py` validates strict integer values (never boolean/string), passes fixed numeric values via an explicit minimal subprocess environment, and applies Linux/POSIX `resource.setrlimit` inside the actual Python STT **child**, before importing FasterWhisper/native libraries. It does not change MyAI, GenieX, the host/runner or systemd resources. If the parent sends invalid settings or the kernel refuses the limit, the worker fails rather than silently proceeding with weaker limits.
 
+**Inherited limits cannot be relaxed.** For each enabled cap, the child first reads the inherited soft and hard limits, and only then applies the tighter value of `inherited` and `configured` to each. This matters when the system already has a lower *soft* CPU/virtual-memory cap but a more permissive *hard* cap: simply calling `setrlimit(configured, configured)` would otherwise raise the soft limit. Both resource types are checked before any change, preventing partial changes on a failed preflight. An actual separate hosted Linux subprocess test starts with stricter inherited soft ceilings and confirms they remain intact; the parent process is not modified.
+
 **Important limitations:**
 
 - `RLIMIT_AS` limits **virtual address space**, not RAM resident set size (RSS). Native inference libraries may reserve large virtual mappings and fail even if actual physical RAM use would be safe. It is **not** a device-wide memory quota.
@@ -28,3 +30,15 @@ When both values are zero, the worker does **not** change inherited OS limits. N
 ## Safety verdict
 
 Source-only and synthetic test evidence can establish input validation, subprocess-only limit application and failure behavior. It **cannot** establish safe physical thresholds for FasterWhisper/GenieX or guarantee recovery from uninterruptible native/kernel tasks. Keep both caps zero until such physical proof exists.
+
+
+## Persistent worker half-close guard
+
+The persistent STT protocol requires that the worker consume the entire framed
+PCM payload before sending *any* reply. During the upload the parent now watches
+both the writable stdin and the worker's readable stdout. An early stdout reply
+(including EOF), even one with apparently valid JSON, is rejected immediately.
+On error, the worker is killed and reaped using the existing owned-process-group
+safeguards, and no transcript is passed to the assistant. Truncated reply headers
+and bodies likewise fail closed. Synthetic Linux child tests verify all three
+conditions without using a microphone, native model or active Ventuno service.
