@@ -211,11 +211,14 @@ class VoiceSession:
         if not self.microphone_paused_for_inference:
             return False
 
-        self.microphone_paused_for_inference = False
-
         if not self.running:
+            # A stopped session must never reopen the microphone.
+            self.microphone_paused_for_inference = False
             return False
 
+        # Keep the paused state until the provider confirms restart.
+        # On failure this remains observable and cleanup will not treat
+        # the microphone as an active stream.
         started = self.components[
             "microphone"
         ].start()
@@ -225,6 +228,7 @@ class VoiceSession:
                 "Mikrofonen kunde inte återstartas efter AI-inference."
             )
 
+        self.microphone_paused_for_inference = False
         return True
 
     def start(self):
@@ -236,7 +240,12 @@ class VoiceSession:
         if self.running:
             return False
 
-        self.components["microphone"].start()
+        started = self.components["microphone"].start()
+        if started is False:
+            raise RuntimeError(
+                "Mikrofonen kunde inte startas för röstsessionen."
+            )
+
         self.running = True
         return True
 
@@ -254,7 +263,14 @@ class VoiceSession:
 
         if self.running:
             if not self.microphone_paused_for_inference:
-                self.components["microphone"].stop()
+                stopped = self.components["microphone"].stop()
+                if stopped is False:
+                    # Do not claim the microphone was shut down. The
+                    # caller must see a failure instead of a false
+                    # 'stopped' status.
+                    raise RuntimeError(
+                        "Mikrofonen kunde inte stoppas säkert."
+                    )
 
             self.running = False
             self.microphone_paused_for_inference = False
