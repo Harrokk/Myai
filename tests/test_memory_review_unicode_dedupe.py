@@ -109,7 +109,14 @@ def test_a_resolved_review_can_be_queued_again(tmp_path):
     second = memory.enqueue_review("PROJECT", "Spara ändring.")
     assert second["created"] is True
     assert second["review_id"] != first["review_id"]
-    assert len(memory.list_reviews()) == 2
+    assert memory.get_review(first["review_id"])["status"] == "rejected"
+    assert memory.get_review(second["review_id"])["status"] == "pending"
+    # list_reviews defaults to pending, so inspect the historical rows
+    # directly to ensure the old resolved record was retained.
+    with sqlite3.connect(memory.database_path) as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM memory_reviews"
+        ).fetchone()[0] == 2
 
 
 def test_pending_queue_budget_fails_closed_without_new_record(tmp_path):
