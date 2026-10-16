@@ -65,3 +65,15 @@ def test_step_false_does_not_disable_real_job(tmp_path):
     file = directory / "ventuno-usb-speaker-consent-once.yml"
     file.write_text(file.read_text() + "      - if: false\n        run: echo fake\n")
     assert check.audit(tmp_path)["confirmed_job_disabled"] == 0
+
+
+def test_duplicate_job_condition_is_invalid_even_when_first_is_false(tmp_path):
+    directory = _fixture(tmp_path)
+    file = directory / "ventuno-microphone-consent-once.yml"
+    contents = file.read_text()
+    file.write_text(contents.replace(
+        "    if: false\n",
+        "    if: false\n    name: example\n    if: github.event_name == 'push'\n",
+        1,
+    ))
+    assert check.audit(tmp_path)["confirmed_job_disabled"] == 11
