@@ -242,7 +242,7 @@ def test_logged_exception_does_not_persist_credentials_or_user_audio(tmp_path):
     content = (tmp_path / "runtime/errors.jsonl").read_text(encoding="utf-8")
     assert marker not in content
     assert "Details withheld" in content
-    assert '"error_type": "RuntimeError"' in content
+    assert json.loads(content)["error_type"] == "RuntimeError"
 
 
 def test_old_log_exception_text_is_not_exposed_on_read(tmp_path):
