@@ -344,7 +344,7 @@ def location_status():
     try:
         return format_gps_location(read_gps_location())
     except Exception as error:
-        return f"GPS-position kunde inte läsas: {error}"
+        return "GPS-position kunde inte läsas: feltext dold."
 
 
 TOOLS = {

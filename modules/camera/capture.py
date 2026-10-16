@@ -187,7 +187,7 @@ def camera_capture():
     try:
         return format_capture_result(capture_from_settings())
     except Exception as error:
-        return f"Kamerabilden kunde inte tas: {error}"
+        return "Kamerabilden kunde inte tas: feltext dold."
 
 
 TOOLS = {

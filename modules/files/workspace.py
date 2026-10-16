@@ -270,7 +270,7 @@ def workspace_list(user_text=""):
 
         return "\n".join(lines)
     except Exception as error:
-        return f"Kunde inte lista workspace: {error}"
+        return "Kunde inte lista workspace: feltext dold."
 
 
 def workspace_read(user_text):
@@ -296,7 +296,7 @@ def workspace_read(user_text):
             f"{suffix}"
         )
     except Exception as error:
-        return f"Kunde inte läsa filen: {error}"
+        return "Kunde inte läsa filen: feltext dold."
 
 
 def workspace_write(user_text):
@@ -382,7 +382,7 @@ def workspace_write(user_text):
                 },
             )
 
-        return f"Kunde inte skriva filen: {error}"
+        return "Kunde inte skriva filen: feltext dold."
 
 
 TOOLS = {

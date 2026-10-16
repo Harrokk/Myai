@@ -739,7 +739,7 @@ def excel_list_sheets(user_text):
             f"Aktivt blad: {result['active']}."
         )
     except Exception as error:
-        return f"Kunde inte lista Excel-blad: {error}"
+        return "Kunde inte lista Excel-blad: feltext dold."
 
 
 def excel_create_sheet(user_text):
@@ -760,7 +760,7 @@ def excel_create_sheet(user_text):
             f"{result['path'].name}."
         )
     except Exception as error:
-        return f"Kunde inte skapa Excel-bladet: {error}"
+        return "Kunde inte skapa Excel-bladet: feltext dold."
 
 
 def excel_create(user_text):
@@ -782,7 +782,7 @@ def excel_create(user_text):
             f"{result['rows_written']} datarader."
         )
     except Exception as error:
-        return f"Kunde inte skapa Excel-filen: {error}"
+        return "Kunde inte skapa Excel-filen: feltext dold."
 
 
 def excel_read(user_text):
@@ -815,7 +815,7 @@ def excel_read(user_text):
 
         return "\n".join(lines)
     except Exception as error:
-        return f"Kunde inte läsa Excel-filen: {error}"
+        return "Kunde inte läsa Excel-filen: feltext dold."
 
 
 def excel_set_cell(user_text):
@@ -837,7 +837,7 @@ def excel_set_cell(user_text):
             f"till {result['value']}."
         )
     except Exception as error:
-        return f"Kunde inte ändra Excel-cellen: {error}"
+        return "Kunde inte ändra Excel-cellen: feltext dold."
 
 
 def excel_append(user_text):
@@ -858,7 +858,7 @@ def excel_append(user_text):
             f"{result['path'].name} på rad {result['row_number']}."
         )
     except Exception as error:
-        return f"Kunde inte lägga till Excel-raden: {error}"
+        return "Kunde inte lägga till Excel-raden: feltext dold."
 
 
 TOOLS = {
