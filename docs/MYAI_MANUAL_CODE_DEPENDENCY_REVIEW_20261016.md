@@ -64,3 +64,12 @@ En statisk policygrind `scripts/ventuno_dependency_source_review.py` kräver min
 5. Separat fysiskt HTP/NPU-test med verifierad återställningsförmåga och operatörssamtycke.
 
 **Beslut:** Denna omgång har gjort konkreta kod-, säkerhets- och beroendekorrigeringar och förstärkt automatiska skydd. En bokstavligt **fullständig manuell** kod- och beroendegranskning kan ännu inte signeras. Ingen produktionsdrift eller fysisk aktivering är tillåten utifrån detta dokument.
+
+
+## Kompletterande oberoende revisionspass (2026-10-16)
+
+**Nytt fynd – kravintervall:** Den tidigare källpolicyn hämtade lägsta godkända HTTP-version men kontrollerade inte att resten av versionsuttrycket hade en möjlig lösning. Exempelvis kunde \`requests>=2.33.0,<=2.32.0\` och \`urllib3>=2.8.0,<2.8.0\` passera just minimitröskelns deltest. Detta var en **policykontrollbrist**, inte bevis för att pip skulle installera den omöjliga kombinationen.
+
+**Åtgärd i efterföljande DRAFT:** Ett separat fail-closed-intervallsteg kontrollerar enkla numeriska \`==\`, \`!=\`, \`>=\`, \`<=\`, \`>\`, \`<\` med motsägelsefulla övre/nedre gränser, uteslutna exakta pins och flera motstridiga pins. Okända/mer avancerade versionsuttryck blockeras i källpolicyn och behöver ett riktigt paketverktyg och oberoende dependency-lock innan de godkänns. Syntetiska tester täcker konflikter samt giltiga intervall; full ARM64-regression och exakt commit-SHA måste fortfarande verifieras på denna efterföljande gren.
+
+**Säkerhetsgräns kvarstår:** Kontroll av syntaktiskt möjliga intervall innebär inte att tillräckliga hjul faktiskt finns för aktuell plattform eller att deras transitiva/nativa beroenden, licenser och rådgivningar är korrekta. Installerad miljö ändras inte; release, merge och fysisk aktivering är fortsatt NO-GO.
