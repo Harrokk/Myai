@@ -20,6 +20,10 @@ on:
       - .github/workflows/ventuno-disposable-voice-gated.yml
       - scripts/ventuno_disposable_voice_install.sh
       - scripts/ventuno_disposable_voice_abi.py
+      - scripts/ventuno_voice_native_library_readonly.py
+      - scripts/ventuno_trial_runtime_layout.py
+      - tests/test_ventuno_trial_sqlite_isolation.py
+      - tests/test_ventuno_voice_native_library_readonly.py
       - tests/test_ventuno_disposable_voice_e2e.py
       - tests/test_ventuno_disposable_voice_abi.py
       - docs/VENTUNO_DISPOSABLE_VOICE_ABI.md
@@ -104,6 +108,8 @@ jobs:
             tests/test_ventuno_remote_phases_1to5.py \
             tests/test_ventuno_disposable_voice_e2e.py \
             tests/test_ventuno_disposable_voice_abi.py \
+            tests/test_ventuno_voice_native_library_readonly.py \
+            tests/test_ventuno_trial_sqlite_isolation.py \
             tests/test_voice_pipeline.py \
             tests/test_runtime_safety_attestation.py \
             tests/test_runtime_service.py \
@@ -111,6 +117,8 @@ jobs:
             tests/test_ventuno_remote_idle_baseline.py \
             tests/test_ventuno_deep_source_audit.py
           bash -n scripts/ventuno_disposable_voice_install.sh
+          python3 -B -m scripts.ventuno_trial_runtime_layout
+          python3 -B -m scripts.ventuno_voice_native_library_readonly
           echo "Only fake STT models/synthetic PCM; no live model, device or NPU."
       - name: Probe current PyPI ARM64 CPython3.12 wheel resolution on HOSTED ONLY, never install
         shell: bash
