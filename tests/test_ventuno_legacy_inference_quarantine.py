@@ -18,15 +18,15 @@ def _write_all(root, *, wrong=None):
 
 def test_repo_legacy_jobs_are_inert():
     result = check.verify()
-    assert result["status"] == "four-legacy-device-jobs-inert"
-    assert result["confirmed_disabled"] == 4
+    assert result["status"] == "ten-legacy-device-jobs-inert"
+    assert result["confirmed_disabled"] == 10
     assert result["device_used"] is False
     assert result["release_authorized"] is False
 
 
 def test_all_disabled_synthetic_jobs_pass(tmp_path):
     _write_all(tmp_path)
-    assert check.verify(tmp_path)["confirmed_disabled"] == 4
+    assert check.verify(tmp_path)["confirmed_disabled"] == 10
 
 
 def test_active_job_denied_even_with_disabled_inner_step(tmp_path):
@@ -36,7 +36,7 @@ def test_active_job_denied_even_with_disabled_inner_step(tmp_path):
     path.write_text(path.read_text() + "        if: false\n")
     result = check.verify(tmp_path)
     assert result["status"] == "blocked-legacy-device-job-enabled"
-    assert result["confirmed_disabled"] == 3
+    assert result["confirmed_disabled"] == 9
 
 
 def test_missing_file_symlink_and_duplicate_job_are_denied(tmp_path):
@@ -44,10 +44,25 @@ def test_missing_file_symlink_and_duplicate_job_are_denied(tmp_path):
     filename = "ventuno-diagnostics.yml"
     path = tmp_path / ".github/workflows" / filename
     path.unlink()
-    assert check.verify(tmp_path)["confirmed_disabled"] == 3
+    assert check.verify(tmp_path)["confirmed_disabled"] == 9
     path.symlink_to(tmp_path / "elsewhere.yml")
-    assert check.verify(tmp_path)["confirmed_disabled"] == 3
+    assert check.verify(tmp_path)["confirmed_disabled"] == 9
     path.unlink()
     _write_all(tmp_path)
     path.write_text(path.read_text() + "  diagnostics:\n    if: false\n")
-    assert check.verify(tmp_path)["confirmed_disabled"] == 3
+    assert check.verify(tmp_path)["confirmed_disabled"] == 9
+
+
+def test_six_additional_active_inference_jobs_are_explicitly_in_quarantine():
+    names = set(check.DISABLED)
+    required = {
+        "ventuno-tiny-qnn-htp-adsp-retry-once.yml",
+        "ventuno-whisper-tiny-smoke.yml",
+        "ventuno-public-whisper-geniex-tts.yml",
+        "ventuno-tts-isolated.yml",
+        "ventuno-natural-swedish-stt.yml",
+        "ventuno-ollama-arm64-isolated-smoke.yml",
+    }
+    assert required.issubset(names)
+    assert len(check.DISABLED) == 10
+    assert check.verify()["confirmed_disabled"] == 10

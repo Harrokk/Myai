@@ -15,6 +15,12 @@ DISABLED = {
     "ventuno-live-qairt-synthetic-once.yml": "single-synthetic",
     "ventuno-tiny-qnn-htp-once.yml": "tiny-htp-once",
     "ventuno-qnn-tiny-cpu-once.yml": "one-cpu-fixture",
+    "ventuno-tiny-qnn-htp-adsp-retry-once.yml": "one-corrected-tiny-htp-test",
+    "ventuno-whisper-tiny-smoke.yml": "tiny",
+    "ventuno-public-whisper-geniex-tts.yml": "verify",
+    "ventuno-tts-isolated.yml": "tts",
+    "ventuno-natural-swedish-stt.yml": "human-voice",
+    "ventuno-ollama-arm64-isolated-smoke.yml": "isolated",
 }
 
 
@@ -40,7 +46,7 @@ def verify(root=ROOT):
         per_file[filename] = bool(valid)
     success = all(per_file.values())
     return {
-        "status": "four-legacy-device-jobs-inert" if success
+        "status": "ten-legacy-device-jobs-inert" if success
                   else "blocked-legacy-device-job-enabled",
         "checked_jobs": len(DISABLED),
         "confirmed_disabled": sum(per_file.values()),
@@ -55,7 +61,7 @@ def main():
     report = verify()
     print("MYAI_LEGACY_DEVICE_JOB_QUARANTINE_JSON=" +
           json.dumps(report, sort_keys=True))
-    return 0 if report["status"] == "four-legacy-device-jobs-inert" else 2
+    return 0 if report["status"] == "ten-legacy-device-jobs-inert" else 2
 
 
 if __name__ == "__main__":
