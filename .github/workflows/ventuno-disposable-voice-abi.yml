@@ -1,4 +1,4 @@
-name: MyAI disposable ARM64 voice dependency ABI and full synthetic dialogue
+name: MyAI synthetic VoiceSession full-dialog and source gates
 on:
   push:
     branches: [dev/ventuno-isolated-runtime-voice-abi-20261016]
@@ -21,7 +21,6 @@ on:
       - scripts/ventuno_voice_native_import_probe.py
       - tests/test_ventuno_voice_native_import_probe.py
       - tests/test_ventuno_full_synthetic_voice_end_to_end.py
-      - docs/VENTUNO_DISPOSABLE_VOICE_ABI_CHECKPOINT.md
       - scripts/ventuno_remote_phases_1to5.py
       - tests/test_ventuno_remote_phases_1to5.py
       - docs/VENTUNO_REMOTE_PHASES_1TO5_CHECKLIST.md
@@ -48,13 +47,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: myai-ventuno-disposable-voice-abi-20261016
+  group: myai-voice-full-synthetic-20261016
   cancel-in-progress: false
 jobs:
   hosted-source-audit:
     name: Exhaustive tracked-file structural scan, two independent passes
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - name: Fetch exact ref into private disposable checkout
         shell: bash
@@ -101,8 +100,8 @@ jobs:
             tests/test_ventuno_voice_wheelhouse_gate.py \
             tests/test_ventuno_voice_static_lock_check.py \
             tests/test_ventuno_remote_phases_1to5.py \
-            tests/test_ventuno_full_synthetic_voice_end_to_end.py \
             tests/test_ventuno_voice_native_import_probe.py \
+            tests/test_ventuno_full_synthetic_voice_end_to_end.py \
             tests/test_runtime_safety_attestation.py \
             tests/test_runtime_service.py \
             tests/test_ventuno_big_test_readiness.py \
@@ -118,8 +117,8 @@ jobs:
           set -euo pipefail
           cd "$MYAI_AUDIT_SCRATCH"
           wheels="$(mktemp -d "$RUNNER_TEMP/myai-arm64-voice-wheelprobe.XXXXXX")"
+          trap 'rm -rf -- "$wheels"' EXIT
           mkdir -p "$wheels/files"
-          echo "MYAI_TEMP_WHEELHOUSE=$wheels" >> "$GITHUB_ENV"
           if timeout --signal=TERM --kill-after=3s 160s \
             "$RUNNER_TEMP/myai-source-review-venv/bin/python" -m pip download \
             --disable-pip-version-check --no-input --quiet \
@@ -163,26 +162,12 @@ jobs:
           fi
           echo "Wheel probe only examined hosted downloads, not ARM64 native ABI."
 
-      - name: Upload only hash-verified binary wheels to isolated ARM64 trial
-        uses: actions/upload-artifact@v4
-        with:
-          name: voice-cp312-arm64-pinned-${{ github.sha }}
-          path: ${{ env.MYAI_TEMP_WHEELHOUSE }}/files/*.whl
-          if-no-files-found: error
-          retention-days: 1
       - name: Delete disposable checkout
         if: always()
         shell: bash
         run: |
           if [ -n "$MYAI_AUDIT_SCRATCH" ]; then rm -rf -- "$MYAI_AUDIT_SCRATCH"; fi
           rm -rf -- "$RUNNER_TEMP/myai-source-review-venv"
-          if [ -n "${MYAI_TEMP_WHEELHOUSE:-}" ]; then
-            case "$MYAI_TEMP_WHEELHOUSE" in
-              "$RUNNER_TEMP"/myai-arm64-voice-wheelprobe.*)
-                rm -rf -- "$MYAI_TEMP_WHEELHOUSE" ;;
-              *) exit 1 ;;
-            esac
-          fi
   arm64-source-audit:
     name: ARM64 exact-tree structural replay ONLY
     needs: hosted-source-audit
@@ -236,83 +221,3 @@ jobs:
         shell: bash
         run: |
           if [ -n "$MYAI_TWO_PASS_SCRATCH" ]; then rm -rf -- "$MYAI_TWO_PASS_SCRATCH"; fi
-
-  arm64-disposable-voice-install:
-    name: ARM64 disposable venv wheels and native ABI imports - NO AUDIO
-    needs: hosted-source-audit
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
-    timeout-minutes: 13
-    steps:
-      - name: Download locked wheels in runner temporary directory only
-        uses: actions/download-artifact@v4
-        with:
-          name: voice-cp312-arm64-pinned-${{ github.sha }}
-          path: ${{ runner.temp }}/myai-voice-wheels-${{ github.sha }}
-      - name: Create disposable checkout and isolated venv, import-only ABI test
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PIP_NO_INDEX: "1"
-          PIP_DISABLE_PIP_VERSION_CHECK: "1"
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONNOUSERSITE: "1"
-          HF_HUB_OFFLINE: "1"
-          TRANSFORMERS_OFFLINE: "1"
-          OMP_NUM_THREADS: "1"
-          OPENBLAS_NUM_THREADS: "1"
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = "aarch64"
-          test "$(id -un)" = "arduino"
-          test -n "${RUNNER_TEMP:-}"
-          scratch="$(mktemp -d "$RUNNER_TEMP/myai-native-stage.XXXXXX")"
-          chmod 700 "$scratch"
-          echo "MYAI_NATIVE_STAGE=$scratch" >> "$GITHUB_ENV"
-          test "$scratch" != /home/arduino/MyAI
-          test ! -L "$scratch"
-          wheels="$RUNNER_TEMP/myai-voice-wheels-$GITHUB_SHA"
-          test -d "$wheels" && test ! -L "$wheels"
-          count="$(find "$wheels" -maxdepth 1 -type f -name '*.whl' | wc -l)"
-          test "$count" -eq 28
-          megabytes="$(du -sm "$wheels" | cut -f1)"
-          test "$megabytes" -le 750
-          mkdir -m 700 "$scratch/source"
-          git -C "$scratch/source" init -q
-          git -C "$scratch/source" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
-          git -C "$scratch/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
-          git -C "$scratch/source" -c credential.helper= checkout --quiet --detach FETCH_HEAD
-          git -C "$scratch/source" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
-          test "$(git -C "$scratch/source" rev-parse HEAD)" = "$GITHUB_SHA"
-          cd "$scratch/source"
-          /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
-          /usr/bin/python3 -B -m venv "$scratch/venv"
-          test -x "$scratch/venv/bin/python"
-          export XDG_CACHE_HOME="$scratch/cache" HF_HOME="$scratch/hf"
-          export TMPDIR="$scratch" VIRTUAL_ENV="$scratch/venv"
-          timeout --signal=TERM --kill-after=5s 280s \
-            "$scratch/venv/bin/python" -m pip install \
-            --no-input --no-index --require-hashes --find-links "$wheels" \
-            -r requirements-voice-arm64-hashed.lock
-          "$scratch/venv/bin/python" -m pip check
-          timeout --signal=TERM --kill-after=5s 65s \
-            "$scratch/venv/bin/python" -B -m scripts.ventuno_voice_native_import_probe
-          echo "DISPOSABLE_ARM64_VENV_ONLY=true"
-          echo "NO_SOUND_STREAM_NO_MODEL_NO_NPU=true"
-      - name: Remove disposable voice wheel files, native venv and checkout
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "${MYAI_NATIVE_STAGE:-}" ]; then
-            case "$MYAI_NATIVE_STAGE" in
-              "$RUNNER_TEMP"/myai-native-stage.*)
-                rm -rf -- "$MYAI_NATIVE_STAGE" ;;
-              *) exit 1 ;;
-            esac
-          fi
-          wheel_path="$RUNNER_TEMP/myai-voice-wheels-$GITHUB_SHA"
-          case "$wheel_path" in
-            "$RUNNER_TEMP"/myai-voice-wheels-*)
-              rm -rf -- "$wheel_path" ;;
-            *) exit 1 ;;
-          esac
