@@ -610,9 +610,7 @@ def test_run_tools_logs_failure_and_keeps_other_results():
     )
 
     assert result["cpu_status"] == "CPU OK"
-    assert "sensor unavailable" in result[
-        "temperature_status"
-    ]
+    assert result["temperature_status"] == "Fel vid körning av temperature_status: RuntimeError"
     assert logger.events == [
         (
             "tool_error",
@@ -651,9 +649,7 @@ def test_run_tools_survives_error_logger_failure():
         error_logger=BrokenLogger(),
     )
 
-    assert "tool failed" in result[
-        "ram_status"
-    ]
+    assert result["ram_status"] == "Fel vid körning av ram_status: RuntimeError"
 
 
 def test_detect_tools_routes_recent_myai_errors():
@@ -852,3 +848,29 @@ def test_npu_routing_still_matches_complete_token():
     ) == [
         "ventuno_accelerator_status"
     ]
+
+
+
+def test_unguarded_tool_error_does_not_reveal_sensitive_exception_text():
+    secret = "user-speech-content-should-never-be-exported"
+    def failing():
+        raise ValueError(secret)
+    report = tool_manager.run_tools(
+        ["cpu_status"],
+        {"cpu_status": {"function": failing, "description": "test"}},
+    )
+    assert report["cpu_status"] == "Fel vid körning av cpu_status: ValueError"
+    assert secret not in str(report)
+
+
+def test_module_loader_warning_never_prints_raw_exception(monkeypatch, capsys):
+    class FakeWalk:
+        name = "modules.secret_source"
+    def boom(module):
+        raise OSError("hidden-personal-location-data")
+    monkeypatch.setattr(tool_manager.pkgutil, "walk_packages", lambda *a, **k: [FakeWalk()])
+    monkeypatch.setattr(tool_manager.importlib, "import_module", boom)
+    tool_manager.load_tools()
+    text = capsys.readouterr().out
+    assert "hidden-personal-location-data" not in text
+    assert "OSError" in text
