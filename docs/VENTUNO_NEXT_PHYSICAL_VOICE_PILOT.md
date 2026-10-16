@@ -52,6 +52,20 @@ befintliga `ventuno_usb_voice_dialog_readiness.inspect()`, som inspekterar
 /proc, /dev och `systemctl is-active`, men **inte** öppnar ljud,
 installerar paket eller startar modeller.
 
+Detta läge kontrollerar dessutom **separat** att den redan installerade
+produktionsprofilen i `/home/arduino/MyAI/config/profiles/ventuno_q.json`
+fortfarande har samtliga riskflaggor bokstavligen `false`. En säker
+checkout räcker inte om den faktiskt installerade profilen är osäker.
+Resultatet visar bara en fast kategorikod, till exempel
+`blocked-usb-reenumerated-or-inaccessible` eller
+`blocked-inactive-services`; inga råa ALSA-enhetsnamn eller loggar.
+
+GitHub Actions-körningen skiljer på **diagnostik framgångsrikt genomförd**
+och **hårdvaran redo**. Den kan vara grön som källkodstest även om den
+redovisar `Board read-only NO-GO`. Vid NO-GO ska nästa ljudförsök
+**inte** startas, och den rapporterade spärren måste undersökas i ett
+separat, read-only steg.
+
 Ett pass betyder bara **tillåtet att separat be om engångssamtycke**.
 Kontrollen har med avsikt **inga inspelnings-, uppspelnings-, NPU-,
 GenieX-start-, upplåsnings- eller produktionsinstallationsflaggor**.
