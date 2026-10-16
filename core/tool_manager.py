@@ -1674,9 +1674,20 @@ def run_tools(
                 record(tool_name, "failed", True)
                 results.update(deny(tool_names[index + 1:]))
                 break
-            results[tool_name] = (
-                f"Fel vid körning av {tool_name}: {type(error).__name__}"
-            )
+            # Preserve only this fixed, internally generated usage
+            # error. Arbitrary tool/native exceptions must never reach
+            # the caller verbatim (may contain keys, paths or speech).
+            if (isinstance(error, ValueError)
+                    and str(error) == (
+                        f"{tool_name} kräver användarens fråga som indata."
+                    )):
+                results[tool_name] = (
+                    f"{tool_name} kräver användarens fråga som indata."
+                )
+            else:
+                results[tool_name] = (
+                    f"Fel vid körning av {tool_name}: {type(error).__name__}"
+                )
         finally:
             # Keep the writer lease held from before marker creation
             # through the callback, including Stop and exception paths.
