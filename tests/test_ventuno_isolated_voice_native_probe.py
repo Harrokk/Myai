@@ -92,3 +92,9 @@ def test_native_portaudio_error_reports_fixed_category_and_no_raw_detail(tmp_pat
     )
     assert result["all_seven_imports_passed"] is False
     assert result["real_audio_authorized"] is False
+
+
+
+def test_bounded_native_child_source_is_syntactically_valid_without_imports():
+    # Compile only; this does NOT load a native library or contact a device.
+    compile(mod.CHILD, "<synthetic-native-import-child>", "exec")
