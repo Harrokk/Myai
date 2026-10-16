@@ -1,0 +1,62 @@
+name: VENTUNO historical device-job quarantine source-only verification
+on:
+  push:
+    branches: [dev/ventuno-legacy-inference-quarantine-20261016]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-inert-jobs:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact review SHA outside installed MyAI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          tmp="$(mktemp -d "$RUNNER_TEMP/myai-legacy-review-XXXXXXXX")"
+          chmod 700 "$tmp"
+          echo "MYAI_LEGACY_REVIEW_TEMP=$tmp" >> "$GITHUB_ENV"
+          git init -q "$tmp"
+          git -C "$tmp" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$tmp" -c credential.helper= fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$tmp" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$tmp" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$tmp" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify inert device jobs, inventory and regression tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_LEGACY_REVIEW_TEMP"
+          timeout --signal=TERM --kill-after=3s 35s \
+            /usr/bin/python3 -B -m scripts.ventuno_legacy_inference_quarantine
+          timeout --signal=TERM --kill-after=3s 35s \
+            /usr/bin/python3 -B -m scripts.ventuno_workflow_release_review --branch "$GITHUB_REF_NAME"
+          timeout --signal=TERM --kill-after=3s 110s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
+              tests/test_ventuno_legacy_inference_quarantine.py \
+              tests/test_ventuno_workflow_release_review.py
+          echo "No model, microphone, speaker, systemd or HTP operation was performed."
+          echo "Inventory pass is NOT release authorization."
+      - name: Remove private checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_LEGACY_REVIEW_TEMP:-}" in
+            "$RUNNER_TEMP"/myai-legacy-review-*)
+              if [ -d "$MYAI_LEGACY_REVIEW_TEMP" ] && [ ! -L "$MYAI_LEGACY_REVIEW_TEMP" ]; then
+                rm -rf -- "$MYAI_LEGACY_REVIEW_TEMP"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unknown scratch root; refuse unsafe removal" >&2; exit 2 ;;
+          esac
