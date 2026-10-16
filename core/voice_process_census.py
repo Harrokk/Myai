@@ -43,10 +43,8 @@ def _related_command(argv, root):
     return False
 
 
-def _related_python_module(argv, cwd, root):
-    if not argv or cwd is None:
-        return False
-    if cwd != root and root not in cwd.parents:
+def _has_myai_module(argv):
+    if not argv:
         return False
     executable = os.path.basename(os.fsdecode(argv[0])).lower()
     if not executable.startswith("python"):
@@ -54,11 +52,19 @@ def _related_python_module(argv, cwd, root):
     for i, value in enumerate(argv[:-1]):
         if value == b"-m":
             module = argv[i + 1].decode("utf-8", "replace")
-            if module.startswith(("core.", "modules.", "myai.")):
-                return True
-            if module in {"mail", "main", "myai"}:
-                return True
+            return (
+                module.startswith(("core.", "modules.", "myai."))
+                or module in {"mail", "main", "myai"}
+            )
     return False
+
+
+def _related_python_module(argv, cwd, root):
+    return (
+        _has_myai_module(argv)
+        and cwd is not None
+        and (cwd == root or root in cwd.parents)
+    )
 
 
 def detect_project_processes(project_root, *, proc_root=Path("/proc")):
@@ -98,20 +104,22 @@ def detect_project_processes(project_root, *, proc_root=Path("/proc")):
             try:
                 ppid = _parent_pid(entry / "stat")
                 argv = _read_command(entry / "cmdline")
-                try:
-                    cwd = Path(os.readlink(entry / "cwd")).resolve()
-                except FileNotFoundError:
-                    cwd = None
-                except PermissionError as error:
-                    raise OSError("Unreadable project process cwd") from error
+                related = _related_command(argv, root)
+                # Procfs cwd can be unreadable for unrelated same-UID
+                # processes (e.g. ptrace/hidepid restrictions). Only
+                # require it for identifiable MyAI-module commands.
+                if not related and _has_myai_module(argv):
+                    try:
+                        cwd = Path(os.readlink(entry / "cwd")).resolve()
+                    except FileNotFoundError:
+                        cwd = None
+                    except PermissionError as error:
+                        raise OSError("Unreadable MyAI candidate cwd") from error
+                    related = _related_python_module(argv, cwd, root)
             except FileNotFoundError:
                 continue  # Exited during this bounded read.
             except (OSError, UnicodeError, ValueError) as error:
                 raise OSError("Unverifiable local process") from error
-            related = (
-                _related_command(argv, root)
-                or _related_python_module(argv, cwd, root)
-            )
             pids[pid] = (ppid, related)
     except OSError as error:
         raise OSError("Cannot finish bounded Linux process census") from error
