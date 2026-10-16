@@ -118,9 +118,10 @@ jobs:
           folder = pathlib.Path(sys.argv[1])
           rows = []
           for path in sorted(folder.glob("*.whl")):
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
               print("PYPI_ARM64_BINARY_WHEEL=" + path.name)
-              rows.append({"filename": path.name,
-                           "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+              print("PYPI_ARM64_BINARY_WHEEL_SHA256=" + path.name + ":" + digest)
+              rows.append({"filename": path.name, "sha256": digest})
           (folder / "wheelhouse.lock.json").write_text(
               json.dumps({"python":"cp312","platform":"aarch64",
                           "complete_dependency_closure": True,
