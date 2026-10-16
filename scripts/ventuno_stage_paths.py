@@ -50,6 +50,7 @@ def authorized_cli_stage(root: Path, env: Mapping[str, str] | None = None) -> bo
             safe_scratch_root(stage)
             and safe_scratch_root(runner)
             and not stage.is_symlink()
+            and not root.is_symlink()
             and stage.resolve(strict=True) == root.resolve(strict=True)
             and stage.parent.resolve(strict=True) == runner.resolve(strict=True)
             and stage.name.startswith("myai-native-voice-")
