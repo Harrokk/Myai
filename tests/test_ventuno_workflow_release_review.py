@@ -136,3 +136,19 @@ def test_ci_branch_is_passed_to_inventory_not_fixed_old_branch(monkeypatch):
     assert seen == ["dev/review-new-branch"]
     assert review.main(["--branch", "dev/explicit"]) == 0
     assert seen[-1] == "dev/explicit"
+
+
+def test_target_main_branch_cannot_inherit_auto_inference(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "main-risk.yml": "name: archived only on review branch\non:\n  push:\n"
+                         "    branches: [main]\njobs:\n  inference:\n"
+                         "    runs-on: [self-hosted]\n    steps:\n"
+                         "      - run: qnn-net-run --backend /tmp/htp.so\n",
+    })
+    assert review.inventory(root, branch=review.CURRENT_BRANCH)[
+        "candidate_automatic_clear"] is True
+    target = review.inventory(root, branch="main")
+    assert target["candidate_automatic_clear"] is False
+    assert target["counts"]["automatic_sensitive_candidates"] == 1
+    assert review.exit_code(target) == 2
+    assert target["release_ready"] is False
