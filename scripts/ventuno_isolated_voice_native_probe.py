@@ -37,7 +37,7 @@ def isolated_prefix(*, staging_root: Path, executable=None):
     try:
         root = staging_root.resolve(strict=True)
         prefix = Path(sys.prefix).resolve(strict=True)
-        binfile = executable.resolve(strict=True)
+        binfile = executable.absolute()  # venv Python may symlink to system CPython
         return bool(
             root.is_dir()
             and prefix.is_relative_to(root)
