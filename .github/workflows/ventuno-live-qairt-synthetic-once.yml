@@ -12,6 +12,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   single-synthetic:
+    # ARCHIVED - NO HARDWARE EXECUTION in the unapproved review candidate.
+    # Reactivate only in a separate, explicitly approved physical-test PR.
+    if: false
     name: One safely gated synthetic request on real existing HTP runtime
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 3
