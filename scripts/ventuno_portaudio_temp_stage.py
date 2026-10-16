@@ -15,6 +15,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from scripts.ventuno_stage_paths import authorized_cli_stage, safe_scratch_root
+
 MAX_DEB_BYTES = 3 * 1024 * 1024
 ALLOWED_PACKAGES = ("libportaudio2", "libjack-jackd2-0")
 APT_TIMEOUT = 90
@@ -105,9 +107,11 @@ def stage_portaudio_for_import(
     }
     if not allowed_arch:
         return report
-    if (folder.exists() or folder.is_symlink() or folder.name != "myai-voice-portaudio"
+    if (not safe_scratch_root(runner_temp)
+            or folder.exists() or folder.is_symlink() or folder.name != "myai-voice-portaudio"
             or folder.parent.resolve() != runner_temp.resolve()
             or not sandbox_python.is_file()
+            or not Path(os.path.abspath(sandbox_python)).is_relative_to(runner_temp.resolve())
             or not shutil.which("apt")
             or not shutil.which("dpkg-deb")):
         report["status"] = "no-go-staging-tools-or-path"
@@ -193,6 +197,11 @@ def main() -> int:
     parser.add_argument("--runner-temp", type=Path, required=True)
     parser.add_argument("--staged-python", type=Path, required=True)
     args = parser.parse_args()
+    if not authorized_cli_stage(args.runner_temp):
+        print("Temporary PortAudio ARM64 compatibility:",
+              json.dumps({"status": "no-go-unverified-ci-stage",
+                          "sounddevice_import_with_isolated_portaudio": False}))
+        return 2
     result = stage_portaudio_for_import(
         args.staged_python,
         args.runner_temp / "myai-voice-portaudio",
