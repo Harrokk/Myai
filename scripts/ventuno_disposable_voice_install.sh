@@ -86,7 +86,9 @@ timeout --signal=TERM --kill-after=3s 30s \
     exit 2
   }
 echo "MYAI_DISPOSABLE_VOICE_HASHED_VENV_INSTALLED=true"
+/usr/bin/python3 -B -m scripts.ventuno_voice_native_library_readonly
 
+failed_imports=0
 for module in numpy av ctranslate2 webrtcvad sounddevice faster_whisper pyttsx3 onnxruntime; do
   if ! timeout --signal=TERM --kill-after=3s 35s \
     env -i PATH=/usr/bin:/bin HOME="$scratch/home" \
@@ -98,8 +100,12 @@ for module in numpy av ctranslate2 webrtcvad sounddevice faster_whisper pyttsx3 
       "$repo_root/scripts/ventuno_disposable_voice_abi.py" \
       --module "$module"; then
     echo "MYAI_DISPOSABLE_VOICE_IMPORT_BLOCKED=$module"
-    exit 2
+    failed_imports=$((failed_imports + 1))
   fi
 done
+echo "MYAI_DISPOSABLE_VOICE_IMPORT_FAILURE_COUNT=$failed_imports"
+if [ "$failed_imports" -gt 0 ]; then
+  exit 2
+fi
 echo "MYAI_DISPOSABLE_VOICE_IMPORT_ONLY_ABI_PASS=true"
 echo "No actual mic, speaker, model, LLM, service, or NPU executed."
