@@ -141,12 +141,10 @@ class ErrorLogger:
             "error_type": type(
                 error
             ).__name__,
-            "message": _compact_message(
-                error,
-                max_chars=(
-                    self.max_message_chars
-                ),
-            ),
+            # Native exceptions can contain model paths, bearer tokens,
+            # user speech fragments or private file names. The error type
+            # and component provide diagnostics without exporting them.
+            "message": "Details withheld",
         }
 
         try:
@@ -290,13 +288,9 @@ def read_recent_errors(
                         ),
                         max_chars=80,
                     ),
-                    "message": _compact_message(
-                        value.get(
-                            "message",
-                            "",
-                        ),
-                        max_chars=max_message_chars,
-                    ),
+                    # Historical records may have been written before
+                    # privacy enforcement. Never replay their raw messages.
+                    "message": "Details withheld",
                 }
             )
 
