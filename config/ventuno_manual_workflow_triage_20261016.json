@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "purpose": "source-only manual Actions triage drift guard, never permission",
+  "revision_date": "2026-10-16",
+  "release_authorized": false,
+  "physical_test_authorized": false,
+  "groups": {
+    "15 disabled model/GenieX/HTP jobs": [
+      "ventuno-diagnostics.yml",
+      "ventuno-live-qairt-synthetic-once.yml",
+      "ventuno-natural-swedish-stt.yml",
+      "ventuno-ollama-arm64-isolated-smoke.yml",
+      "ventuno-public-whisper-geniex-tts.yml",
+      "ventuno-qnn-tiny-cpu-once.yml",
+      "ventuno-tiny-qnn-htp-adsp-retry-once.yml",
+      "ventuno-tiny-qnn-htp-once.yml",
+      "ventuno-tts-isolated.yml",
+      "ventuno-whisper-tiny-smoke.yml",
+      "ventuno-existing-geniex-one-shot-check.yml",
+      "ventuno-piper-alma-swedish-stt.yml",
+      "ventuno-public-dynamic-transcript.yml",
+      "ventuno-synthetic-swedish-question-stt.yml",
+      "ventuno-whisper-base-swedish-comparison.yml"
+    ],
+    "12 metadata, inventory or dry-run workflows": [
+      "ventuno-alsa-mixer-readonly.yml",
+      "ventuno-alsa-routing-readonly.yml",
+      "ventuno-capture-permissions-readonly.yml",
+      "ventuno-existing-geniex-backend-reasons-readonly.yml",
+      "ventuno-geniex-idle-model-readonly.yml",
+      "ventuno-ollama-readiness-readonly.yml",
+      "ventuno-htp-maintenance-recovery-dryrun.yml",
+      "ventuno-tiny-htp-basic-profile-contract.yml",
+      "ventuno-tiny-qnn-no-inference-preflight.yml",
+      "ventuno-usb-audio-readonly.yml",
+      "ventuno-usb-dialog-readiness-readonly.yml",
+      "ventuno-v75-npu-readiness-readonly.yml"
+    ],
+    "27 synthetic tests or source-only controls": [
+      "ventuno-big-hardware-test-readiness.yml",
+      "ventuno-eight-sensitive-calls-review.yml",
+      "ventuno-physical-voice-pilot-gate.yml",
+      "ventuno-stt-bounded-stream.yml",
+      "ventuno-stt-child-cleanup-failclosed.yml",
+      "ventuno-stt-cleanup-reply-audit.yml",
+      "ventuno-stt-concurrent-stop.yml",
+      "ventuno-stt-inherited-rlimit-halfclose.yml",
+      "ventuno-stt-json-startup.yml",
+      "ventuno-stt-persistent-synthetic.yml",
+      "ventuno-stt-pipe-resource-policy.yml",
+      "ventuno-stt-process-group-descendants.yml",
+      "ventuno-stt-process-hard-timeout.yml",
+      "ventuno-stt-request-nonce.yml",
+      "ventuno-stt-rlimit-denial.yml",
+      "ventuno-stt-stop-finalize-framing.yml",
+      "ventuno-usb-dialogue-controller-safety.yml",
+      "ventuno-voice-cooperative-cancel.yml",
+      "ventuno-voice-inflight-outcome.yml",
+      "ventuno-voice-operator-reconcile.yml",
+      "ventuno-voice-proc-audit.yml",
+      "ventuno-voice-recovery-crash.yml",
+      "ventuno-voice-retry-quarantine.yml",
+      "ventuno-voice-stop-dispatch.yml",
+      "ventuno-voice-stop-memory-legacy.yml",
+      "ventuno-voice-write-marker.yml",
+      "ventuno-voice-writer-quiescence.yml"
+    ],
+    "2 dependency staging or hosted CPU conversion": [
+      "qairt-245-host-conversion.yml",
+      "ventuno-voice-staging.yml"
+    ]
+  }
+}
