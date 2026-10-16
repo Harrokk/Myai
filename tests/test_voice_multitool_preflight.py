@@ -328,7 +328,8 @@ def test_unguarded_text_execution_still_collects_other_tool_results():
             "two": {"function": lambda: calls.append("two") or "TWO"},
         },
     )
-    assert "historiskt testfel" in result["one"]
+    assert "historiskt testfel" not in result["one"]
+    assert result["one"] == "Fel vid körning av one: ValueError"
     assert result["two"] == "TWO"
     assert calls == ["two"]
 
