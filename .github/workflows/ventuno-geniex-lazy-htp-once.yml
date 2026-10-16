@@ -56,6 +56,9 @@ jobs:
           rm -rf -- "$RUNNER_TEMP/myai-lazy-htp-venv"
 
   board-one-existing-request:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: One preflight-gated existing GenieX synthetic prompt only
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     needs: mocked-safety
