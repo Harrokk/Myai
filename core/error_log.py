@@ -141,12 +141,9 @@ class ErrorLogger:
             "error_type": type(
                 error
             ).__name__,
-            "message": _compact_message(
-                error,
-                max_chars=(
-                    self.max_message_chars
-                ),
-            ),
+            # Never serialize exception text. It can include private
+            # URLs, model prompts, bearer tokens or local file paths.
+            "message": "Feltext dold av integritetsskäl.",
         }
 
         try:
@@ -290,13 +287,9 @@ def read_recent_errors(
                         ),
                         max_chars=80,
                     ),
-                    "message": _compact_message(
-                        value.get(
-                            "message",
-                            "",
-                        ),
-                        max_chars=max_message_chars,
-                    ),
+                    # Older on-disk JSONL may still contain raw
+                    # exception text. Never expose it through recent-errors.
+                    "message": "Feltext dold av integritetsskäl.",
                 }
             )
 
