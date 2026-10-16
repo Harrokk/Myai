@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   provision:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: Install verified Ollama into arduino user home, leave disabled
     if: >-
       github.event_name == 'push' &&
