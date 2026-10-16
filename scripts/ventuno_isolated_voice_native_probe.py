@@ -26,7 +26,15 @@ VERSION = re.compile(r"[A-Za-z0-9_.+!\-]{1,64}\Z")
 CHILD = (
     "import importlib,sys; "
     "mod=sys.argv[1]; "
-    "importlib.import_module(mod); "
+    "try:\\n"
+    " importlib.import_module(mod)\\n"
+    "except BaseException as exc:\\n"
+    " reason=str(exc).lower()\\n"
+    " if 'portaudio' in reason: print('MISSING_PORTAUDIO_LIBRARY')\\n"
+    " elif 'libasound' in reason: print('MISSING_ALSA_LIBRARY')\\n"
+    " elif 'libstdc++' in reason: print('MISSING_STDCXX_LIBRARY')\\n"
+    " else: print('NATIVE_IMPORT_FAILED')\\n"
+    " sys.exit(47)\\n"
     "print('ISOLATED_NATIVE_IMPORT_OK')"
 )
 
@@ -60,9 +68,10 @@ def inspect(staging_root, *, runner=None, metadata=None,
         if prefix_check is None else bool(prefix_check)
     )
     statuses = {module: False for module in MODULES}
+    reasons = {module: "not-tested" for module in MODULES}
     versions = {}
     if not safe:
-        return _result(statuses, versions, safe)
+        return _result(statuses, versions, safe, reasons)
     env = {
         "PATH": "/usr/bin:/bin", "HOME": str(staging_root),
         "PYTHONNOUSERSITE": "1",
@@ -87,16 +96,28 @@ def inspect(staging_root, *, runner=None, metadata=None,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, check=False, timeout=12,
             )
-            statuses[module] = bool(
-                process.returncode == 0
-                and process.stdout.strip() == "ISOLATED_NATIVE_IMPORT_OK"
+            ok = bool(process.returncode == 0 and
+                      process.stdout.strip() == "ISOLATED_NATIVE_IMPORT_OK")
+            statuses[module] = ok
+            categories = {
+                "MISSING_PORTAUDIO_LIBRARY": "missing-portaudio-shared-library",
+                "MISSING_ALSA_LIBRARY": "missing-alsa-shared-library",
+                "MISSING_STDCXX_LIBRARY": "missing-standard-cxx-shared-library",
+            }
+            reasons[module] = (
+                "ok" if ok else
+                categories.get(process.stdout.strip(), "native-import-failed")
             )
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
             statuses[module] = False
-    return _result(statuses, versions, safe)
+            reasons[module] = "native-import-timeout"
+        except (OSError, ValueError):
+            statuses[module] = False
+            reasons[module] = "native-import-unavailable"
+    return _result(statuses, versions, safe, reasons)
 
 
-def _result(statuses, versions, isolated):
+def _result(statuses, versions, isolated, reasons):
     all_ok = isolated and all(statuses.values()) and all(
         versions.get(name) is not None for name in DISTS
     )
@@ -107,6 +128,7 @@ def _result(statuses, versions, isolated):
         ),
         "isolated_private_venv_confirmed": isolated,
         "per_module_import": statuses,
+        "per_module_failure_category": reasons,
         "installed_dist_versions": versions,
         "all_seven_imports_passed": bool(all_ok),
         "microphone_opened": False,
