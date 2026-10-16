@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   local_reply:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: Actual installed Ollama through MyAI LLM factory without audio
     if: >-
       github.event_name == 'push' &&
