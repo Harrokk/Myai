@@ -1,0 +1,125 @@
+name: VENTUNO disposable ARM64 voice native dependency import only
+on:
+  push:
+    branches: [dev/ventuno-isolated-runtime-voice-abi-20261016]
+    paths:
+      - .github/workflows/ventuno-voice-native-stage.yml
+      - scripts/ventuno_voice_native_import_probe.py
+      - tests/test_ventuno_voice_native_import_probe.py
+      - requirements-voice-arm64-hashed.lock
+      - config/voice_arm64_cp312_wheels.lock.json
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ventuno-disposable-native-import-20261016
+  cancel-in-progress: false
+jobs:
+  hosted-wheels:
+    name: Fetch 28 pinned ARM64 wheels on disposable hosted Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve verified ARM64 wheels without installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p _pinned_arm64_wheels
+          timeout --signal=TERM --kill-after=3s 180s python3 -m pip download \
+            --quiet --no-input --disable-pip-version-check \
+            --only-binary=:all: --implementation cp --python-version 3.12 \
+            --abi cp312 --platform manylinux2014_aarch64 \
+            --platform manylinux_2_17_aarch64 \
+            --platform manylinux_2_28_aarch64 \
+            --require-hashes --dest _pinned_arm64_wheels \
+            -r requirements-voice-arm64-hashed.lock
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          folder = pathlib.Path("_pinned_arm64_wheels")
+          locked = json.loads(pathlib.Path("config/voice_arm64_cp312_wheels.lock.json").read_text())
+          observed = sorted(
+              [{"filename": p.name, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+               for p in folder.glob("*.whl")],
+              key=lambda item: item["filename"],
+          )
+          expected = sorted(locked["wheels"], key=lambda item: item["filename"])
+          assert len(observed) == 28 and observed == expected, "PINNED_WHEEL_MISMATCH"
+          print("PINNED_AARCH64_VOICE_WHEEL_HASHES_28_OF_28=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pinned-arm64-voice-wheels
+          path: _pinned_arm64_wheels
+          retention-days: 1
+          if-no-files-found: error
+
+  board-native-import:
+    name: ARM64 disposable venv import only - no audio or model
+    needs: hosted-wheels
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: _myai_abi_source
+      - uses: actions/download-artifact@v4
+        with:
+          name: pinned-arm64-voice-wheels
+          path: _myai_abi_wheels
+      - name: Install only to private runner temp and test native imports
+        shell: bash
+        env:
+          PIP_NO_INDEX: "1"
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          source_dir="$GITHUB_WORKSPACE/_myai_abi_source"
+          wheels="$GITHUB_WORKSPACE/_myai_abi_wheels"
+          test -d "$source_dir" && test -d "$wheels"
+          test ! -L "$source_dir" && test ! -L "$wheels"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(find "$wheels" -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 28
+          test "$(du -sm "$wheels" | cut -f1)" -le 750
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-disposable-abi.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_ABI_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$source_dir"
+          /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
+          /usr/bin/python3 -B -m venv "$scratch/venv"
+          test -x "$scratch/venv/bin/python"
+          export VIRTUAL_ENV="$scratch/venv"
+          export TMPDIR="$scratch" XDG_CACHE_HOME="$scratch/cache" HF_HOME="$scratch/hf"
+          timeout --signal=TERM --kill-after=5s 270s "$scratch/venv/bin/python" -m pip install \
+            --no-index --no-input --require-hashes --find-links "$wheels" \
+            -r requirements-voice-arm64-hashed.lock
+          "$scratch/venv/bin/python" -m pip check
+          timeout --signal=TERM --kill-after=5s 75s \
+            "$scratch/venv/bin/python" -B -m scripts.ventuno_voice_native_import_probe
+          echo "PRODUCTION_VENV_UNCHANGED=true"
+          echo "NO_MICROPHONE_TTS_MODEL_NPU_EXECUTION=true"
+      - name: Always remove disposable imports, wheels and checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_ABI_SCRATCH:-}" in
+            "$RUNNER_TEMP"/myai-disposable-abi.*) rm -rf -- "$MYAI_ABI_SCRATCH" ;;
+            "") ;;
+            *) exit 1 ;;
+          esac
+          cd "$GITHUB_WORKSPACE"
+          rm -rf -- _myai_abi_wheels _myai_abi_source
