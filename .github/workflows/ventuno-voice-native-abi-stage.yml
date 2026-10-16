@@ -12,6 +12,9 @@ on:
       - requirements-voice-arm64-hashed.lock
       - scripts/ventuno_release_actions_inventory.py
       - tests/test_ventuno_release_actions_inventory.py
+      - scripts/ventuno_native_voice_import_report.py
+      - tests/test_ventuno_native_voice_import_report.py
+      - .github/workflows/ventuno-diagnostics.yml
       - docs/VENTUNO_PINNED_PYAV18_NATIVE_STAGING.md
 permissions:
   contents: read
@@ -55,6 +58,7 @@ jobs:
             tests/test_ventuno_voice_static_lock_check.py \
             tests/test_ventuno_remote_synthetic_e2e.py \
             tests/test_ventuno_release_actions_inventory.py \
+            tests/test_ventuno_native_voice_import_report.py \
             tests/test_ventuno_synthetic_voice_chain.py \
             tests/test_voice_recovery_crash_boundaries.py \
             tests/test_ventuno_isolated_voice_stage_contract.py
@@ -167,27 +171,14 @@ jobs:
             > "$STAGE_SCRATCH/check.log" 2>&1 || {
               echo "STAGING_PIP_CHECK=blocked"; exit 2;
             }
-          (
-            ulimit -t 30
-            ulimit -v 8388608
-            timeout --signal=TERM --kill-after=3s 45s \
-              "$STAGE_SCRATCH/venv/bin/python" -I - <<'PY'
-          import importlib,json,resource,importlib.metadata as metadata
-          for name in ("sounddevice","webrtcvad","pyttsx3","ctranslate2","av","faster_whisper"):
-              importlib.import_module(name)
-          assert metadata.version("av").startswith("18.")
-          print("STAGING_NATIVE_ABI_JSON="+json.dumps({
-              "status":"six-module-imports-without-model-or-devices",
-              "pyav_version":metadata.version("av"),
-              "faster_whisper_version":metadata.version("faster-whisper"),
-              "peak_rss_mib":round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,1),
-              "microphone_opened":False,"speaker_opened":False,
-              "stt_model_instantiated":False,"npu_executed":False,
-              "production_venv_changed":False},sort_keys=True))
-          PY
-          ) || {
-            echo "STAGING_NATIVE_IMPORT=blocked"; exit 2;
-          }
+          # Import six packages through separate resource-limited children.
+          # Missing PortAudio is a known system-library BLOCKER and must be
+          # visible without falsely claiming fully functional audio.
+          timeout --signal=TERM --kill-after=3s 220s \
+            "$STAGE_SCRATCH/venv/bin/python" -I \
+            scripts/ventuno_native_voice_import_report.py
+          echo "Native import probe never opens audio devices or creates models."
+
       - name: Clean isolated ARM64 wheelhouse and venv under RUNNER_TEMP only
         if: always()
         shell: bash
