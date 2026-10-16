@@ -610,15 +610,14 @@ def test_run_tools_logs_failure_and_keeps_other_results():
     )
 
     assert result["cpu_status"] == "CPU OK"
-    assert "sensor unavailable" in result[
-        "temperature_status"
-    ]
+    assert "sensor unavailable" not in result["temperature_status"]
+    assert "feltext dold" in result["temperature_status"]
     assert logger.events == [
         (
             "tool_error",
             "temperature_status",
             "RuntimeError",
-            "sensor unavailable",
+            "Exception details withheld for privacy",
         )
     ]
 
@@ -651,9 +650,8 @@ def test_run_tools_survives_error_logger_failure():
         error_logger=BrokenLogger(),
     )
 
-    assert "tool failed" in result[
-        "ram_status"
-    ]
+    assert "tool failed" not in result["ram_status"]
+    assert "feltext dold" in result["ram_status"]
 
 
 def test_detect_tools_routes_recent_myai_errors():
@@ -852,3 +850,19 @@ def test_npu_routing_still_matches_complete_token():
     ) == [
         "ventuno_accelerator_status"
     ]
+
+
+def test_unguarded_tool_error_does_not_expose_private_exception_payload():
+    private = "https://internal.invalid/?token=HIDDEN_TOOL_SECRET"
+    def fails():
+        raise RuntimeError(private)
+    logger = FakeErrorLogger()
+    result = tool_manager.run_tools(
+        ["cpu_status"],
+        {"cpu_status": {"function": fails, "description": "cpu"}},
+        error_logger=logger,
+    )
+    assert private not in str(result)
+    assert "HIDDEN_TOOL_SECRET" not in str(logger.events)
+    assert "feltext dold" in result["cpu_status"]
+    assert logger.events[-1][-1] == "Exception details withheld for privacy"
