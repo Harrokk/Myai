@@ -84,6 +84,24 @@ jobs:
             --no-index --no-input --require-hashes \
             --find-links "$stage/wheels" -r requirements-voice-arm64-hashed.lock
           "$stage/venv/bin/python" -m pip check
+          # Ubuntu-signed distro runtime libraries are unpacked into
+          # private RUNNER_TEMP only; NEVER call apt-get install or sudo.
+          mkdir -m 700 "$stage/deb" "$stage/native"
+          cd "$stage/deb"
+          timeout --signal=TERM --kill-after=3s 100s \
+            apt download libportaudio2 libespeak1
+          for package in libportaudio2 libespeak1; do
+            found=( "$stage/deb/${package}_"*.deb )
+            test "${#found[@]}" -eq 1 && test -f "${found[0]}"
+            test "$(dpkg-deb --field "${found[0]}" Package)" = "$package"
+            test "$(dpkg-deb --field "${found[0]}" Architecture)" = "arm64"
+            dpkg-deb --extract "${found[0]}" "$stage/native"
+          done
+          export LD_LIBRARY_PATH="$stage/native/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          test -e "$stage/native/usr/lib/aarch64-linux-gnu/libportaudio.so.2"
+          test -e "$stage/native/usr/lib/aarch64-linux-gnu/libespeak.so.1"
+          cd "$stage/source"
+          echo "UBUNTU_SIGNED_AUDIO_LIBRARIES_EXTRACTED_TO_RUNNER_TEMP_ONLY=true"
           timeout --signal=TERM --kill-after=4s 70s \
             "$stage/venv/bin/python" -B -m scripts.ventuno_voice_native_import_probe
           echo "PRODUCTION_VENV_AND_SYSTEMD_UNCHANGED=true"
