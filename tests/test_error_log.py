@@ -55,7 +55,7 @@ def test_error_logger_writes_structured_record_without_user_prompt(
         "event": "tool_error",
         "component": "ram_status",
         "error_type": "RuntimeError",
-        "message": "first line second line",
+        "message": "Details withheld",
     }
     assert "user_input" not in record
     assert "prompt" not in record
@@ -87,12 +87,8 @@ def test_error_logger_truncates_long_messages(
         ).strip()
     )
 
-    assert len(
-        record["message"]
-    ) == 80
-    assert record["message"].endswith(
-        "..."
-    )
+    assert record["message"] == "Details withheld"
+    assert "x" * 20 not in record["message"]
 
 
 def test_disabled_error_logger_does_not_write(
@@ -236,3 +232,30 @@ def test_read_recent_errors_caps_limit_at_50(tmp_path):
     assert result["records"][-1][
         "component"
     ] == "tool_10"
+
+
+
+def test_logged_exception_does_not_persist_credentials_or_user_audio(tmp_path):
+    marker = "PRIVATE-NOT-FOR-LOGS-bearer-user-speech"
+    logger = ErrorLogger(settings(), tmp_path, wall_clock=lambda: 170.0)
+    assert logger.log_exception("tool_error", "device", RuntimeError(marker))
+    content = (tmp_path / "runtime/errors.jsonl").read_text(encoding="utf-8")
+    assert marker not in content
+    assert "Details withheld" in content
+    assert '"error_type": "RuntimeError"' in content
+
+
+def test_old_log_exception_text_is_not_exposed_on_read(tmp_path):
+    from core.error_log import read_recent_errors
+    marker = "OLD-EXCEPTION-CONTAINING-USER-PROMPT"
+    path = tmp_path / "errors.jsonl"
+    path.write_text(
+        json.dumps({"written_unix_time": 8,
+                    "event": "tool_error", "component": "camera",
+                    "error_type": "OSError", "message": marker}) + "\n",
+        encoding="utf-8",
+    )
+    report = read_recent_errors(path, limit=10, backups=0)
+    assert report["count"] == 1
+    assert marker not in str(report)
+    assert report["records"][0]["message"] == "Details withheld"
