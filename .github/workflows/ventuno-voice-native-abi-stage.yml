@@ -10,6 +10,9 @@ on:
       - tests/test_ventuno_voice_static_lock_check.py
       - config/voice_arm64_cp312_wheels.lock.json
       - requirements-voice-arm64-hashed.lock
+      - scripts/ventuno_release_actions_inventory.py
+      - tests/test_ventuno_release_actions_inventory.py
+      - docs/VENTUNO_PINNED_PYAV18_NATIVE_STAGING.md
 permissions:
   contents: read
 concurrency:
@@ -47,9 +50,11 @@ jobs:
             -q --no-input --disable-pip-version-check pytest==8.3.5 -r requirements.txt
           "$RUNNER_TEMP/myai-stt-host-venv/bin/python" -B -m scripts.ventuno_voice_static_lock_check
           "$RUNNER_TEMP/myai-stt-host-venv/bin/python" -B -m scripts.ventuno_remote_synthetic_e2e
+          "$RUNNER_TEMP/myai-stt-host-venv/bin/python" -B -m scripts.ventuno_release_actions_inventory
           "$RUNNER_TEMP/myai-stt-host-venv/bin/python" -B -m pytest -q \
             tests/test_ventuno_voice_static_lock_check.py \
             tests/test_ventuno_remote_synthetic_e2e.py \
+            tests/test_ventuno_release_actions_inventory.py \
             tests/test_ventuno_synthetic_voice_chain.py \
             tests/test_voice_recovery_crash_boundaries.py \
             tests/test_ventuno_isolated_voice_stage_contract.py
