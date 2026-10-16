@@ -74,7 +74,8 @@ def test_recent_error_tool_reads_and_formats_latest_error(
     assert result["count"] == 1
     assert "ram_status" in text
     assert "RuntimeError" in text
-    assert "sensor unavailable" in text
+    assert "sensor unavailable" not in text
+    assert "Details withheld" in text
 
 
 def test_recent_error_tool_respects_disabled_logging(
