@@ -1677,9 +1677,19 @@ def run_tools(
                 record(tool_name, "failed", True)
                 results.update(deny(tool_names[index + 1:]))
                 break
-            results[tool_name] = (
-                f"Fel vid körning av {tool_name} (feltext dold)."
-            )
+            # Missing required user input is a trusted, fixed validation
+            # condition; show useful guidance without exposing the
+            # exception payload. All other native failures are opaque.
+            if (isinstance(tool, dict)
+                    and tool.get("pass_user_input", False)
+                    and per_tool_input.get(tool_name, user_input) is None):
+                results[tool_name] = (
+                    f"{tool_name} kräver användarens fråga som indata."
+                )
+            else:
+                results[tool_name] = (
+                    f"Fel vid körning av {tool_name} (feltext dold)."
+                )
         finally:
             # Keep the writer lease held from before marker creation
             # through the callback, including Stop and exception paths.
