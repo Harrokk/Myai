@@ -48,6 +48,63 @@ def _version_floor(spec):
     return minimum
 
 
+
+def _consistent_specifiers(spec):
+    """Reject contradictory or unparseable simple PEP 440 numeric intervals.
+
+    This is a narrow fail-closed SOURCE policy, not a pip resolver. Non-numeric
+    versions, wildcards, compatible-release, environment markers and direct
+    URLs remain unsupported rather than being assumed safe.
+    """
+    lower = None
+    upper = None
+    exact = None
+    denied = set()
+    for segment in spec.split(","):
+        match = re.fullmatch(
+            r"\s*(==|!=|>=|<=|>|<)\s*(\d+(?:\.\d+){0,2})\s*",
+            segment,
+        )
+        if not match:
+            return False
+        op, version_string = match.groups()
+        version = _parse_version(version_string)
+        if op == "==":
+            if exact is not None and exact != version:
+                return False
+            exact = version
+        elif op == "!=":
+            denied.add(version)
+        elif op in (">", ">="):
+            inclusive = op == ">="
+            if (lower is None or version > lower[0]
+                    or (version == lower[0] and not inclusive)):
+                lower = (version, inclusive)
+        elif op in ("<", "<="):
+            inclusive = op == "<="
+            if (upper is None or version < upper[0]
+                    or (version == upper[0] and not inclusive)):
+                upper = (version, inclusive)
+
+    if lower and upper and (
+        lower[0] > upper[0]
+        or (lower[0] == upper[0]
+            and (not lower[1] or not upper[1]
+                 or lower[0] in denied))
+    ):
+        return False
+    if exact is not None:
+        if exact in denied:
+            return False
+        if lower and (exact < lower[0]
+                      or (exact == lower[0] and not lower[1])):
+            return False
+        if upper and (exact > upper[0]
+                      or (exact == upper[0] and not upper[1])):
+            return False
+    return True
+
+
 def inspect(root=ROOT):
     root = Path(root)
     all_dependencies = {}
@@ -71,8 +128,8 @@ def inspect(root=ROOT):
                 if package in [entry["name"] for entry in found]:
                     raise ValueError("duplicate-dependency")
                 spec = m.group(2).strip()
-                if not spec:
-                    raise ValueError("unbounded-dependency")
+                if not spec or not _consistent_specifiers(spec):
+                    raise ValueError("invalid-or-contradictory-dependency-interval")
                 found.append({"name": package, "specifier": spec})
                 no_hash_count += 1
                 interval_count += int("==" not in spec)

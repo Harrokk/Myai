@@ -1,7 +1,9 @@
 name: VENTUNO manual code dependency and legacy hardware audit
 on:
   push:
-    branches: [dev/manual-audit-historical-device-gates-20261016]
+    branches:
+      - dev/manual-audit-historical-device-gates-20261016
+      - dev/manual-audit-dependency-interval-20261016
 
 permissions:
   contents: read

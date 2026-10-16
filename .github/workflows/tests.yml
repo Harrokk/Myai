@@ -12,7 +12,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: myai-ci-ventuno
+  # Scope queued tests to a branch; separate audit PRs must not cancel one another.
+  group: myai-ci-ventuno-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
