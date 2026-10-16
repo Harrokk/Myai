@@ -55,7 +55,7 @@ def test_error_logger_writes_structured_record_without_user_prompt(
         "event": "tool_error",
         "component": "ram_status",
         "error_type": "RuntimeError",
-        "message": "first line second line",
+        "message": "Feltext dold av integritetsskäl.",
     }
     assert "user_input" not in record
     assert "prompt" not in record
@@ -87,12 +87,8 @@ def test_error_logger_truncates_long_messages(
         ).strip()
     )
 
-    assert len(
-        record["message"]
-    ) == 80
-    assert record["message"].endswith(
-        "..."
-    )
+    assert record["message"] == "Feltext dold av integritetsskäl."
+    assert "xxxx" not in record["message"]
 
 
 def test_disabled_error_logger_does_not_write(
@@ -236,3 +232,26 @@ def test_read_recent_errors_caps_limit_at_50(tmp_path):
     assert result["records"][-1][
         "component"
     ] == "tool_10"
+
+
+def test_raw_exception_secrets_are_never_persisted_or_reexposed(tmp_path):
+    logger = ErrorLogger(settings(), tmp_path, wall_clock=lambda: 11.0)
+    secret = "PRIVATE_ACCESS_TOKEN_NEVER_LOG"
+    assert logger.log_exception(
+        "tool_error", "web_fetch", RuntimeError("https://example.net/?token=" + secret)
+    ) is True
+    file = tmp_path / "runtime/errors.jsonl"
+    assert secret not in file.read_text(encoding="utf-8")
+    assert "example.net" not in file.read_text(encoding="utf-8")
+
+    old_file = tmp_path / "runtime/old_errors.jsonl"
+    old_file.write_text(
+        json.dumps({"written_unix_time": 2, "event": "tool_error",
+                    "component": "old", "error_type": "RuntimeError",
+                    "message": "OLD_SECRET_" + secret}) + "\n",
+        encoding="utf-8",
+    )
+    records = error_log.read_recent_errors(old_file, backups=0)
+    assert records["count"] == 1
+    assert secret not in str(records)
+    assert records["records"][0]["message"] == "Feltext dold av integritetsskäl."
