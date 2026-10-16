@@ -27,6 +27,32 @@ Först efter exakt SHA-låst CI, manuell diff- och integrationsgranskning kan en
 
 `scripts/ventuno_voice_wheelhouse_gate.py` är *endast* en offline kontroll av ett färdigt `wheelhouse.lock.json` och faktiska hjulfiler, som accepterar begränsade CPython 3.12/AArch64-taggar och verifierar SHA-256. Den skapar inga filer och hämtar eller installerar inga paket. Frånvaro av manifest betyder NO-GO. Även en korrekt hash- och taggkontroll betyder **inte** att native ABI eller resolverns fullständiga beroendeslutning verkligen verifierats. Testskriptets resultat har därför uttryckligen `dependency_closure_verified=false`, `native_abi_tested=false` och `audio_authorized=false`.
 
+## Låsta 28 binära beroendeartefakter (2026-10-16)
+
+På **GitHub-hostad x86 Linux** (inte VENTUNO) genomfördes en verklig
+`pip download --only-binary=:all: --implementation cp --python-version 3.12
+--abi cp312 --platform manylinux*_aarch64` med alla transitiva beroenden.
+Upplösningen lyckades med **28** kompatibla wheel-artefakter, inklusive
+`faster-whisper`, `sounddevice`, `webrtcvad-wheels`, `pyttsx3`,
+`ctranslate2`, `av`, `numpy` och `onnxruntime`. Inget installerades,
+modeller laddades inte och ingen mikrofon öppnades.
+
+Version och faktiskt SHA-256 för vart och ett av dessa 28 filer är sparade i:
+
+- `config/voice_arm64_cp312_wheels.lock.json` (filnamn, hash, målplattform).
+- `requirements-voice-arm64-hashed.lock` (alla 28 exakta paketversioner
+  inklusive `--hash=sha256:...`).
+
+`scripts/ventuno_voice_static_lock_check.py` nekar om källans båda
+incheckade listor divergerar; CI laddar på nytt från PyPI på **hosted**
+till en **temporär** katalog med `--require-hashes` och jämför den
+nedladdade hashmängden mot käll-låsningen innan temporär data raderas.
+Detta är reproducerbar **paketupplösning på rätt hjultaggar**, men
+**bevisar fortfarande inte att kod och native library ABI fungerar på
+VENTUNO:s faktiska Ubuntu-/Qualcomm-installation**. Den aktiva produktionens
+venv saknar dessa röstpaket tills en framtida separat, tillåten staging
+har genomförts. All fysisk/in-process modellkörning är därför fortsatt NO-GO.
+
 ## Effektiva körinställningar och heartbeat
 
 Den installerade startfilens bytes har verifierats mot den granskade filen och `MainPID` samt känd argv-form har verifierats. Det bevisar inte tidigare inlästa inställningar. För **framtida** instrumenterade versioner har `core/runtime_safety_attestation.py` tillförts: `MyAIRuntimeService.status()` bäddar in en mycket begränsad mängd härledda booleska riskflaggor och processidentitet i den lokala heartbeat som tjänsten redan skriver.
