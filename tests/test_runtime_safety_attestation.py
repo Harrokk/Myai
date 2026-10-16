@@ -9,7 +9,7 @@ from scripts.ventuno_isolated_voice_stage_contract import SOURCE
 
 
 def test_isolated_stage_reports_all_off_only_inside_loaded_settings():
-    values = candidate(_get_source_profile(SOURCE))
+    values = candidate(json.loads(SOURCE.read_text(encoding="utf-8")))
     report = summarize(values, pid=12345)
     assert report["schema"] == 1
     assert report["process_pid"] == 12345
