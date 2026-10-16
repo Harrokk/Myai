@@ -12,9 +12,21 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+      - name: Fetch exact reviewed commit in private hosted ARM64 scratch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d "$RUNNER_TEMP/myai-arm64-source.XXXXXX")"
+          chmod 700 "$work"
+          echo "MYAI_HOSTED_SOURCE=$work" >> "$GITHUB_ENV"
+          git -C "$work" init -q
+          git -C "$work" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$work" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$work" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$work" rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Check hosted ARM64 architecture without installed voice or devices
         shell: bash
         run: |
@@ -31,6 +43,7 @@ jobs:
           PIP_DISABLE_PIP_VERSION_CHECK: "1"
         run: |
           set -euo pipefail
+          cd "$MYAI_HOSTED_SOURCE"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3.12 -B -m scripts.ventuno_voice_static_lock_check
           scratch="$(mktemp -d "$RUNNER_TEMP/voice-hosted-arm.XXXXXX")"
@@ -60,4 +73,7 @@ jobs:
         run: |
           if [ -n "${MYAI_VOICE_ARM_SCRATCH:-}" ]; then
             rm -rf -- "$MYAI_VOICE_ARM_SCRATCH"
+          fi
+          if [ -n "${MYAI_HOSTED_SOURCE:-}" ]; then
+            rm -rf -- "$MYAI_HOSTED_SOURCE"
           fi
