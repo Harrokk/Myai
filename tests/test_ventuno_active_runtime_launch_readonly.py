@@ -99,3 +99,45 @@ def test_no_live_config_attestation_claim_even_when_source_matches():
     assert result["effective_live_settings_attested"] is False
     assert result["live_memory_settings_confirmed"] is False
     assert result["production_config_changed"] is False
+
+
+def test_future_loaded_pilot_heartbeat_is_treated_as_local_evidence_only(tmp_path):
+    from core.runtime_safety_attestation import summarize
+    from scripts.ventuno_isolated_voice_stage_contract import candidate, SOURCE
+    from scripts.ventuno_physical_pilot_gate import _get_source_profile
+    from scripts import ventuno_active_runtime_launch_readonly as mod
+    pid = 321
+    settings = candidate(_get_source_profile(SOURCE))
+    report = summarize(settings, pid=pid)
+    path = tmp_path / "runtime" / "myai_runtime.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "running": True, "written_unix_time": 1000.0,
+        "runtime_safety": report,
+    }))
+    assert mod._future_pilot_heartbeat(tmp_path, str(pid), clock=lambda: 1040.0)
+    assert mod._future_pilot_heartbeat(tmp_path, str(pid + 1), clock=lambda: 1040.0) is False
+    assert mod._future_pilot_heartbeat(tmp_path, str(pid), clock=lambda: 1205.0) is False
+    result = mod.classify(
+        str(pid), b"/usr/bin/python3\\0-m\\0scripts.ventuno_runtime\\0",
+        b"a" * 32, b"a" * 32, future_pilot_snapshot=True,
+    )
+    assert result["inprocess_pilot_snapshot_current_and_all_safe"] is True
+    assert result["inprocess_pilot_snapshot_is_not_crypto_attestation"] is True
+    assert result["effective_live_settings_attested"] is False
+
+
+def test_future_heartbeat_with_active_writes_or_corrupt_pid_is_rejected(tmp_path):
+    from scripts import ventuno_active_runtime_launch_readonly as mod
+    path = tmp_path / "runtime" / "myai_runtime.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "running": True, "written_unix_time": 100.0,
+        "runtime_safety": {"schema": 1, "process_pid": 11,
+                           "voice_and_writes_off": True,
+                           "checks": {"voice_enabled_off": True}},
+    }))
+    assert mod._future_pilot_heartbeat(tmp_path, "11", clock=lambda: 105.0) is False
+    path.unlink()
+    path.symlink_to(tmp_path / "secret")
+    assert mod._future_pilot_heartbeat(tmp_path, "11", clock=lambda: 105.0) is False
