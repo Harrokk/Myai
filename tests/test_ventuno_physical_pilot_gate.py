@@ -98,7 +98,7 @@ def test_corrupt_and_missing_sections_never_count_as_disabled():
 def test_readonly_board_gate_pass_still_does_not_authorize_microphone():
     value = gate.classify(
         safe_profile(), expected_sha=SHA, actual_sha=SHA,
-        board=board_ready(),
+        board=board_ready(), active_profile=safe_profile(),
     )
     assert value["status"] == "board-readonly-preflight-passed"
     assert value["board_preflight_passed"] is True
@@ -125,6 +125,7 @@ def test_one_failed_live_readiness_flag_blocks_without_audio(mutation):
     result = gate.classify(
         safe_profile(), expected_sha=SHA, actual_sha=SHA,
         board=board_ready(**mutation),
+        active_profile=safe_profile(),
     )
     assert result["status"] == "blocked-read-only-board-preflight"
     assert result["recording_authorized"] is False
@@ -170,6 +171,7 @@ def test_board_flag_only_calls_existing_readonly_inventory(
     folder.mkdir(parents=True)
     (folder / "ventuno_q.json").write_text(json.dumps(safe_profile()))
     monkeypatch.setattr(gate, "_get_exact_head", lambda _: SHA)
+    monkeypatch.setattr(gate, "PRODUCTION_ROOT", tmp_path)
     calls = []
     monkeypatch.setattr(
         inventory, "inspect",
@@ -200,8 +202,66 @@ def test_sanitized_report_does_not_copy_sensitive_fields():
     board = board_ready(secret_serial="SECRET_SERIAL", transcript="PRIVAT_TEXT")
     result = gate.classify(
         candidate, expected_sha=SHA, actual_sha=SHA, board=board,
+        active_profile=safe_profile(),
     )
     text = json.dumps(result)
     assert "SECRET_TOKEN" not in text
     assert "SECRET_SERIAL" not in text
     assert "PRIVAT_TEXT" not in text
+
+
+
+def test_board_readiness_is_blocked_when_active_production_profile_is_unsafe():
+    actual = safe_profile()
+    actual["voice"]["enabled"] = True
+    result = gate.classify(
+        safe_profile(), expected_sha=SHA, actual_sha=SHA,
+        board=board_ready(), active_profile=actual,
+    )
+    assert result["status"] == "blocked-active-production-profile"
+    assert result["active_production_profile_default_off"] is False
+    assert result["recording_authorized"] is False
+
+
+def test_board_readiness_is_blocked_when_production_profile_is_unavailable():
+    result = gate.classify(
+        safe_profile(), expected_sha=SHA, actual_sha=SHA,
+        board=board_ready(), active_profile=None,
+    )
+    assert result["status"] == "blocked-active-production-profile"
+
+
+def test_board_blocked_reason_is_a_fixed_allowlisted_category():
+    result = gate.classify(
+        safe_profile(), expected_sha=SHA, actual_sha=SHA,
+        board=board_ready(status="blocked-usb-reenumerated-or-inaccessible"),
+        active_profile=safe_profile(),
+    )
+    assert result["status"] == "blocked-read-only-board-preflight"
+    assert result["board_readiness_reason"] == "blocked-usb-reenumerated-or-inaccessible"
+    bad = gate.classify(
+        safe_profile(), expected_sha=SHA, actual_sha=SHA,
+        board=board_ready(status="SECRET-RAW-DEVICE-LABEL"),
+        active_profile=safe_profile(),
+    )
+    assert bad["board_readiness_reason"] == "blocked-unrecognised-readiness"
+    assert "SECRET" not in json.dumps(bad)
+
+
+def test_board_cli_never_succeeds_on_missing_live_profile(
+        tmp_path, monkeypatch, capsys):
+    work = tmp_path / "work"
+    (work / "config" / "profiles").mkdir(parents=True)
+    (work / gate.PROFILE_RELATIVE).write_text(json.dumps(safe_profile()))
+    no_production = tmp_path / "missing-production"
+    monkeypatch.setattr(gate, "PRODUCTION_ROOT", no_production)
+    monkeypatch.setattr(gate, "_get_exact_head", lambda _: SHA)
+    import scripts.ventuno_usb_voice_dialog_readiness as inventory
+    monkeypatch.setattr(inventory, "inspect", board_ready)
+    assert gate.main([
+        "--source-root", str(work), "--expected-sha", SHA,
+        "--board-readonly",
+    ]) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "blocked-active-production-profile"
+    assert report["recording_authorized"] is False
