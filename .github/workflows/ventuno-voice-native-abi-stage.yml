@@ -109,7 +109,12 @@ jobs:
           set -euo pipefail
           cd "$STAGE_SCRATCH"
           mkdir -m 700 wheels
-          timeout --signal=TERM --kill-after=3s 240s /usr/bin/python3 -m pip download \
+          # Board's system Python may have NO pip module. Create disposable
+          # venv first; neither install nor download runs in production.
+          timeout --signal=TERM --kill-after=3s 60s /usr/bin/python3 -m venv "$STAGE_SCRATCH/venv" || {
+            echo "STAGING_EPHEMERAL_VENV=blocked"; exit 2;
+          }
+          timeout --signal=TERM --kill-after=3s 240s "$STAGE_SCRATCH/venv/bin/python" -m pip download \
             --no-input --disable-pip-version-check --only-binary=:all: \
             --require-hashes --no-cache-dir -q \
             --dest "$STAGE_SCRATCH/wheels" -r requirements-voice-arm64-hashed.lock \
@@ -143,7 +148,7 @@ jobs:
           export HOME="$STAGE_SCRATCH/home"
           export XDG_CACHE_HOME="$STAGE_SCRATCH/cache"
           mkdir -m 700 "$HOME" "$XDG_CACHE_HOME"
-          timeout --signal=TERM --kill-after=3s 60s /usr/bin/python3 -m venv "$STAGE_SCRATCH/venv"
+          test -x "$STAGE_SCRATCH/venv/bin/python"
           timeout --signal=TERM --kill-after=3s 175s \
             "$STAGE_SCRATCH/venv/bin/python" -m pip install \
             -q --no-input --no-index --only-binary=:all: \
