@@ -11,6 +11,7 @@ import stat
 from core.voice_write_journal import (
     BODY, MARKER, VoiceWriteAheadMarker,
 )
+from core.voice_process_census import veto_recognised_project_processes
 
 
 PENDING = ".voice-write-review-pending.v1"
@@ -114,6 +115,10 @@ class VoiceWriteReconciliation:
         try:
             with self.journal._locked_directory(directory):
                 with self.journal.require_quiescent_writers(directory):
+                    # Positive procfs evidence vetoes release even when an
+                    # older/non-cooperating process has no flock lease.
+                    # Zero matches does NOT prove physical quiescence.
+                    veto_recognised_project_processes(self.journal.root)
                     marker = _marker_info(directory)
                     token = secrets.token_hex(16)
                     _write_private(directory, PENDING,
@@ -137,6 +142,10 @@ class VoiceWriteReconciliation:
         try:
             with self.journal._locked_directory(directory):
                 with self.journal.require_quiescent_writers(directory):
+                    # Positive procfs evidence vetoes release even when an
+                    # older/non-cooperating process has no flock lease.
+                    # Zero matches does NOT prove physical quiescence.
+                    veto_recognised_project_processes(self.journal.root)
                     marker = _marker_info(directory)
                     expected = _ticket_bytes(token, marker)
                     receipt = RECEIPT_PREFIX + token + RECEIPT_SUFFIX
