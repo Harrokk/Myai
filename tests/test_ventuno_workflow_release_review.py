@@ -244,3 +244,38 @@ def test_detached_yaml_anchor_is_never_approved(tmp_path, monkeypatch):
     report = review.inventory(root)
     assert review.exit_code(report) == 2
     assert report["risks"][0]["event_source_clear"] is False
+
+
+def test_all_manual_jobs_includes_even_non_sensitive_workflows(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "manual-safe.yml": "name: safe\non:\n  workflow_dispatch:\njobs:\n"
+                           "  tests:\n    runs-on: ubuntu-24.04\n"
+                           "    steps:\n      - run: echo harmless\n",
+        "manual-model.yml": "name: model\non:\n  workflow_dispatch:\njobs:\n"
+                            "  inference:\n    runs-on: [self-hosted]\n"
+                            "    steps:\n      - run: qnn-net-run --backend /tmp/a.so\n",
+        "push-source.yml": "name: normal\non:\n  push:\n"
+                           "    branches: [dev/other]\njobs:\n"
+                           "  tests:\n    runs-on: ubuntu-24.04\n"
+                           "    steps:\n      - run: echo passed\n",
+    })
+    result = review.inventory(root)
+    assert result["counts"]["all_manual_workflow_files"] == 2
+    assert result["all_manual_workflow_filenames"] == [
+        "manual-model.yml", "manual-safe.yml"
+    ]
+    assert result["counts"]["manual_sensitive_candidates"] == 1
+    assert result["counts"]["unparsed_event_workflow_files"] == 0
+
+
+def test_unknown_event_source_is_visible_even_without_sensitive_words(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "unknown.yml": "name: ambiguous\non: *external_trigger\njobs:\n"
+                       "  unit:\n    runs-on: ubuntu-24.04\n"
+                       "    steps:\n      - run: echo test\n",
+    })
+    report = review.inventory(root)
+    assert report["unknown_event_workflow_filenames"] == ["unknown.yml"]
+    assert report["counts"]["unparsed_event_workflow_files"] == 1
+    assert report["counts"]["all_manual_workflow_files"] == 0
+    assert report["release_ready"] is False

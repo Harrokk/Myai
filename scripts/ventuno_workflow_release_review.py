@@ -116,6 +116,8 @@ def inventory(root=ROOT, *, branch=CURRENT_BRANCH):
                   automatic_sensitive_candidates=0,
                   unreviewed_manual_candidates=0)
     risky = []
+    all_manual = []
+    unknown_events = []
     try:
         files = _tracked_workflows(root)
         if not files:
@@ -127,11 +129,16 @@ def inventory(root=ROOT, *, branch=CURRENT_BRANCH):
             source = file.read_text(encoding="utf-8")
             source = COMMENT_LINES.sub("", source)
             counts["total_workflows"] += 1
+            events = _workflow_events(source)
+            filename = Path(name).name
+            if events is None:
+                unknown_events.append(filename)
+            manual = isinstance(events, dict) and "workflow_dispatch" in events
+            if manual:
+                all_manual.append(filename)
             if not SENSITIVE.search(source):
                 continue
             counts["sensitive_candidates"] += 1
-            events = _workflow_events(source)
-            manual = isinstance(events, dict) and "workflow_dispatch" in events
             automatic = _event_automatic_possible(events, branch)
             counts["manual_sensitive_candidates"] += int(manual)
             counts["automatic_sensitive_candidates"] += int(automatic)
@@ -146,7 +153,11 @@ def inventory(root=ROOT, *, branch=CURRENT_BRANCH):
                     candidate_automatic_clear=False,
                     release_ready=False, physical_tests_authorized=False,
                     approval_proven=False, risks=[])
+    counts["all_manual_workflow_files"] = len(all_manual)
+    counts["unparsed_event_workflow_files"] = len(unknown_events)
     return dict(
+        all_manual_workflow_filenames=all_manual,
+        unknown_event_workflow_filenames=unknown_events,
         status=("possible-automatic-effectful-workflow-no-go"
                 if counts["automatic_sensitive_candidates"] else
                 "inventory-complete-not-release-authorized"),
