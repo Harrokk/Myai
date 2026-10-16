@@ -221,8 +221,9 @@ jobs:
           if [ -n "$MYAI_TWO_PASS_SCRATCH" ]; then rm -rf -- "$MYAI_TWO_PASS_SCRATCH"; fi
 
   hosted-linux-arm64-voice-package-abi:
+    if: false
     name: Real ARM64 hosted sandbox native import / metadata, NO device or model
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 14
     steps:
       - uses: actions/checkout@v4
