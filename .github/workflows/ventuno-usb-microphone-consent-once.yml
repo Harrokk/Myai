@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   usb_microphone:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: Explicitly consented USB plughw 1 0 two-second capture
     if: >-
       github.event_name == 'push' &&
