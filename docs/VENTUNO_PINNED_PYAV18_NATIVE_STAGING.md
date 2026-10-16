@@ -52,8 +52,18 @@ all installed Python content lives under the newly created temp tree.
 The wheelhouse, staging venv and checkout are removed by an unconditional
 cleanup step. The running `/home/arduino/MyAI/.venv` is not modified.
 
-**Remaining once this test is green:** Real native library import does not
-prove correct STT behavior, missing sound drivers at playback, model
+**First real-board result:** the entire 28-package PyAV18 wheel set
+downloaded and matched its SHA256 manifest, then installed into the isolated
+ARM64 staging venv with `pip check` passing. The first direct import of
+`sounddevice` returned **`OSError: PortAudio library not found`**. This
+is a real **system-library blocker**, not a need to change the Python hash
+lock or to install anything globally without review. The staging folder was
+deleted in the unconditional cleanup job. A subsequent categorized importer
+checks the five non-audio modules separately before testing `sounddevice`
+and reports missing PortAudio without a misleading green audio claim.
+
+**Remaining once six imports pass:** Real native library import does not
+prove correct STT behavior, audio driver/device routing at playback, model
 latencies or fully tested process termination under hardware load.
 Physical audio, dedicated recovery and NPU profiling remain separate GO/NO-GO
 gates and require a fresh physical operation authorization.
