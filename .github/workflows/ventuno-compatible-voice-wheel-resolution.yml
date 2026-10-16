@@ -5,6 +5,10 @@ on:
     paths:
       - .github/workflows/ventuno-compatible-voice-wheel-resolution.yml
       - requirements-voice.txt
+      - requirements-voice-arm64-hashed.lock
+      - config/voice_arm64_cp312_wheels.lock.json
+      - scripts/ventuno_hashed_voice_native_import.py
+      - tests/test_ventuno_hashed_voice_native_import.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -56,3 +60,107 @@ jobs:
           print("VOICE_NATIVE_COMPAT_RESOLVED_WHEEL_COUNT=" + str(len(files)))
           print("No installation, model, USB capture, speaker, NPU or board used.")
           PY
+          python3 - "$dir" config/voice_arm64_cp312_wheels.lock.json <<'PY'
+          import hashlib, json, pathlib, sys
+          folder=pathlib.Path(sys.argv[1])
+          locked=json.loads(pathlib.Path(sys.argv[2]).read_text())
+          actual=[{"filename":p.name,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}
+                  for p in sorted(folder.glob("*.whl"))]
+          assert sorted(actual,key=lambda x:x["filename"]) == sorted(
+              locked["wheels"],key=lambda x:x["filename"]), "pinned PyAV18 artifact set differs"
+          print("MYAI_HOSTED_PYAV18_LOCK_REVERIFIED=true")
+          PY
+
+  arm64-disposable-native-import:
+    name: Disposable ARM64 Python native imports ONLY, no devices
+    needs: resolve
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 12
+    steps:
+      - name: Exact-SHA checkout outside installed MyAI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -d "$RUNNER_TEMP"
+          test ! -L "$RUNNER_TEMP"
+          root="$(mktemp -d "$RUNNER_TEMP/myai-native-voice-XXXXXX")"
+          chmod 700 "$root"
+          echo "MYAI_STAGE_ROOT=$root" >> "$GITHUB_ENV"
+          mkdir -m 700 "$root/source"
+          cd "$root/source"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
+      - name: Bound memory/disk and install only hashed wheels in private temporary venv
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          PIP_NO_INPUT: "1"
+          PIP_NO_CACHE_DIR: "1"
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+          HF_HUB_OFFLINE: "1"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STAGE_ROOT/source"
+          /usr/bin/python3 - "$MYAI_STAGE_ROOT" "$RUNNER_TEMP" <<'PY'
+          import os, pathlib, shutil, sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          temp=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          live=pathlib.Path("/home/arduino/MyAI").resolve()
+          assert root.parent == temp
+          assert root.name.startswith("myai-native-voice-")
+          assert not root.is_relative_to(live)
+          assert (root/"source"/"requirements-voice-arm64-hashed.lock").is_file()
+          data=pathlib.Path("/proc/meminfo").read_text()
+          value=int(next(x.split()[1] for x in data.splitlines() if x.startswith("MemAvailable:")))
+          assert value >= 7*1024*1024, "insufficient idle RAM for staged native import"
+          assert shutil.disk_usage(temp).free >= 6*1024**3, "insufficient free disk for stage"
+          print("MYAI_TEMP_NATIVE_STAGE_RESOURCE_GATES=true")
+          PY
+          /usr/bin/python3 -m venv "$MYAI_STAGE_ROOT/venv"
+          export HOME="$MYAI_STAGE_ROOT"
+          export XDG_CACHE_HOME="$MYAI_STAGE_ROOT/cache"
+          export PYTHONPATH=""
+          export PIP_CONFIG_FILE=/dev/null
+          if timeout --signal=TERM --kill-after=4s 240s \
+            "$MYAI_STAGE_ROOT/venv/bin/python" -m pip install \
+            --require-hashes --only-binary=:all: --no-input --no-cache-dir \
+            --disable-pip-version-check --retries 1 --timeout 15 \
+            -r requirements-voice-arm64-hashed.lock \
+            > "$MYAI_STAGE_ROOT/pip-install-private.log" 2>&1; then
+            echo "MYAI_TEMP_HASHED_28_WHEELS_INSTALLED=true"
+          else
+            echo "MYAI_TEMP_HASHED_28_WHEELS_INSTALLED=false (NO GO)"
+            exit 2
+          fi
+          export MYAI_NATIVE_PROBE_MARKER=disposable-import-only
+          timeout --signal=TERM --kill-after=3s 45s \
+            "$MYAI_STAGE_ROOT/venv/bin/python" -B -m scripts.ventuno_hashed_voice_native_import \
+            --isolated-native-imports
+          echo "No live audio, model constructor, NPU or production venv touched."
+      - name: Remove disposable stage, downloaded wheels, caches, logs and checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_STAGE_ROOT:-}" ]; then
+            case "$MYAI_STAGE_ROOT" in
+              "$RUNNER_TEMP"/myai-native-voice-*)
+                test -d "$MYAI_STAGE_ROOT" && rm -rf -- "$MYAI_STAGE_ROOT" || true
+                ;;
+              *) echo "NO-GO: refusing unexpected cleanup path" >&2; exit 2 ;;
+            esac
+          fi
