@@ -59,6 +59,57 @@ def _restricted_away_from_branch(text, branch):
     )
 
 
+def _workflow_events(text):
+    """Extract literal event names and their event-specific filter blocks.
+
+    This is a conservative subset of YAML, not an expressions evaluator.
+    Unknown, malformed and aliased trigger shapes must not clear CI.
+    """
+    headers = list(re.finditer(r"(?m)^on:\s*([^\n]*)$", text))
+    if len(headers) != 1:
+        return None
+    raw = headers[0].group(1).strip()
+    if raw:
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", raw):
+            return {raw: ""}
+        if raw.startswith("[") and raw.endswith("]"):
+            names = [x.strip().strip("'\"") for x in raw[1:-1].split(",")]
+            if names and all(re.fullmatch(r"[a-z][a-z0-9_-]*", x) for x in names):
+                return {x: "" for x in names}
+        return None
+    events = {}
+    current = None
+    for line in text[headers[0].end():].splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith((" ", "\t")):
+            break
+        entry = re.fullmatch(r"  ([a-z][a-z0-9_-]*):\s*(?:#.*)?", line)
+        if entry:
+            current = entry.group(1)
+            events[current] = ""
+            continue
+        if current is None or not line.startswith("    "):
+            return None
+        events[current] += line + "\n"
+    return events or None
+
+
+def _event_automatic_possible(events, branch):
+    if not isinstance(events, dict) or not events:
+        return True
+    # workflow_call is reachable from another automation. Treat every
+    # non-manual event as automatically reachable unless an exact push
+    # restriction excludes this specific branch.
+    for name, nested in events.items():
+        if name == "workflow_dispatch":
+            continue
+        if name == "push" and _restricted_away_from_branch(nested, branch):
+            continue
+        return True
+    return False
+
+
 def inventory(root=ROOT, *, branch=CURRENT_BRANCH):
     counts = dict(total_workflows=0, sensitive_candidates=0,
                   manual_sensitive_candidates=0,
@@ -79,17 +130,17 @@ def inventory(root=ROOT, *, branch=CURRENT_BRANCH):
             if not SENSITIVE.search(source):
                 continue
             counts["sensitive_candidates"] += 1
-            manual = bool(TOP_MANUAL.search(source))
-            automatic = bool(TOP_SCHEDULE.search(source)) or (
-                bool(TOP_PUSH.search(source))
-                and not _restricted_away_from_branch(source, branch)
-            )
+            events = _workflow_events(source)
+            manual = isinstance(events, dict) and "workflow_dispatch" in events
+            automatic = _event_automatic_possible(events, branch)
             counts["manual_sensitive_candidates"] += int(manual)
             counts["automatic_sensitive_candidates"] += int(automatic)
             counts["unreviewed_manual_candidates"] += int(manual)
             risky.append(dict(filename=Path(name).name,
                               manual_dispatch=manual,
-                              candidate_automatic_possible=automatic))
+                              candidate_automatic_possible=automatic,
+                              parsed_event_names=(sorted(events) if events is not None else []),
+                              event_source_clear=events is not None))
     except (OSError, UnicodeError, ValueError, subprocess.SubprocessError):
         return dict(status="incomplete-no-go", counts=counts,
                     candidate_automatic_clear=False,
