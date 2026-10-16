@@ -17,7 +17,7 @@ def test_isolated_stage_reports_all_off_only_inside_loaded_settings():
     assert report["checks"]["isolated_test_database"] is True
     assert all(value is True for value in report["checks"].values())
     assert "memory.db" not in json.dumps(report)
-    assert "geniex" not in json.dumps(report)
+    assert "api_key" not in json.dumps(report)
     assert report["credentials_exported"] is False
 
 
