@@ -36,10 +36,17 @@ def _compatible(filename):
     python_tag, abi, platform_tag = (
         data["py"], data["abi"], data["plat"]
     )
-    python_ok = any(tag in {"cp312", "py3", "py312"}
-                    for tag in python_tag.split("."))
-    abi_ok = any(tag in {"none", "abi3", "cp312"}
-                 for tag in abi.split("."))
+    abi_tags = set(abi.split("."))
+    # CPython limited ABI3 wheels built for older Python versions remain
+    # valid on CPython 3.12. E.g. cp38-abi3, cp310-abi3; cp313 is not.
+    abi3 = "abi3" in abi_tags
+    python_ok = any(
+        tag in {"cp312", "py3", "py312"}
+        or (abi3 and tag.startswith("cp3") and
+            tag[3:].isdigit() and 7 <= int(tag[3:]) <= 12)
+        for tag in python_tag.split(".")
+    )
+    abi_ok = bool(abi_tags & {"none", "abi3", "cp312"})
     platform_ok = any(
         tag == "any"
         or tag == "linux_aarch64"
