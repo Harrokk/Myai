@@ -1,0 +1,46 @@
+name: VENTUNO hosted-only compatible ARM64 voice wheel resolver
+on:
+  push:
+    branches: [dev/ventuno-native-voice-preflight-20261016]
+    paths:
+      - .github/workflows/ventuno-compatible-voice-wheel-resolution.yml
+      - requirements-voice.txt
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact reviewed SHA on HOSTED Linux only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve binary-only CPython 3.12 ARM64 packages to throwaway folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          dir="$(mktemp -d "$RUNNER_TEMP/myai-compat.XXXXXX")"
+          trap 'rm -rf -- "$dir"' EXIT
+          python3 -m pip download --disable-pip-version-check --no-input \
+            --quiet --only-binary=:all: --implementation cp \
+            --python-version 3.12 --abi cp312 \
+            --platform manylinux2014_aarch64 \
+            --platform manylinux_2_17_aarch64 \
+            --platform manylinux_2_28_aarch64 \
+            --dest "$dir" -r requirements-voice.txt
+          python3 - "$dir" <<'PY'
+          import hashlib, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          files = sorted(root.glob("*.whl"))
+          assert len(files) >= 4
+          assert any(x.name.startswith("av-18.") for x in files), "PyAV 18 expected"
+          assert not any(x.name.startswith("av-19.") for x in files), "PyAV 19 incompatible with existing STT assumptions"
+          for file in files:
+              digest = hashlib.sha256(file.read_bytes()).hexdigest()
+              print("VOICE_NATIVE_COMPAT_WHEEL_LOCK=" + file.name + ":" + digest)
+          print("VOICE_NATIVE_COMPAT_RESOLVED_WHEEL_COUNT=" + str(len(files)))
+          print("No installation, model, USB capture, speaker, NPU or board used.")
+          PY
