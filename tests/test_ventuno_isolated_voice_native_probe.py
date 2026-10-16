@@ -98,3 +98,39 @@ def test_native_portaudio_error_reports_fixed_category_and_no_raw_detail(tmp_pat
 def test_bounded_native_child_source_is_syntactically_valid_without_imports():
     # Compile only; this does NOT load a native library or contact a device.
     compile(mod.CHILD, "<synthetic-native-import-child>", "exec")
+
+
+
+def test_staged_private_portaudio_enables_only_isolated_child_loader(tmp_path):
+    private_lib = tmp_path / "portaudio" / "lib"
+    private_lib.mkdir(parents=True)
+    (private_lib / "libportaudio.so.2").write_bytes(bytes.fromhex("7f454c46") + b"test-ELF-placeholder")
+    checks = []
+    def runner(args, **kwargs):
+        if args[-1] == "USE_PRIVATE_PORTAUDIO":
+            assert args[-2] == "sounddevice"
+            assert kwargs["env"]["LD_LIBRARY_PATH"] == str(private_lib)
+        checks.append(args[-1])
+        return SimpleNamespace(returncode=0, stdout="ISOLATED_NATIVE_IMPORT_OK\n")
+    report = mod.inspect(
+        tmp_path, portaudio_directory=private_lib, runner=runner,
+        metadata=lambda _: "1.0", prefix_check=True,
+    )
+    assert report["all_seven_imports_passed"] is True
+    assert report["isolated_staged_portaudio_library_used"] is True
+    assert report["portaudio_installed_in_production"] is False
+    assert report["physical_runtime_compatibility_proven"] is False
+    assert "USE_PRIVATE_PORTAUDIO" in checks
+
+
+def test_staged_portaudio_cannot_use_symlink_or_outside_staging_root(tmp_path):
+    import pytest
+    staging = tmp_path / "stage"
+    staging.mkdir()
+    outside = tmp_path / "external"
+    outside.mkdir()
+    (outside / "libportaudio.so.2").write_bytes(bytes.fromhex("7f454c46") + b"something")
+    assert mod._private_portaudio_dir(staging, outside) is None
+    symlink = staging / "escapes"
+    symlink.symlink_to(outside, target_is_directory=True)
+    assert mod._private_portaudio_dir(staging, symlink) is None
