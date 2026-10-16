@@ -152,3 +152,95 @@ def test_target_main_branch_cannot_inherit_auto_inference(tmp_path, monkeypatch)
     assert target["counts"]["automatic_sensitive_candidates"] == 1
     assert review.exit_code(target) == 2
     assert target["release_ready"] is False
+
+
+def test_pull_request_filter_cannot_hide_unrestricted_push(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "bad.yml": "name: bad\non:\n  push:\n  pull_request:\n"
+                   "    branches: [dev/old-only]\njobs:\n  mic:\n"
+                   "    runs-on: [self-hosted]\n    steps:\n"
+                   "      - run: arecord -d 3 /tmp/test.wav\n",
+    })
+    report = review.inventory(root)
+    assert report["counts"]["automatic_sensitive_candidates"] == 1
+    assert review.exit_code(report) == 2
+
+
+def test_reusable_workflow_and_workflow_run_are_possible_indirect_automation(tmp_path, monkeypatch):
+    folder = _fixture(tmp_path, monkeypatch, {
+        "indirect.yml": "name: model\non:\n  workflow_call:\n"
+                        "  workflow_dispatch:\njobs:\n  htp:\n"
+                        "    runs-on: [self-hosted]\n"
+                        "    steps:\n      - run: qnn-net-run --backend /tmp/lib.so\n",
+        "chain.yml": "name: chain\non:\n  workflow_run:\n"
+                     "    workflows: [CI]\n    types: [completed]\njobs:\n"
+                     "  infer:\n    runs-on: [self-hosted]\n"
+                     "    steps:\n      - run: geniex serve --model candidate\n",
+    })
+    result = review.inventory(folder)
+    assert result["counts"]["automatic_sensitive_candidates"] == 2
+    assert result["counts"]["manual_sensitive_candidates"] == 1
+    assert review.exit_code(result) == 2
+
+
+def test_inline_trigger_list_and_unknown_trigger_shape_fail_closed(tmp_path, monkeypatch):
+    folder = _fixture(tmp_path, monkeypatch, {
+        "inline.yml": "name: voice\non: [push, workflow_dispatch]\njobs:\n"
+                      "  run:\n    runs-on: [self-hosted]\n"
+                      "    steps:\n      - run: aplay /tmp/audio.wav\n",
+    })
+    assert review.inventory(folder)["candidate_automatic_clear"] is False
+    path = folder / ".github/workflows/inline.yml"
+    path.write_text(path.read_text().replace(
+        "on: [push, workflow_dispatch]", "on: {workflow_dispatch: {}}"
+    ))
+    report = review.inventory(folder)
+    assert report["candidate_automatic_clear"] is False
+    assert report["risks"][0]["event_source_clear"] is False
+
+
+def test_manual_inline_only_has_no_automatic_trigger(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "single.yml": "name: once\non: workflow_dispatch\njobs:\n"
+                      "  run:\n    runs-on: [self-hosted]\n"
+                      "    steps:\n      - run: arecord -d 2 /tmp/sound.wav\n",
+    })
+    report = review.inventory(root)
+    assert report["candidate_automatic_clear"] is True
+    assert report["counts"]["manual_sensitive_candidates"] == 1
+    assert report["release_ready"] is False
+
+
+def test_indirect_repository_dispatch_and_pr_target_must_block(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "event.yml": "name: callback\non:\n  repository_dispatch:\n"
+                     "    types: [model]\n  pull_request_target:\njobs:\n"
+                     "  runner:\n    runs-on: [self-hosted]\n"
+                     "    steps:\n      - run: aplay -q /tmp/sound.wav\n",
+    })
+    report = review.inventory(root)
+    assert report["counts"]["automatic_sensitive_candidates"] == 1
+    assert review.exit_code(report) == 2
+
+
+def test_push_branch_filter_isolated_to_push_event(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "safe-push-but-unsafe-pr.yml":
+            "name: example\non:\n  push:\n"
+            "    branches: [dev/unrelated]\n"
+            "  pull_request_target:\n    branches: [main]\njobs:\n"
+            "  model:\n    runs-on: [self-hosted]\n"
+            "    steps:\n      - run: geniex serve --model synthetic\n",
+    })
+    assert review.inventory(root)["candidate_automatic_clear"] is False
+
+
+def test_detached_yaml_anchor_is_never_approved(tmp_path, monkeypatch):
+    root = _fixture(tmp_path, monkeypatch, {
+        "alias.yml": "name: wildcard\non: *some_config\njobs:\n"
+                     "  run:\n    runs-on: [self-hosted]\n"
+                     "    steps:\n      - run: arecord /tmp/private.wav\n",
+    })
+    report = review.inventory(root)
+    assert review.exit_code(report) == 2
+    assert report["risks"][0]["event_source_clear"] is False
