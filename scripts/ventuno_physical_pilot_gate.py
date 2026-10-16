@@ -136,6 +136,19 @@ def _get_exact_head(root):
         return ""
     if result.returncode or len(result.stdout) > 80:
         return ""
+    # A pinned HEAD is not sufficient when tracked source files were
+    # edited in place. Never run a physical pilot from a dirty checkout.
+    try:
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain",
+             "--untracked-files=no"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, check=False, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if dirty.returncode or dirty.stdout or len(dirty.stdout) > 4096:
+        return ""
     return result.stdout.strip()
 
 
