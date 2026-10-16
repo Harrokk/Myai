@@ -1,4 +1,5 @@
 import importlib
+from contextlib import ExitStack
 import inspect
 import pkgutil
 import re
@@ -1415,6 +1416,7 @@ def run_tools(
     outcome_details=None,
     execution_cancelled=None,
     execution_before_call=None,
+    execution_call_scope=None,
 ):
     """Run tools in order; voice-guarded plans fail closed as a unit.
 
@@ -1425,7 +1427,10 @@ def run_tools(
        denied guard, or raised tool error stops all remaining steps.
     3. Optionally require a durable before-invocation authorization
        hook; on failure, execute no tool and block later steps.
-    4. Explicitly opted-in callbacks with a keyword-only
+    4. An optional scoped lease encloses durable marker creation and
+       the full synchronous tool callback lifetime; it always releases
+       even when the callback fails or Stop arrives.
+    5. Explicitly opted-in callbacks with a keyword-only
        cancel_requested parameter can poll the same Stop signal.
        If Stop arrives while a tool is already running, its result is
        conservatively UNKNOWN, and later steps are blocked. No rollback
@@ -1538,6 +1543,7 @@ def run_tools(
                 return deny(tool_names)
 
     for index, tool_name in enumerate(tool_names):
+        lease = ExitStack()
         if tool_name not in tools:
             if guarded:
                 results.update(deny(tool_names[index:]))
@@ -1565,6 +1571,20 @@ def run_tools(
             if guarded and cancelled():
                 results.update(deny(tool_names[index:]))
                 break
+
+            if guarded and execution_call_scope is not None:
+                try:
+                    if not callable(execution_call_scope):
+                        raise TypeError("Invalid voice writer scope")
+                    lease.enter_context(
+                        execution_call_scope(tool_name, tool, value)
+                    )
+                except BaseException:
+                    results.update(deny(tool_names[index:]))
+                    break
+                if cancelled():
+                    results.update(deny(tool_names[index:]))
+                    break
 
             if guarded and execution_before_call is not None:
                 try:
@@ -1657,5 +1677,9 @@ def run_tools(
             results[tool_name] = (
                 f"Fel vid körning av {tool_name}: {error}"
             )
+        finally:
+            # Keep the writer lease held from before marker creation
+            # through the callback, including Stop and exception paths.
+            lease.close()
 
     return results

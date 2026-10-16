@@ -19,6 +19,7 @@ MARKER = "voice-write-unreconciled.v1"
 BODY = b"MYAI-VOICE-WRITE-UNRECONCILED-v1\n"
 RUNTIME = "runtime"
 LOCK = ".voice-write-safety.lock.v1"
+ACTIVE_LOCK = ".voice-active-writer.lock.v1"
 
 
 class VoiceWriteAheadMarker:
@@ -100,6 +101,74 @@ class VoiceWriteAheadMarker:
             # relying on flock for future cooperating writer processes.
             os.fsync(directory)
             fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def _active_lock_fd(self, directory):
+        """Open the stable, private writer-presence flock inode.
+
+        This is a lease for *live cooperating processes*, not a proof of
+        the absence of detached grandchildren or external side effects.
+        """
+        fd = os.open(
+            ACTIVE_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            0o600, dir_fd=directory,
+        )
+        try:
+            details = os.fstat(fd)
+            if (
+                not stat.S_ISREG(details.st_mode)
+                or details.st_uid != os.geteuid()
+                or details.st_mode & 0o077
+                or details.st_nlink != 1
+            ):
+                raise OSError("Untrusted active writer lock")
+            os.fsync(directory)
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    @contextmanager
+    def active_writer(self):
+        """Hold a shared interprocess lease through the *entire* callback.
+
+        Finalize holds the existing journal mutex and attempts an
+        exclusive NONBLOCKING lease before removing a write marker.
+        """
+        directory = self._open_directory()
+        try:
+            fd = self._active_lock_fd(directory)
+            try:
+                # Never wait behind an operator in the middle of a
+                # reviewed release; deny this stale voice invocation.
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+        finally:
+            os.close(directory)
+
+    @contextmanager
+    def require_quiescent_writers(self, directory):
+        """Fail closed if a *participating* writer still owns a lease.
+
+        Called only while the stable journal lock is already held.
+        This does NOT attest the absence of uncooperative OS processes.
+        """
+        fd = self._active_lock_fd(directory)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise OSError("Active cooperating voice writer") from error
             try:
                 yield
             finally:
