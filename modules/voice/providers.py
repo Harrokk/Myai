@@ -182,13 +182,25 @@ class FasterWhisperSTT:
             delete=False,
         )
         path = Path(handle.name)
-        handle.close()
-
-        with wave.open(str(path), "wb") as wav:
-            wav.setnchannels(self.channels)
-            wav.setsampwidth(self.sample_width)
-            wav.setframerate(self.sample_rate)
-            wav.writeframes(bytes(audio))
+        try:
+            handle.close()
+            with wave.open(str(path), "wb") as wav:
+                wav.setnchannels(self.channels)
+                wav.setsampwidth(self.sample_width)
+                wav.setframerate(self.sample_rate)
+                wav.writeframes(bytes(audio))
+        except BaseException:
+            # The transcribe() cleanup has NOT started yet. Without this
+            # guard an incomplete file can retain private PCM on disk.
+            try:
+                handle.close()
+            except OSError:
+                pass
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            raise
 
         return path
 
@@ -242,7 +254,12 @@ class FasterWhisperSTT:
                 try:
                     temporary.unlink()
                 except OSError:
-                    pass
+                    # A failed deletion may leave private microphone data
+                    # on disk. Fail closed rather than authorizing a
+                    # response based on that audio; never leak the path.
+                    raise RuntimeError(
+                        "STT temporary audio cleanup failed"
+                    ) from None
 
 
     def release_for_inference(self):
