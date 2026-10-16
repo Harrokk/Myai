@@ -217,3 +217,45 @@ def test_faster_whisper_can_release_loaded_model(monkeypatch):
     assert stt._model is None
     assert collected == [True]
     assert stt.release_for_inference() is False
+
+
+def test_pcm_wav_write_failure_removes_private_temporary_file(
+        tmp_path, monkeypatch):
+    """A failing WAV encoder must not strand a file before transcribe finally."""
+    import pytest
+
+    model = FakeWhisperModel()
+    monkeypatch.setattr(providers.tempfile, "tempdir", str(tmp_path))
+
+    def broken_encoder(*_args, **_kwargs):
+        raise OSError("SYNTHETIC_WAV_WRITE_FAILED_PRIVATE_DATA")
+
+    monkeypatch.setattr(providers.wave, "open", broken_encoder)
+    stt = providers.FasterWhisperSTT(model=model)
+    with pytest.raises(OSError, match="SYNTHETIC_WAV_WRITE_FAILED"):
+        stt.transcribe(b"\x01\x02" * 80)
+    assert list(tmp_path.iterdir()) == []
+    assert model.calls == []
+
+
+def test_pcm_wav_cleanup_failure_never_reports_completed_transcript(
+        tmp_path, monkeypatch):
+    """If unlink fails, source must not claim audio can be safely discarded."""
+    import pytest
+
+    path = tmp_path / "synthetic-private-audio.wav"
+    path.write_bytes(b"SYNTHETIC_PCM_NOT_USER_AUDIO")
+    stt = providers.FasterWhisperSTT(model=FakeWhisperModel())
+    monkeypatch.setattr(stt, "_write_temp_wav", lambda _pcm: path)
+    original = type(path).unlink
+
+    def refuse_cleanup(target, *args, **kwargs):
+        if target == path:
+            raise PermissionError("RAW_PRIVATE_TEMP_PATH_SHOULD_NOT_ESCAPE")
+        return original(target, *args, **kwargs)
+
+    monkeypatch.setattr(type(path), "unlink", refuse_cleanup)
+    with pytest.raises(RuntimeError, match="STT temporary audio cleanup failed") as exc:
+        stt.transcribe(b"\x00\x00" * 20)
+    assert "RAW_PRIVATE_TEMP_PATH" not in str(exc.value)
+    assert "syntetiskt" not in str(exc.value)
