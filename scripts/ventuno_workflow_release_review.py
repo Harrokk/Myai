@@ -65,7 +65,7 @@ def _workflow_events(text):
     This is a conservative subset of YAML, not an expressions evaluator.
     Unknown, malformed and aliased trigger shapes must not clear CI.
     """
-    headers = list(re.finditer(r"(?m)^on:\s*([^\n]*)$", text))
+    headers = list(re.finditer(r"(?m)^on:[ \t]*([^\n]*)$", text))
     if len(headers) != 1:
         return None
     raw = headers[0].group(1).strip()
