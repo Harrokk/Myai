@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check hosted ARM64 architecture without installed voice or devices
         shell: bash
         run: |
@@ -19,3 +22,42 @@ jobs:
           test "$(uname -m)" = aarch64
           python3 --version
           echo "MYAI_HOSTED_ARM64_RUNNER_AVAILABLE=true"
+
+      - name: Install exact 28 SHA256 voice wheels in disposable hosted ARM64 venv
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3.12 -B -m scripts.ventuno_voice_static_lock_check
+          scratch="$(mktemp -d "$RUNNER_TEMP/voice-hosted-arm.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_VOICE_ARM_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          python3.12 -m venv "$scratch/env"
+          "$scratch/env/bin/python" -m pip download --no-deps --only-binary=:all: --require-hashes \
+            --dest "$scratch/wheels" -r requirements-voice-arm64-hashed.lock
+          "$scratch/env/bin/python" -m pip install --no-index --no-deps --require-hashes \
+            --find-links="$scratch/wheels" -r requirements-voice-arm64-hashed.lock
+          "$scratch/env/bin/python" -m pip check
+          echo "MYAI_HOSTED_ARM64_HASHED_WHEEL_INSTALL=true"
+      - name: Import native voice libraries without opening a device or model
+        shell: bash
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          "$MYAI_VOICE_ARM_SCRATCH/env/bin/python" -c \
+            'import faster_whisper, sounddevice, webrtcvad, pyttsx3, ctranslate2, av, numpy; print("MYAI_HOSTED_ARM64_NATIVE_IMPORTS=true")'
+          echo "MYAI_AUDIO_DEVICE_OR_MODEL_OPENED=false"
+      - name: Delete all temporary hosted ARM64 staging data
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_VOICE_ARM_SCRATCH:-}" ]; then
+            rm -rf -- "$MYAI_VOICE_ARM_SCRATCH"
+          fi
