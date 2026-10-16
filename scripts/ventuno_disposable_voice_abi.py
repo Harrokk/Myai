@@ -33,23 +33,30 @@ def check(module):
                 "model_loaded": False, "audio_device_opened": False}
     accepted = False
     installed = False
-    elapsed = 0
-    version = None
+    error_class = "none"
     start = time.monotonic()
     try:
         # In an isolated subprocess, not the installed production interpreter.
         importlib.import_module(module)
         accepted = True
-        version = importlib.metadata.version(MODULES[module])
+        importlib.metadata.version(MODULES[module])
         installed = True
+    except ImportError:
+        accepted = False
+        error_class = "python-or-native-module-import-error"
+    except OSError:
+        accepted = False
+        error_class = "native-shared-library-loader-error"
     except (Exception, SystemExit):
         accepted = False
+        error_class = "other-sanitized-import-error"
     elapsed = round(max(0, time.monotonic() - start), 3)
     return {
         "status": "module-imported-in-disposable-venv" if accepted
                   else "blocked-native-module-import",
         "module": module,
         "native_abi_import_accepted": accepted,
+        "import_failure_category": error_class,
         "installed_version_known": installed,
         "import_seconds": elapsed,
         "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
