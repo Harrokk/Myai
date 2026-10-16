@@ -1,0 +1,123 @@
+name: VENTUNO voice sandbox ARM64 native imports and synthetic whole session
+on:
+  push:
+    branches: [dev/ventuno-arm64-voice-sandbox-20261016]
+    paths:
+      - .github/workflows/ventuno-arm64-voice-sandbox.yml
+      - requirements-voice-arm64-hashed.lock
+      - config/voice_arm64_cp312_wheels.lock.json
+      - tests/test_ventuno_full_synthetic_voice_session.py
+      - scripts/ventuno_voice_wheelhouse_gate.py
+      - scripts/ventuno_voice_static_lock_check.py
+      - docs/VENTUNO_ARM64_SANDBOX_STAGING.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-arm64-voice-sandbox-20261016
+  cancel-in-progress: false
+jobs:
+  hosted-linux-arm64-voice-package-abi:
+    name: Real ARM64 hosted sandbox native import / metadata, NO device or model
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate checkout and staged voice source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3.12 -B -m scripts.ventuno_voice_static_lock_check
+          python3.12 -B -m scripts.ventuno_isolated_voice_stage_contract
+      - name: Install only SHA256-pinned wheel binaries into disposable hosted ARM64 venv
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d "$RUNNER_TEMP/myai-arm64-voice.XXXXXX")"
+          chmod 700 "$stage"
+          echo "MYAI_STAGING_DIR=$stage" >> "$GITHUB_ENV"
+          python3.12 -m venv "$stage/.venv"
+          "$stage/.venv/bin/python" -m pip download --only-binary=:all: \
+            --no-deps --require-hashes --no-input \
+            --dest "$stage/wheels" -r requirements-voice-arm64-hashed.lock
+          python3.12 - "$stage/wheels" config/voice_arm64_cp312_wheels.lock.json <<'PY'
+          import hashlib, json, pathlib, sys
+          folder = pathlib.Path(sys.argv[1])
+          checked = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          found = sorted(
+              [{"filename": p.name, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+               for p in folder.glob("*.whl")], key=lambda x: x["filename"]
+          )
+          expected = sorted(checked["wheels"], key=lambda x: x["filename"])
+          assert found == expected, "Incomplete or unexpected wheel SHA"
+          print("ARM64_PINNED_28_WHEELS_MATCH=true")
+          PY
+          "$stage/.venv/bin/python" -m pip install --no-index \
+            --find-links="$stage/wheels" --no-deps --require-hashes \
+            -r requirements-voice-arm64-hashed.lock
+          "$stage/.venv/bin/python" -m pip check
+      - name: Import four actual voice libraries and native dependencies without opening audio
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          set -euo pipefail
+          "$MYAI_STAGING_DIR/.venv/bin/python" - <<'PY'
+          import importlib, sys
+          modules = ("faster_whisper", "sounddevice", "webrtcvad",
+                     "pyttsx3", "ctranslate2", "av", "numpy")
+          assert sys.version_info[:2] == (3, 12)
+          for name in modules:
+              importlib.import_module(name)
+              print("ARM64_NATIVE_IMPORT_OK=" + name)
+          print("ARM64_NATIVE_LIB_IMPORTS_ONLY=true")
+          print("NO_AUDIO_OPENED=true")
+          print("NO_STT_MODEL_LOADED=true")
+          PY
+      - name: Remove disposable hosted dependency staging
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_STAGING_DIR:-}" ]; then
+            rm -rf -- "$MYAI_STAGING_DIR"
+          fi
+  hosted-synthetic-full-session:
+    name: Full injected mic VAD STT assistant TTS / Stop and failures, no hardware
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run complete synthetic session under exact SHA
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -m venv "$RUNNER_TEMP/myai-synthetic-voice-venv"
+          "$RUNNER_TEMP/myai-synthetic-voice-venv/bin/python" -m pip install \
+            --disable-pip-version-check pytest==8.3.5 -r requirements.txt
+          "$RUNNER_TEMP/myai-synthetic-voice-venv/bin/python" -B -m pytest -q \
+            tests/test_ventuno_full_synthetic_voice_session.py \
+            tests/test_voice_session.py \
+            tests/test_voice_pipeline.py \
+            tests/test_ventuno_remote_phases_1to5.py
+      - name: Remove synthetic-test-only venv
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- "$RUNNER_TEMP/myai-synthetic-voice-venv"
