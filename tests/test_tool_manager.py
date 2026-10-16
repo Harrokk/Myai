@@ -470,7 +470,7 @@ def test_run_tools_keeps_other_results_if_one_tool_fails():
     )
 
     assert result["cpu_status"] == "CPU OK"
-    assert "testfel" in result["ram_status"]
+    assert result["ram_status"] == "Fel vid körning av ram_status: RuntimeError"
 
 
 
