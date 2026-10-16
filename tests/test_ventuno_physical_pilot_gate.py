@@ -265,3 +265,36 @@ def test_board_cli_never_succeeds_on_missing_live_profile(
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "blocked-active-production-profile"
     assert report["recording_authorized"] is False
+
+
+def test_dirty_source_checkout_is_not_certified_by_matching_head(
+        tmp_path, monkeypatch):
+    calls = []
+    class Result:
+        def __init__(self, stdout, returncode=0):
+            self.stdout = stdout
+            self.returncode = returncode
+    def fake_git(cmd, **_kwargs):
+        calls.append(tuple(cmd))
+        if cmd[3] == "rev-parse":
+            return Result(SHA + "\\n")
+        assert cmd[3] == "status"
+        return Result(" M scripts/ventuno_physical_pilot_gate.py\\n")
+    monkeypatch.setattr(gate.subprocess, "run", fake_git)
+    assert gate._get_exact_head(tmp_path) == ""
+    assert [x[3] for x in calls] == ["rev-parse", "status"]
+
+
+def test_clean_checkout_and_exact_sha_are_both_required(
+        tmp_path, monkeypatch):
+    class Result:
+        def __init__(self, stdout):
+            self.stdout = stdout
+            self.returncode = 0
+    monkeypatch.setattr(
+        gate.subprocess, "run",
+        lambda cmd, **_kwargs: Result(
+            SHA + "\\n" if cmd[3] == "rev-parse" else ""
+        ),
+    )
+    assert gate._get_exact_head(tmp_path) == SHA
