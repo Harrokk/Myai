@@ -10,12 +10,13 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-from core.config import load_settings
+from core.config import DEFAULT_SETTINGS, _merge_settings
 from core.config_validation import validate_settings
-from scripts.ventuno_physical_pilot_gate import SAFE_FLAGS, _config_safe
+from scripts.ventuno_physical_pilot_gate import _config_safe
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "config/profiles/ventuno_q.json"
+STAGE = Path(__file__).resolve().parents[1] / "config/profiles/ventuno_voice_trial_DISABLED.json"
 STAGING_MEMORY = "runtime/isolated_voice_trial/memory.db"
 STAGING_PREFIX = "runtime/isolated_voice_trial/"
 
@@ -46,11 +47,8 @@ def candidate(source):
     values = deepcopy(source)
     # Source may omit defaults; explicit stage choices live in the merged
     # effective config and are NEVER written back to the source document.
-    settings = load_settings(path=SOURCE) if source is None else None
-    # The actual merge of in-code defaults follows core.config semantics
-    # without touching any device or database.
-    from core.config import DEFAULT_SETTINGS
-    from core.config import _merge_settings
+    # Match MyAI's real explicit-profile merge semantics exactly.
+    # No runtime initialization or file creation is performed.
     settings = _merge_settings(DEFAULT_SETTINGS, values)
     voice = settings["voice"]
     voice.update(VOICE_SAFE)
@@ -120,20 +118,41 @@ def attest(settings):
     return all(checks)
 
 
-def inspect(path=SOURCE):
+def _read_document(path):
+    if (path.is_symlink() or not path.is_file()
+            or path.stat().st_size > 65536):
+        raise ValueError("Invalid profile file")
+    content = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(content, dict):
+        raise ValueError("Invalid profile object")
+    return content
+
+
+def inspect(source_path=SOURCE, stage_path=STAGE):
+    sound = False
+    exact = False
+    source_off = False
+    stage_off = False
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
-            raise ValueError("Invalid profile file")
-        source = json.loads(path.read_text(encoding="utf-8"))
-        active = candidate(source)
-        validation = validate_settings(active, require_ventuno_profile=True)
-        sound = attest(active) and validation.get("valid") is True
-    except (OSError, ValueError, TypeError, KeyError):
+        source = _read_document(source_path)
+        staged = _read_document(stage_path)
+        source_off = _config_safe(source)
+        stage_off = _config_safe(staged)
+        planned = candidate(source)
+        actual = _merge_settings(DEFAULT_SETTINGS, staged)
+        exact = planned == actual
+        validation = validate_settings(actual, require_ventuno_profile=True)
+        sound = (source_off and stage_off and exact and
+                 attest(actual) and validation.get("valid") is True)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         sound = False
     return {
-        "status": "source-only-isolated-stage-contract-passed"
-                  if sound else "source-only-stage-contract-denied",
+        "status": ("source-only-isolated-stage-contract-passed" if sound
+                   else "source-only-stage-contract-denied"),
         "candidate_safe_by_contract": sound,
+        "source_profile_all_risk_flags_off": source_off,
+        "stage_profile_all_risk_flags_off": stage_off,
+        "stage_exactly_matches_reviewed_override": exact,
         "real_audio_authorized": False,
         "production_config_changed": False,
         "test_database_created": False,
@@ -145,8 +164,9 @@ def inspect(path=SOURCE):
 
 
 def main():
-    print("MYAI_VOICE_STAGE_CONTRACT_JSON=" + json.dumps(inspect(), sort_keys=True))
-    return 0 if inspect()["candidate_safe_by_contract"] else 2
+    result = inspect()
+    print("MYAI_VOICE_STAGE_CONTRACT_JSON=" + json.dumps(result, sort_keys=True))
+    return 0 if result["candidate_safe_by_contract"] else 2
 
 
 if __name__ == "__main__":
