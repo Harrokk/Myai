@@ -20,11 +20,6 @@ jobs:
     # Commit-message/old-branch conditions do not grant physical authorization.
     if: false
     name: Actual installed Ollama through MyAI LLM factory without audio
-    if: >-
-      github.event_name == 'push' &&
-      github.event.head_commit.message == 'Verify installed Ollama replies through MyAI without audio' &&
-      github.run_attempt == 1 &&
-      github.repository == 'Harrokk/Myai'
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 9
     steps:
