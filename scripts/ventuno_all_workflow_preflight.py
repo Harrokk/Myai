@@ -24,7 +24,29 @@ ONLY_COMMENTS = re.compile(r"(?m)^\s*#.*$")
 SELF_HOSTED = re.compile(r"(?m)^\s*runs-on\s*:\s*.*self-hosted", re.I)
 TOP_PUSH = re.compile(r"(?m)^  push\s*:")
 TOP_DISPATCH = re.compile(r"(?m)^  workflow_dispatch\s*:")
-BRANCHES = re.compile(r"(?m)^    branches:\s*\[([^\]]+)\]")
+BRANCHES = re.compile(r"(?m)^    branches:[ \\t]*\\[([^\\]]+)\\][ \\t]*$")
+MULTILINE_BRANCHES = re.compile(
+    r"(?m)^    branches:[ \\t]*\\n((?:[ \\t]{6}-[ \\t]+[^\\n]+\\n?)+)"
+)
+
+
+def _push_branch_restricted(text):
+    """Fail open for auditing if push branches cannot be parsed safely."""
+    branches = BRANCHES.findall(text)
+    if len(branches) == 1:
+        restrictions = [x.strip().strip("'\\\"") for x in branches[0].split(",")]
+    else:
+        expanded = MULTILINE_BRANCHES.findall(text)
+        if len(expanded) != 1:
+            return False
+        restrictions = [
+            line.strip()[1:].strip().strip("'\\\"")
+            for line in expanded[0].splitlines()
+        ]
+    return bool(restrictions) and all(
+        x and x != CURRENT_BRANCH and "*" not in x
+        for x in restrictions
+    )
 
 
 def inventory(root=ROOT):
@@ -55,13 +77,8 @@ def inventory(root=ROOT):
         if manually_runnable:
             counts["manual_hardware_candidates"] += 1
         push = bool(TOP_PUSH.search(no_comments))
-        patterns = BRANCHES.findall(no_comments)
-        # If push has no supported branch restriction, conservatively block.
-        branch_scoped = (len(patterns) == 1
-                         and CURRENT_BRANCH not in patterns[0]
-                         and "'**'" not in patterns[0]
-                         and "'*'" not in patterns[0]
-                         and "**" not in patterns[0])
+        # If push has no safely parsed branch restriction, block.
+        branch_scoped = _push_branch_restricted(no_comments)
         automatic = push and not branch_scoped
         if automatic:
             counts["current_branch_automatic_risks"] += 1
