@@ -216,11 +216,14 @@ def _log_error(
         return False
 
     try:
+        # A plugin logger must never receive raw exception payloads:
+        # native errors sometimes contain URLs, tokens, prompts and paths.
+        safe_error = RuntimeError("Exception details withheld for privacy")
         return bool(
             error_logger.log_exception(
                 event,
                 component,
-                error,
+                safe_error,
             )
         )
     except Exception:
@@ -253,7 +256,7 @@ def load_tools(error_logger=None):
 
             print(
                 f"Varning: kunde inte ladda modulen "
-                f"{module_name}: {error}"
+                f"{module_name} (feltext dold)."
             )
 
     return tools
@@ -1675,7 +1678,7 @@ def run_tools(
                 results.update(deny(tool_names[index + 1:]))
                 break
             results[tool_name] = (
-                f"Fel vid körning av {tool_name}: {error}"
+                f"Fel vid körning av {tool_name} (feltext dold)."
             )
         finally:
             # Keep the writer lease held from before marker creation
