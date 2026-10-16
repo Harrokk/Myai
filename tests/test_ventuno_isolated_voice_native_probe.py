@@ -134,3 +134,22 @@ def test_staged_portaudio_cannot_use_symlink_or_outside_staging_root(tmp_path):
     symlink = staging / "escapes"
     symlink.symlink_to(outside, target_is_directory=True)
     assert mod._private_portaudio_dir(staging, symlink) is None
+
+
+
+def test_staged_library_missing_jack_dependency_has_fixed_failure_category(tmp_path):
+    lib = tmp_path / "private" / "lib"
+    lib.mkdir(parents=True)
+    (lib / "libportaudio.so.2").write_bytes(bytes.fromhex("7f454c46") + b"placeholder")
+    def runner(args, **_):
+        if args[-1] == "USE_PRIVATE_PORTAUDIO":
+            return SimpleNamespace(returncode=47, stdout="MISSING_JACK_LIBRARY\n")
+        return SimpleNamespace(returncode=0, stdout="ISOLATED_NATIVE_IMPORT_OK\n")
+    report = mod.inspect(
+        tmp_path, portaudio_directory=lib, runner=runner,
+        metadata=lambda _: "1.0", prefix_check=True,
+    )
+    assert report["per_module_failure_category"]["sounddevice"] == (
+        "missing-jack-shared-library"
+    )
+    assert report["production_packages_modified"] is False
