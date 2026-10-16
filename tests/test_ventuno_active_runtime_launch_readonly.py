@@ -119,7 +119,8 @@ def test_future_loaded_pilot_heartbeat_is_treated_as_local_evidence_only(tmp_pat
     assert mod._future_pilot_heartbeat(tmp_path, str(pid + 1), clock=lambda: 1040.0) is False
     assert mod._future_pilot_heartbeat(tmp_path, str(pid), clock=lambda: 1205.0) is False
     result = mod.classify(
-        str(pid), b"/usr/bin/python3\\0-m\\0scripts.ventuno_runtime\\0",
+        str(pid), bytes([0]).join([b"/usr/bin/python3", b"-m",
+                                  b"scripts.ventuno_runtime", b""]),
         b"a" * 32, b"a" * 32, future_pilot_snapshot=True,
     )
     assert result["inprocess_pilot_snapshot_current_and_all_safe"] is True
