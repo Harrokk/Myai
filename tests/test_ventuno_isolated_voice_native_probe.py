@@ -75,3 +75,20 @@ def test_source_only_script_requires_exactly_explicit_scratch_path():
     import pytest
     with pytest.raises(SystemExit):
         mod.main([])
+
+
+def test_native_portaudio_error_reports_fixed_category_and_no_raw_detail(tmp_path):
+    def fake(args, **_):
+        if args[-1] == "sounddevice":
+            return SimpleNamespace(returncode=47, stdout="MISSING_PORTAUDIO_LIBRARY\\n")
+        return SimpleNamespace(returncode=0, stdout="ISOLATED_NATIVE_IMPORT_OK\\n")
+    result = mod.inspect(
+        tmp_path, runner=fake,
+        metadata=lambda _: "1.0",
+        prefix_check=True,
+    )
+    assert result["per_module_failure_category"]["sounddevice"] == (
+        "missing-portaudio-shared-library"
+    )
+    assert result["all_seven_imports_passed"] is False
+    assert result["real_audio_authorized"] is False
