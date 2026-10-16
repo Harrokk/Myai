@@ -12,6 +12,7 @@ from core.hardware_monitor import (
 from core.health_status import (
     write_health_state,
 )
+from core.runtime_safety_attestation import summarize as safety_snapshot
 from core.terminal_connector_factory import (
     build_terminal_handoff_monitor,
 )
@@ -373,6 +374,7 @@ class MyAIRuntimeService:
                 is not None
                 and self.voice_runner.is_running
             ),
+            "runtime_safety": safety_snapshot(self.settings),
             "component_errors": dict(
                 self.component_errors
             ),
