@@ -1,0 +1,130 @@
+name: VENTUNO disposable ARM64 native import with pinned hashes no audio
+on:
+  push:
+    branches: [dev/ventuno-isolated-runtime-voice-abi-20261016]
+    paths:
+      - .github/workflows/ventuno-voice-native-stage.yml
+      - scripts/ventuno_voice_native_import_probe.py
+      - tests/test_ventuno_voice_native_import_probe.py
+      - requirements-voice-arm64-hashed.lock
+      - config/voice_arm64_cp312_wheels.lock.json
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ventuno-disposable-voice-native-20261016
+  cancel-in-progress: false
+jobs:
+  arm64-disposable-import:
+    name: Isolated ARM64 wheel install and ABI import - no audio
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 13
+    steps:
+      - name: Fetch exact SHA and run offline-only native imports in temporary venv
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+          PIP_NO_CACHE_DIR: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          stage="$(mktemp -d "$RUNNER_TEMP/myai-abi-private.XXXXXX")"
+          chmod 700 "$stage"
+          echo "MYAI_ABI_STAGE=$stage" >> "$GITHUB_ENV"
+          test "$stage" != /home/arduino/MyAI
+          test ! -L "$stage"
+          git init -q "$stage/source"
+          git -C "$stage/source" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$stage/source" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$stage/source" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$stage/source" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$stage/source" rev-parse HEAD)" = "$GITHUB_SHA"
+          cd "$stage/source"
+          /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
+          /usr/bin/python3 -B -m venv "$stage/venv"
+          test -x "$stage/venv/bin/python"
+          "$stage/venv/bin/python" -c "import sys; assert sys.version_info[:2] == (3, 12)"
+          export VIRTUAL_ENV="$stage/venv"
+          export XDG_CACHE_HOME="$stage/cache" HF_HOME="$stage/hf" TMPDIR="$stage"
+          mkdir -m 700 "$stage/wheels"
+          timeout --signal=TERM --kill-after=4s 220s \
+            "$stage/venv/bin/python" -m pip download \
+            --quiet --no-input --only-binary=:all: --implementation cp \
+            --python-version 3.12 --abi cp312 \
+            --platform manylinux2014_aarch64 \
+            --platform manylinux_2_17_aarch64 \
+            --platform manylinux_2_28_aarch64 \
+            --require-hashes --dest "$stage/wheels" \
+            -r requirements-voice-arm64-hashed.lock
+          test "$(du -sm "$stage/wheels" | cut -f1)" -le 750
+          "$stage/venv/bin/python" - "$stage/wheels" <<'PY'
+          import hashlib, json, pathlib, sys
+          folder = pathlib.Path(sys.argv[1])
+          recorded = json.loads(pathlib.Path("config/voice_arm64_cp312_wheels.lock.json").read_text())
+          observed = sorted(
+              [{"filename": x.name, "sha256": hashlib.sha256(x.read_bytes()).hexdigest()}
+               for x in folder.glob("*.whl")],
+              key=lambda x: x["filename"],
+          )
+          expected = sorted(recorded["wheels"], key=lambda x: x["filename"])
+          assert len(observed) == 28 and observed == expected, "WRONG_WHEEL_HASH_SET"
+          print("DISPOSABLE_AARCH64_WHEEL_HASHES_28_OF_28=PASS")
+          PY
+          timeout --signal=TERM --kill-after=4s 270s \
+            "$stage/venv/bin/python" -m pip install \
+            --no-index --no-input --require-hashes \
+            --find-links "$stage/wheels" -r requirements-voice-arm64-hashed.lock
+          "$stage/venv/bin/python" -m pip check
+          # Ubuntu-signed distro runtime libraries are unpacked into
+          # private RUNNER_TEMP only; NEVER call apt-get install or sudo.
+          mkdir -m 700 "$stage/deb" "$stage/native"
+          cd "$stage/deb"
+          timeout --signal=TERM --kill-after=3s 100s \
+            apt download libportaudio2 libespeak1
+          for package in libportaudio2 libespeak1; do
+            found=( "$stage/deb/${package}_"*.deb )
+            test "${#found[@]}" -eq 1 && test -f "${found[0]}"
+            test "$(dpkg-deb --field "${found[0]}" Package)" = "$package"
+            test "$(dpkg-deb --field "${found[0]}" Architecture)" = "arm64"
+            dpkg-deb --extract "${found[0]}" "$stage/native"
+          done
+          libdir="$stage/native/usr/lib/aarch64-linux-gnu"
+          export LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LIBRARY_PATH="$libdir${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          test -e "$libdir/libportaudio.so.2"
+          test -e "$libdir/libespeak.so.1"
+          # ctypes.util.find_library() may require a linker-name alias,
+          # even though the versioned distro .so is already in LD_LIBRARY_PATH.
+          if [ ! -e "$libdir/libportaudio.so" ]; then
+            ln -s libportaudio.so.2 "$libdir/libportaudio.so"
+          fi
+          "$stage/venv/bin/python" - <<'PY'
+          import ctypes.util
+          lib = ctypes.util.find_library("portaudio")
+          print("STAGED_PORTAUDIO_LINKER_LOOKUP_FOUND=" + str(bool(lib)).lower())
+          PY
+          cd "$stage/source"
+          echo "UBUNTU_SIGNED_AUDIO_LIBRARIES_EXTRACTED_TO_RUNNER_TEMP_ONLY=true"
+          timeout --signal=TERM --kill-after=4s 70s \
+            "$stage/venv/bin/python" -B -m scripts.ventuno_voice_native_import_probe
+          echo "PRODUCTION_VENV_AND_SYSTEMD_UNCHANGED=true"
+          echo "NO_AUDIO_STREAM_MODEL_OR_NPU_STARTED=true"
+      - name: Remove isolated wheels, installed files, caches and checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_ABI_STAGE:-}" in
+            "$RUNNER_TEMP"/myai-abi-private.*) rm -rf -- "$MYAI_ABI_STAGE" ;;
+            "") ;;
+            *) exit 1 ;;
+          esac

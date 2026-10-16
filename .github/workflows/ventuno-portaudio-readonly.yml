@@ -1,0 +1,50 @@
+name: VENTUNO PortAudio and eSpeak installed metadata only
+on:
+  push:
+    branches: [dev/ventuno-isolated-runtime-voice-abi-20261016]
+    paths:
+      - .github/workflows/ventuno-portaudio-readonly.yml
+      - scripts/ventuno_voice_native_library_readonly.py
+      - tests/test_ventuno_voice_native_library_readonly.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-portaudio:
+    name: Exact-SHA ARM64 PortAudio and eSpeak library presence only
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Read only system library metadata in disposable source checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test -n "${RUNNER_TEMP:-}"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-lib-check.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_LIB_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch"
+          git -C "$scratch" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+          cd "$scratch"
+          /usr/bin/python3 -B -m scripts.ventuno_voice_native_library_readonly
+          echo "NO_ALSA_STREAM_NO_NATIVE_LIBRARY_LOAD=true"
+      - name: Clean disposable source checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_LIB_SCRATCH:-}" in
+            "$RUNNER_TEMP"/myai-lib-check.*) rm -rf -- "$MYAI_LIB_SCRATCH" ;;
+            "") ;;
+            *) exit 1 ;;
+          esac
