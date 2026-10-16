@@ -207,6 +207,17 @@ jobs:
           esac
           echo "Diagnostic completed; no microphone, playback, model or NPU used."
 
+      - name: Diagnose USB ALSA numbering and permissions without opening a device
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PERSISTENT_STT_BOARD"
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_usb_audio_inventory
+          echo "Numeric USB card/pair and access metadata only; no device opened."
+
       - name: Delete disposable board checkout
         if: always()
         shell: bash
