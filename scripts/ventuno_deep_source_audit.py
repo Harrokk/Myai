@@ -270,10 +270,39 @@ def audit(root=ROOT):
     }
 
 
-if __name__ == "__main__":
+def audit_exit_code(result):
+    """Fail CI when either the report is incomplete or any blocker exists.
+
+    Returning 0 for a completed scan that *found* a blocker previously let
+    source-audit-with-findings pass as though it had cleared the release gate.
+    Validate the result shape defensively; malformed results are not clean.
+    """
+    if not isinstance(result, dict):
+        return 2
+    blockers = result.get("automatic_blockers")
+    if (result.get("status") != "source-audit-completed"
+            or not isinstance(blockers, list)
+            or blockers
+            or result.get("safe_to_deploy_automatically") is not False
+            or result.get("actual_physical_tests_performed") is not False):
+        return 2
+    return 0
+
+
+def main():
     try:
         result = audit()
     except Exception:
-        result = {"status": "source-audit-incomplete", "automatic_blockers": ["audit_error"]}
+        # Do not expose file contents, exception values, environment or paths.
+        result = {
+            "status": "source-audit-incomplete",
+            "automatic_blockers": ["audit_error"],
+            "safe_to_deploy_automatically": False,
+            "actual_physical_tests_performed": False,
+        }
     print("MYAI_TWO_PASS_DEEP_AUDIT_JSON=" + json.dumps(result, sort_keys=True))
-    raise SystemExit(2 if result["status"] == "source-audit-incomplete" else 0)
+    return audit_exit_code(result)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
