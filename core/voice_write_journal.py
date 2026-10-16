@@ -144,7 +144,9 @@ class VoiceWriteAheadMarker:
         try:
             fd = self._active_lock_fd(directory)
             try:
-                fcntl.flock(fd, fcntl.LOCK_SH)
+                # Never wait behind an operator in the middle of a
+                # reviewed release; deny this stale voice invocation.
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 try:
                     yield
                 finally:
