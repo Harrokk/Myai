@@ -19,6 +19,12 @@ on:
       - docs/VENTUNO_FULL_PROJECT_AUDIT_20261016.md
       - .github/workflows/ventuno-remote-preflight-completion.yml
       - scripts/ventuno_isolated_voice_native_probe.py
+      - scripts/ventuno_all_workflow_preflight.py
+      - scripts/ventuno_source_release_readiness.py
+      - tests/test_ventuno_all_workflow_preflight.py
+      - tests/test_ventuno_source_release_readiness.py
+      - tests/test_ventuno_voice_trial_crash_cleanup.py
+      - docs/VENTUNO_FIVE_REMAINING_AUDIT_GATES.md
       - tests/test_ventuno_isolated_voice_native_probe.py
       - scripts/ventuno_main_workflow_quarantine.py
       - scripts/ventuno_voice_wheelhouse_gate.py
@@ -67,6 +73,7 @@ jobs:
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
           git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ -f .git/shallow ]; then git fetch --quiet --unshallow origin; fi
       - name: Inspect every tracked code configuration tool workflow and test source
         shell: bash
         env:
@@ -84,6 +91,8 @@ jobs:
           python3 -B -m scripts.ventuno_main_workflow_quarantine
           python3 -B -m scripts.ventuno_voice_wheelhouse_gate
           python3 -B -m scripts.ventuno_voice_static_lock_check
+          python3 -B -m scripts.ventuno_all_workflow_preflight
+          python3 -B -m scripts.ventuno_source_release_readiness
           python3 -m venv "$RUNNER_TEMP/myai-source-review-venv"
           "$RUNNER_TEMP/myai-source-review-venv/bin/python" -m pip install --disable-pip-version-check pytest==8.3.5 -r requirements.txt
           "$RUNNER_TEMP/myai-source-review-venv/bin/python" -B -m pytest -q \
@@ -97,6 +106,9 @@ jobs:
             tests/test_runtime_safety_attestation.py \
             tests/test_runtime_service.py \
             tests/test_ventuno_isolated_voice_native_probe.py \
+            tests/test_ventuno_all_workflow_preflight.py \
+            tests/test_ventuno_source_release_readiness.py \
+            tests/test_ventuno_voice_trial_crash_cleanup.py \
             tests/test_voice_pipeline.py \
             tests/test_voice_session.py \
             tests/test_ventuno_usb_dialogue_once.py \
@@ -188,6 +200,7 @@ jobs:
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
           git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ -f .git/shallow ]; then git fetch --quiet --unshallow origin; fi
       - name: Run source-only AST and workflow audit; no model or equipment opened
         shell: bash
         env:
@@ -201,6 +214,8 @@ jobs:
           /usr/bin/python3 -B -m scripts.ventuno_main_workflow_quarantine
           /usr/bin/python3 -B -m scripts.ventuno_voice_wheelhouse_gate
           /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
+          /usr/bin/python3 -B -m scripts.ventuno_all_workflow_preflight
+          /usr/bin/python3 -B -m scripts.ventuno_source_release_readiness
           timeout --signal=TERM --kill-after=3s 115s \
             /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_big_test_readiness --board-metadata-only
           /usr/bin/python3 -B -m scripts.ventuno_remote_idle_baseline
