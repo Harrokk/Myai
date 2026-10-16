@@ -1,0 +1,143 @@
+name: MyAI main-integrated source-only release candidate and AArch64 wheel preflight
+on:
+  push:
+    branches: [dev/ventuno-integrated-remote-gates-20261016]
+    paths:
+      - scripts/ventuno_deep_source_audit.py
+      - scripts/ventuno_isolated_voice_stage_contract.py
+      - scripts/ventuno_voice_dependency_inventory.py
+      - scripts/ventuno_active_runtime_launch_readonly.py
+      - tests/test_ventuno_active_runtime_launch_readonly.py
+      - tests/test_ventuno_voice_dependency_inventory.py
+      - tests/test_ventuno_isolated_voice_stage_contract.py
+      - config/profiles/ventuno_voice_trial_DISABLED.json
+      - docs/VENTUNO_ISOLATED_VOICE_STAGE.md
+      - docs/VENTUNO_MAIN_ONLY_WORKFLOW_QUARANTINE.md
+      - modules/voice/providers.py
+      - tests/test_voice_providers.py
+      - tests/test_ventuno_deep_source_audit.py
+      - docs/VENTUNO_FULL_PROJECT_AUDIT_20261016.md
+      - .github/workflows/ventuno-integrated-remote-gates.yml
+      - scripts/ventuno_main_workflow_quarantine.py
+      - scripts/ventuno_voice_wheelhouse_gate.py
+      - core/runtime_safety_attestation.py
+      - core/runtime_service.py
+      - scripts/ventuno_active_runtime_launch_readonly.py
+      - tests/test_ventuno_main_workflow_quarantine.py
+      - tests/test_ventuno_voice_wheelhouse_gate.py
+      - tests/test_runtime_safety_attestation.py
+      - docs/VENTUNO_INTEGRATED_REMOTE_TEST_GATES.md
+      - .github/workflows/ventuno-full-dev-validation.yml
+      - .github/workflows/ventuno-integration-validation.yml
+      - .github/workflows/ventuno-regression.yml
+      - .github/workflows/ventuno-runner-check.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-main-integrated-source-only-20261016
+  cancel-in-progress: false
+jobs:
+  hosted-source-audit:
+    name: Exhaustive tracked-file structural scan, two independent passes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact ref into private disposable checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-audit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_AUDIT_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Inspect every tracked code configuration tool workflow and test source
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_AUDIT_SCRATCH"
+          python3 -B -m scripts.ventuno_deep_source_audit
+          python3 -B -m scripts.static_repository_audit
+          python3 -B -m scripts.ventuno_eight_sensitive_calls_review
+          python3 -B -m scripts.ventuno_isolated_voice_stage_contract
+          python3 -B -m scripts.ventuno_voice_dependency_inventory
+          python3 -B -m scripts.ventuno_active_runtime_launch_readonly
+          python3 -B -m scripts.ventuno_main_workflow_quarantine
+          python3 -B -m scripts.ventuno_voice_wheelhouse_gate
+          python3 -m venv "$RUNNER_TEMP/myai-source-review-venv"
+          "$RUNNER_TEMP/myai-source-review-venv/bin/python" -m pip install --disable-pip-version-check pytest==8.3.5
+          "$RUNNER_TEMP/myai-source-review-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_providers.py \
+            tests/test_ventuno_isolated_voice_stage_contract.py \
+            tests/test_ventuno_voice_dependency_inventory.py \
+            tests/test_ventuno_active_runtime_launch_readonly.py \
+            tests/test_ventuno_main_workflow_quarantine.py \
+            tests/test_ventuno_voice_wheelhouse_gate.py \
+            tests/test_runtime_safety_attestation.py \
+            tests/test_runtime_service.py \
+            tests/test_ventuno_deep_source_audit.py
+          echo "Only fake STT models/synthetic PCM; no live model, device or NPU."
+      - name: Delete disposable checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "$MYAI_AUDIT_SCRATCH" ]; then rm -rf -- "$MYAI_AUDIT_SCRATCH"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-source-review-venv"
+  arm64-source-audit:
+    name: ARM64 exact-tree structural replay ONLY
+    needs: hosted-source-audit
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact audit SHA outside installed production tree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-two-pass-audit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_TWO_PASS_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run source-only AST and workflow audit; no model or equipment opened
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_TWO_PASS_SCRATCH"
+          /usr/bin/python3 -B -m scripts.ventuno_deep_source_audit
+          /usr/bin/python3 -B -m scripts.ventuno_isolated_voice_stage_contract
+          /usr/bin/python3 -B -m scripts.ventuno_main_workflow_quarantine
+          /usr/bin/python3 -B -m scripts.ventuno_voice_wheelhouse_gate
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_voice_dependency_inventory
+          /usr/bin/python3 -B -m scripts.ventuno_active_runtime_launch_readonly --board-readonly
+          # Inspect the installed Python environment's OPTIONAL voice
+          # import availability; never import providers or open ALSA.
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_voice_readiness
+          echo "Python package specs and ALSA nodes only: no audio or model execution."
+      - name: Delete temporary exact-commit checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "$MYAI_TWO_PASS_SCRATCH" ]; then rm -rf -- "$MYAI_TWO_PASS_SCRATCH"; fi
