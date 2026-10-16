@@ -197,9 +197,15 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MYAI_PERSISTENT_STT_BOARD"
+          status=0
           /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_physical_pilot_gate \
-            --expected-sha "$GITHUB_SHA" --source-root . --board-readonly
-          echo "Read-only metadata: no microphone, playback, model or NPU used."
+            --expected-sha "$GITHUB_SHA" --source-root . --board-readonly || status=$?
+          case "$status" in
+            0) echo "Board read-only GO for separately consented future test (not audio consent)." ;;
+            2) echo "Board read-only NO-GO: follow sanitized output, DO NOT record audio." ;;
+            *) echo "Preflight runner error, not a hardware GO." >&2; exit "$status" ;;
+          esac
+          echo "Diagnostic completed; no microphone, playback, model or NPU used."
 
       - name: Delete disposable board checkout
         if: always()
