@@ -17,6 +17,9 @@ concurrency:
 
 jobs:
   microphone:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: Explicit ALSA plughw 0 1, only 2s in RAM
     if: github.event_name == 'push' && github.event.head_commit.message == 'Authorize one-time 2s plughw:0,1 microphone smoke on VENTUNO Q' && github.run_attempt == 1
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
