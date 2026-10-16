@@ -2,7 +2,7 @@
 # DO NOT install into active VENTUNO production venv. Native audio/QAIRT ABI NOT yet verified.
 # Full transitive resolution from hosted pip, not a physical hardware validation.
 anyio==4.15.1 --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101
-av==19.0.1 --hash=sha256:437d4c0d5a7d771f2c3af84cd28e6aac6e173851116c60b53e81dbf1eebe4eab
+av==18.1.0 --hash=sha256:6fc837cc51adf80331ac850779cd53b5d4c4460b0ebe9057a02a921c6736f19d
 cffi==2.1.1 --hash=sha256:68e62fe11f30d5ca8289242866f0a5291402d8529ca2178ab8afc5c9694ae890
 click==8.5.0 --hash=sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360
 ctranslate2==4.8.3 --hash=sha256:1b9ff80ed67ce7974cb0eafdf7ad79407678b5bea70db934c0d20aaa9db57964
