@@ -470,7 +470,8 @@ def test_run_tools_keeps_other_results_if_one_tool_fails():
     )
 
     assert result["cpu_status"] == "CPU OK"
-    assert "testfel" in result["ram_status"]
+    assert "testfel" not in result["ram_status"]
+    assert "feltext dold" in result["ram_status"]
 
 
 
