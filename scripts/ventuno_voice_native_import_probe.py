@@ -33,14 +33,18 @@ def preflight(*, venv_prefix=None, imports=None, lookup=None):
         and "/MyAI/.venv" not in os.path.realpath(venv_prefix)
     )
     results = {}
+    failures = {}
     versions = {}
     if isolated:
         for name in REQUIRED_MODULES:
             try:
                 imports(name)
                 results[name] = True
-            except (Exception, SystemExit):
+            except (Exception, SystemExit) as error:
                 results[name] = False
+                # Report only the exception class, never its raw exception
+                # message, which may contain local paths/environment details.
+                failures[name] = type(error).__name__[:48]
         for name in DISTRIBUTIONS:
             try:
                 version = lookup(name)
@@ -56,6 +60,7 @@ def preflight(*, venv_prefix=None, imports=None, lookup=None):
                    if all_imported else "blocked-disposable-voice-native-import"),
         "temporary_venv_confirmed": bool(isolated),
         "imports_passed": dict(sorted(results.items())),
+        "import_failure_kinds": dict(sorted(failures.items())),
         "verified_distribution_count": sum(bool(v) for v in versions.values()),
         "model_instantiated": False,
         "microphone_or_speaker_opened": False,
