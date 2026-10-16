@@ -80,7 +80,7 @@ def classify(observations: dict[str, object]) -> dict[str, object]:
         for name in PROBE_NAMES
     )
     no_unintended_effects = all_observed and all(
-        (npu_safe, htp_safe, concurrent_safe, restore_safe)
+        (sound_ok, npu_safe, htp_safe, concurrent_safe, restore_safe)
     )
     # Metadata-only NPU runs are fundamentally insufficient for profiling
     # permission regardless of any nominally green hardware prereqs.
