@@ -4,7 +4,7 @@ from scripts import ventuno_legacy_inference_quarantine as check
 
 def _write_all(root, *, wrong=None):
     folder = root / ".github/workflows"
-    folder.mkdir(parents=True)
+    folder.mkdir(parents=True, exist_ok=True)
     for filename, job in check.DISABLED.items():
         condition = "if: false" if filename != wrong else "if: true"
         (folder / filename).write_text(
