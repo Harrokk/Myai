@@ -24,8 +24,8 @@ DISTS = ("numpy", "ctranslate2", "av", "faster-whisper",
          "sounddevice", "webrtcvad-wheels", "pyttsx3")
 VERSION = re.compile(r"[A-Za-z0-9_.+!\-]{1,64}\Z")
 CHILD = (
-    "import importlib,sys; "
-    "mod=sys.argv[1]; "
+    "import importlib,sys\n"
+    "mod=sys.argv[1]\n"
     "try:\n"
     " importlib.import_module(mod)\n"
     "except BaseException as exc:\n"
