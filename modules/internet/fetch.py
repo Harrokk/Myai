@@ -107,7 +107,7 @@ def web_fetch_text(user_input):
 
         return format_public_page(fetch_public_page(url=url))
     except Exception as error:
-        return f"Webbsidan kunde inte hämtas: {error}"
+        return "Webbsidan kunde inte hämtas: feltext dold."
 
 
 TOOLS = {
