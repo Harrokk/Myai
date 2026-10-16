@@ -16,6 +16,7 @@ from core.voice_write_recovery import (
     ATTESTATION_PREFIX,
     VoiceWriteReconciliation,
 )
+from core.voice_process_census import detect_project_processes
 
 
 def main(argv=None):
@@ -25,6 +26,7 @@ def main(argv=None):
     parser.add_argument("--project-root", type=Path, required=True)
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("inspect")
+    sub.add_parser("processes")
     sub.add_parser("prepare")
     release = sub.add_parser("release")
     release.add_argument("token", help="32-character review ticket identifier")
@@ -39,6 +41,12 @@ def main(argv=None):
         if arguments.action == "inspect":
             state = recovery.inspect()
             print("Voice write review:", state["status"])
+            return 0
+
+        if arguments.action == "processes":
+            count = detect_project_processes(arguments.project_root)
+            print("Recognisable active MyAI processes or descendants:", count)
+            print("Zero matches does NOT establish that all writers stopped.")
             return 0
 
         if arguments.action == "prepare":
