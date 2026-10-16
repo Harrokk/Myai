@@ -1,0 +1,14 @@
+# Archived legacy workflow; intentionally inert in this review candidate.
+# No production actions; replacement source-only checks are branch scoped.
+name: ARCHIVED - NO HARDWARE EXECUTION - ventuno-full-dev-validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    if: false
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Archived source-only placeholder
+        run: echo "No execution is authorized; replaced by isolated exact-SHA tests."
