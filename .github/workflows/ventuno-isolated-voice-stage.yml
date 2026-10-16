@@ -12,6 +12,7 @@ on:
       - tests/test_ventuno_isolated_voice_stage_contract.py
       - config/profiles/ventuno_voice_trial_DISABLED.json
       - docs/VENTUNO_ISOLATED_VOICE_STAGE.md
+      - docs/VENTUNO_MAIN_ONLY_WORKFLOW_QUARANTINE.md
       - modules/voice/providers.py
       - tests/test_voice_providers.py
       - tests/test_ventuno_deep_source_audit.py
