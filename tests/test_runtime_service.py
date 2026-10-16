@@ -200,3 +200,63 @@ def test_runtime_start_is_idempotent(
     assert service.start() is True
     assert service.start() is False
     assert assistant.initialize_calls == 1
+
+
+def test_isolated_ventuno_trial_heartbeat_has_loaded_off_flags_no_database(tmp_path):
+    from scripts.ventuno_isolated_voice_stage_contract import candidate, SOURCE
+    value = candidate(json.loads(SOURCE.read_text(encoding="utf-8")))
+    service = MyAIRuntimeService(
+        value, tmp_path, assistant=FakeAssistant(),
+        clock=lambda: 5.0, wall_clock=lambda: 9.0,
+    )
+    assert service.start() is True
+    expected = tmp_path / "runtime/isolated_voice_trial/heartbeat.json"
+    assert expected.is_file()
+    status = json.loads(expected.read_text(encoding="utf-8"))
+    assert status["runtime_safety"]["voice_and_writes_off"] is True
+    assert status["runtime_safety"]["checks"]["isolated_test_database"] is True
+    assert status["voice_handsfree"] is False
+    assert list(tmp_path.rglob("*.db")) == []
+    assert service.stop() is True
+    after = json.loads(expected.read_text(encoding="utf-8"))
+    assert after["running"] is False
+    assert list(tmp_path.rglob("*.db")) == []
+
+
+def test_initial_heartbeat_write_denial_stops_started_components(tmp_path, monkeypatch):
+    import pytest
+    value = settings()
+    value["voice"]["enabled"] = False
+    value["voice"]["handsfree_enabled"] = False
+    value["trusted_terminals"]["enabled"] = False
+    component = FakeComponent()
+    service = MyAIRuntimeService(
+        value, tmp_path, assistant=FakeAssistant(), hardware_monitor=component,
+    )
+    calls = []
+    def fail_heartbeat():
+        calls.append("write")
+        raise PermissionError("synthetic-stage-heartbeat-denied")
+    monkeypatch.setattr(service, "write_heartbeat", fail_heartbeat)
+    with pytest.raises(PermissionError, match="synthetic-stage-heartbeat-denied"):
+        service.start()
+    assert calls == ["write"]
+    assert service.running is False
+    assert service.stop_event.is_set()
+    assert component.start_calls == 1
+    assert component.stop_calls == 1
+    assert not list(tmp_path.rglob("*.json"))
+
+
+def test_normal_stop_still_emits_heartbeat_and_dry_cleanup_does_not(tmp_path):
+    value = settings()
+    value["hardware_watch"]["enabled"] = False
+    value["trusted_terminals"]["enabled"] = False
+    value["voice"]["enabled"] = False
+    service = MyAIRuntimeService(value, tmp_path, assistant=FakeAssistant())
+    assert service.start()
+    heartbeat = tmp_path / "runtime/myai_runtime.json"
+    assert heartbeat.is_file()
+    heartbeat.unlink()
+    assert service.stop(emit_heartbeat=False) is True
+    assert not heartbeat.exists()
