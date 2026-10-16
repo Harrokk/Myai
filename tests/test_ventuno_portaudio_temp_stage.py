@@ -139,7 +139,7 @@ def test_checked_dpkg_fields_are_actual_not_just_success_codes(tmp_path, monkeyp
             self.stdout = stdout
             self.stderr = ""
     monkeypatch.setattr(pa.subprocess, "run", lambda argv, **kw:
-                        Completed("amd64\\n"))
+                        Completed("amd64\n"))
     wrong_arch = pa.run_bounded(
         ["dpkg-deb", "--field", "package.deb", "Architecture"],
         cwd=tmp_path, timeout=5, expected_stdout="arm64"
@@ -148,7 +148,7 @@ def test_checked_dpkg_fields_are_actual_not_just_success_codes(tmp_path, monkeyp
     assert wrong_arch["reason"] == "unexpected-package-metadata"
     assert "amd64" not in str(wrong_arch)
     monkeypatch.setattr(pa.subprocess, "run", lambda argv, **kw:
-                        Completed("different-package\\n"))
+                        Completed("different-package\n"))
     wrong_name = pa.run_bounded(
         ["dpkg-deb", "--field", "package.deb", "Package"],
         cwd=tmp_path, timeout=5, expected_stdout="libportaudio2"
@@ -156,7 +156,7 @@ def test_checked_dpkg_fields_are_actual_not_just_success_codes(tmp_path, monkeyp
     assert wrong_name["success"] is False
     assert "different-package" not in str(wrong_name)
     monkeypatch.setattr(pa.subprocess, "run", lambda argv, **kw:
-                        Completed("arm64\\n"))
+                        Completed("arm64\n"))
     accepted = pa.run_bounded(
         ["dpkg-deb", "--field", "package.deb", "Architecture"],
         cwd=tmp_path, timeout=5, expected_stdout="arm64"
