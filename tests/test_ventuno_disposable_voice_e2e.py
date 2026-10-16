@@ -71,6 +71,9 @@ def test_synthetic_pcm_complete_stt_assistant_tts_stop(tmp_path):
     assert stt.calls == 1
     assert assistant.messages == [SYNTHETIC_TRANSCRIPT]
     assert tts.utterances == ["Detta är ett syntetiskt svar."]
+    # VoiceSession.stop() revokes permission BEFORE interrupting TTS.
+    # Calling interrupt() alone only stops speech playback, not a session.
+    p.cancel_pending()
     assert p.interrupt() is True
     assert tts.stopped is True
     assert p.process_utterance(SYNTHETIC_PCM)["status"] == "clarify"
