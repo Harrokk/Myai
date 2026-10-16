@@ -26,6 +26,10 @@ VERSION = re.compile(r"[A-Za-z0-9_.+!\-]{1,64}\Z")
 CHILD = (
     "import importlib,sys\n"
     "mod=sys.argv[1]\n"
+    "if mod=='sounddevice' and len(sys.argv)>2:\n"
+    " import ctypes.util\n"
+    " original=ctypes.util.find_library\n"
+    " ctypes.util.find_library=lambda name: 'libportaudio.so.2' if name=='portaudio' else original(name)\n"
     "try:\n"
     " importlib.import_module(mod)\n"
     "except BaseException as exc:\n"
@@ -59,8 +63,27 @@ def isolated_prefix(*, staging_root: Path, executable=None):
         return False
 
 
+def _private_portaudio_dir(root, directory):
+    if directory is None:
+        return None
+    try:
+        root = Path(root).resolve(strict=True)
+        directory = Path(directory).resolve(strict=True)
+        shared = directory / "libportaudio.so.2"
+        if (not directory.is_relative_to(root) or not directory.is_dir()
+                or not shared.is_file() or shared.is_symlink()
+                or not 1 <= shared.stat().st_size <= 20_000_000):
+            return None
+        with shared.open("rb") as stream:
+            if stream.read(4) != b"\\x7fELF":
+                return None
+        return directory
+    except (OSError, ValueError):
+        return None
+
+
 def inspect(staging_root, *, runner=None, metadata=None,
-            prefix_check=None):
+            prefix_check=None, portaudio_directory=None):
     runner = subprocess.run if runner is None else runner
     metadata = importlib.metadata.version if metadata is None else metadata
     safe = (
@@ -70,8 +93,11 @@ def inspect(staging_root, *, runner=None, metadata=None,
     statuses = {module: False for module in MODULES}
     reasons = {module: "not-tested" for module in MODULES}
     versions = {}
+    portaudio_dir = _private_portaudio_dir(staging_root, portaudio_directory)
+    if portaudio_directory is not None and portaudio_dir is None:
+        return _result(statuses, versions, False, reasons, False)
     if not safe:
-        return _result(statuses, versions, safe, reasons)
+        return _result(statuses, versions, safe, reasons, portaudio_dir is not None)
     env = {
         "PATH": "/usr/bin:/bin", "HOME": str(staging_root),
         "PYTHONNOUSERSITE": "1",
@@ -81,6 +107,10 @@ def inspect(staging_root, *, runner=None, metadata=None,
         "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1",
         "MKL_NUM_THREADS": "1", "CUDA_VISIBLE_DEVICES": "",
     }
+    if portaudio_dir is not None:
+        # Strictly inside disposable child process. Do NOT affect parent,
+        # OS ldconfig, production Python, driver, or systemd.
+        env["LD_LIBRARY_PATH"] = str(portaudio_dir)
     for dist in DISTS:
         try:
             version = metadata(dist)
@@ -90,7 +120,9 @@ def inspect(staging_root, *, runner=None, metadata=None,
     for module in MODULES:
         try:
             process = runner(
-                [sys.executable, "-I", "-B", "-c", CHILD, module],
+                [sys.executable, "-I", "-B", "-c", CHILD, module] +
+                (["USE_PRIVATE_PORTAUDIO"] if module == "sounddevice"
+                 and portaudio_dir is not None else []),
                 cwd=str(staging_root),
                 env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -114,10 +146,10 @@ def inspect(staging_root, *, runner=None, metadata=None,
         except (OSError, ValueError):
             statuses[module] = False
             reasons[module] = "native-import-unavailable"
-    return _result(statuses, versions, safe, reasons)
+    return _result(statuses, versions, safe, reasons, portaudio_dir is not None)
 
 
-def _result(statuses, versions, isolated, reasons):
+def _result(statuses, versions, isolated, reasons, staged_portaudio):
     all_ok = isolated and all(statuses.values()) and all(
         versions.get(name) is not None for name in DISTS
     )
@@ -127,6 +159,8 @@ def _result(statuses, versions, isolated, reasons):
             if all_ok else "blocked-native-import-or-venv-isolation"
         ),
         "isolated_private_venv_confirmed": isolated,
+        "isolated_staged_portaudio_library_used": staged_portaudio,
+        "portaudio_installed_in_production": False,
         "per_module_import": statuses,
         "per_module_failure_category": reasons,
         "installed_dist_versions": versions,
@@ -144,8 +178,11 @@ def _result(statuses, versions, isolated, reasons):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--staging-root", required=True, type=Path)
+    parser.add_argument("--staged-portaudio-dir", type=Path)
     args = parser.parse_args(argv)
-    result = inspect(args.staging_root)
+    result = inspect(
+        args.staging_root, portaudio_directory=args.staged_portaudio_dir
+    )
     print("MYAI_ISOLATED_NATIVE_VOICE_PROBE_JSON=" + json.dumps(result, sort_keys=True))
     return 0 if result["all_seven_imports_passed"] else 2
 
