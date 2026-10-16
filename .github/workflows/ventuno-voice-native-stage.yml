@@ -97,9 +97,21 @@ jobs:
             test "$(dpkg-deb --field "${found[0]}" Architecture)" = "arm64"
             dpkg-deb --extract "${found[0]}" "$stage/native"
           done
-          export LD_LIBRARY_PATH="$stage/native/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          test -e "$stage/native/usr/lib/aarch64-linux-gnu/libportaudio.so.2"
-          test -e "$stage/native/usr/lib/aarch64-linux-gnu/libespeak.so.1"
+          libdir="$stage/native/usr/lib/aarch64-linux-gnu"
+          export LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LIBRARY_PATH="$libdir${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          test -e "$libdir/libportaudio.so.2"
+          test -e "$libdir/libespeak.so.1"
+          # ctypes.util.find_library() may require a linker-name alias,
+          # even though the versioned distro .so is already in LD_LIBRARY_PATH.
+          if [ ! -e "$libdir/libportaudio.so" ]; then
+            ln -s libportaudio.so.2 "$libdir/libportaudio.so"
+          fi
+          "$stage/venv/bin/python" - <<'PY'
+          import ctypes.util
+          lib = ctypes.util.find_library("portaudio")
+          print("STAGED_PORTAUDIO_LINKER_LOOKUP_FOUND=" + str(bool(lib)).lower())
+          PY
           cd "$stage/source"
           echo "UBUNTU_SIGNED_AUDIO_LIBRARIES_EXTRACTED_TO_RUNNER_TEMP_ONLY=true"
           timeout --signal=TERM --kill-after=4s 70s \
