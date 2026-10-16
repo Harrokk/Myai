@@ -253,7 +253,7 @@ def load_tools(error_logger=None):
 
             print(
                 f"Varning: kunde inte ladda modulen "
-                f"{module_name}: {error}"
+                f"{module_name}: {type(error).__name__}"
             )
 
     return tools
@@ -1675,7 +1675,7 @@ def run_tools(
                 results.update(deny(tool_names[index + 1:]))
                 break
             results[tool_name] = (
-                f"Fel vid körning av {tool_name}: {error}"
+                f"Fel vid körning av {tool_name}: {type(error).__name__}"
             )
         finally:
             # Keep the writer lease held from before marker creation
