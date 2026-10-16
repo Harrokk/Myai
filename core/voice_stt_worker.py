@@ -33,7 +33,10 @@ def main():
         if not 0 < len(data) <= MAX_PCM_BYTES:
             return 2
         from modules.voice.providers import FasterWhisperSTT
-        provider = FasterWhisperSTT(**config)
+        # Isolated workers must not persist private microphone PCM to a
+        # NamedTemporaryFile: SIGKILL/board power loss cannot run unlink.
+        # The local built-in provider consumes a bounded numpy PCM array.
+        provider = FasterWhisperSTT(**config, pcm_memory_only=True)
         answer = provider.transcribe(data)
         text = answer.get("text")
         language = answer.get("language")

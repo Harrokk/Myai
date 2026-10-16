@@ -137,7 +137,9 @@ class FasterWhisperSTT:
         sample_width=2,
         model=None,
         module=None,
+        pcm_memory_only=False,
     ):
+        self.pcm_memory_only = pcm_memory_only is True
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
@@ -204,18 +206,32 @@ class FasterWhisperSTT:
 
         return path
 
+    def _pcm_float_array_in_memory(self, audio):
+        # Avoid durable WAV bytes during isolated child execution. A native
+        # WhisperModel can consume a 16 kHz mono float32 numpy array.
+        # Never fall back to a disk tempfile if numpy/format is unavailable.
+        if (self.sample_rate != 16000 or self.channels != 1
+                or self.sample_width != 2
+                or not isinstance(audio, (bytes, bytearray, memoryview))
+                or not 0 < len(audio) <= 2 * 1024 * 1024
+                or len(audio) % 2):
+            raise ValueError("Invalid private PCM for memory-only STT")
+        try:
+            import numpy as np
+        except ImportError:
+            raise RuntimeError("Memory-only STT requires numpy") from None
+        return np.frombuffer(bytes(audio), dtype="<i2").astype("float32") / 32768.0
+
     def transcribe(self, audio):
-        model = self._load_model()
-        temporary = self._write_temp_wav(
-            audio
-        )
+        if self.pcm_memory_only:
+            source = self._pcm_float_array_in_memory(audio)
+            temporary = None
+        else:
+            temporary = self._write_temp_wav(audio)
+            source = str(temporary) if temporary is not None else audio
 
         try:
-            source = (
-                str(temporary)
-                if temporary is not None
-                else audio
-            )
+            model = self._load_model()
             segments, info = model.transcribe(
                 source,
                 language=self.language,
