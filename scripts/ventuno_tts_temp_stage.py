@@ -17,6 +17,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from scripts.ventuno_stage_paths import authorized_cli_stage, safe_scratch_root
+
 from scripts.ventuno_tts_synthesis_probe import (
     PHRASE, TIMEOUT_SECONDS, MAX_WAV_BYTES,
 )
@@ -45,7 +47,7 @@ def safe_deb(path: Path, folder: Path, name: str) -> bool:
 
 def staging_allowed(folder: Path, root: Path, *, arm: bool) -> bool:
     try:
-        return (arm and root.is_dir() and not root.is_symlink()
+        return (arm and safe_scratch_root(root)
                 and folder.name == "myai-tts-espeak-stage"
                 and folder.parent.resolve() == root.resolve()
                 and not folder.exists() and not folder.is_symlink()
@@ -204,6 +206,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runner-temp", required=True, type=Path)
     args = parser.parse_args()
+    if not authorized_cli_stage(args.runner_temp):
+        print("VENTUNO ephemeral Swedish eSpeak NG TTS:",
+              json.dumps({"status": "no-go-unverified-ci-stage",
+                          "swedish_pcm_synthesis_verified": False}))
+        return 2
     result = stage_sweden_tts(
         args.runner_temp / "myai-tts-espeak-stage", args.runner_temp
     )
