@@ -194,9 +194,25 @@ def security_pass(root, files):
                     if func not in {"print"}:
                         suspicious_top_level.append({"file": name, "line": stmt.lineno, "call": func})
     profile = json.loads((root / "config/profiles/ventuno_q.json").read_text())
-    settings = json.loads((root / "config/settings.json").read_text())
+    # Explicit load_settings(path=profile) merges the in-code defaults,
+    # NOT config/settings.json; derive that AST literal without import.
+    default_tree = ast.parse((root / "core/config.py").read_text())
+    def default_section(name):
+        for assignment in default_tree.body:
+            if not isinstance(assignment, ast.Assign):
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == "DEFAULT_SETTINGS"
+                       for t in assignment.targets):
+                continue
+            if not isinstance(assignment.value, ast.Dict):
+                break
+            for key, value in zip(assignment.value.keys, assignment.value.values):
+                if isinstance(key, ast.Constant) and key.value == name:
+                    return ast.literal_eval(value)
+        raise ValueError("Unresolved source default config section")
     voice = profile.get("voice", {})
-    default_voice = settings.get("voice", {})
+    default_voice = default_section("voice")
+    default_memory = default_section("memory")
     return {
         "inventory": dict(sorted(inventory.items())),
         "production_sensitive_calls": prod_sensitive_calls[:70],
@@ -220,6 +236,10 @@ def security_pass(root, files):
             "llm_streaming_enabled": voice.get("llm_streaming_enabled"),
             "deployment_lock_required": profile.get("deployment_lock", {}).get("required"),
             "rpc_write_enabled": profile.get("ventuno", {}).get("rpc_write_enabled"),
+            "default_memory_auto_save_enabled": default_memory.get("auto_save_enabled"),
+            "voice_default_tts_provider": voice.get("tts_provider", default_voice.get("tts_provider")),
+            "voice_default_stt_device": voice.get("stt_device", default_voice.get("stt_device")),
+            "voice_backup_model_count": len(voice.get("backup_stt_models", default_voice.get("backup_stt_models", []))),
         },
     }
 
