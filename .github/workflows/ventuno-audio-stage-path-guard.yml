@@ -1,0 +1,48 @@
+name: MyAI disposable audio staging path guard (hosted only)
+on:
+  push:
+    branches:
+      - dev/ventuno-audio-stage-path-guard-20261016
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scratch-path-tests:
+    name: Synthetic scratch-path gates (no VENTUNO hardware)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact triggering SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Set Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install hosted test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet pytest==8.3.5 -r requirements.txt
+      - name: Run synthetic disposable path regressions
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          OMP_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=3s 120s \
+            python -B -m pytest -q \
+              tests/test_ventuno_stage_paths.py \
+              tests/test_ventuno_portaudio_temp_stage.py \
+              tests/test_ventuno_tts_temp_stage.py \
+              tests/test_ventuno_hashed_voice_native_import.py
+          echo "MYAI_DISPOSABLE_PATH_GUARD_SYNTHETIC_TESTS=true"
+          echo "No physical audio, NPU, board, model or deployment tested."
