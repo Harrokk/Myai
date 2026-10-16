@@ -108,7 +108,7 @@ def test_empty_or_malformed_result_cannot_pass_release():
 def test_cli_release_flag_rejects_even_synthetically_clear_inventory(monkeypatch, capsys):
     fake = {"status": "inventory-complete-not-release-authorized",
             "candidate_automatic_clear": True, "release_ready": False}
-    monkeypatch.setattr(review, "inventory", lambda: fake)
+    monkeypatch.setattr(review, "inventory", lambda branch=None: fake)
     assert review.main([]) == 0
     assert review.main(["--release-gate"]) == 2
     assert "MYAI_WORKFLOW_REVIEW_JSON=" in capsys.readouterr().out
@@ -122,3 +122,17 @@ def test_current_repo_must_list_every_tracked_workflow():
     assert result["approval_proven"] is False
     assert result["physical_tests_authorized"] is False
     assert result["dynamic_yaml_actions_expressions_verified"] is False
+
+
+def test_ci_branch_is_passed_to_inventory_not_fixed_old_branch(monkeypatch):
+    seen = []
+    monkeypatch.setenv("GITHUB_REF_NAME", "dev/review-new-branch")
+    def fake(*, branch):
+        seen.append(branch)
+        return {"status": "inventory-complete-not-release-authorized",
+                "candidate_automatic_clear": True}
+    monkeypatch.setattr(review, "inventory", fake)
+    assert review.main([]) == 0
+    assert seen == ["dev/review-new-branch"]
+    assert review.main(["--branch", "dev/explicit"]) == 0
+    assert seen[-1] == "dev/explicit"
