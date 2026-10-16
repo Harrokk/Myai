@@ -1,0 +1,230 @@
+name: MyAI disposable voice ABI and full dummy dialogue - no audio
+on:
+  push:
+    branches: [dev/ventuno-disposable-voice-abi-and-fault-tests-20261016]
+    paths:
+      - scripts/ventuno_deep_source_audit.py
+      - scripts/ventuno_isolated_voice_stage_contract.py
+      - scripts/ventuno_voice_dependency_inventory.py
+      - scripts/ventuno_active_runtime_launch_readonly.py
+      - tests/test_ventuno_active_runtime_launch_readonly.py
+      - tests/test_ventuno_voice_dependency_inventory.py
+      - tests/test_ventuno_isolated_voice_stage_contract.py
+      - config/profiles/ventuno_voice_trial_DISABLED.json
+      - docs/VENTUNO_ISOLATED_VOICE_STAGE.md
+      - docs/VENTUNO_MAIN_ONLY_WORKFLOW_QUARANTINE.md
+      - modules/voice/providers.py
+      - tests/test_voice_providers.py
+      - tests/test_ventuno_deep_source_audit.py
+      - docs/VENTUNO_FULL_PROJECT_AUDIT_20261016.md
+      - .github/workflows/ventuno-disposable-voice-gated.yml
+      - scripts/ventuno_disposable_voice_install.sh
+      - scripts/ventuno_disposable_voice_abi.py
+      - tests/test_ventuno_disposable_voice_e2e.py
+      - tests/test_ventuno_disposable_voice_abi.py
+      - docs/VENTUNO_DISPOSABLE_VOICE_ABI.md
+      - scripts/ventuno_remote_phases_1to5.py
+      - tests/test_ventuno_remote_phases_1to5.py
+      - docs/VENTUNO_REMOTE_PHASES_1TO5_CHECKLIST.md
+      - scripts/ventuno_main_workflow_quarantine.py
+      - scripts/ventuno_voice_wheelhouse_gate.py
+      - scripts/ventuno_voice_static_lock_check.py
+      - tests/test_ventuno_voice_static_lock_check.py
+      - config/voice_arm64_cp312_wheels.lock.json
+      - requirements-voice-arm64-hashed.lock
+      - core/runtime_safety_attestation.py
+      - core/runtime_service.py
+      - scripts/ventuno_big_test_readiness.py
+      - scripts/ventuno_remote_idle_baseline.py
+      - scripts/ventuno_active_runtime_launch_readonly.py
+      - tests/test_ventuno_main_workflow_quarantine.py
+      - tests/test_ventuno_voice_wheelhouse_gate.py
+      - tests/test_runtime_safety_attestation.py
+      - docs/VENTUNO_INTEGRATED_REMOTE_TEST_GATES.md
+      - .github/workflows/ventuno-full-dev-validation.yml
+      - .github/workflows/ventuno-integration-validation.yml
+      - .github/workflows/ventuno-regression.yml
+      - .github/workflows/ventuno-runner-check.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-disposable-voice-validation-20261016
+  cancel-in-progress: false
+jobs:
+  hosted-source-audit:
+    name: Exhaustive tracked-file structural scan, two independent passes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact ref into private disposable checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-audit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_AUDIT_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Inspect every tracked code configuration tool workflow and test source
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_AUDIT_SCRATCH"
+          python3 -B -m scripts.ventuno_deep_source_audit
+          python3 -B -m scripts.static_repository_audit
+          python3 -B -m scripts.ventuno_eight_sensitive_calls_review
+          python3 -B -m scripts.ventuno_isolated_voice_stage_contract
+          python3 -B -m scripts.ventuno_voice_dependency_inventory
+          python3 -B -m scripts.ventuno_active_runtime_launch_readonly
+          python3 -B -m scripts.ventuno_main_workflow_quarantine
+          python3 -B -m scripts.ventuno_voice_wheelhouse_gate
+          python3 -B -m scripts.ventuno_voice_static_lock_check
+          python3 -B -m scripts.ventuno_remote_phases_1to5
+          python3 -m venv "$RUNNER_TEMP/myai-source-review-venv"
+          "$RUNNER_TEMP/myai-source-review-venv/bin/python" -m pip install --disable-pip-version-check pytest==8.3.5 -r requirements.txt
+          "$RUNNER_TEMP/myai-source-review-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_providers.py \
+            tests/test_ventuno_isolated_voice_stage_contract.py \
+            tests/test_ventuno_voice_dependency_inventory.py \
+            tests/test_ventuno_active_runtime_launch_readonly.py \
+            tests/test_ventuno_main_workflow_quarantine.py \
+            tests/test_ventuno_voice_wheelhouse_gate.py \
+            tests/test_ventuno_voice_static_lock_check.py \
+            tests/test_ventuno_remote_phases_1to5.py \
+            tests/test_ventuno_disposable_voice_e2e.py \
+            tests/test_ventuno_disposable_voice_abi.py \
+            tests/test_voice_pipeline.py \
+            tests/test_runtime_safety_attestation.py \
+            tests/test_runtime_service.py \
+            tests/test_ventuno_big_test_readiness.py \
+            tests/test_ventuno_remote_idle_baseline.py \
+            tests/test_ventuno_deep_source_audit.py
+          bash -n scripts/ventuno_disposable_voice_install.sh
+          echo "Only fake STT models/synthetic PCM; no live model, device or NPU."
+      - name: Probe current PyPI ARM64 CPython3.12 wheel resolution on HOSTED ONLY, never install
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_AUDIT_SCRATCH"
+          wheels="$(mktemp -d "$RUNNER_TEMP/myai-arm64-voice-wheelprobe.XXXXXX")"
+          trap 'rm -rf -- "$wheels"' EXIT
+          mkdir -p "$wheels/files"
+          if timeout --signal=TERM --kill-after=3s 160s \
+            "$RUNNER_TEMP/myai-source-review-venv/bin/python" -m pip download \
+            --disable-pip-version-check --no-input --quiet \
+            --only-binary=:all: --implementation cp --python-version 3.12 --abi cp312 \
+            --platform manylinux2014_aarch64 \
+            --platform manylinux_2_17_aarch64 \
+            --platform manylinux_2_28_aarch64 \
+            --require-hashes --dest "$wheels/files" -r requirements-voice-arm64-hashed.lock \
+            > "$wheels/resolution.log" 2>&1; then
+            echo "PYPI_AARCH64_BINARY_WHEELS_RESOLVED=true (NO INSTALL)"
+            python3 - "$wheels/files" <<'PY'
+          import hashlib, json, pathlib, sys
+          folder = pathlib.Path(sys.argv[1])
+          rows = []
+          for path in sorted(folder.glob("*.whl")):
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              print("PYPI_ARM64_BINARY_WHEEL=" + path.name)
+              print("PYPI_ARM64_BINARY_WHEEL_SHA256=" + path.name + ":" + digest)
+              rows.append({"filename": path.name, "sha256": digest})
+          (folder / "wheelhouse.lock.json").write_text(
+              json.dumps({"python":"cp312","platform":"aarch64",
+                          "complete_dependency_closure": True,
+                          "wheels": rows}, sort_keys=True))
+          print("PYPI_AARCH64_BINARY_WHEEL_COUNT=" + str(len(rows)))
+          PY
+            python3 - "$wheels/files/wheelhouse.lock.json" config/voice_arm64_cp312_wheels.lock.json <<'PY'
+          import json, pathlib, sys
+          observed = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          pinned = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          assert observed["python"] == pinned["python"] == "cp312"
+          assert observed["platform"] == pinned["platform"] == "aarch64"
+          assert sorted(observed["wheels"], key=lambda w: w["filename"]) == sorted(
+              pinned["wheels"], key=lambda w: w["filename"]
+          ), "Wheel hash or resolved version drift"
+          print("PYPI_AARCH64_PINNED_28_WHEEL_SHA256_SET_MATCH=true")
+          PY
+            python3 -B -m scripts.ventuno_voice_wheelhouse_gate --wheelhouse "$wheels/files"
+          else
+            echo "PYPI_AARCH64_BINARY_WHEELS_RESOLVED=false (NO GO; no install)"
+            exit 2
+          fi
+          echo "Wheel probe only examined hosted downloads, not ARM64 native ABI."
+
+      - name: Delete disposable checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "$MYAI_AUDIT_SCRATCH" ]; then rm -rf -- "$MYAI_AUDIT_SCRATCH"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-source-review-venv"
+  arm64-source-audit:
+    name: ARM64 exact-tree structural replay ONLY
+    needs: hosted-source-audit
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 16
+    steps:
+      - name: Fetch exact audit SHA outside installed production tree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-two-pass-audit.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_TWO_PASS_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run source-only AST and workflow audit; no model or equipment opened
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_TWO_PASS_SCRATCH"
+          /usr/bin/python3 -B -m scripts.ventuno_deep_source_audit
+          /usr/bin/python3 -B -m scripts.ventuno_isolated_voice_stage_contract
+          /usr/bin/python3 -B -m scripts.ventuno_main_workflow_quarantine
+          /usr/bin/python3 -B -m scripts.ventuno_voice_wheelhouse_gate
+          /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
+          /usr/bin/python3 -B -m scripts.ventuno_remote_phases_1to5
+          timeout --signal=TERM --kill-after=3s 115s \
+            /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_big_test_readiness --board-metadata-only
+          /usr/bin/python3 -B -m scripts.ventuno_remote_idle_baseline
+          echo "Only bounded metadata probes; no NPU inference or profile started."
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_voice_dependency_inventory
+          /usr/bin/python3 -B -m scripts.ventuno_active_runtime_launch_readonly --board-readonly
+          # Inspect the installed Python environment's OPTIONAL voice
+          # import availability; never import providers or open ALSA.
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_voice_readiness
+          echo "Python package specs and ALSA nodes only: no audio or model execution."
+          timeout --signal=TERM --kill-after=5s 720s \
+            bash scripts/ventuno_disposable_voice_install.sh
+          echo "Disposable ARM64 native package imports completed without devices."
+      - name: Delete temporary exact-commit checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "$MYAI_TWO_PASS_SCRATCH" ]; then rm -rf -- "$MYAI_TWO_PASS_SCRATCH"; fi
