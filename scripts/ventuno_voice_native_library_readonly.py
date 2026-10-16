@@ -26,7 +26,7 @@ def inspect(finder=None, apt_runner=None):
         )
         queried = output.returncode == 0
         match = re.search(
-            r"(?m)^\\s*Candidate:\\s*([^\\s]+)\\s*$",
+            r"(?m)^\s*Candidate:\s*([^\s]+)\s*$",
             output.stdout if queried else "",
         )
         available = bool(match and match.group(1) != "(none)")
