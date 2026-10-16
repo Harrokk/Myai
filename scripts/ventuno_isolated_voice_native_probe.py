@@ -75,7 +75,7 @@ def _private_portaudio_dir(root, directory):
                 or not 1 <= shared.stat().st_size <= 20_000_000):
             return None
         with shared.open("rb") as stream:
-            if stream.read(4) != b"\\x7fELF":
+            if stream.read(4) != b"\x7fELF":
                 return None
         return directory
     except (OSError, ValueError):
