@@ -1,3 +1,5 @@
+# Read-only USB recheck 2026-10-16: user reports headset and microphone reconnected.
+# No device open, microphone capture, speaker playback, or model inference.
 name: MyAI physical voice pilot source and board read-only gate
 on:
   push:
