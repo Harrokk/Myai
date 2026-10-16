@@ -58,6 +58,9 @@ jobs:
           rm -rf -- "$RUNNER_TEMP/myai-systemtimer-venv"
 
   ventuno-system-timer-canary:
+    # ARCHIVED - NO LIVE SYSTEMD USER-MANAGER TIMER on unapproved DRAFT.
+    # Re-enable only with separate physical operator and rollback approval.
+    if: false
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     needs: mock-safety
     timeout-minutes: 3
