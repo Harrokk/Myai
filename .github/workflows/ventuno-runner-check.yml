@@ -1,27 +1,15 @@
-name: VENTUNO Q runner check
-
+# Archived from main at f125fe6dc9abd6b27747f86d440fbb77b0602e58.
+# This file is intentionally disabled while the integrated candidate is reviewed.
+# Historical behavior must not run inside /home/arduino/MyAI or on live hardware.
+name: ARCHIVED - NO HARDWARE EXECUTION - ventuno-runner-check
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  runner-check:
-    name: Check VENTUNO Q runner
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
-    timeout-minutes: 5
+  archive:
+    if: false
+    runs-on: ubuntu-24.04
     steps:
-      - name: Check runner environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf 'Runner: %s\n' "${RUNNER_NAME}"
-          printf 'Architecture: '
-          uname -m
-          printf 'User: '
-          id -un
-          printf 'Working directory: %s\n' "${GITHUB_WORKSPACE}"
-          test "$(uname -m)" = "aarch64"
-          test "$(id -un)" = "arduino"
-          echo "GODKÄNT: VENTUNO Q runner svarar"
+      - name: Archived source-only placeholder
+        run: echo "No execution is authorized; replaced by isolated exact-SHA tests."

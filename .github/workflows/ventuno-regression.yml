@@ -1,0 +1,15 @@
+# Archived from main at f125fe6dc9abd6b27747f86d440fbb77b0602e58.
+# This file is intentionally disabled while the integrated candidate is reviewed.
+# Historical behavior must not run inside /home/arduino/MyAI or on live hardware.
+name: ARCHIVED - NO HARDWARE EXECUTION - ventuno-regression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    if: false
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Archived source-only placeholder
+        run: echo "No execution is authorized; replaced by isolated exact-SHA tests."
