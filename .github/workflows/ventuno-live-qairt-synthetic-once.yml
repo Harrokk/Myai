@@ -1,44 +1,14 @@
-name: VENTUNO live existing QAIRT one synthetic inference
+# Former manually runnable hardware test; retired in the integrated DRAFT.
+# History retains the previously approved one-shot version for audit.
+name: ARCHIVED - NO HARDWARE EXECUTION - ventuno-live-qairt-synthetic-once
 on:
-  push:
-    branches: [dev/ventuno-live-qairt-synthetic-20261014]
-    paths:
-      - .github/workflows/ventuno-live-qairt-synthetic-once.yml
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: myai-ci-ventuno
-  cancel-in-progress: false
 jobs:
-  single-synthetic:
-    name: One safely gated synthetic request on real existing HTP runtime
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
-    timeout-minutes: 3
+  archived:
+    if: false
+    runs-on: ubuntu-24.04
     steps:
-      - name: Fetch exact isolated source commit
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$(id -un)" = "arduino"
-          mkdir -p "$RUNNER_TEMP/myai-live-htp-synthetic-once"
-          cd "$RUNNER_TEMP/myai-live-htp-synthetic-once"
-          git init -q
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
-          git -c credential.helper= checkout --force --quiet --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Confirm existing HTP backend and send at most one synthetic prompt
-        shell: bash
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          MYAI_ALLOW_SYNTHETIC_GENIEX_REQUEST: "yes"
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/myai-live-htp-synthetic-once"
-          timeout --signal=TERM --kill-after=3s 55s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_live_qairt_synthetic_once
-          echo 'No model reply text, personal prompt, USB audio, or microphone data emitted.'
+      - name: No live hardware action in integrated release branch
+        run: echo "Retired source-only placeholder; separate fresh physical approval required."

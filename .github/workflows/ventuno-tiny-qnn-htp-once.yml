@@ -1,43 +1,14 @@
-name: VENTUNO single tiny synthetic QNN HTP inference attempt
+# Former manually runnable hardware test; retired in the integrated DRAFT.
+# History retains the previously approved one-shot version for audit.
+name: ARCHIVED - NO HARDWARE EXECUTION - ventuno-tiny-qnn-htp-once
 on:
-  push:
-    branches: [dev/ventuno-qnn-tiny-htp-feasibility-20261014]
-    paths:
-      - .github/workflows/ventuno-tiny-qnn-htp-once.yml
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: myai-ci-ventuno
-  cancel-in-progress: false
 jobs:
-  tiny-htp-once:
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
-    timeout-minutes: 3
+  archived:
+    if: false
+    runs-on: ubuntu-24.04
     steps:
-      - name: Fetch exact SHA in isolated temporary checkout
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$(id -un)" = "arduino"
-          mkdir -p "$RUNNER_TEMP/myai-qnn-tiny-htp-once"
-          cd "$RUNNER_TEMP/myai-qnn-tiny-htp-once"
-          git init -q
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
-          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: One bounded QNN HTP attempt on verified synthetic 16kB DLC only
-        shell: bash
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          MYAI_ALLOW_ONE_TINY_QNN_HTP_ATTEMPT: "yes"
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/myai-qnn-tiny-htp-once"
-          timeout --signal=TERM --kill-after=3s 70s /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_tiny_qnn_htp_once
-          echo 'No live GenieX request, audio, model cache mutation or second LLM load.'
+      - name: No live hardware action in integrated release branch
+        run: echo "Retired source-only placeholder; separate fresh physical approval required."
