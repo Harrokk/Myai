@@ -38,11 +38,17 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -m 700 "$scratch/home" "$scratch/tmp" "$scratch/cache" "$scratch/wheels"
+test ! -e "$scratch/venv"
+/usr/bin/python3 -m venv "$scratch/venv"
 
 # Pinned, binary-only download. Any missing artifact -> FAIL CLOSED.
-# This is NOT installation in the production virtualenv.
+# Run pip in the disposable interpreter with private HOME and cache,
+# never in the installed MyAI production interpreter.
 timeout --signal=TERM --kill-after=3s 200s \
-  /home/arduino/MyAI/.venv/bin/python -m pip download \
+  env -i PATH=/usr/bin:/bin HOME="$scratch/home" \
+    TMPDIR="$scratch/tmp" XDG_CACHE_HOME="$scratch/cache" \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \
+    "$scratch/venv/bin/python" -m pip download \
   --disable-pip-version-check --no-input --quiet \
   --only-binary=:all: --require-hashes \
   --dest "$scratch/wheels" \
@@ -57,9 +63,7 @@ cp config/voice_arm64_cp312_wheels.lock.json \
 /usr/bin/python3 -B -m scripts.ventuno_voice_wheelhouse_gate \
   --wheelhouse "$scratch/wheels"
 
-# A brand new venv under RUNNER_TEMP; no installed MyAI file modified.
-test ! -e "$scratch/venv"
-/usr/bin/python3 -m venv "$scratch/venv"
+# Offline wheel-only installation in that same new venv; never production.
 timeout --signal=TERM --kill-after=3s 240s \
   env -i PATH=/usr/bin:/bin HOME="$scratch/home" \
     TMPDIR="$scratch/tmp" XDG_CACHE_HOME="$scratch/cache" \
