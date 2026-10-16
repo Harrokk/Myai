@@ -320,7 +320,14 @@ class MyAIRuntimeService:
             self.clock()
         )
         self.running = True
-        self.write_heartbeat()
+        try:
+            self.write_heartbeat()
+        except BaseException:
+            # A failed first heartbeat must not leave a partly started
+            # handsfree/terminal/hardware monitor behind or claim RUNNING.
+            # Do not try to write the same broken heartbeat during cleanup.
+            self.stop(emit_heartbeat=False)
+            raise
         return True
 
     def status(self):
@@ -395,7 +402,7 @@ class MyAIRuntimeService:
 
         return True
 
-    def stop(self):
+    def stop(self, *, emit_heartbeat=True):
         changed = self.running
         self.stop_event.set()
 
@@ -444,5 +451,6 @@ class MyAIRuntimeService:
                 )
 
         self.running = False
-        self.write_heartbeat()
+        if emit_heartbeat:
+            self.write_heartbeat()
         return changed
