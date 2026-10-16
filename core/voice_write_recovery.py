@@ -136,58 +136,59 @@ class VoiceWriteReconciliation:
         directory = self.journal._open_directory()
         try:
             with self.journal._locked_directory(directory):
-                marker = _marker_info(directory)
-                expected = _ticket_bytes(token, marker)
-                receipt = RECEIPT_PREFIX + token + RECEIPT_SUFFIX
-                # Recover conservatively across a crash at EACH previous
-                # release boundary. No release happens without the
-                # operator presenting the same ticket and attestation.
-                try:
+                with self.journal.require_quiescent_writers(directory):
+                    marker = _marker_info(directory)
+                    expected = _ticket_bytes(token, marker)
+                    receipt = RECEIPT_PREFIX + token + RECEIPT_SUFFIX
+                    # Recover conservatively across a crash at EACH previous
+                    # release boundary. No release happens without the
+                    # operator presenting the same ticket and attestation.
                     try:
-                        ticket, ticket_info = _read_private(directory, PENDING)
-                    except OSError as error:
-                        if not isinstance(error, FileNotFoundError):
-                            # Only allow a 2-link ticket if its matching
-                            # private receipt exists and has the same inode.
-                            ticket, ticket_info = _read_private(
-                                directory, PENDING, links=2,
+                        try:
+                            ticket, ticket_info = _read_private(directory, PENDING)
+                        except OSError as error:
+                            if not isinstance(error, FileNotFoundError):
+                                # Only allow a 2-link ticket if its matching
+                                # private receipt exists and has the same inode.
+                                ticket, ticket_info = _read_private(
+                                    directory, PENDING, links=2,
+                                )
+                                linked, receipt_info = _read_private(
+                                    directory, receipt, links=2,
+                                )
+                                if (ticket != expected or linked != expected
+                                        or ticket_info.st_dev != receipt_info.st_dev
+                                        or ticket_info.st_ino != receipt_info.st_ino):
+                                    return False
+                            else:
+                                raise
+                    except FileNotFoundError:
+                        # Crash after removing the pending name, but before
+                        # removing the marker. A durable, private receipt
+                        # bound to THIS marker must still exist.
+                        saved, _ = _read_private(directory, receipt, links=1)
+                        if saved != expected:
+                            return False
+                    else:
+                        if ticket != expected:
+                            return False
+                        if ticket_info.st_nlink == 1:
+                            # Normal case: create a no-overwrite receipt, then
+                            # sync it BEFORE releasing the marker.
+                            os.link(
+                                PENDING, receipt,
+                                src_dir_fd=directory, dst_dir_fd=directory,
+                                follow_symlinks=False,
                             )
-                            linked, receipt_info = _read_private(
-                                directory, receipt, links=2,
-                            )
-                            if (ticket != expected or linked != expected
-                                    or ticket_info.st_dev != receipt_info.st_dev
-                                    or ticket_info.st_ino != receipt_info.st_ino):
-                                return False
-                        else:
-                            raise
-                except FileNotFoundError:
-                    # Crash after removing the pending name, but before
-                    # removing the marker. A durable, private receipt
-                    # bound to THIS marker must still exist.
-                    saved, _ = _read_private(directory, receipt, links=1)
-                    if saved != expected:
-                        return False
-                else:
-                    if ticket != expected:
-                        return False
-                    if ticket_info.st_nlink == 1:
-                        # Normal case: create a no-overwrite receipt, then
-                        # sync it BEFORE releasing the marker.
-                        os.link(
-                            PENDING, receipt,
-                            src_dir_fd=directory, dst_dir_fd=directory,
-                            follow_symlinks=False,
-                        )
-                    elif ticket_info.st_nlink != 2:
-                        raise OSError("Unexpected pending ticket links")
+                        elif ticket_info.st_nlink != 2:
+                            raise OSError("Unexpected pending ticket links")
+                        os.fsync(directory)
+                        os.unlink(PENDING, dir_fd=directory)
+                        os.fsync(directory)
+                    # A receipt exists and the pending name is gone. This
+                    # is the ONLY permitted point for unmarking an effect.
+                    os.unlink(MARKER, dir_fd=directory)
                     os.fsync(directory)
-                    os.unlink(PENDING, dir_fd=directory)
-                    os.fsync(directory)
-                # A receipt exists and the pending name is gone. This
-                # is the ONLY permitted point for unmarking an effect.
-                os.unlink(MARKER, dir_fd=directory)
-                os.fsync(directory)
-                return True
+                    return True
         finally:
             os.close(directory)
