@@ -14,6 +14,16 @@ import subprocess
 HEX_SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_PROFILE_BYTES = 65536
 PROFILE_RELATIVE = Path("config/profiles/ventuno_q.json")
+PRODUCTION_ROOT = Path("/home/arduino/MyAI")
+BOARD_STATUS_CODES = frozenset({
+    "ready-for-separate-consented-dialogue-test",
+    "blocked-architecture",
+    "blocked-inactive-services",
+    "blocked-active-voice-or-invalid-config",
+    "blocked-usb-reenumerated-or-inaccessible",
+    "blocked-whisper-8gib-memory-reserve",
+    "blocked-temporary-staging-disk-reserve",
+})
 SAFE_FLAGS = {
     "voice": ("enabled", "tts_enabled", "handsfree_enabled"),
     "ventuno": ("rpc_write_enabled",),
@@ -26,7 +36,16 @@ SAFE_FLAGS = {
 }
 
 
-def classify(profile, *, expected_sha, actual_sha, board=None):
+def _config_safe(profile):
+    return isinstance(profile, dict) and all(
+        isinstance(profile.get(section), dict)
+        and all(profile[section].get(flag) is False for flag in flags)
+        for section, flags in SAFE_FLAGS.items()
+    )
+
+
+def classify(profile, *, expected_sha, actual_sha, board=None,
+             active_profile=None):
     """Pure safety classifier: source acceptance is NOT recording consent."""
     same_commit = (
         isinstance(expected_sha, str)
@@ -34,16 +53,20 @@ def classify(profile, *, expected_sha, actual_sha, board=None):
         and HEX_SHA.fullmatch(expected_sha) is not None
         and expected_sha == actual_sha
     )
-    config_ok = isinstance(profile, dict) and all(
-        isinstance(profile.get(section), dict)
-        and all(profile[section].get(flag) is False for flag in flags)
-        for section, flags in SAFE_FLAGS.items()
-    )
+    config_ok = _config_safe(profile)
     isolated = board is None
+    active_ok = _config_safe(active_profile) if not isolated else False
+    board_reason = (
+        "not-inspected" if isolated else
+        board.get("status", "") if isinstance(board, dict) else ""
+    )
+    if board_reason not in BOARD_STATUS_CODES and not isolated:
+        board_reason = "blocked-unrecognised-readiness"
     board_ok = (
         isolated
         or (
-            isinstance(board, dict)
+            active_ok
+            and isinstance(board, dict)
             and board.get("status") == "ready-for-separate-consented-dialogue-test"
             and board.get("arm64") is True
             and board.get("services_active") is True
@@ -63,6 +86,8 @@ def classify(profile, *, expected_sha, actual_sha, board=None):
         status = "blocked-unpinned-source"
     elif not config_ok:
         status = "blocked-unsafe-production-profile"
+    elif not isolated and not active_ok:
+        status = "blocked-active-production-profile"
     elif not board_ok:
         status = "blocked-read-only-board-preflight"
     elif isolated:
@@ -75,6 +100,8 @@ def classify(profile, *, expected_sha, actual_sha, board=None):
         "source_config_default_off": config_ok,
         "board_preflight_included": not isolated,
         "board_preflight_passed": (board_ok if not isolated else False),
+        "board_readiness_reason": board_reason,
+        "active_production_profile_default_off": active_ok,
         "ready_for_separate_human_consent": passed and not isolated,
         "recording_authorized": False,
         "playback_authorized": False,
@@ -123,9 +150,11 @@ def main(argv=None):
     # explicitly selected read-only inventory mode. No consent flags
     # or switches to open a microphone exist in this script.
     board = None
+    active_profile = None
     if args.board_readonly:
         from scripts.ventuno_usb_voice_dialog_readiness import inspect
         board = inspect()
+        active_profile = _get_source_profile(PRODUCTION_ROOT)
     try:
         profile = _get_source_profile(args.source_root)
         actual_sha = _get_exact_head(args.source_root)
@@ -134,6 +163,7 @@ def main(argv=None):
     result = classify(
         profile, expected_sha=args.expected_sha,
         actual_sha=actual_sha, board=board,
+        active_profile=active_profile,
     )
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] in {
