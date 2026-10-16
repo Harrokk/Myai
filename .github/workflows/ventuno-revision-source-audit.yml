@@ -1,0 +1,83 @@
+name: VENTUNO source-only revision audit fail-closed
+on:
+  push:
+    branches: [dev/ventuno-deep-audit-fail-closed-20261016]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-sha-audit:
+    name: Exact-SHA two-pass audit and synthetic regressions only
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 6
+    steps:
+      - name: Fetch exact commit to runner disposable scratch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          root="$(mktemp -d "$RUNNER_TEMP/myai-revision-source-XXXXXX")"
+          chmod 700 "$root"
+          echo "MYAI_REVISION_SCRATCH=$root" >> "$GITHUB_ENV"
+          cd "$root"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run both tracked-source passes as blocking gate
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_REVISION_SCRATCH"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          timeout --signal=TERM --kill-after=3s 90s \
+            /usr/bin/python3 -B -m scripts.ventuno_deep_source_audit
+          timeout --signal=TERM --kill-after=3s 45s \
+            /usr/bin/python3 -B -m scripts.static_repository_audit
+          echo "MYAI_REVISION_SOURCE_ONLY_AUDIT_GATE=passed"
+
+      - name: Test blocker, malformed evidence and exception denial
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_REVISION_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 120s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
+              tests/test_ventuno_deep_source_audit.py \
+              tests/test_ventuno_stage_paths.py \
+              tests/test_ventuno_portaudio_temp_stage.py
+          echo "MYAI_REVISION_FAIL_CLOSED_REGRESSIONS=passed"
+          echo "No microphone, speaker, model, live service, NPU or deployment accessed."
+
+      - name: Remove disposable revision checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MYAI_REVISION_SCRATCH:-}" ]; then
+            case "$MYAI_REVISION_SCRATCH" in
+              "$RUNNER_TEMP"/myai-revision-source-*)
+                test -d "$MYAI_REVISION_SCRATCH" && rm -rf -- "$MYAI_REVISION_SCRATCH" || true
+                ;;
+              *) echo "Unexpected scratch location, refusing cleanup" >&2; exit 2 ;;
+            esac
+          fi
