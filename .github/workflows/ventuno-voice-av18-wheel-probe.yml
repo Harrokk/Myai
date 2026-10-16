@@ -1,0 +1,63 @@
+name: ARM64 voice PyAV18 compatibility resolver - hosted only
+on:
+  push:
+    branches: [dev/ventuno-voice-abi-staging-20261016]
+    paths:
+      - .github/workflows/ventuno-voice-av18-wheel-probe.yml
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Resolve immutable source SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp="$(mktemp -d "$RUNNER_TEMP/myai-av18.XXXXXXXX")"
+          echo "SOURCE_DIR=$temp" >> "$GITHUB_ENV"
+          cd "$temp"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Binary-only ARM64 CPython3.12 PyAV 18 probe, no install
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          mkdir "$SOURCE_DIR/wheels"
+          if timeout --signal=TERM --kill-after=3s 165s \
+            python3 -m pip download --disable-pip-version-check \
+              --no-input --only-binary=:all: --implementation cp \
+              --python-version 3.12 --abi cp312 \
+              --platform manylinux2014_aarch64 \
+              --platform manylinux_2_17_aarch64 \
+              --platform manylinux_2_28_aarch64 \
+              --dest "$SOURCE_DIR/wheels" \
+              -r requirements-voice.txt 'av>=17,<19' \
+              > "$SOURCE_DIR/pip-redacted.log" 2>&1; then
+            echo "PYAV18_ARM64_BINARY_RESOLVE=success"
+          else
+            echo "PYAV18_ARM64_BINARY_RESOLVE=blocked"
+            exit 2
+          fi
+          python3 - <<'PY'
+          import hashlib,pathlib
+          wheels=sorted(pathlib.Path("wheels").glob("*.whl"))
+          assert wheels
+          for p in wheels:
+              print("ARM64_VOICE_LOCK_ROW="+p.name+":"+hashlib.sha256(p.read_bytes()).hexdigest())
+          print("ARM64_VOICE_LOCK_COUNT="+str(len(wheels)))
+          assert any(p.name.startswith("av-18.") for p in wheels), "PyAV 18 missing"
+          PY
+      - name: Remove isolated downloads
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${SOURCE_DIR:-}" ]; then rm -rf -- "$SOURCE_DIR"; fi
