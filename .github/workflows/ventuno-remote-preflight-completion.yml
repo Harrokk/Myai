@@ -282,10 +282,45 @@ jobs:
             "$private_python" -m pip install --only-binary=:all: \
             --require-hashes --no-cache-dir --no-input --retries 1 \
             -r requirements-voice-arm64-hashed.lock
+          # libportaudio2 is currently missing on the board. Never apt
+          # INSTALL a system package; only download a distro-indexed .deb,
+          # validate its official cached SHA256 and extract one ELF privately.
+          mkdir -p "$MYAI_TWO_PASS_SCRATCH/distro-portaudio"
+          cd "$MYAI_TWO_PASS_SCRATCH/distro-portaudio"
+          timeout --signal=TERM --kill-after=3s 70s \
+            apt-get download libportaudio2:arm64 > apt-private-fetch.log 2>&1
+          /usr/bin/python3 -B - <<'PY'
+          import hashlib, pathlib, subprocess
+          root=pathlib.Path.cwd()
+          packages=list(root.glob("libportaudio2_*_arm64.deb"))
+          assert len(packages)==1, "NO GO: no unique official ARM64 PortAudio package"
+          pkg=packages[0]
+          sha=hashlib.sha256(pkg.read_bytes()).hexdigest()
+          cache=subprocess.run(["apt-cache","show","libportaudio2:arm64"],
+                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,
+                check=True,timeout=8)
+          approved={line.split(":",1)[1].strip() for line in cache.stdout.splitlines()
+                    if line.startswith("SHA256:")}
+          assert sha in approved, "NO GO: downloaded PortAudio SHA missing from signed apt indexes"
+          print("ISOLATED_PORTAUDIO_DISTRO_SHA256_MATCH=true")
+          PY
+          pkg=(libportaudio2_*_arm64.deb)
+          test "${#pkg[@]}" -eq 1
+          mkdir -p "$MYAI_TWO_PASS_SCRATCH/vendor-extracted"
+          dpkg-deb -x "${pkg[0]}" "$MYAI_TWO_PASS_SCRATCH/vendor-extracted"
+          libroot="$MYAI_TWO_PASS_SCRATCH/vendor-extracted/usr/lib/aarch64-linux-gnu"
+          test -d "$libroot"
+          libsrc="$(find "$libroot" -maxdepth 1 -type f -name 'libportaudio.so.2*' -print -quit)"
+          test -n "$libsrc"
+          mkdir -p "$MYAI_TWO_PASS_SCRATCH/private-libs"
+          cp -- "$libsrc" "$MYAI_TWO_PASS_SCRATCH/private-libs/libportaudio.so.2"
+          chmod 600 "$MYAI_TWO_PASS_SCRATCH/private-libs/libportaudio.so.2"
+          cd "$MYAI_TWO_PASS_SCRATCH"
           timeout --signal=TERM --kill-after=3s 120s \
             "$private_python" -B -m scripts.ventuno_isolated_voice_native_probe \
-            --staging-root "$MYAI_TWO_PASS_SCRATCH"
-          echo "Only private venv native imports; no STT model, microphone, playback or NPU."
+            --staging-root "$MYAI_TWO_PASS_SCRATCH" \
+            --staged-portaudio-dir "$MYAI_TWO_PASS_SCRATCH/private-libs"
+          echo "Private ELF/ABI import only. PortAudio NOT installed on VENTUNO's host."
       - name: Delete temporary exact-commit checkout
         if: always()
         shell: bash
