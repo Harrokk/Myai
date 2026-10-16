@@ -22,6 +22,8 @@ on:
       - core/voice_process_census.py
       - scripts/ventuno_physical_pilot_gate.py
       - scripts/ventuno_big_test_readiness.py
+      - scripts/ventuno_remote_idle_baseline.py
+      - scripts/ventuno_readonly_probe.py
       - scripts/ventuno_v75_npu_readiness_readonly.py
       - scripts/ventuno_htp_profile_capture_capability_readonly.py
       - scripts/ventuno_htp_maintenance_recovery_dryrun.py
@@ -56,6 +58,7 @@ on:
       - tests/test_voice_process_census.py
       - tests/test_ventuno_physical_pilot_gate.py
       - tests/test_ventuno_big_test_readiness.py
+      - tests/test_ventuno_remote_idle_baseline.py
       - tests/test_ventuno_usb_dialogue_once.py
       - tests/test_ventuno_usb_dialogue_hardware.py
       - tests/test_ventuno_usb_voice_dialog_readiness.py
@@ -130,6 +133,7 @@ jobs:
             tests/test_voice_process_census.py \
             tests/test_ventuno_physical_pilot_gate.py \
             tests/test_ventuno_big_test_readiness.py \
+            tests/test_ventuno_remote_idle_baseline.py \
             tests/test_ventuno_usb_dialogue_once.py \
             tests/test_ventuno_usb_dialogue_hardware.py \
             tests/test_ventuno_usb_voice_dialog_readiness.py \
@@ -246,6 +250,9 @@ jobs:
             /home/arduino/MyAI/.venv/bin/python -B \
             -m scripts.ventuno_big_test_readiness --board-metadata-only
           echo "Hardware probe is metadata-only; NPU profiling still unapproved."
+          /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_remote_idle_baseline
+          echo "Numeric idle resources only; no load or latency measured."
 
       - name: Delete disposable board checkout
         if: always()
