@@ -113,11 +113,12 @@ class VoiceWriteReconciliation:
         directory = self.journal._open_directory()
         try:
             with self.journal._locked_directory(directory):
-                marker = _marker_info(directory)
-                token = secrets.token_hex(16)
-                _write_private(directory, PENDING,
-                               _ticket_bytes(token, marker))
-                return token
+                with self.journal.require_quiescent_writers(directory):
+                    marker = _marker_info(directory)
+                    token = secrets.token_hex(16)
+                    _write_private(directory, PENDING,
+                                   _ticket_bytes(token, marker))
+                    return token
         finally:
             os.close(directory)
 
