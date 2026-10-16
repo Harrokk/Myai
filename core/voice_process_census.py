@@ -68,6 +68,8 @@ def detect_project_processes(project_root, *, proc_root=Path("/proc")):
     Zero is merely 'nothing recognisable in this snapshot', NOT evidence
     that all writers were terminated.
     """
+    if not hasattr(os, "geteuid"):
+        raise OSError("Linux process identity API unavailable")
     root = Path(os.path.realpath(project_root))
     base = Path(proc_root)
     if not base.is_dir():
