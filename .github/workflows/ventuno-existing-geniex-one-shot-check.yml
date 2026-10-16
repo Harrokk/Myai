@@ -60,6 +60,9 @@ jobs:
           rm -rf -- "$RUNNER_TEMP/myai-geniex-one-venv"
 
   board-single-existing-request:
+    # ARCHIVED - NO LIVE MODEL/GENIEX INFERENCE in the audit candidate.
+    # New operator approval and separate controlled physical test required.
+    if: false
     name: On-device existing service ONLY; never a second HTP client
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 4
