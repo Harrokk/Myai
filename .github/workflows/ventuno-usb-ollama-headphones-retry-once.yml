@@ -2,7 +2,9 @@
 # The original one-shot implementation is preserved in Git history.
 name: Archived historical device test (requires new operator approval)
 on:
-  workflow_dispatch:
+  push:
+    branches: [dev/routing-boundary-followup]
+    paths: [.github/workflows/archived-hardware-review-placeholder.txt]
 permissions:
   contents: read
 jobs:
