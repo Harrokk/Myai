@@ -148,10 +148,50 @@ jobs:
             exit 2
           fi
           export MYAI_NATIVE_PROBE_MARKER=disposable-import-only
-          timeout --signal=TERM --kill-after=3s 45s \
+          # Import real Python/native modules without opening any device.
+          # If ONLY sounddevice fails due to missing PortAudio, stage
+          # official arm64 runtime debs in this same disposable root.
+          if timeout --signal=TERM --kill-after=3s 45s \
             "$MYAI_STAGE_ROOT/venv/bin/python" -B -m scripts.ventuno_hashed_voice_native_import \
-            --isolated-native-imports
+            --isolated-native-imports > "$MYAI_STAGE_ROOT/import-report.json"; then
+            cat "$MYAI_STAGE_ROOT/import-report.json"
+            echo "MYAI_TEMP_ALL_SEVEN_VOICE_IMPORTS=true"
+          else
+            cat "$MYAI_STAGE_ROOT/import-report.json"
+            /usr/bin/python3 - "$MYAI_STAGE_ROOT/import-report.json" <<'PY'
+          import json, pathlib, sys
+          raw=pathlib.Path(sys.argv[1]).read_text()
+          line=next((x for x in raw.splitlines()
+                     if x.startswith("MYAI_ISOLATED_VOICE_NATIVE_IMPORT_JSON=")), "")
+          assert line, "Missing sanitized native import report"
+          data=json.loads(line.partition("=")[2])
+          results=data["results"]
+          assert results.get("sounddevice") == "OSError"
+          assert all(v == "imported" for k,v in results.items()
+                     if k != "sounddevice"), "Additional missing imports cannot be bypassed"
+          assert data["microphone_opened"] is False
+          print("MYAI_ONLY_TEMP_PORTAUDIO_FALLBACK_PERMITTED=true")
+          PY
+            timeout --signal=TERM --kill-after=3s 205s /usr/bin/python3 -B \
+              -m scripts.ventuno_portaudio_temp_stage \
+              --runner-temp "$MYAI_STAGE_ROOT" \
+              --staged-python "$MYAI_STAGE_ROOT/venv/bin/python"
+            echo "MYAI_TEMP_PORTAUDIO_IMPORT_VERIFIED=true"
+          fi
           echo "No live audio, model constructor, NPU or production venv touched."
+      - name: Render fixed Swedish synthetic phrase using temporary eSpeak only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          OMP_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STAGE_ROOT/source"
+          timeout --signal=TERM --kill-after=3s 225s \
+            /usr/bin/python3 -B -m scripts.ventuno_tts_temp_stage \
+            --runner-temp "$MYAI_STAGE_ROOT"
+          echo "MYAI_SYNTHETIC_TTS_AND_PIPELINE_TEMP_ONLY=true"
       - name: Remove disposable stage, downloaded wheels, caches, logs and checkout
         if: always()
         shell: bash
