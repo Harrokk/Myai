@@ -24,6 +24,8 @@ on:
       - tests/test_ventuno_all_workflow_preflight.py
       - tests/test_ventuno_source_release_readiness.py
       - tests/test_ventuno_voice_trial_crash_cleanup.py
+      - tests/test_ventuno_isolated_sqlite_lifecycle.py
+      - docs/VENTUNO_PHYSICAL_WORKFLOW_ALLOWLIST_20261016.md
       - docs/VENTUNO_FIVE_REMAINING_AUDIT_GATES.md
       - tests/test_ventuno_isolated_voice_native_probe.py
       - scripts/ventuno_main_workflow_quarantine.py
@@ -109,6 +111,7 @@ jobs:
             tests/test_ventuno_all_workflow_preflight.py \
             tests/test_ventuno_source_release_readiness.py \
             tests/test_ventuno_voice_trial_crash_cleanup.py \
+            tests/test_ventuno_isolated_sqlite_lifecycle.py \
             tests/test_voice_pipeline.py \
             tests/test_voice_session.py \
             tests/test_ventuno_usb_dialogue_once.py \
