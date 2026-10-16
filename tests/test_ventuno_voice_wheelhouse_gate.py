@@ -83,3 +83,24 @@ def test_invalid_manifest_json_does_not_expose_raw_values(tmp_path):
     response = json.dumps(gate.classify(tmp_path))
     assert "PRIVATE" not in response
     assert "blocked" in response
+
+
+@pytest.mark.parametrize("py,abi,expected", [
+    ("cp38", "abi3", True),
+    ("cp310", "abi3", True),
+    ("cp312", "abi3", True),
+    ("cp313", "abi3", False),
+    ("cp310", "cp310", False),
+    ("cp37", "abi3", True),
+])
+def test_limited_abi_older_cpython_wheels_are_valid_for_312_only(
+        py, abi, expected):
+    filename = f"native_dummy-1.0-{py}-{abi}-manylinux_2_28_aarch64.whl"
+    assert (gate._compatible(filename) is not None) is expected
+
+
+def test_public_arm64_multi_platform_abi3_wheel_tag_is_valid():
+    wheel = "hf_xet-1.7.0-cp38-abi3-manylinux_2_28_aarch64.whl"
+    assert gate._compatible(wheel) is not None
+    wheel = "protobuf-7.36.2-cp310-abi3-manylinux2014_aarch64.whl"
+    assert gate._compatible(wheel) is not None
