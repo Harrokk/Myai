@@ -2,7 +2,7 @@
   "schema": 1,
   "python": "cp312",
   "platform": "aarch64",
-  "source": "hosted-binary-only-pip-download-2026-10-16",
+  "source": "hosted-binary-only-pip-download-2026-10-16-pyav18",
   "complete_dependency_closure": true,
   "wheels": [
     {
@@ -10,8 +10,8 @@
       "sha256": "6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101"
     },
     {
-      "filename": "av-19.0.1-cp312-abi3-manylinux_2_28_aarch64.whl",
-      "sha256": "437d4c0d5a7d771f2c3af84cd28e6aac6e173851116c60b53e81dbf1eebe4eab"
+      "filename": "av-18.1.0-cp311-abi3-manylinux_2_28_aarch64.whl",
+      "sha256": "6fc837cc51adf80331ac850779cd53b5d4c4460b0ebe9057a02a921c6736f19d"
     },
     {
       "filename": "cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
