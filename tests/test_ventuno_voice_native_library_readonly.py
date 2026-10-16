@@ -5,7 +5,7 @@ from scripts import ventuno_voice_native_library_readonly as lib
 
 def apt_result(version):
     return lambda *_a, **_k: SimpleNamespace(
-        returncode=0, stdout=f"libportaudio2:\\n  Installed: (none)\\n  Candidate: {version}\\n"
+        returncode=0, stdout=f"libportaudio2:\n  Installed: (none)\n  Candidate: {version}\n"
     )
 
 
