@@ -24,23 +24,23 @@ ONLY_COMMENTS = re.compile(r"(?m)^\s*#.*$")
 SELF_HOSTED = re.compile(r"(?m)^\s*runs-on\s*:\s*.*self-hosted", re.I)
 TOP_PUSH = re.compile(r"(?m)^  push\s*:")
 TOP_DISPATCH = re.compile(r"(?m)^  workflow_dispatch\s*:")
-BRANCHES = re.compile(r"(?m)^    branches:[ \\t]*\\[([^\\]]+)\\][ \\t]*$")
+BRANCHES = re.compile(r"(?m)^    branches:[ \t]*\[([^\]]+)\][ \t]*$")
 MULTILINE_BRANCHES = re.compile(
-    r"(?m)^    branches:[ \\t]*\\n((?:[ \\t]{6}-[ \\t]+[^\\n]+\\n?)+)"
+    r"(?m)^    branches:[ \t]*\n((?:[ \t]{6}-[ \t]+[^\n]+\n?)+)"
 )
 
 
 def _push_branch_restricted(text):
-    """Fail open for auditing if push branches cannot be parsed safely."""
+    """If any push branch restriction is unclear, conservatively block."""
     branches = BRANCHES.findall(text)
     if len(branches) == 1:
-        restrictions = [x.strip().strip("'\\\"") for x in branches[0].split(",")]
+        restrictions = [x.strip().strip("'\"") for x in branches[0].split(",")]
     else:
         expanded = MULTILINE_BRANCHES.findall(text)
         if len(expanded) != 1:
             return False
         restrictions = [
-            line.strip()[1:].strip().strip("'\\\"")
+            line.strip()[1:].strip().strip("'\"")
             for line in expanded[0].splitlines()
         ]
     return bool(restrictions) and all(
