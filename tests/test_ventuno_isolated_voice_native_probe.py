@@ -80,8 +80,8 @@ def test_source_only_script_requires_exactly_explicit_scratch_path():
 def test_native_portaudio_error_reports_fixed_category_and_no_raw_detail(tmp_path):
     def fake(args, **_):
         if args[-1] == "sounddevice":
-            return SimpleNamespace(returncode=47, stdout="MISSING_PORTAUDIO_LIBRARY\\n")
-        return SimpleNamespace(returncode=0, stdout="ISOLATED_NATIVE_IMPORT_OK\\n")
+            return SimpleNamespace(returncode=47, stdout="MISSING_PORTAUDIO_LIBRARY\n")
+        return SimpleNamespace(returncode=0, stdout="ISOLATED_NATIVE_IMPORT_OK\n")
     result = mod.inspect(
         tmp_path, runner=fake,
         metadata=lambda _: "1.0",
