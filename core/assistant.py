@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import nullcontext
 import threading
 from pathlib import Path
 
@@ -1067,6 +1068,12 @@ Svara kort och tydligt på svenska.
                         (lambda name, entry, _value:
                             True if known_voice_read_only(name, entry)
                             else self._voice_write_journal.begin_effect())
+                        if voice_mode else None
+                    ),
+                    execution_call_scope=(
+                        (lambda name, entry, _value:
+                            nullcontext() if known_voice_read_only(name, entry)
+                            else self._voice_write_journal.active_writer())
                         if voice_mode else None
                     ),
                 )
