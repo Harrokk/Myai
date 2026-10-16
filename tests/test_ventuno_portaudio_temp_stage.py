@@ -62,6 +62,8 @@ def test_no_root_install_only_apt_download_dpkg_extract(monkeypatch, tmp_path):
     def simulated(argv, **kwargs):
         calls.append(argv)
         assert kwargs["cwd"] in (base, stage)
+        if "expected_stdout" in kwargs:
+            assert kwargs["expected_stdout"] in ("arm64", "libportaudio2", "libjack-jackd2-0")
         assert argv[0] not in ("sudo", "apt-get", "dpkg")
         assert "install" not in argv
         if argv[1:3] == ["download", "libportaudio2"]:
@@ -84,9 +86,13 @@ def test_no_root_install_only_apt_download_dpkg_extract(monkeypatch, tmp_path):
     assert result["sounddevice_import_with_isolated_portaudio"] is True
     assert result["system_packages_installed"] is False
     assert result["audio_stream_opened"] is False
-    assert len(calls) == 7
+    assert len(calls) == 9
     assert calls[0][1:] == ["download", "libportaudio2"]
-    assert calls[3][1:] == ["download", "libjack-jackd2-0"]
+    assert calls[1][-1] == "Architecture"
+    assert calls[2][-1] == "Package"
+    assert calls[4][1:] == ["download", "libjack-jackd2-0"]
+    assert calls[5][-1] == "Architecture"
+    assert calls[6][-1] == "Package"
     assert calls[-1][1:3] == ["-I", "-c"]
     assert "import sounddevice" in calls[-1][-1]
 
@@ -124,3 +130,77 @@ def test_safe_error_hint_only_reports_library_basename(monkeypatch, tmp_path):
     assert r["missing_shared_library"] == "libjack.so.0"
     assert "secrets" not in str(r)
     assert "dontshow" not in str(r)
+
+
+def test_checked_dpkg_fields_are_actual_not_just_success_codes(tmp_path, monkeypatch):
+    class Completed:
+        def __init__(self, stdout):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+    monkeypatch.setattr(pa.subprocess, "run", lambda argv, **kw:
+                        Completed("amd64\n"))
+    wrong_arch = pa.run_bounded(
+        ["dpkg-deb", "--field", "package.deb", "Architecture"],
+        cwd=tmp_path, timeout=5, expected_stdout="arm64"
+    )
+    assert wrong_arch["success"] is False
+    assert wrong_arch["reason"] == "unexpected-package-metadata"
+    assert "amd64" not in str(wrong_arch)
+    monkeypatch.setattr(pa.subprocess, "run", lambda argv, **kw:
+                        Completed("different-package\n"))
+    wrong_name = pa.run_bounded(
+        ["dpkg-deb", "--field", "package.deb", "Package"],
+        cwd=tmp_path, timeout=5, expected_stdout="libportaudio2"
+    )
+    assert wrong_name["success"] is False
+    assert "different-package" not in str(wrong_name)
+    monkeypatch.setattr(pa.subprocess, "run", lambda argv, **kw:
+                        Completed("arm64\n"))
+    accepted = pa.run_bounded(
+        ["dpkg-deb", "--field", "package.deb", "Architecture"],
+        cwd=tmp_path, timeout=5, expected_stdout="arm64"
+    )
+    assert accepted["success"] is True
+
+
+def test_portaudio_refuses_wrong_package_metadata_before_extract(tmp_path, monkeypatch):
+    root = tmp_path / "runner"
+    root.mkdir()
+    executable = root / "python"
+    executable.write_text("fake")
+    stage = root / "myai-voice-portaudio"
+    monkeypatch.setattr(pa.shutil, "which", lambda tool: "/usr/bin/" + tool)
+    commands = []
+
+    def fake_command(argv, *, cwd, timeout, env=None,
+                     safe_error_hint=False, expected_stdout=None):
+        commands.append(argv)
+        if argv[1:3] == ["download", "libportaudio2"]:
+            stage.joinpath("libportaudio2_1_arm64.deb").write_bytes(b"fake")
+        if expected_stdout == "arm64":
+            return {"success": False, "reason": "unexpected-package-metadata"}
+        assert "--extract" not in argv
+        return {"success": True}
+    monkeypatch.setattr(pa, "run_bounded", fake_command)
+    report = pa.stage_portaudio_for_import(executable, stage, root, arm=True)
+    assert report["status"] == "no-go-deb-architecture-unreadable"
+    assert all("--extract" not in x for x in commands)
+
+
+def test_stage_python_denies_non_isolated_symlinks(tmp_path):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    good = stage / "python"
+    good.write_bytes(b"synthetic")
+    assert pa.staged_python_allowed(good, stage)
+    external = tmp_path / "external"
+    external.write_bytes(b"arbitrary")
+    good.unlink()
+    good.symlink_to(external)
+    assert not pa.staged_python_allowed(good, stage)
+    other = tmp_path / "other"
+    other.mkdir()
+    target = other / "python"
+    target.write_bytes(b"fake")
+    assert not pa.staged_python_allowed(target, stage)
