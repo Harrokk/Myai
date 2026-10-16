@@ -62,3 +62,39 @@ def test_version_floor_parser_not_confused_by_only_upper_bound():
     assert dep._version_floor(">=2.33.0,<3") == (2, 33, 0)
     assert dep._version_floor(">=2.32.5,<3") == (2, 32, 5)
     assert dep._version_floor("==2.34.2") == (2, 34, 2)
+
+
+def test_malformed_or_contradictory_version_intervals_fail_closed(tmp_path, monkeypatch):
+    _voice_stub(monkeypatch)
+    root = _scratch(tmp_path)
+    target = root / "requirements.txt"
+    baseline = target.read_text(encoding="utf-8")
+    invalid = (
+        "requests>=2.33.0,<=2.32.0",
+        "requests>=2.33.0,==2.32.0",
+        "requests==2.33.0,!=2.33.0",
+        "requests>=2.33.0,==2.33.0,==2.34.0",
+        "requests>=2.33.0,<2.33.0",
+        "requests>=2.33.0,<=2.33.0,!=2.33.0",
+        "requests>=2.33.0,~>2.34.0",
+    )
+    for changed in invalid:
+        target.write_text(
+            baseline.replace("requests>=2.33.0,<3", changed),
+            encoding="utf-8",
+        )
+        report = dep.inspect(root)
+        assert report["source_policy_checked"] is False, changed
+        assert report["production_install_authorized"] is False, changed
+
+
+def test_version_interval_logic_handles_bounds_and_pinned_exclusions():
+    check = dep._consistent_specifiers
+    assert check(">=2.33.0,<3")
+    assert check("==2.33.0,>=2.33.0,<3")
+    assert check(">=2.33.0,<=2.33.0")
+    assert not check(">=2.33.0,<2.33.0")
+    assert not check("==2.33.0,!=2.33.0")
+    assert not check(">=2.33.0,<=2.32.0")
+    assert not check("==2.34.0,<2.34.0")
+    assert not check(">=2.33.0,")
