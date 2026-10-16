@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -125,8 +126,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-gate", action="store_true",
                         help="Always deny until separately reviewed and attested")
+    parser.add_argument("--branch", default=None,
+                        help="Exact branch/ref to evaluate for automatic triggers")
     args = parser.parse_args(argv)
-    result = inventory()
+    # CI checks out a detached SHA, so do not assume this source file's
+    # original authoring branch is the current workflow's candidate ref.
+    current = args.branch or os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or CURRENT_BRANCH
+    result = inventory(branch=current)
     print("MYAI_WORKFLOW_REVIEW_JSON=" + json.dumps(result, sort_keys=True))
     return exit_code(result, release=args.release_gate)
 
