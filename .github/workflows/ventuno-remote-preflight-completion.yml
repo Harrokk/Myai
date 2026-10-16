@@ -263,6 +263,13 @@ jobs:
           assert mem >= 8 * 1024**3, "NO GO: insufficient free RAM reserve"
           print("ISOLATED_VENV_RESOURCE_RESERVE_GO=true")
           PY
+          /usr/bin/python3 -B - <<'PY'
+          import ctypes.util
+          print("SYSTEM_PORTAUDIO_RUNTIME_FOUND=" +
+                str(ctypes.util.find_library("portaudio") is not None).lower())
+          print("SYSTEM_ALSA_RUNTIME_FOUND=" +
+                str(ctypes.util.find_library("asound") is not None).lower())
+          PY
           /usr/bin/python3 -m venv "$MYAI_TWO_PASS_SCRATCH/.voice-abi-venv"
           private_python="$MYAI_TWO_PASS_SCRATCH/.voice-abi-venv/bin/python"
           test -f "$MYAI_TWO_PASS_SCRATCH/.voice-abi-venv/pyvenv.cfg"
