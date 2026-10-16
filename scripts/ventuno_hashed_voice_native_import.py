@@ -106,7 +106,7 @@ def main(argv=None):
     print("MYAI_ISOLATED_VOICE_NATIVE_IMPORT_JSON=" + json.dumps(result, sort_keys=True))
     # A known native missing library is informative NO-GO, not a claim of
     # successful import, and does not require stopping the installed service.
-    return 0 if valid else 2
+    return 0 if valid and result["all_imports_ok"] else 2
 
 
 if __name__ == "__main__":
