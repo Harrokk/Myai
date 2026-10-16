@@ -58,7 +58,8 @@ def extracted_library(root: Path, name: str = "libportaudio.so.2") -> Path | Non
 
 def run_bounded(argv: list[str], *, cwd: Path, timeout: int,
                 env: dict[str, str] | None = None,
-                safe_error_hint: bool = False) -> dict[str, object]:
+                safe_error_hint: bool = False,
+                expected_stdout: str | None = None) -> dict[str, object]:
     try:
         result = subprocess.run(
             argv, cwd=cwd, env=env, check=False,
@@ -71,6 +72,12 @@ def run_bounded(argv: list[str], *, cwd: Path, timeout: int,
     report: dict[str, object] = {
         "success": result.returncode == 0, "exit_code": result.returncode
     }
+    # For dpkg --field, compare only a fixed allowlisted value. Never
+    # expose package stdout, command traces or arbitrary metadata.
+    if expected_stdout is not None and result.returncode == 0:
+        if result.stdout.strip() != expected_stdout:
+            report["success"] = False
+            report["reason"] = "unexpected-package-metadata"
     if safe_error_hint and result.returncode:
         stderr = result.stderr[-2500:]
         errors = re.findall(
@@ -85,6 +92,37 @@ def run_bounded(argv: list[str], *, cwd: Path, timeout: int,
         report["missing_shared_library"] = shared[-1] if shared else None
         report["portaudio_text_mentioned"] = "portaudio" in stderr.lower()
     return report
+
+
+def staged_python_allowed(sandbox_python: Path, runner_temp: Path) -> bool:
+    """Allow an isolated interpreter (including standard venv Python symlinks).
+
+    A venv Python may point to the OS-owned /usr/bin/python3.x; arbitrary
+    paths, alternate executable directories and installed MyAI are forbidden.
+    """
+    try:
+        executable = Path(os.path.abspath(sandbox_python))
+        root = runner_temp.resolve(strict=True)
+        actual = executable.resolve(strict=True)
+        live = Path("/home/arduino/MyAI").resolve()
+        if not executable.is_file() or not executable.is_relative_to(root):
+            return False
+        if not executable.parent.resolve(strict=True).is_relative_to(root):
+            return False
+        if actual == live or actual.is_relative_to(live):
+            return False
+        # Reject links directly into the production directory even if
+        # the installed interpreter would ultimately resolve to /usr/bin.
+        if executable.is_symlink():
+            link = Path(os.readlink(executable))
+            if link.is_absolute() and (link == live or link.is_relative_to(live)):
+                return False
+        if actual.is_relative_to(root):
+            return True
+        return (actual.parent in (Path("/usr/bin"), Path("/usr/local/bin"))
+                and actual.name.startswith("python"))
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return False
 
 
 def stage_portaudio_for_import(
@@ -110,8 +148,7 @@ def stage_portaudio_for_import(
     if (not safe_scratch_root(runner_temp)
             or folder.exists() or folder.is_symlink() or folder.name != "myai-voice-portaudio"
             or folder.parent.resolve() != runner_temp.resolve()
-            or not sandbox_python.is_file()
-            or not Path(os.path.abspath(sandbox_python)).is_relative_to(runner_temp.resolve())
+            or not staged_python_allowed(sandbox_python, runner_temp)
             or not shutil.which("apt")
             or not shutil.which("dpkg-deb")):
         report["status"] = "no-go-staging-tools-or-path"
@@ -141,10 +178,17 @@ def stage_portaudio_for_import(
             return report
         info = run_bounded(
             [dpkg, "--field", str(packages[0]), "Architecture"],
-            cwd=folder, timeout=10, env=env,
+            cwd=folder, timeout=10, env=env, expected_stdout="arm64",
         )
         if not info["success"]:
             report["status"] = "no-go-deb-architecture-unreadable"
+            return report
+        identity = run_bounded(
+            [dpkg, "--field", str(packages[0]), "Package"],
+            cwd=folder, timeout=10, env=env, expected_stdout=pkg,
+        )
+        if not identity["success"]:
+            report["status"] = "no-go-deb-package-mismatch"
             return report
         expanded = run_bounded(
             [dpkg, "--extract", str(packages[0]), str(dest)],
