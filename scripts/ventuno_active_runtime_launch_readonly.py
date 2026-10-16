@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import time
+from core.runtime_safety_attestation import FLAGS
 from pathlib import Path
 import re
 import subprocess
@@ -64,7 +66,41 @@ def _file_digest(path):
         return None
 
 
-def classify(pid_output, cmdline, checked_digest, installed_digest):
+def _future_pilot_heartbeat(installed, pid, *, clock=None):
+    # A local status file is only evidence of what a cooperating runtime
+    # reported, never cryptographic attestation of process integrity.
+    path = installed / "runtime/myai_runtime.json"
+    try:
+        if (path.is_symlink() or not path.is_file()
+                or not 0 < path.stat().st_size <= 32768):
+            return False
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or raw.get("running") is not True:
+            return False
+        snap = raw.get("runtime_safety")
+        if not isinstance(snap, dict) or snap.get("schema") != 1:
+            return False
+        if snap.get("process_pid") != int(pid):
+            return False
+        checks = snap.get("checks")
+        names = {s + "_" + k + "_off" for s, k in FLAGS}
+        names.update(("memory_auto_save_off", "isolated_test_database"))
+        if (not isinstance(checks, dict)
+                or set(checks) != names
+                or any(checks[k] is not True for k in names)
+                or snap.get("voice_and_writes_off") is not True):
+            return False
+        now = time.time() if clock is None else clock()
+        stamp = raw.get("written_unix_time")
+        if (type(stamp) not in (int, float)
+                or not 0 <= now - stamp <= 120):
+            return False
+        return True
+    except (OSError, ValueError, TypeError, UnicodeError):
+        return False
+
+
+def classify(pid_output, cmdline, checked_digest, installed_digest, *, future_pilot_snapshot=False):
     try:
         pid_valid = bool(re.fullmatch(r"[1-9]\d{0,8}", pid_output.strip()))
     except (TypeError, AttributeError):
@@ -76,6 +112,8 @@ def classify(pid_output, cmdline, checked_digest, installed_digest):
         and installed_digest == checked_digest
     )
     return {
+        "inprocess_pilot_snapshot_current_and_all_safe": bool(match and future_pilot_snapshot),
+        "inprocess_pilot_snapshot_is_not_crypto_attestation": True,
         "status": (
             "installed-launch-shape-candidate-not-runtime-attestation"
             if match else "blocked-active-launch-or-code-unverified"
@@ -112,7 +150,9 @@ def inspect(*, board=False, runner=None, proc_root=Path("/proc"),
             raw = stream.read(MAX_CMDLINE_BYTES + 1)
         checked = _file_digest(source / SCRIPT_REL)
         installed_hash = _file_digest(installed / SCRIPT_REL)
-        return classify(pid, raw, checked, installed_hash)
+        future_snapshot = _future_pilot_heartbeat(installed, pid)
+        return classify(pid, raw, checked, installed_hash,
+                        future_pilot_snapshot=future_snapshot)
     except (OSError, TypeError, ValueError, subprocess.TimeoutExpired):
         return classify(None, None, None, None)
 
