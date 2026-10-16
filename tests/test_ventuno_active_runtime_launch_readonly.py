@@ -107,7 +107,7 @@ def test_future_loaded_pilot_heartbeat_is_treated_as_local_evidence_only(tmp_pat
     from scripts.ventuno_physical_pilot_gate import _get_source_profile
     from scripts import ventuno_active_runtime_launch_readonly as mod
     pid = 321
-    settings = candidate(_get_source_profile(SOURCE))
+    settings = candidate(json.loads(SOURCE.read_text(encoding="utf-8")))
     report = summarize(settings, pid=pid)
     path = tmp_path / "runtime" / "myai_runtime.json"
     path.parent.mkdir(parents=True)
