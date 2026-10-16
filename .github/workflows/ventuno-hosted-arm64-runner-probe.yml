@@ -1,0 +1,21 @@
+name: ARM64 GitHub hosted runner readiness, no hardware
+on:
+  push:
+    branches: [dev/ventuno-arm64-voice-sandbox-20261016]
+    paths:
+      - .github/workflows/ventuno-hosted-arm64-runner-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 3
+    steps:
+      - name: Check hosted ARM64 architecture without installed voice or devices
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          python3 --version
+          echo "MYAI_HOSTED_ARM64_RUNNER_AVAILABLE=true"
