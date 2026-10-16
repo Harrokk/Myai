@@ -1,0 +1,64 @@
+name: VENTUNO audit all Actions and enforce no effectful automatic jobs
+on:
+  push:
+    branches: [dev/ventuno-workflow-review-closure-20261016]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-only-workflow-review:
+    name: Inspect all Git-tracked Actions without running devices
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Exact SHA checkout only in private runner temp
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-workflow-review-XXXXXXXX")"
+          chmod 700 "$work"
+          echo "MYAI_WORKFLOW_REVIEW_SCRATCH=$work" >> "$GITHUB_ENV"
+          git init -q "$work"
+          git -C "$work" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$work" -c credential.helper= fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$work" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$work" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Source only inventory and synthetic trigger deny-tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_WORKFLOW_REVIEW_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 60s \
+            /usr/bin/python3 -B -m scripts.ventuno_workflow_release_review
+          timeout --signal=TERM --kill-after=3s 110s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
+              tests/test_ventuno_workflow_release_review.py \
+              tests/test_ventuno_deep_source_audit.py
+          echo "Release remains NO-GO; inventory success never authorizes audio, HTP, or main merge."
+
+      - name: Delete only isolated checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_WORKFLOW_REVIEW_SCRATCH:-}" in
+            "$RUNNER_TEMP"/myai-workflow-review-*)
+              if [ -d "$MYAI_WORKFLOW_REVIEW_SCRATCH" ] && [ ! -L "$MYAI_WORKFLOW_REVIEW_SCRATCH" ]; then
+                rm -rf -- "$MYAI_WORKFLOW_REVIEW_SCRATCH"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unrecognized temporary root; refusing unsafe cleanup" >&2; exit 2 ;;
+          esac
