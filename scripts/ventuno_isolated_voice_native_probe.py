@@ -27,15 +27,28 @@ CHILD = (
     "import importlib,sys\n"
     "mod=sys.argv[1]\n"
     "if mod=='sounddevice' and len(sys.argv)>2:\n"
-    " import ctypes.util\n"
+    " import ctypes,ctypes.util,os\n"
+    " native=os.path.join(os.environ['LD_LIBRARY_PATH'],'libportaudio.so.2')\n"
+    " try:\n"
+    "  ctypes.CDLL(native,mode=ctypes.RTLD_GLOBAL)\n"
+    " except OSError as exc:\n"
+    "  reason=str(exc).lower()\n"
+    "  if 'libjack' in reason: print('MISSING_JACK_LIBRARY')\n"
+    "  elif 'libpulse' in reason: print('MISSING_PULSE_LIBRARY')\n"
+    "  elif 'libasound' in reason: print('MISSING_ALSA_LIBRARY')\n"
+    "  elif 'libportaudio' in reason: print('MISSING_PORTAUDIO_LIBRARY')\n"
+    "  else: print('STAGED_PORTAUDIO_LINK_FAILED')\n"
+    "  sys.exit(47)\n"
     " original=ctypes.util.find_library\n"
     " ctypes.util.find_library=lambda name: 'libportaudio.so.2' if name=='portaudio' else original(name)\n"
     "try:\n"
     " importlib.import_module(mod)\n"
     "except BaseException as exc:\n"
     " reason=str(exc).lower()\n"
-    " if 'portaudio' in reason: print('MISSING_PORTAUDIO_LIBRARY')\n"
+    " if 'libjack' in reason: print('MISSING_JACK_LIBRARY')\n"
+    " elif 'libpulse' in reason: print('MISSING_PULSE_LIBRARY')\n"
     " elif 'libasound' in reason: print('MISSING_ALSA_LIBRARY')\n"
+    " elif 'portaudio' in reason: print('MISSING_PORTAUDIO_LIBRARY')\n"
     " elif 'libstdc++' in reason: print('MISSING_STDCXX_LIBRARY')\n"
     " else: print('NATIVE_IMPORT_FAILED')\n"
     " sys.exit(47)\n"
@@ -133,6 +146,9 @@ def inspect(staging_root, *, runner=None, metadata=None,
             statuses[module] = ok
             categories = {
                 "MISSING_PORTAUDIO_LIBRARY": "missing-portaudio-shared-library",
+                "MISSING_JACK_LIBRARY": "missing-jack-shared-library",
+                "MISSING_PULSE_LIBRARY": "missing-pulse-shared-library",
+                "STAGED_PORTAUDIO_LINK_FAILED": "staged-portaudio-native-link-failed",
                 "MISSING_ALSA_LIBRARY": "missing-alsa-shared-library",
                 "MISSING_STDCXX_LIBRARY": "missing-standard-cxx-shared-library",
             }
