@@ -14,13 +14,25 @@ jobs:
     timeout-minutes: 6
     steps:
       - name: Checkout exact reviewed SHA on HOSTED Linux only
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir -p myai-voice-compat-source
+          cd myai-voice-compat-source
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Resolve binary-only CPython 3.12 ARM64 packages to throwaway folder
         shell: bash
         run: |
           set -euo pipefail
+          cd "$RUNNER_TEMP/myai-voice-compat-source"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           dir="$(mktemp -d "$RUNNER_TEMP/myai-compat.XXXXXX")"
           trap 'rm -rf -- "$dir"' EXIT
