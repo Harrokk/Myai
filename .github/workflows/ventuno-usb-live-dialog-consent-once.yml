@@ -16,12 +16,10 @@ concurrency:
 
 jobs:
   dialogue:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: One 3s spoken Swedish question and one capped Swedish response
-    if: >-
-      github.event_name == 'push' &&
-      github.event.head_commit.message == 'Authorize exactly one 3s Swedish USB dialog on VENTUNO Q' &&
-      github.run_attempt == 1 &&
-      github.repository == 'Harrokk/Myai'
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 20
     steps:

@@ -16,12 +16,10 @@ concurrency:
 
 jobs:
   one_turn:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: ONE user-approved 4s microphone question and low-volume reply
-    if: >-
-      github.event_name == 'push' &&
-      github.event.head_commit.message == 'Authorize one-time 4s USB voice dialogue on VENTUNO Q' &&
-      github.run_attempt == 1 &&
-      github.repository == 'Harrokk/Myai'
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 20
     steps:

@@ -1,2 +1,5 @@
-requests>=2.32,<3
+# Minimum patched versions for Python 3.12 network dependencies. Not a full lock.
+# Review: requests CVE-2026-25645; urllib3 GHSA-vxq7-64xx-v4gw.
+requests>=2.33.0,<3
+urllib3>=2.8.0,<3
 psutil>=6,<8
