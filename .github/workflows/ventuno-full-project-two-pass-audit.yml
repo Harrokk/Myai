@@ -93,7 +93,10 @@ jobs:
           set -euo pipefail
           cd "$MYAI_TWO_PASS_SCRATCH"
           /usr/bin/python3 -B -m scripts.ventuno_deep_source_audit
-          echo "This audit does not authorize any physical hardware test."
+          # Inspect the installed Python environment's OPTIONAL voice
+          # import availability; never import providers or open ALSA.
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_voice_readiness
+          echo "Python package specs and ALSA nodes only: no audio or model execution."
       - name: Delete temporary exact-commit checkout
         if: always()
         shell: bash
