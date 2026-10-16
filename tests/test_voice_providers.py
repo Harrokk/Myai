@@ -259,3 +259,91 @@ def test_pcm_wav_cleanup_failure_never_reports_completed_transcript(
         stt.transcribe(b"\x00\x00" * 20)
     assert "RAW_PRIVATE_TEMP_PATH" not in str(exc.value)
     assert "syntetiskt" not in str(exc.value)
+
+
+
+class _FakeFloatAudio:
+    def __init__(self, raw):
+        self.raw = raw
+
+    def astype(self, dtype):
+        assert dtype == "float32"
+        return self
+
+    def __truediv__(self, divisor):
+        assert divisor == 32768.0
+        return self
+
+
+def test_isolated_whisper_memory_only_pcm_never_creates_private_wav(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    raw = b"\x01\x00" * 160
+    result = _FakeFloatAudio(raw)
+
+    def frombuffer(data, dtype):
+        assert data == raw
+        assert dtype == "<i2"
+        return result
+
+    monkeypatch.setitem(sys.modules, "numpy", SimpleNamespace(frombuffer=frombuffer))
+    monkeypatch.setattr(
+        providers.tempfile, "NamedTemporaryFile",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("private WAV on disk forbidden")
+        ),
+    )
+    model = FakeWhisperModel()
+    stt = providers.FasterWhisperSTT(model=model, pcm_memory_only=True)
+    transcript = stt.transcribe(raw)
+    assert transcript["text"] == "Hej världen"
+    assert model.calls[0]["source"] is result
+    assert model.calls[0]["language"] == "sv"
+
+
+def test_memory_only_pcm_fails_closed_on_malformed_input_without_disk(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(
+        providers.tempfile, "NamedTemporaryFile",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("No WAV permitted")),
+    )
+    model = FakeWhisperModel()
+    stt = providers.FasterWhisperSTT(model=model, pcm_memory_only=True)
+    for invalid in (b"", b"\x01", b"\0" * (2 * 1024 * 1024 + 2), "private-path.wav"):
+        with pytest.raises(ValueError, match="Invalid private PCM"):
+            stt.transcribe(invalid)
+    assert not model.calls
+
+
+def test_memory_only_pcm_without_numpy_does_not_fallback_to_disk(monkeypatch):
+    import builtins
+    import pytest
+
+    old_import = builtins.__import__
+
+    def no_numpy(name, *args, **kwargs):
+        if name == "numpy":
+            raise ImportError("SENSITIVE_PRIVATE_AUDIO")
+        return old_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_numpy)
+    monkeypatch.setattr(
+        providers.tempfile, "NamedTemporaryFile",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("No disk")),
+    )
+    model = FakeWhisperModel()
+    stt = providers.FasterWhisperSTT(model=model, pcm_memory_only=True)
+    with pytest.raises(RuntimeError, match="Memory-only STT requires numpy") as e:
+        stt.transcribe(b"\x00\x00" * 100)
+    assert "SENSITIVE_PRIVATE_AUDIO" not in str(e.value)
+    assert model.calls == []
+
+
+def test_checked_in_isolated_worker_enforces_diskless_pcm():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] /
+              "core/voice_stt_worker.py").read_text(encoding="utf-8")
+    assert "FasterWhisperSTT(**config, pcm_memory_only=True)" in source
+    assert 'sys.stdin.buffer.read(MAX_PCM_BYTES + 1)' in source
