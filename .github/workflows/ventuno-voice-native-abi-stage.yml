@@ -16,6 +16,7 @@ on:
       - tests/test_ventuno_native_voice_import_report.py
       - .github/workflows/ventuno-diagnostics.yml
       - docs/VENTUNO_PINNED_PYAV18_NATIVE_STAGING.md
+      - docs/VENTUNO_PINNED_PYAV18_NATIVE_STAGING.md
 permissions:
   contents: read
 concurrency:
@@ -95,6 +96,10 @@ jobs:
           set -euo pipefail
           cd "$STAGE_SCRATCH"
           /usr/bin/python3 -B -m scripts.ventuno_voice_static_lock_check
+          /usr/bin/python3 - <<'PY'
+          import ctypes.util
+          print("STAGING_PORTAUDIO_DISCOVERABLE="+str(bool(ctypes.util.find_library("portaudio"))).lower())
+          PY
           /usr/bin/python3 - <<'PY'
           import os,pathlib,shutil
           root=pathlib.Path(os.environ["STAGE_SCRATCH"])
