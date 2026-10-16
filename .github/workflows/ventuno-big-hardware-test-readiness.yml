@@ -1,0 +1,254 @@
+# Read-only USB recheck 2026-10-16: user reports headset and microphone reconnected.
+# No device open, microphone capture, speaker playback, or model inference.
+name: MyAI full hardware remote readiness - metadata only
+on:
+  push:
+    branches: [dev/ventuno-full-hw-test-readiness-20261016]
+    paths:
+      - .github/workflows/ventuno-big-hardware-test-readiness.yml
+      - core/voice_stt_worker.py
+      - core/voice_stt_child_limits.py
+      - core/voice_stt_reply.py
+      - core/voice_stt_bounded_io.py
+      - core/voice_stt_process_group.py
+      - core/voice_stt_process.py
+      - core/voice_stt_persistent.py
+      - core/voice_plan_attestation.py
+      - core/assistant.py
+      - core/tool_manager.py
+      - core/voice_retry_quarantine.py
+      - core/voice_write_journal.py
+      - core/voice_write_recovery.py
+      - core/voice_process_census.py
+      - scripts/ventuno_physical_pilot_gate.py
+      - scripts/ventuno_big_test_readiness.py
+      - scripts/ventuno_v75_npu_readiness_readonly.py
+      - scripts/ventuno_htp_profile_capture_capability_readonly.py
+      - scripts/ventuno_htp_maintenance_recovery_dryrun.py
+      - scripts/ventuno_geniex_htp_concurrency_gate_readonly.py
+      - scripts/ventuno_usb_voice_dialog_readiness.py
+      - config/profiles/ventuno_q.json
+      - scripts/voice_write_reconcile.py
+      - core/tool_outcome.py
+      - core/memory_feedback.py
+      - core/voice_pipeline.py
+      - core/voice_session.py
+      - core/voice_stt_persistent_worker.py
+      - tests/test_voice_session.py
+      - core/voice_factory.py
+      - core/config.py
+      - core/config_validation.py
+      - tests/test_voice_stt_rlimit_denial.py
+      - tests/test_voice_stt_child_limits.py
+      - tests/test_voice_stt_reply.py
+      - tests/test_voice_stt_process.py
+      - tests/test_voice_stt_process_group.py
+      - tests/test_voice_stt_persistent.py
+      - tests/test_voice_dispatch_plan_binding.py
+      - tests/test_voice_memory_feedback_bridge.py
+      - tests/test_voice_pipeline.py
+      - tests/test_voice_multitool_preflight.py
+      - tests/test_voice_retry_quarantine.py
+      - tests/test_voice_write_journal.py
+      - tests/test_voice_write_recovery.py
+      - tests/test_voice_recovery_crash_boundaries.py
+      - tests/test_voice_writer_quiescence.py
+      - tests/test_voice_process_census.py
+      - tests/test_ventuno_physical_pilot_gate.py
+      - tests/test_ventuno_big_test_readiness.py
+      - tests/test_ventuno_usb_dialogue_once.py
+      - tests/test_ventuno_usb_dialogue_hardware.py
+      - tests/test_ventuno_usb_voice_dialog_readiness.py
+      - tests/test_voice_tool_execution_status_bridge.py
+      - docs/VOICE_COOPERATIVE_CANCEL_AND_RECONCILIATION.md
+      - docs/VOICE_UNCERTAIN_RETRY_QUARANTINE.md
+      - docs/VOICE_DURABLE_WRITE_MARKER.md
+      - docs/VOICE_WRITE_OPERATOR_RECONCILIATION.md
+      - docs/VOICE_RECOVERY_CRASH_BOUNDARIES.md
+      - docs/VOICE_WRITER_QUIESCENCE_LEASE.md
+      - docs/VOICE_OPERATOR_PROCESS_CENSUS.md
+      - docs/VENTUNO_NEXT_PHYSICAL_VOICE_PILOT.md
+      - docs/VENTUNO_BIG_HARDWARE_TEST_CAMPAIGN.md
+      - docs/VOICE_INFLIGHT_STOP_AND_SIX_CALL_REVIEW.md
+      - tests/test_voice_factory.py
+      - tests/test_config_validation.py
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: myai-full-hardware-readiness-metadata-20261016
+  cancel-in-progress: false
+jobs:
+  x86-real-synthetic-process:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact SHA into private disposable source tree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-persistent-stt-host.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_PERSISTENT_STT_HOST=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify synthetic voice pipeline and source-locked remote hardware campaigns
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-persistent-stt-venv"
+          "$RUNNER_TEMP/myai-persistent-stt-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            pytest==8.3.5 psutil==7.1.0 requests==2.32.5
+          cd "$MYAI_PERSISTENT_STT_HOST"
+          "$RUNNER_TEMP/myai-persistent-stt-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_stt_rlimit_denial.py \
+            tests/test_voice_stt_child_limits.py \
+            tests/test_voice_stt_reply.py \
+            tests/test_voice_stt_process_group.py \
+            tests/test_voice_stt_persistent.py \
+            tests/test_voice_dispatch_plan_binding.py \
+            tests/test_voice_memory_feedback_bridge.py \
+            tests/test_voice_pipeline.py \
+            tests/test_voice_multitool_preflight.py \
+            tests/test_voice_retry_quarantine.py \
+            tests/test_voice_write_journal.py \
+            tests/test_voice_write_recovery.py \
+            tests/test_voice_recovery_crash_boundaries.py \
+            tests/test_voice_writer_quiescence.py \
+            tests/test_voice_process_census.py \
+            tests/test_ventuno_physical_pilot_gate.py \
+            tests/test_ventuno_big_test_readiness.py \
+            tests/test_ventuno_usb_dialogue_once.py \
+            tests/test_ventuno_usb_dialogue_hardware.py \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_voice_tool_execution_status_bridge.py \
+            tests/test_voice_session.py \
+            tests/test_voice_stt_process.py \
+            tests/test_voice_factory.py \
+            tests/test_config_validation.py
+      - name: Erase hosted temporary worktree/venv
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_PERSISTENT_STT_HOST:-}" ]; then rm -rf -- "$MYAI_PERSISTENT_STT_HOST"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-persistent-stt-venv"
+
+  ventuno-source-only:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    needs: x86-real-synthetic-process
+    timeout-minutes: 4
+    steps:
+      - name: Fetch exact commit to disposable VENTUNO checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-persistent-stt-board.XXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_PERSISTENT_STT_BOARD=$scratch" >> "$GITHUB_ENV"
+          cd "$scratch"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Confirm default OFF and no real STT/hardware calls
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PERSISTENT_STT_BOARD"
+          /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          from core.config import DEFAULT_SETTINGS
+          from core.voice_factory import build_voice_components
+          cfg = DEFAULT_SETTINGS["voice"]
+          assert cfg["enabled"] is False
+          assert cfg["stt_process_isolation_enabled"] is False
+          assert cfg["stt_persistent_worker_enabled"] is False
+          assert cfg["stt_persistent_worker_max_utterances"] == 4
+          assert cfg["stt_child_cpu_seconds"] == 0
+          assert cfg["stt_child_virtual_memory_mib"] == 0
+          result = build_voice_components(settings={"voice": {"enabled": False}})
+          assert result["primary_stt"] is None
+          assert result["backup_stt"] == []
+          print("Persistent STT DEFAULT OFF; no model load, DSP/GenieX or audio capture.")
+          PY
+      - name: Verify pinned source and production OFF without opening audio
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PERSISTENT_STT_BOARD"
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_physical_pilot_gate \
+            --expected-sha "$GITHUB_SHA" --source-root .
+          echo "No consent or real audio operation was authorized."
+
+      - name: Inspect existing VENTUNO board READ ONLY for future separate consent
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PERSISTENT_STT_BOARD"
+          status=0
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_physical_pilot_gate \
+            --expected-sha "$GITHUB_SHA" --source-root . --board-readonly || status=$?
+          case "$status" in
+            0) echo "Board read-only GO for separately consented future test (not audio consent)." ;;
+            2) echo "Board read-only NO-GO: follow sanitized output, DO NOT record audio." ;;
+            *) echo "Preflight runner error, not a hardware GO." >&2; exit "$status" ;;
+          esac
+          echo "Diagnostic completed; no microphone, playback, model or NPU used."
+
+      - name: Diagnose USB ALSA numbering and permissions without opening a device
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PERSISTENT_STT_BOARD"
+          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_usb_audio_inventory
+          echo "Numeric USB card/pair and access metadata only; no device opened."
+
+      - name: Collect five sanitized read-only USB NPU HTP and recovery probe verdicts
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PERSISTENT_STT_BOARD"
+          # All existing metadata probes are bounded and read-only. This
+          # executable has NO permission/flags to start HTP or open audio.
+          timeout --signal=TERM --kill-after=3s 115s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_big_test_readiness --board-metadata-only
+          echo "Hardware probe is metadata-only; NPU profiling still unapproved."
+
+      - name: Delete disposable board checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${MYAI_PERSISTENT_STT_BOARD:-}" ]; then rm -rf -- "$MYAI_PERSISTENT_STT_BOARD"; fi
