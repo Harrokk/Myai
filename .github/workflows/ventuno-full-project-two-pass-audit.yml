@@ -4,6 +4,8 @@ on:
     branches: [dev/deep-project-hardware-readiness-audit-20261016]
     paths:
       - scripts/ventuno_deep_source_audit.py
+      - modules/voice/providers.py
+      - tests/test_voice_providers.py
       - tests/test_ventuno_deep_source_audit.py
       - docs/VENTUNO_FULL_PROJECT_AUDIT_20261016.md
       - .github/workflows/ventuno-full-project-two-pass-audit.yml
@@ -46,12 +48,18 @@ jobs:
           python3 -B -m scripts.ventuno_deep_source_audit
           python3 -B -m scripts.static_repository_audit
           python3 -B -m scripts.ventuno_eight_sensitive_calls_review
-          echo "No import of MyAI production code, no device, NPU or microphone."
+          python3 -m venv "$RUNNER_TEMP/myai-source-review-venv"
+          "$RUNNER_TEMP/myai-source-review-venv/bin/python" -m pip install --disable-pip-version-check pytest==8.3.5
+          "$RUNNER_TEMP/myai-source-review-venv/bin/python" -B -m pytest -q \
+            tests/test_voice_providers.py \
+            tests/test_ventuno_deep_source_audit.py
+          echo "Only fake STT models/synthetic PCM; no live model, device or NPU."
       - name: Delete disposable checkout
         if: always()
         shell: bash
         run: |
           if [ -n "$MYAI_AUDIT_SCRATCH" ]; then rm -rf -- "$MYAI_AUDIT_SCRATCH"; fi
+          rm -rf -- "$RUNNER_TEMP/myai-source-review-venv"
   arm64-source-audit:
     name: ARM64 exact-tree structural replay ONLY
     needs: hosted-source-audit
