@@ -65,6 +65,7 @@ def audit(root=ROOT):
                 for block in other_board
             )
             ok = (first == "if: false" and not other_board_suspicious
+                  and len(re.findall(r"(?m)^    if:[ \\t]*", section)) == 1
                   and re.search(r"(?m)^    runs-on: \[self-hosted, Linux, ARM64, ventuno-q\]$", section) is not None)
         except (OSError, UnicodeError, ValueError):
             ok = False
