@@ -19,10 +19,17 @@ FLAGS = (
     ("selfdev", "promotion_enabled"),
     ("geniex_supervisor", "restart_enabled"),
     ("trusted_terminals", "auto_execute"),
+    ("trusted_terminals", "enabled"),
     ("camera", "stream_enabled"),
+    ("camera", "enabled"),
     ("location", "enabled"),
+    ("hardware_watch", "enabled"),
+    ("vision", "enabled"),
+    ("ventuno", "rpc_enabled"),
     ("excel", "write_enabled"),
+    ("excel", "enabled"),
     ("files", "write_enabled"),
+    ("files", "enabled"),
 )
 
 
