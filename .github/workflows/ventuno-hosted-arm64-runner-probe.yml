@@ -35,6 +35,16 @@ jobs:
           python3 --version
           echo "MYAI_HOSTED_ARM64_RUNNER_AVAILABLE=true"
 
+      - name: Install only host VM PortAudio and eSpeak shared libraries for native import screening
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libportaudio2 libespeak1
+          test -n "$(ldconfig -p | grep libportaudio)"
+          echo "MYAI_HOSTED_ARM64_OS_ABI_LIBRARIES_PRESENT=true"
       - name: Install exact 28 SHA256 voice wheels in disposable hosted ARM64 venv
         shell: bash
         env:
