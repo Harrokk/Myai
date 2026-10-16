@@ -20,11 +20,6 @@ jobs:
     # Commit-message/old-branch conditions do not grant physical authorization.
     if: false
     name: Explicitly consented USB plughw 1 0 two-second capture
-    if: >-
-      github.event_name == 'push' &&
-      github.event.head_commit.message == 'Authorize one-time 2s USB microphone capture on VENTUNO Q' &&
-      github.run_attempt == 1 &&
-      github.repository == 'Harrokk/Myai'
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 5
     steps:
