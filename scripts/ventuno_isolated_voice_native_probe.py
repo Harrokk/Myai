@@ -1,0 +1,132 @@
+"""Isolated *real native-import* compatibility smoke checks; never open devices.
+
+This is only for a temporary Python 3.12 virtualenv inside a private Actions
+runner scratch tree AFTER all signed-off wheels have been hash-verified.
+It uses separate bounded child processes, strips model network environment,
+cannot record/play audio and never loads or downloads model weights.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.metadata
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+MODULES = (
+    "numpy", "ctranslate2", "av", "faster_whisper",
+    "sounddevice", "webrtcvad", "pyttsx3",
+)
+DISTS = ("numpy", "ctranslate2", "av", "faster-whisper",
+         "sounddevice", "webrtcvad-wheels", "pyttsx3")
+VERSION = re.compile(r"[A-Za-z0-9_.+!\-]{1,64}\Z")
+CHILD = (
+    "import importlib,sys; "
+    "mod=sys.argv[1]; "
+    "importlib.import_module(mod); "
+    "print('ISOLATED_NATIVE_IMPORT_OK')"
+)
+
+
+def isolated_prefix(*, staging_root: Path, executable=None):
+    """Require an actually isolated venv, never the installed MyAI runtime."""
+    executable = Path(executable or sys.executable)
+    try:
+        root = staging_root.resolve(strict=True)
+        prefix = Path(sys.prefix).resolve(strict=True)
+        binfile = executable.resolve(strict=True)
+        return bool(
+            root.is_dir()
+            and prefix.is_relative_to(root)
+            and binfile.is_relative_to(prefix)
+            and prefix != Path(sys.base_prefix).resolve()
+            and not str(prefix).startswith("/home/arduino/MyAI")
+            and (prefix / "pyvenv.cfg").is_file()
+            and sys.version_info[:2] == (3, 12)
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def inspect(staging_root, *, runner=None, metadata=None,
+            prefix_check=None):
+    runner = subprocess.run if runner is None else runner
+    metadata = importlib.metadata.version if metadata is None else metadata
+    safe = (
+        isolated_prefix(staging_root=Path(staging_root))
+        if prefix_check is None else bool(prefix_check)
+    )
+    statuses = {module: False for module in MODULES}
+    versions = {}
+    if not safe:
+        return _result(statuses, versions, safe)
+    env = {
+        "PATH": "/usr/bin:/bin", "HOME": str(staging_root),
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "HF_HUB_DISABLE_TELEMETRY": "1",
+        "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1", "CUDA_VISIBLE_DEVICES": "",
+    }
+    for dist in DISTS:
+        try:
+            version = metadata(dist)
+            versions[dist] = version if isinstance(version, str) and VERSION.fullmatch(version) else None
+        except Exception:
+            versions[dist] = None
+    for module in MODULES:
+        try:
+            process = runner(
+                [sys.executable, "-I", "-B", "-c", CHILD, module],
+                cwd=str(staging_root),
+                env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, check=False, timeout=12,
+            )
+            statuses[module] = bool(
+                process.returncode == 0
+                and process.stdout.strip() == "ISOLATED_NATIVE_IMPORT_OK"
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            statuses[module] = False
+    return _result(statuses, versions, safe)
+
+
+def _result(statuses, versions, isolated):
+    all_ok = isolated and all(statuses.values()) and all(
+        versions.get(name) is not None for name in DISTS
+    )
+    return {
+        "status": (
+            "isolated-native-imports-pass-no-audio"
+            if all_ok else "blocked-native-import-or-venv-isolation"
+        ),
+        "isolated_private_venv_confirmed": isolated,
+        "per_module_import": statuses,
+        "installed_dist_versions": versions,
+        "all_seven_imports_passed": bool(all_ok),
+        "microphone_opened": False,
+        "speaker_opened": False,
+        "model_weights_loaded": False,
+        "npu_or_dsp_opened": False,
+        "production_packages_modified": False,
+        "physical_runtime_compatibility_proven": False,
+        "real_audio_authorized": False,
+    }
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--staging-root", required=True, type=Path)
+    args = parser.parse_args(argv)
+    result = inspect(args.staging_root)
+    print("MYAI_ISOLATED_NATIVE_VOICE_PROBE_JSON=" + json.dumps(result, sort_keys=True))
+    return 0 if result["all_seven_imports_passed"] else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
