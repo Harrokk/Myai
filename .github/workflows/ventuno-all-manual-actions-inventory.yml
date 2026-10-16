@@ -46,12 +46,15 @@ jobs:
             /usr/bin/python3 -B -m scripts.ventuno_five_real_model_job_quarantine
           timeout --signal=TERM --kill-after=3s 35s \
             /usr/bin/python3 -B -m scripts.ventuno_manual_actions_triage_gate
+          timeout --signal=TERM --kill-after=3s 35s \
+            /usr/bin/python3 -B -m scripts.ventuno_all_manual_actions_drift_gate
           timeout --signal=TERM --kill-after=3s 110s \
             /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
               tests/test_ventuno_workflow_release_review.py \
               tests/test_ventuno_legacy_inference_quarantine.py \
               tests/test_ventuno_five_real_model_job_quarantine.py \
-              tests/test_ventuno_manual_actions_triage_gate.py
+              tests/test_ventuno_manual_actions_triage_gate.py \
+              tests/test_ventuno_all_manual_actions_drift_gate.py
           echo "No release approval: manual dispatch and YAML expression review still pending."
       - name: Delete isolated scratch only
         if: always()
