@@ -67,6 +67,9 @@ jobs:
           rm -rf -- "$RUNNER_TEMP/myai-timer-canary-venv"
 
   ventuno-sandbox-user-timer:
+    # ARCHIVED - NO LIVE SYSTEMD USER-MANAGER TIMER on unapproved DRAFT.
+    # Re-enable only with separate physical operator and rollback approval.
+    if: false
     name: On-board independent user-manager timer only for FAKE marker
     needs: offline-safety
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
