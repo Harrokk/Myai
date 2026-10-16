@@ -52,3 +52,52 @@ def test_structural_scan_only_returns_sanitized_static_evidence():
     assert "HF_HUB_TOKEN" not in text
     assert "PRIVATE_AUDIO" not in text
     assert report["status"].startswith("source-audit")
+
+
+def test_completed_clean_report_is_the_only_successful_ci_exit():
+    clean = {
+        "status": "source-audit-completed",
+        "automatic_blockers": [],
+        "actual_physical_tests_performed": False,
+        "safe_to_deploy_automatically": False,
+    }
+    assert scan.audit_exit_code(clean) == 0
+    for broken in (
+        {**clean, "status": "source-audit-with-findings",
+         "automatic_blockers": ["invalid_python"]},
+        {**clean, "status": "source-audit-incomplete"},
+        {**clean, "automatic_blockers": ["shell_true_requires_manual_review"]},
+        {**clean, "automatic_blockers": None},
+        {**clean, "automatic_blockers": "not-a-list"},
+        {**clean, "automatic_blockers": ["bad-json"]},
+        {**clean, "safe_to_deploy_automatically": True},
+        {**clean, "actual_physical_tests_performed": True},
+        {"status": "source-audit-completed"},
+        None,
+    ):
+        assert scan.audit_exit_code(broken) == 2
+
+
+def test_cli_propagates_scan_blockers_to_ci(monkeypatch, capsys):
+    fake = {
+        "status": "source-audit-with-findings",
+        "automatic_blockers": ["invalid_python"],
+        "safe_to_deploy_automatically": False,
+        "actual_physical_tests_performed": False,
+    }
+    monkeypatch.setattr(scan, "audit", lambda: fake)
+    assert scan.main() == 2
+    out = capsys.readouterr().out
+    assert "MYAI_TWO_PASS_DEEP_AUDIT_JSON=" in out
+    assert "invalid_python" in out
+
+
+def test_cli_fails_closed_without_exposing_exception_details(monkeypatch, capsys):
+    def crash():
+        raise RuntimeError("private-api-token-secret-source")
+    monkeypatch.setattr(scan, "audit", crash)
+    assert scan.main() == 2
+    out = capsys.readouterr().out
+    assert "source-audit-incomplete" in out
+    assert "private-api-token" not in out
+    assert "audit_error" in out
