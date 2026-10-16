@@ -19,6 +19,9 @@ concurrency:
 
 jobs:
   verify:
+    # ARCHIVED - NO HARDWARE EXECUTION on the DRAFT revision candidate.
+    # This legacy model/device job requires a new operator-authorized PR.
+    if: false
     name: Actual public fixture Whisper to existing local GenieX to RAM-only TTS
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 20
