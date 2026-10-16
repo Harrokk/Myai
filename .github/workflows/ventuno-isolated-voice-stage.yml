@@ -12,7 +12,7 @@ on:
       - tests/test_voice_providers.py
       - tests/test_ventuno_deep_source_audit.py
       - docs/VENTUNO_FULL_PROJECT_AUDIT_20261016.md
-      - .github/workflows/ventuno-full-project-two-pass-audit.yml
+      - .github/workflows/ventuno-isolated-voice-stage.yml
   workflow_dispatch:
 permissions:
   contents: read
