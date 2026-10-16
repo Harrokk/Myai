@@ -59,3 +59,35 @@ def test_unreadable_source_and_symlink_block_review(tmp_path):
     folder.mkdir(parents=True)
     (folder / "probe.yml").symlink_to(tmp_path / "other.yml")
     assert mod.inventory(tmp_path)["status"] == "blocked-unreadable-actions-source"
+
+
+
+def test_multiline_push_branch_restriction_is_respected(tmp_path):
+    folder = tmp_path / ".github" / "workflows"
+    folder.mkdir(parents=True)
+    (folder / "old.yml").write_text(
+        "name: isolated historical\non:\n  workflow_dispatch:\n"
+        "  push:\n    branches:\n      - dev/routing-boundary-followup\n"
+        "jobs:\n  infer:\n    runs-on: [self-hosted, Linux, ARM64]\n"
+        "    steps:\n      - run: arecord -d 3 /tmp/private.wav\n"
+    )
+    report = mod.inventory(tmp_path)
+    assert report["counts"]["hardware_candidates"] == 1
+    assert report["counts"]["manual_hardware_candidates"] == 1
+    assert report["counts"]["current_branch_automatic_risks"] == 0
+    assert report["hardware_authorized"] is False
+
+
+def test_multiline_push_with_current_branch_or_wildcard_is_denied(tmp_path):
+    folder = tmp_path / ".github" / "workflows"
+    folder.mkdir(parents=True)
+    path = folder / "risky.yml"
+    for branch in (mod.CURRENT_BRANCH, "'**'", "dev/*"):
+        path.write_text(
+            "name: risky\non:\n  push:\n    branches:\n      - " + branch + "\n"
+            "jobs:\n  infer:\n    runs-on: [self-hosted]\n"
+            "    steps:\n      - run: aplay /tmp/test.wav\n"
+        )
+        assert mod.inventory(tmp_path)["status"] == (
+            "blocked-possible-automatic-hardware-triggers"
+        )
