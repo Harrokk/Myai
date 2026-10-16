@@ -32,7 +32,7 @@ def main(argv=None):
     release.add_argument("token", help="32-character review ticket identifier")
     arguments = parser.parse_args(argv)
 
-    if arguments.action != "inspect" and not sys.stdin.isatty():
+    if arguments.action in {"prepare", "release"} and not sys.stdin.isatty():
         print("Interactive local terminal required; marker unchanged.")
         return 2
 
