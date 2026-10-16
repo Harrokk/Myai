@@ -24,6 +24,9 @@ concurrency:
 
 jobs:
   tiny:
+    # ARCHIVED - NO HARDWARE EXECUTION on the DRAFT revision candidate.
+    # This legacy model/device job requires a new operator-authorized PR.
+    if: false
     name: Pinned multilingual tiny STT CPU inference on VENTUNO ARM64
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 10
