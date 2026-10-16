@@ -42,6 +42,11 @@ def inspect(root=ROOT):
             parsed = _compatible(filename)
             if parsed is None:
                 raise ValueError("Incompatible wheel tag")
+            # faster-whisper 1.2.1 still passes removed metadata_errors
+            # into av.open(). Its installed PyAV 19 dependency must be
+            # rejected, even if its binary wheel/tag/hash looks valid.
+            if parsed["name"] == "av" and not parsed["version"].startswith("18."):
+                raise ValueError("PyAV not validated against pinned STT API")
             name = _normalize(parsed["name"])
             if name in names:
                 raise ValueError("Duplicate wheel distribution")
