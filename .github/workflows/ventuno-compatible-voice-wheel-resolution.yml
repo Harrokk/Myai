@@ -9,6 +9,9 @@ on:
       - config/voice_arm64_cp312_wheels.lock.json
       - scripts/ventuno_hashed_voice_native_import.py
       - tests/test_ventuno_hashed_voice_native_import.py
+      - core/runtime_service.py
+      - tests/test_runtime_service.py
+      - docs/VENTUNO_NATIVE_VOICE_AND_RUNTIME_PREP_20261016.md
   workflow_dispatch:
 permissions:
   contents: read
@@ -70,6 +73,25 @@ jobs:
               locked["wheels"],key=lambda x:x["filename"]), "pinned PyAV18 artifact set differs"
           print("MYAI_HOSTED_PYAV18_LOCK_REVERIFIED=true")
           PY
+
+      - name: Test synthetic runtime heartbeat, crash cleanup and fake voice on HOSTED only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-voice-compat-source"
+          isolated="$(mktemp -d "$RUNNER_TEMP/myai-voice-hosted-tests.XXXXXX")"
+          trap 'rm -rf -- "$isolated"' EXIT
+          python3 -m venv "$isolated/venv"
+          "$isolated/venv/bin/python" -m pip install \
+            --disable-pip-version-check --quiet pytest==8.3.5 -r requirements.txt
+          PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \
+            timeout --signal=TERM --kill-after=3s 90s \
+            "$isolated/venv/bin/python" -B -m pytest -q \
+            tests/test_runtime_service.py \
+            tests/test_ventuno_hashed_voice_native_import.py \
+            tests/test_ventuno_synthetic_voice_chain.py \
+            tests/test_voice_recovery_crash_boundaries.py
+          echo "MYAI_HOSTED_SYNTHETIC_RUNTIME_AND_CRASH_TESTS=true"
 
   arm64-disposable-native-import:
     name: Disposable ARM64 Python native imports ONLY, no devices
