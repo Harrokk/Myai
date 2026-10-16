@@ -5,3 +5,5 @@ faster-whisper>=1,<2
 sounddevice>=0.5,<1
 webrtcvad-wheels>=2,<3
 pyttsx3>=2.90,<3
+# Faster-Whisper 1.2.1 is incompatible with PyAV 19 metadata_errors argument.
+av>=17,<19
