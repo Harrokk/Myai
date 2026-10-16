@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   dialogue:
+    # SOURCE AUDIT: historical device/model job inert pending FRESH consent.
+    # Commit-message/old-branch conditions do not grant physical authorization.
+    if: false
     name: One 3s spoken Swedish question and one capped Swedish response
     if: >-
       github.event_name == 'push' &&
