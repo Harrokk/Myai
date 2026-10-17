@@ -3142,8 +3142,13 @@ def test_project_target_rejects_final_symlink(tmp_path):
 
 
 def test_project_target_allows_missing_parent_of_approved_new_file(tmp_path):
+    import shutil
+
     project, workspace = make_workspace(tmp_path)
     active = manager(workspace, settings())
+    # The shared fixture creates tests/; remove only this temporary copy
+    # to exercise the legitimate missing-parent case.
+    shutil.rmtree(project / "tests")
     assert not (project / "tests").exists()
     assert active._safe_project_target("tests/test_new.py") == (
         project / "tests" / "test_new.py"
