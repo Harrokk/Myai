@@ -1972,3 +1972,160 @@ def test_promotion_verification_reader_rejects_linked_approved_record(tmp_path):
     assert outside.exists()
 
 
+
+
+def test_atomic_promotion_copy_rejects_unverified_source_before_replace(
+    tmp_path,
+):
+    import hashlib
+    from core import selfdev_promote as module
+
+    source = tmp_path / "candidate.py"
+    target = tmp_path / "active.py"
+    source.write_text("UNVERIFIED = True\n", encoding="utf-8")
+    target.write_text("CURRENT = True\n", encoding="utf-8")
+    expected = hashlib.sha256(b"EXPECTED = True\n").hexdigest()
+
+    with pytest.raises(RuntimeError, match="staging har ändrats"):
+        module._atomic_copy(
+            source, target, expected_source=expected
+        )
+    assert target.read_text(encoding="utf-8") == "CURRENT = True\n"
+    assert not list(tmp_path.glob(".active.py.*.tmp"))
+
+
+def test_atomic_promotion_copy_ignores_source_name_symlink_swap_after_open(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "candidate.py"
+    target = tmp_path / "active.py"
+    outside = tmp_path / "confidential.py"
+    contents = b"SAFE = True\n"
+    source.write_bytes(contents)
+    outside.write_text("SECRET = True\n", encoding="utf-8")
+    real_open = os.open
+    swaps = []
+
+    def swap_source_after_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "candidate.py" and kwargs.get("dir_fd") is not None:
+            source.rename(tmp_path / "candidate-old.py")
+            source.symlink_to(outside)
+            swaps.append(True)
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", swap_source_after_open)
+    module._atomic_copy(
+        source, target,
+        expected_source=hashlib.sha256(contents).hexdigest(),
+    )
+    assert swaps == [True]
+    assert target.read_bytes() == contents
+    assert outside.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_atomic_promotion_copy_rejects_parent_link_before_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "candidate.py"
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+    inside = tmp_path / "active"
+    inside.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "dest.py").write_text("PRIVATE = True\n", encoding="utf-8")
+    real_open = os.open
+    changed = []
+
+    def swap_before_dir_open(path, flags, *args, **kwargs):
+        if path == "active" and kwargs.get("dir_fd") is not None:
+            inside.rename(tmp_path / "active-original")
+            inside.symlink_to(outside, target_is_directory=True)
+            changed.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_dir_open)
+    with pytest.raises(OSError):
+        module._atomic_copy(source, inside / "dest.py")
+
+    assert changed == [True]
+    assert (outside / "dest.py").read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_atomic_promotion_copy_targets_pinned_parent_if_alias_swaps(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "candidate.py"
+    source.write_text("SAFE = True\n", encoding="utf-8")
+    inside = tmp_path / "active"
+    inside.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "dest.py"
+    protected.write_text("PRIVATE = True\n", encoding="utf-8")
+    real_replace = os.replace
+    did_swap = []
+
+    def swap_at_replace(temp, name, **kwargs):
+        if name == "dest.py" and kwargs.get("dst_dir_fd") is not None:
+            inside.rename(tmp_path / "active-original")
+            inside.symlink_to(outside, target_is_directory=True)
+            did_swap.append(True)
+        return real_replace(temp, name, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", swap_at_replace)
+    module._atomic_copy(source, inside / "dest.py")
+    assert did_swap == [True]
+    assert (tmp_path / "active-original" / "dest.py").read_text(
+        encoding="utf-8"
+    ) == "SAFE = True\n"
+    assert protected.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_atomic_promotion_copy_replaces_final_symlink_without_following(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "candidate.py"
+    source.write_text("STAGED = True\n", encoding="utf-8")
+    target = tmp_path / "active.py"
+    target.write_text("OLD = True\n", encoding="utf-8")
+    outside = tmp_path / "outside.py"
+    outside.write_text("DO_NOT_CHANGE = True\n", encoding="utf-8")
+    real_replace = os.replace
+
+    def swap_final_before_rename(temp, name, **kwargs):
+        if name == "active.py" and kwargs.get("dst_dir_fd") is not None:
+            target.unlink()
+            target.symlink_to(outside)
+        return real_replace(temp, name, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", swap_final_before_rename)
+    module._atomic_copy(source, target)
+    assert target.read_text(encoding="utf-8") == "STAGED = True\n"
+    assert not target.is_symlink()
+    assert outside.read_text(encoding="utf-8") == "DO_NOT_CHANGE = True\n"
+
+
+def test_atomic_promotion_copy_preserves_safe_source_permissions(tmp_path):
+    import stat
+    from core import selfdev_promote as module
+
+    source = tmp_path / "script.sh"
+    source.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    source.chmod(0o751)
+    target = tmp_path / "script-active.sh"
+    module._atomic_copy(source, target)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o751
