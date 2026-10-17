@@ -254,12 +254,12 @@ def _stage_source_files(project_root, workspace_root, *, target_dir_fd=None):
             finally:
                 os.close(source_file)
 
-    source_fd = os.open(project_root, directory_flags)
+    source_fd = _open_directory_nofollow(project_root)
     try:
         target_fd = (
             os.dup(target_dir_fd)
             if target_dir_fd is not None
-            else os.open(workspace_root, directory_flags)
+            else _open_directory_nofollow(workspace_root)
         )
         try:
             visit(source_fd, target_fd)
@@ -281,6 +281,29 @@ def _manifest_open_flags():
         | getattr(os, "O_NONBLOCK", 0) | close_on_exec
     )
     return directory_flags, file_flags
+
+
+def _open_directory_nofollow(root):
+    """Open an absolute directory without following ANY parent symlink.
+
+    O_NOFOLLOW on a full pathname protects only the final component.
+    Traverse from / using directory-relative O_DIRECTORY|O_NOFOLLOW opens
+    and return the pinned directory descriptor, closing on any failure.
+    """
+    root = Path(root)
+    if not root.is_absolute() or ".." in root.parts:
+        raise PermissionError("Selfdev-katalogen måste ha en säker absolut sökväg.")
+    directory_flags, _ = _manifest_open_flags()
+    directory_fd = os.open("/", directory_flags)
+    try:
+        for part in root.parts[1:]:
+            next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return directory_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
 
 
 def _hash_pinned_regular_file(file_fd):
@@ -329,7 +352,7 @@ def _hash_allowed_relative(root, relative):
     """Read one allowlisted session-baseline path via pinned directory FDs."""
     parts = _manifest_parts(relative)
     directory_flags, file_flags = _manifest_open_flags()
-    directory_fd = os.open(root, directory_flags)
+    directory_fd = _open_directory_nofollow(root)
     try:
         for component in parts[:-1]:
             child_fd = os.open(component, directory_flags, dir_fd=directory_fd)
@@ -351,9 +374,6 @@ def build_manifest(root):
     untrusted symlink/root or swapped descendant must fail closed.
     """
     root = Path(root)
-    if not root.exists() and not root.is_symlink():
-        return {}
-
     directory_flags, file_flags = _manifest_open_flags()
     result = {}
 
@@ -402,7 +422,11 @@ def build_manifest(root):
             finally:
                 os.close(file_fd)
 
-    root_fd = os.open(root, directory_flags)
+    try:
+        root_fd = _open_directory_nofollow(root)
+    except FileNotFoundError:
+        # Preserve the empty manifest for a missing optional root.
+        return {}
     try:
         visit(root_fd)
     finally:
@@ -595,21 +619,8 @@ class SelfDevWorkspace:
         return instance
 
     def _session_directory_fd(self):
-        """Open the session root without following any parent symlink."""
-        if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
-            raise RuntimeError("Säker selfdev-session kräver Linux dir_fd.")
-        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        flags |= getattr(os, "O_CLOEXEC", 0)
-        directory_fd = os.open("/", flags)
-        try:
-            for component in self.session_root.parts[1:]:
-                next_fd = os.open(component, flags, dir_fd=directory_fd)
-                os.close(directory_fd)
-                directory_fd = next_fd
-            return directory_fd
-        except BaseException:
-            os.close(directory_fd)
-            raise
+        """Open the session root through the shared no-follow root opener."""
+        return _open_directory_nofollow(self.session_root)
 
     def _read_session_record(self, filename):
         # Session records are small, user-independent JSON files. A checked
@@ -768,7 +779,7 @@ class SelfDevWorkspace:
 
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         flags |= getattr(os, "O_CLOEXEC", 0)
-        directory_fd = os.open(self.workspace_root, flags)
+        directory_fd = _open_directory_nofollow(self.workspace_root)
 
         try:
             for component in relative.parts[:-1]:

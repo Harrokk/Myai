@@ -871,3 +871,151 @@ def test_new_session_staging_keeps_pinned_destination_after_alias_swap(
         / "workspace" / "core" / "example.py"
     ).read_bytes() == b"VALUE = 1\n"
     assert not (outside / "session-race" / "session.json").exists()
+
+
+def test_workspace_writer_rejects_session_parent_swapped_after_candidate_check(
+    tmp_path, monkeypatch
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "write-root-parent-swap")
+    previous = session.workspace_root / "core" / "example.py"
+    outside = tmp_path / "external-session"
+    (outside / "workspace" / "core").mkdir(parents=True)
+    protected = outside / "workspace" / "core" / "example.py"
+    protected.write_text("PRIVATE = True\n", encoding="utf-8")
+    checked = session._candidate_path
+    swapped = []
+
+    def change_session_alias_after_preflight(relative):
+        result = checked(relative)
+        session.session_root.rename(
+            session.session_root.with_name("write-root-original")
+        )
+        session.session_root.symlink_to(
+            outside, target_is_directory=True
+        )
+        swapped.append(True)
+        return result
+
+    monkeypatch.setattr(
+        session, "_candidate_path", change_session_alias_after_preflight
+    )
+    with pytest.raises(OSError):
+        session.write_text("core/example.py", "EXTERNAL = True\n")
+    assert swapped == [True]
+    assert protected.read_text(encoding="utf-8") == "PRIVATE = True\n"
+    assert (
+        session.session_root.with_name("write-root-original")
+        / "workspace" / "core" / "example.py"
+    ).read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_manifest_reader_rejects_swapped_session_parent_before_root_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "manifest-root-parent-swap")
+    outside = tmp_path / "external-session"
+    (outside / "workspace" / "core").mkdir(parents=True)
+    private = outside / "workspace" / "core" / "example.py"
+    private.write_text("PRIVATE = True\n", encoding="utf-8")
+    original_open = os.open
+    swapped = []
+
+    def switch_parent_at_open(name, flags, *args, **kwargs):
+        if (
+            name == "manifest-root-parent-swap"
+            and kwargs.get("dir_fd") is not None
+            and not swapped
+        ):
+            session.session_root.rename(
+                session.session_root.with_name("manifest-root-original")
+            )
+            session.session_root.symlink_to(
+                outside, target_is_directory=True
+            )
+            swapped.append(True)
+        return original_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", switch_parent_at_open)
+    with pytest.raises(OSError):
+        module.build_manifest(session.workspace_root)
+    assert swapped == [True]
+    assert private.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_manifest_missing_root_is_empty_but_symlinked_root_is_rejected(
+    tmp_path,
+):
+    from core.selfdev_workspace import build_manifest
+
+    nonexistent = tmp_path / "missing-root"
+    assert build_manifest(nonexistent) == {}
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    nonexistent.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OSError):
+        build_manifest(nonexistent)
+
+
+def test_source_drift_rejects_swapped_project_parent_before_hash(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "source-root-parent-swap")
+    outside = tmp_path / "external-project"
+    (outside / "core").mkdir(parents=True)
+    private = outside / "core" / "example.py"
+    private.write_text("VALUE = 1\n", encoding="utf-8")
+    actual_hash = module._hash_allowed_relative
+    swapped = []
+
+    def change_source_root_just_before_hash(root, relative):
+        if not swapped:
+            project.rename(tmp_path / "project-original")
+            project.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return actual_hash(root, relative)
+
+    monkeypatch.setattr(
+        module, "_hash_allowed_relative", change_source_root_just_before_hash
+    )
+    assert "core/example.py" in session.source_drift()
+    assert swapped == [True]
+    assert private.read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_stage_source_root_refuses_swapped_parent_before_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    target = tmp_path / "staging-target"
+    target.mkdir()
+    outside = tmp_path / "external-project"
+    (outside / "core").mkdir(parents=True)
+    secret = outside / "core" / "example.py"
+    secret.write_text("PRIVATE = True\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def swap_source_root_at_open(name, flags, *args, **kwargs):
+        if name == "project" and kwargs.get("dir_fd") is not None and not swapped:
+            project.rename(tmp_path / "project-original")
+            project.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_source_root_at_open)
+    with pytest.raises(OSError):
+        module._stage_source_files(project, target)
+    assert swapped == [True]
+    assert secret.read_text(encoding="utf-8") == "PRIVATE = True\n"
+    assert not (target / "core" / "example.py").exists()
