@@ -296,8 +296,10 @@ def test_failed_atomic_write_cleans_only_new_temporary_file(tmp_path, monkeypatc
     destination.write_text("old", encoding="utf-8")
     old_replace = workspace.os.replace
 
-    def denied_replace(source, target):
-        assert target == destination
+    def denied_replace(source, target, **kwargs):
+        assert target == "note.txt"
+        assert source.endswith(".tmp")
+        assert kwargs["src_dir_fd"] == kwargs["dst_dir_fd"]
         raise OSError("simulated atomic replace failure")
 
     monkeypatch.setattr(workspace.os, "replace", denied_replace)
@@ -322,7 +324,7 @@ def test_workspace_read_large_unicode_file_uses_bounded_blocks(tmp_path, monkeyp
     source = root / "large.txt"
     source.write_text("åäö" * 100_000, encoding="utf-8")
 
-    real_open = Path.open
+    real_fdopen = workspace.os.fdopen
     block_sizes = []
 
     class BoundedReader:
@@ -341,13 +343,13 @@ def test_workspace_read_large_unicode_file_uses_bounded_blocks(tmp_path, monkeyp
             block_sizes.append(size)
             return self.stream.read(size)
 
-    def guarded_open(path, *args, **kwargs):
-        stream = real_open(path, *args, **kwargs)
-        if path == source:
+    def guarded_fdopen(descriptor, mode="r", *args, **kwargs):
+        stream = real_fdopen(descriptor, mode, *args, **kwargs)
+        if mode == "r":
             return BoundedReader(stream)
         return stream
 
-    monkeypatch.setattr(Path, "open", guarded_open)
+    monkeypatch.setattr(workspace.os, "fdopen", guarded_fdopen)
     result = workspace.read_workspace_text("large.txt", cfg)
     assert result == {
         "path": "large.txt",
