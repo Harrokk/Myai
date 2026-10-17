@@ -25,3 +25,31 @@ Old core/public_web_client.py verified public DNS addresses before calling reque
 ## Required CI
 Run branch-specific source-only socket/DNS regression and whole-project ARM64 tests on the SAME final commit. No green result from earlier heads counts toward this commit.
 Release, physical voice, QAIRT/NPU, model inference and unattended rollback remain explicitly NO-GO.
+
+
+## Independent IPv6 transition-address follow-up (DRAFT, 2026-10-17)
+Source-level investigation found an additional gap in the original `is_global`
+policy: Python can classify addresses in the well-known NAT64 prefix
+`64:ff9b::/96` as globally routable even when their embedded IPv4 address is
+private or link-local. For example `64:ff9b::a9fe:a9fe` encodes
+`169.254.169.254`. Depending on a gateway's translation and routing policy,
+that could cause SSRF despite a correctly pinned IPv6 socket.
+
+The follow-up applies the **same deny policy** during initial DNS validation
+and again before the pinned TCP socket is accepted. It conservatively excludes
+`64:ff9b::/96` (RFC 6052 well-known NAT64), `64:ff9b:1::/48`
+(local-use translation), `2002::/16` (6to4) and `2001::/32`
+(Teredo), in addition to Python's ordinary non-global address checks.
+Offline regression tests require denial **before opening any socket**, even if
+the transport is accidentally passed a transition IP as a pre-approved address.
+
+This is a deliberate compatibility restriction: IPv6-only networks relying
+on NAT64 may fail to fetch otherwise harmless IPv4-only pages. Do not weaken
+the fail-closed policy without a separate, tested egress design.
+
+Residual risk: Network-specific NAT64/6rd prefixes can differ from these
+well-known ranges; generic public IPv6 checks cannot rule out arbitrary
+upstream gateway translation or compromised local routing. No real NAT64,
+IPv6 network, TLS or local metadata endpoint was contacted. The full manual
+file review, dependency/firmware review and physical deployment gates remain
+open. Do not merge or deploy this DRAFT on the basis of mock-only tests.
