@@ -3370,3 +3370,116 @@ def test_unprepared_rollback_cleanup_rejects_swapped_file(tmp_path, monkeypatch)
 
     assert swapped == [True]
     assert outside.read_text(encoding="utf-8") == "PRIVATE = 1\n"
+
+
+def test_private_rollback_root_creates_private_fsynced_directories(tmp_path):
+    import os
+    import stat
+    from core import selfdev_promote as module
+
+    session = tmp_path / "session"
+    session.mkdir()
+    root = session / "rollbacks" / "promo1"
+    module._create_private_rollback_root(root)
+
+    assert stat.S_IMODE(root.stat().st_mode) & 0o077 == 0
+    assert root.is_dir()
+    assert (session / "rollbacks").is_dir()
+    with pytest.raises(FileExistsError):
+        module._create_private_rollback_root(root)
+
+
+def test_private_rollback_root_refuses_swapped_parent_symlink(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    session = tmp_path / "session"
+    session.mkdir()
+    parent = session / "rollbacks"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "promo1"
+    protected.mkdir()
+    marker = protected / "keep.py"
+    marker.write_text("PRIVATE\n", encoding="utf-8")
+    real_open = os.open
+    replaced = []
+
+    def change_before_parent_open(name, flags, *args, **kwargs):
+        if name == "rollbacks" and kwargs.get("dir_fd") is not None:
+            parent.rename(session / "rollbacks-old")
+            parent.symlink_to(outside, target_is_directory=True)
+            replaced.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", change_before_parent_open)
+    with pytest.raises(OSError):
+        module._create_private_rollback_root(parent / "promo1")
+
+    assert replaced == [True]
+    assert marker.read_text(encoding="utf-8") == "PRIVATE\n"
+    assert not (session / "rollbacks-old" / "promo1").exists()
+
+
+def test_private_rollback_root_creation_uses_pinned_parent_after_alias_swap(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    session = tmp_path / "session"
+    session.mkdir()
+    parent = session / "rollbacks"
+    parent.mkdir(mode=0o700)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "promo1"
+    protected.mkdir()
+    marker = protected / "keep.py"
+    marker.write_text("PRIVATE\n", encoding="utf-8")
+    real_open = os.open
+    replaced = []
+
+    def change_after_parent_open(name, flags, *args, **kwargs):
+        descriptor = real_open(name, flags, *args, **kwargs)
+        if name == "rollbacks" and kwargs.get("dir_fd") is not None:
+            parent.rename(session / "rollbacks-old")
+            parent.symlink_to(outside, target_is_directory=True)
+            replaced.append(True)
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", change_after_parent_open)
+    module._create_private_rollback_root(parent / "promo1")
+
+    assert replaced == [True]
+    assert (session / "rollbacks-old" / "promo1").is_dir()
+    assert marker.read_text(encoding="utf-8") == "PRIVATE\n"
+
+
+def test_private_rollback_root_rejects_preexisting_final_symlink(tmp_path):
+    from core import selfdev_promote as module
+
+    session = tmp_path / "session"
+    parent = session / "rollbacks"
+    parent.mkdir(parents=True)
+    target = tmp_path / "outside"
+    target.mkdir()
+    (parent / "promo1").symlink_to(target, target_is_directory=True)
+    with pytest.raises(FileExistsError):
+        module._create_private_rollback_root(parent / "promo1")
+    assert not list(target.iterdir())
+
+
+def test_private_rollback_root_rejects_shared_writable_parent(tmp_path):
+    import os
+    from core import selfdev_promote as module
+
+    session = tmp_path / "session"
+    parent = session / "rollbacks"
+    parent.mkdir(parents=True)
+    os.chmod(parent, 0o777)
+    with pytest.raises(PermissionError, match="förälderkatalog"):
+        module._create_private_rollback_root(parent / "promo1")
+    assert not (parent / "promo1").exists()
