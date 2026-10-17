@@ -4303,3 +4303,109 @@ def test_legacy_archive_rejects_unsafe_existing_file_permissions(tmp_path):
     with pytest.raises(RuntimeError, match="matchar inte originaljournalen"):
         module._publish_or_verify_legacy_archive(root, b'{"legacy":true}')
     assert archive.read_bytes() == b'{"legacy":true}'
+
+
+def test_promotion_rejects_staging_source_symlink_swapped_after_preflight(
+    tmp_path, monkeypatch
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    source = workspace.workspace_root / "core" / "example.py"
+    outside = tmp_path / "outside-candidate.py"
+    outside.write_bytes(source.read_bytes())
+    old_preflight = active._preflight_promotion
+    changed = []
+
+    def swap_after_preflight():
+        verified = old_preflight()
+        source.rename(source.with_name("example-old.py"))
+        source.symlink_to(outside)
+        changed.append(True)
+        return verified
+
+    monkeypatch.setattr(active, "_preflight_promotion", swap_after_preflight)
+    with pytest.raises(OSError):
+        active.promote("PROMOTE session1")
+    assert changed == [True]
+    assert outside.read_bytes() == b"VALUE = 2\n"
+    assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
+
+
+def test_promotion_rejects_staging_parent_symlink_swapped_after_preflight(
+    tmp_path, monkeypatch
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    staging_dir = workspace.workspace_root / "core"
+    outside = tmp_path / "external-staging"
+    outside.mkdir()
+    (outside / "example.py").write_bytes((staging_dir / "example.py").read_bytes())
+    old_preflight = active._preflight_promotion
+
+    def swap_parent_after_preflight():
+        result = old_preflight()
+        staging_dir.rename(staging_dir.with_name("core-original"))
+        staging_dir.symlink_to(outside, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(active, "_preflight_promotion", swap_parent_after_preflight)
+    with pytest.raises(OSError):
+        active.promote("PROMOTE session1")
+    assert (outside / "example.py").read_bytes() == b"VALUE = 2\n"
+    assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
+
+
+def test_promotion_rejects_staging_link_swapped_after_prepared_journal(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    staged = workspace.workspace_root / "core" / "example.py"
+    outside = tmp_path / "outside-staged.py"
+    outside.write_bytes(staged.read_bytes())
+    old_write = active._write_journal
+    switched = []
+
+    def switch_after_prepared(path, record):
+        old_write(path, record)
+        if record.get("state") == "prepared" and not switched:
+            staged.rename(staged.with_name("example-original.py"))
+            staged.symlink_to(outside)
+            switched.append(True)
+
+    monkeypatch.setattr(active, "_write_journal", switch_after_prepared)
+    with pytest.raises(OSError):
+        active.promote("PROMOTE session1")
+    assert switched == [True]
+    assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
+    record = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(record)["state"] == "reverted"
+
+
+def test_promotion_rejects_hardlinked_staging_source_after_preflight(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    staged = workspace.workspace_root / "core" / "example.py"
+    alias = tmp_path / "alias-staging.py"
+    old_preflight = active._preflight_promotion
+
+    def add_link_after_preflight():
+        result = old_preflight()
+        os.link(staged, alias)
+        return result
+
+    monkeypatch.setattr(active, "_preflight_promotion", add_link_after_preflight)
+    with pytest.raises(PermissionError, match="Osäker källfil"):
+        active.promote("PROMOTE session1")
+    assert alias.read_bytes() == b"VALUE = 2\n"
+    assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
