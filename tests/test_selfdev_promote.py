@@ -3085,3 +3085,84 @@ def test_private_selfdev_directory_without_create_does_not_make_files(
     project_root = project / "runtime" / "selfdev"
     assert active._private_selfdev_directory(create=False) == project_root
     assert not (project_root / ".journal-integrity-key").exists()
+
+
+def test_project_target_rejects_preexisting_parent_symlink(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    outside = tmp_path / "outside-target"
+    outside.mkdir()
+    (project / "core" / "example.py").unlink()
+    (project / "core").rmdir()
+    (project / "core").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_project_target("core/example.py")
+
+
+def test_project_target_rejects_swapped_parent_before_open(tmp_path, monkeypatch):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    parent = project / "core"
+    outside = tmp_path / "outside-target"
+    outside.mkdir()
+    (outside / "example.py").write_text("PRIVATE = 1\n", encoding="utf-8")
+    real_open = os.open
+    seen = []
+
+    def swap_before_open(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            parent.rename(project / "core-original")
+            parent.symlink_to(outside, target_is_directory=True)
+            seen.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_open)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_project_target("core/example.py")
+    assert seen == [True]
+    assert (outside / "example.py").read_text(encoding="utf-8") == "PRIVATE = 1\n"
+
+
+def test_project_target_rejects_final_symlink(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    outside = tmp_path / "outside.py"
+    outside.write_text("PRIVATE = 1\n", encoding="utf-8")
+    target = project / "core" / "example.py"
+    target.unlink()
+    target.symlink_to(outside)
+
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_project_target("core/example.py")
+    assert outside.read_text(encoding="utf-8") == "PRIVATE = 1\n"
+
+
+def test_project_target_allows_missing_parent_of_approved_new_file(tmp_path):
+    import shutil
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    # The shared fixture creates tests/; remove only this temporary copy
+    # to exercise the legitimate missing-parent case.
+    shutil.rmtree(project / "tests")
+    assert not (project / "tests").exists()
+    assert active._safe_project_target("tests/test_new.py") == (
+        project / "tests" / "test_new.py"
+    )
+    assert not (project / "tests").exists()
+
+
+def test_project_target_rejects_nonregular_existing_final_file(tmp_path):
+    import os
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    target = project / "core" / "example.py"
+    target.unlink()
+    os.mkfifo(target)
+    with pytest.raises(PermissionError, match="specialfil"):
+        active._safe_project_target("core/example.py")

@@ -833,53 +833,56 @@ class SelfDevPromotionManager:
 
         return data
 
-    def _safe_project_target(
-        self,
-        relative,
-    ):
-        relative = Path(relative)
-        if not _allowed_relative_path(relative):
+    def _safe_project_target(self, relative):
+        """Check approved active-code names using pinned no-follow parents.
+
+        Missing intermediate directories are legitimate for a newly-added
+        source path, but existing directories and the terminal file must
+        never be symlinks. The later mutation must re-pin and revalidate.
+        """
+        path = Path(relative)
+        if not _allowed_relative_path(path):
             raise PermissionError("Otillåten källkodsfil i promotion-journalen.")
-        root = (
-            self.workspace
-            .project_root
+        root = self.workspace.project_root
+        target = root / path
+        flags = (
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
         )
-        target = (
-            root
-            / relative
-        )
+        with _pinned_parent(root / ".selfdev-root-check") as (root_fd, _):
+            directory_fd = os.dup(root_fd)
+            try:
+                missing_parent = False
+                for component in path.parts[:-1]:
+                    try:
+                        child_fd = os.open(component, flags, dir_fd=directory_fd)
+                    except FileNotFoundError:
+                        missing_parent = True
+                        break
+                    except OSError as error:
+                        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                            raise PermissionError(
+                                "Promotion genom symlink är inte tillåten."
+                            ) from error
+                        raise
+                    os.close(directory_fd)
+                    directory_fd = child_fd
 
-        try:
-            target.resolve(
-                strict=False
-            ).relative_to(
-                root.resolve()
-            )
-        except ValueError as error:
-            raise PermissionError(
-                "Promotion försökte lämna projektroten."
-            ) from error
-
-        current = root
-
-        for part in Path(
-            relative
-        ).parts[:-1]:
-            current = (
-                current
-                / part
-            )
-
-            if current.is_symlink():
-                raise PermissionError(
-                    "Promotion genom symlink är inte tillåten."
-                )
-
-        if target.is_symlink():
-            raise PermissionError(
-                "Promotion till symlink är inte tillåten."
-            )
-
+                if not missing_parent:
+                    try:
+                        final = os.stat(
+                            path.name,
+                            dir_fd=directory_fd,
+                            follow_symlinks=False,
+                        )
+                    except FileNotFoundError:
+                        final = None
+                    if final is not None and not stat.S_ISREG(final.st_mode):
+                        raise PermissionError(
+                            "Promotion till symlink eller specialfil är inte tillåten."
+                        )
+            finally:
+                os.close(directory_fd)
         return target
 
     def _require_no_interrupted_promotion(self):
