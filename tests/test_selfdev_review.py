@@ -140,6 +140,8 @@ def test_review_rejects_swapped_active_file_symlink(tmp_path, monkeypatch):
     import pytest
 
     project, workspace = make_workspace(tmp_path)
+    before = workspace.changed_files()
+    monkeypatch.setattr(workspace, "changed_files", lambda: before)
     original = project / "core" / "example.py"
     secret = tmp_path / "secret.py"
     secret.write_text("DO_NOT_DISCLOSE = True\n", encoding="utf-8")
@@ -166,6 +168,8 @@ def test_review_rejects_swapped_parent_symlink(tmp_path, monkeypatch):
     import pytest
 
     project, workspace = make_workspace(tmp_path)
+    before = workspace.changed_files()
+    monkeypatch.setattr(workspace, "changed_files", lambda: before)
     original = project / "core"
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -218,6 +222,8 @@ def test_review_refuses_expected_changed_file_disappearing_after_manifest(
     import pytest
 
     project, workspace = make_workspace(tmp_path)
+    before = workspace.changed_files()
+    monkeypatch.setattr(workspace, "changed_files", lambda: before)
     target = project / "core" / "example.py"
     real_open = os.open
 
