@@ -11,6 +11,7 @@ Old core/public_web_client.py verified public DNS addresses before calling reque
 - Default public web client uses PinnedPublicWebTransport and returns its initially DNS-approved A/AAAA address set. ALL addresses must be globally routable. Mixed public/private answers are rejected.
 - TCP connects to the approved NUMERIC IP directly. The actual TCP peer must match that numeric address BEFORE any HTTP request byte is sent. There is no second DNS resolution or ambient HTTP proxy.
 - For HTTPS, ssl.create_default_context() enforces certificate-chain and hostname verification, using the original DNS name for SNI. The HTTP Host header also retains the original hostname; only the TCP dial uses the numeric IP.
+- Untrusted public-page URLs are intentionally restricted to HTTP port 80 and HTTPS port 443, including an explicit rejection of alternate ports and port zero. Legitimate public sites using nonstandard ports will be unavailable until a separate trusted allowlist is designed. Configured local Ollama/GenieX/SearXNG backends are separate clients.
 - Each 301/302/303/307/308 hop is re-parsed and resolved independently, with redirect limits. Per-page stream byte limits, type checks, response closure and credential-in-URL blocking remain.
 - Synthetic tests cover numeric IP socket targeting, TLS hostname/SNI, private peer rejection BEFORE send, mixed DNS replies, disabled cert verification, empty username, failed connection cleanup, private HTTP redirects and second-hop DNS rebinding. No real web, device, camera or microphone access is used.
 
