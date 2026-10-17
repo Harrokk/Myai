@@ -232,10 +232,10 @@ def _atomic_copy(
                         src_dir_fd=target_parent_fd,
                         dst_dir_fd=target_parent_fd,
                     )
+                    # The replace is durable after syncing this pinned
+                    # directory inode. Do not resolve destination.parent
+                    # again: a late alias swap must not redirect the fsync.
                     os.fsync(target_parent_fd)
-                    # Preserve the existing failure-injection/durability hook
-                    # used by promotion and rollback regression tests.
-                    _sync_directory(destination.parent)
                 except BaseException:
                     if target_fd >= 0:
                         os.close(target_fd)
