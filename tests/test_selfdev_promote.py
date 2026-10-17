@@ -4409,3 +4409,121 @@ def test_promotion_rejects_hardlinked_staging_source_after_preflight(
         active.promote("PROMOTE session1")
     assert alias.read_bytes() == b"VALUE = 2\n"
     assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
+
+
+def test_failed_promotion_revert_refuses_parent_alias_swap_after_target_check(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_copy = module._atomic_copy
+    original_target = active._safe_project_target
+    outside = tmp_path / "outside-active-core"
+    outside.mkdir()
+    (outside / "example.py").write_text("VALUE = 2\n", encoding="utf-8")
+    arm = [False]
+    swapped = [False]
+
+    def fail_second_copy(source, destination, **kwargs):
+        if destination == project / "tests" / "test_new.py":
+            arm[0] = True
+            raise OSError("simulated copy failure")
+        return original_copy(source, destination, **kwargs)
+
+    def move_checked_target_parent(relative):
+        target = original_target(relative)
+        if (
+            arm[0] and not swapped[0]
+            and str(relative) == "core/example.py"
+        ):
+            core_dir = project / "core"
+            core_dir.rename(project / "core-original")
+            core_dir.symlink_to(outside, target_is_directory=True)
+            swapped[0] = True
+        return target
+
+    monkeypatch.setattr(module, "_atomic_copy", fail_second_copy)
+    monkeypatch.setattr(active, "_safe_project_target", move_checked_target_parent)
+    with pytest.raises(RuntimeError, match="Extern filändring"):
+        active.promote("PROMOTE session1")
+
+    assert swapped == [True]
+    assert (outside / "example.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert (project / "core-original" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "prepared"
+
+
+def test_failed_promotion_revert_refuses_final_symlink_after_target_check(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    original_copy = module._atomic_copy
+    original_target = active._safe_project_target
+    outside = tmp_path / "outside-active.py"
+    outside.write_text("VALUE = 2\n", encoding="utf-8")
+    arm = [False]
+    swapped = [False]
+
+    def fail_second_copy(source, destination, **kwargs):
+        if destination == project / "tests" / "test_new.py":
+            arm[0] = True
+            raise OSError("simulated second copy failure")
+        return original_copy(source, destination, **kwargs)
+
+    def switch_checked_file(relative):
+        target = original_target(relative)
+        if (
+            arm[0] and not swapped[0]
+            and str(relative) == "core/example.py"
+        ):
+            target.rename(target.with_name("example-saved.py"))
+            target.symlink_to(outside)
+            swapped[0] = True
+        return target
+
+    monkeypatch.setattr(module, "_atomic_copy", fail_second_copy)
+    monkeypatch.setattr(active, "_safe_project_target", switch_checked_file)
+    with pytest.raises(RuntimeError, match="Extern filändring"):
+        active.promote("PROMOTE session1")
+
+    assert swapped == [True]
+    assert outside.read_text(encoding="utf-8") == "VALUE = 2\n"
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "prepared"
+
+
+def test_failed_promotion_revert_refuses_missing_modified_file(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    copy = module._atomic_copy
+    removed = [False]
+
+    def remove_modified_file_before_failure(source, target, **kwargs):
+        if target == project / "tests" / "test_new.py":
+            (project / "core" / "example.py").unlink()
+            removed[0] = True
+            raise OSError("simulated interrupted promotion")
+        return copy(source, target, **kwargs)
+
+    monkeypatch.setattr(module, "_atomic_copy", remove_modified_file_before_failure)
+    with pytest.raises(RuntimeError, match="Extern filändring"):
+        active.promote("PROMOTE session1")
+    assert removed == [True]
+    assert not (project / "core" / "example.py").exists()
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "prepared"
