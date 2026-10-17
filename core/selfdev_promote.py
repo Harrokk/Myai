@@ -604,6 +604,84 @@ def _sync_prepared_backup_tree(rollback_root):
         os.fsync(root_fd)
 
 
+def _publish_or_verify_legacy_archive(rollback_root, raw):
+    """Preserve original unsigned journal bytes under one pinned directory.
+
+    Create-only: an existing file is accepted only when its pinned inode is
+    regular, singly linked, private, same-UID and byte-identical. Never
+    overwrite, follow a symlink or recreate a corrupted existing archive.
+    """
+    if not isinstance(raw, bytes) or len(raw) > 1024 * 1024:
+        raise RuntimeError("Ogiltigt legacy-arkivinnehåll.")
+    path = Path(rollback_root) / "promotion.legacy-unsigned.json"
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    with _pinned_parent(path) as (parent_fd, name):
+        info = os.fstat(parent_fd)
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022
+        ):
+            raise PermissionError("Osäker legacy-arkivkatalog.")
+
+        try:
+            existing_fd = os.open(name, flags, dir_fd=parent_fd)
+        except FileNotFoundError:
+            existing_fd = None
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise PermissionError("Legacy-arkivet är en symlink.") from error
+            raise
+
+        if existing_fd is not None:
+            with os.fdopen(existing_fd, "rb") as handle:
+                before = os.fstat(handle.fileno())
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or before.st_nlink != 1
+                    or before.st_uid != os.geteuid()
+                    or before.st_mode & 0o077
+                    or before.st_size != len(raw)
+                ):
+                    raise RuntimeError(
+                        "Legacy-arkivet matchar inte originaljournalen."
+                    )
+                existing = handle.read(len(raw) + 1)
+                after = os.fstat(handle.fileno())
+                if (
+                    existing != raw
+                    or before.st_dev != after.st_dev
+                    or before.st_ino != after.st_ino
+                    or before.st_size != after.st_size
+                    or before.st_mtime_ns != after.st_mtime_ns
+                    or before.st_ctime_ns != after.st_ctime_ns
+                ):
+                    raise RuntimeError(
+                        "Legacy-arkivet matchar inte originaljournalen."
+                    )
+            return
+
+        create_flags = (
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            file_fd = os.open(
+                name, create_flags, 0o600, dir_fd=parent_fd
+            )
+        except FileExistsError as error:
+            # Never follow/replace another writer's newly published archive.
+            raise RuntimeError(
+                "Legacy-arkivet tillkom under publiceringen."
+            ) from error
+        with os.fdopen(file_fd, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.fsync(parent_fd)
+
+
 def _atomic_write_record(path, record):
     """Publish a complete bounded recovery journal within a pinned dirfd."""
     path = Path(path)
@@ -2339,28 +2417,7 @@ class SelfDevPromotionManager:
                 if item["existed"] or item.get("sha256") is not None:
                     raise RuntimeError("Legacy-added har felaktig backup.")
 
-        archive = root / "promotion.legacy-unsigned.json"
-        if archive.is_symlink():
-            raise PermissionError("Legacy-arkivet är en symlink.")
-        if os.path.lexists(archive):
-            attributes = archive.lstat()
-            if (
-                not stat.S_ISREG(attributes.st_mode)
-                or attributes.st_nlink != 1
-                or (os.name == "posix" and attributes.st_mode & 0o077)
-                or archive.read_bytes() != raw
-            ):
-                raise RuntimeError("Legacy-arkivet matchar inte originaljournalen.")
-        else:
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            fd = os.open(str(archive), flags, 0o600)
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(raw)
-                handle.flush()
-                os.fsync(handle.fileno())
-            _sync_directory(root)
+        _publish_or_verify_legacy_archive(root, raw)
         self._write_journal(source, record)
         return self._read_journal(source)
 
