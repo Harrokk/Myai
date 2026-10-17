@@ -524,55 +524,91 @@ class SelfDevPromotionManager:
             os.close(descriptor)
 
     def _journal_integrity_key(self, *, create=False):
-        """Detect altered journal data using a local private project key."""
+        """Read/publish the 32-byte project HMAC key under one pinned dirfd.
+
+        The private-directory preflight remains for compatibility, but all
+        security-sensitive operations use the same no-follow parent inode.
+        """
         directory = self._private_selfdev_directory(create=create)
-        path = directory / ".journal-integrity-key"
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        if create and not os.path.lexists(path):
-            # Stage all 32 key bytes durably before publishing the name.
-            # Exclusive hardlink publication will not replace an existing key.
-            fd, temporary = tempfile.mkstemp(
-                prefix=".journal-key.", dir=str(directory)
+        key_path = directory / ".journal-integrity-key"
+        with _pinned_parent(key_path) as (directory_fd, filename):
+            parent_info = os.fstat(directory_fd)
+            if (
+                not stat.S_ISDIR(parent_info.st_mode)
+                or parent_info.st_uid != os.geteuid()
+                or parent_info.st_mode & 0o022
+            ):
+                raise PermissionError(
+                    "Selfdev-katalogen har osäkra behörigheter."
+                )
+
+            if create:
+                temporary = ".journal-key." + secrets.token_hex(12)
+                flags = (
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                    | getattr(os, "O_CLOEXEC", 0)
+                )
+                try:
+                    temp_fd = os.open(
+                        temporary, flags, 0o600, dir_fd=directory_fd
+                    )
+                except OSError:
+                    raise
+                try:
+                    with os.fdopen(temp_fd, "wb") as handle:
+                        handle.write(secrets.token_bytes(32))
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    try:
+                        os.link(
+                            temporary, filename,
+                            src_dir_fd=directory_fd,
+                            dst_dir_fd=directory_fd,
+                            follow_symlinks=False,
+                        )
+                    except FileExistsError:
+                        # The existing key will be verified below. Never
+                        # replace or regenerate a key which already exists.
+                        pass
+                    else:
+                        os.fsync(directory_fd)
+                finally:
+                    os.unlink(temporary, dir_fd=directory_fd)
+                    os.fsync(directory_fd)
+
+            flags = (
+                os.O_RDONLY | os.O_NOFOLLOW
+                | getattr(os, "O_NONBLOCK", 0)
+                | getattr(os, "O_CLOEXEC", 0)
             )
             try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(secrets.token_bytes(32))
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                try:
-                    os.link(temporary, path, follow_symlinks=False)
-                except FileExistsError:
-                    pass
-                else:
-                    _sync_directory(directory)
-            finally:
-                os.unlink(temporary)
-            _sync_directory(directory)
-        if path.is_symlink():
-            raise RuntimeError("Selfdev-integritetsnyckeln är en symlink.")
-        read_flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            read_flags |= os.O_NOFOLLOW
-        try:
-            fd = os.open(str(path), read_flags)
-        except OSError as error:
-            raise RuntimeError(
-                "Selfdev-integritetsnyckeln saknas eller kan inte läsas."
-            ) from error
-        with os.fdopen(fd, "rb") as handle:
-            metadata = os.fstat(handle.fileno())
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_nlink != 1
-                or (os.name == "posix" and metadata.st_mode & 0o077)
-            ):
-                raise RuntimeError("Osäker selfdev-integritetsnyckel.")
-            secret = handle.read(33)
-        if len(secret) != 32:
-            raise RuntimeError("Ogiltig selfdev-integritetsnyckel.")
-        return secret
+                descriptor = os.open(filename, flags, dir_fd=directory_fd)
+            except OSError as error:
+                raise RuntimeError(
+                    "Selfdev-integritetsnyckeln saknas eller kan inte läsas."
+                ) from error
+            with os.fdopen(descriptor, "rb") as handle:
+                before = os.fstat(handle.fileno())
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or before.st_nlink != 1
+                    or before.st_uid != os.geteuid()
+                    or before.st_mode & 0o077
+                    or before.st_size != 32
+                ):
+                    raise RuntimeError("Osäker selfdev-integritetsnyckel.")
+                secret = handle.read(33)
+                after = os.fstat(handle.fileno())
+                if (
+                    len(secret) != 32
+                    or after.st_size != before.st_size
+                    or after.st_mtime_ns != before.st_mtime_ns
+                    or after.st_ctime_ns != before.st_ctime_ns
+                    or after.st_ino != before.st_ino
+                    or after.st_dev != before.st_dev
+                ):
+                    raise RuntimeError("Ogiltig selfdev-integritetsnyckel.")
+                return secret
 
     def _write_journal(self, path, record):
         if not isinstance(record, dict):
