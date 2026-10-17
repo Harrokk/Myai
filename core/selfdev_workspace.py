@@ -623,26 +623,55 @@ class SelfDevWorkspace:
         return _open_directory_nofollow(self.session_root)
 
     def _read_session_record(self, filename):
-        # Session records are small, user-independent JSON files. A checked
-        # pathname followed by read_text() could follow a replaced symlink.
+        """Read one stable, bounded session JSON inode through pinned dirfds.
+
+        A concurrent writer cannot substitute an outside parent or mix
+        multiple revisions of the same regular file without detection.
+        """
         directory_fd = self._session_directory_fd()
         try:
             flags = os.O_RDONLY | os.O_NOFOLLOW
             flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
             file_fd = os.open(filename, flags, dir_fd=directory_fd)
-            with os.fdopen(file_fd, "rb") as handle:
-                details = os.fstat(handle.fileno())
-                if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+            try:
+                before = os.fstat(file_fd)
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
                     raise PermissionError("Osäker selfdev-sessionsfil.")
                 limit = 4 * 1024 * 1024
-                if details.st_size > limit:
+                if before.st_size > limit:
                     raise ValueError("Selfdev-sessionsfilen är för stor.")
-                payload = handle.read(limit + 1)
-                if len(payload) > limit:
+
+                content = bytearray()
+                while len(content) <= limit:
+                    block = os.read(
+                        file_fd, min(65_536, limit + 1 - len(content))
+                    )
+                    if not block:
+                        break
+                    content.extend(block)
+                if len(content) > limit:
                     raise ValueError("Selfdev-sessionsfilen är för stor.")
+
+                after = os.fstat(file_fd)
+                if (
+                    not stat.S_ISREG(after.st_mode)
+                    or after.st_nlink != 1
+                    or before.st_dev != after.st_dev
+                    or before.st_ino != after.st_ino
+                    or before.st_size != after.st_size
+                    or before.st_mtime_ns != after.st_mtime_ns
+                    or before.st_ctime_ns != after.st_ctime_ns
+                    or len(content) != before.st_size
+                ):
+                    raise RuntimeError(
+                        "Selfdev-sessionsfilen ändrades under läsning."
+                    )
+            finally:
+                os.close(file_fd)
         finally:
             os.close(directory_fd)
-        record = json.loads(payload.decode("utf-8"))
+
+        record = json.loads(bytes(content).decode("utf-8"))
         if not isinstance(record, dict):
             raise ValueError("Selfdev-sessionsfilen måste vara ett JSON-objekt.")
         return record

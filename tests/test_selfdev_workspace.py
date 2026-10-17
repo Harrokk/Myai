@@ -1019,3 +1019,121 @@ def test_stage_source_root_refuses_swapped_parent_before_open(
     assert swapped == [True]
     assert secret.read_text(encoding="utf-8") == "PRIVATE = True\n"
     assert not (target / "core" / "example.py").exists()
+
+
+def test_metadata_reader_rejects_same_size_in_place_write_during_read(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-same-size-race")
+    metadata = session.metadata_path
+    original = metadata.read_bytes()
+    assert original.endswith(b"\n")
+    expected_inode = metadata.stat().st_ino
+    real_read = os.read
+    changed = []
+
+    def rewrite_after_first_record_read(fd, count):
+        result = real_read(fd, count)
+        if os.fstat(fd).st_ino == expected_inode and not changed:
+            metadata.write_bytes(original[:-1] + b" ")
+            changed.append(True)
+        return result
+
+    monkeypatch.setattr(module.os, "read", rewrite_after_first_record_read)
+    with pytest.raises(RuntimeError, match="ändrades under läsning"):
+        session.metadata()
+    assert changed == [True]
+
+
+def test_metadata_reader_rejects_truncated_record_during_read(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-truncate-race")
+    metadata = session.metadata_path
+    original = metadata.read_bytes()
+    inode = metadata.stat().st_ino
+    real_read = os.read
+    changed = []
+
+    def truncate_during_read(fd, count):
+        result = real_read(fd, count)
+        if os.fstat(fd).st_ino == inode and not changed:
+            metadata.write_bytes(original[:10])
+            changed.append(True)
+        return result
+
+    monkeypatch.setattr(module.os, "read", truncate_during_read)
+    with pytest.raises(RuntimeError, match="ändrades under läsning"):
+        session.metadata()
+    assert changed == [True]
+
+
+def test_metadata_reader_rejects_new_hardlink_created_during_read(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-hardlink-race")
+    metadata = session.metadata_path
+    inode = metadata.stat().st_ino
+    outside = tmp_path / "shared-session-record.json"
+    real_read = os.read
+    changed = []
+
+    def add_hardlink_during_read(fd, count):
+        result = real_read(fd, count)
+        if os.fstat(fd).st_ino == inode and not changed:
+            os.link(metadata, outside)
+            changed.append(True)
+        return result
+
+    monkeypatch.setattr(module.os, "read", add_hardlink_during_read)
+    with pytest.raises(RuntimeError, match="ändrades under läsning"):
+        session.metadata()
+    assert changed == [True]
+    assert outside.read_bytes() == metadata.read_bytes()
+
+
+def test_metadata_reader_uses_open_inode_after_session_alias_swap(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-session-alias")
+    expected = session.metadata()
+    original_path = session.session_root
+    saved = original_path.with_name("metadata-session-saved")
+    outside = tmp_path / "outside-session"
+    outside.mkdir()
+    protected = outside / "session.json"
+    protected.write_text('{"session_id":"FORGED"}', encoding="utf-8")
+    inode = session.metadata_path.stat().st_ino
+    real_read = os.read
+    moved = []
+
+    def move_parent_after_record_read(fd, count):
+        result = real_read(fd, count)
+        if os.fstat(fd).st_ino == inode and not moved:
+            original_path.rename(saved)
+            original_path.symlink_to(outside, target_is_directory=True)
+            moved.append(True)
+        return result
+
+    monkeypatch.setattr(module.os, "read", move_parent_after_record_read)
+    assert session.metadata() == expected
+    assert moved == [True]
+    assert protected.read_text(encoding="utf-8") == (
+        '{"session_id":"FORGED"}'
+    )
