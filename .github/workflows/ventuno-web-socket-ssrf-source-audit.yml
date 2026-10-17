@@ -52,7 +52,8 @@ jobs:
             /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
               tests/test_public_web_client.py \
               tests/test_public_web_transport.py \
-              tests/test_internet_fetch.py
+              tests/test_internet_fetch.py \
+              tests/test_internet_error_privacy.py
       - name: Remove exact-SHA temporary checkout
         if: always()
         shell: bash
