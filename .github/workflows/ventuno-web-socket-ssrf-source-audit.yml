@@ -1,0 +1,69 @@
+name: VENTUNO source-only DNS socket pinning and file audit
+on:
+  push:
+    branches: [dev/manual-full-files-and-dns-ssrf-20261017]
+permissions:
+  contents: read
+jobs:
+  readonly-installed-evidence:
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact SHA outside installed MyAI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          root="$(mktemp -d "$RUNNER_TEMP/myai-ssrf-review-XXXXXXXX")"
+          chmod 700 "$root"
+          echo "MYAI_SSRF_AUDIT_SCRATCH=$root" >> "$GITHUB_ENV"
+          git init -q "$root"
+          git -C "$root" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$root" -c credential.helper= fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$root" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$root" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$root" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Validate pinned DNS-to-socket transport without any web request
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SSRF_AUDIT_SCRATCH"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          timeout --signal=TERM --kill-after=3s 30s \
+            /usr/bin/python3 -B -m scripts.ventuno_external_actions_sha_audit
+          echo "Source Action pinning is a drift check, not a third-party security attestation."
+          echo "No audio opened, no model constructed, no production files changed."
+      - name: Run synthetic SSRF and pinned-transport regression
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_SSRF_AUDIT_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 100s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
+              tests/test_public_web_client.py \
+              tests/test_public_web_transport.py \
+              tests/test_web_fetch.py
+      - name: Remove exact-SHA temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_SSRF_AUDIT_SCRATCH:-}" in
+            "$RUNNER_TEMP"/myai-ssrf-review-*)
+              if [ -d "$MYAI_SSRF_AUDIT_SCRATCH" ] && [ ! -L "$MYAI_SSRF_AUDIT_SCRATCH" ]; then
+                rm -rf -- "$MYAI_SSRF_AUDIT_SCRATCH"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected cleanup target; refusing" >&2; exit 2 ;;
+          esac
