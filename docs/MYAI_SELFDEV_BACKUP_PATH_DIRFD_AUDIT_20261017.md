@@ -22,3 +22,5 @@
 - Fullständig manuell fil-för-fil-granskning och faktisk rollback/power-loss-testning är ännu inte avslutade. **Ingen merge, deployment eller aktivering**.
 
 **Krav för teknisk verifiering:** grön full ARM64 source-only-testsvit på exakt sista commit.
+
+**Regression upptäckt och korrigerad före slutlig signoff:** Ett befintligt backupverifieringstest för bytt förälderkatalog förväntar sig `RuntimeError("Osäker backupfil ...")` från `_verified_backup`. Den nya `_safe_backup_path` avvisade korrekt symlänken men levererade ett `PermissionError` direkt. `_verified_backup` fångar nu också förhandskontrollens `PermissionError/OSError/RuntimeError` och översätter dem till samma blockerande `RuntimeError` som tidigare. **Säkerhetsspärren behålls**, och det offentliga återställningsgränssnittet får tillbaka sitt felkontrakt. Ett äldre testmisslyckande för det ovanpåliggande felkontraktet är inte en godkänd körning; den slutliga committen måste passera igen.
