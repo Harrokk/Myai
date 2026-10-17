@@ -17,7 +17,7 @@ Före ändringen arbetade läsning så här: `resolve_workspace_path()` följde 
 
 ## Regressionstester (utan nät/hårdvara)
 
-Sex nya syntetiska tester i `tests/test_file_workspace.py` provar (1) slutlänk redan närvarande, (2) slutlänk byts precis före läs-öppning, (3) förälderlänk byts precis före katalogöppning, (4) förälderns sökvägsalias byts efter fd-öppning men före atomär replace, (5) FIFO avvisas utan blockering, (6) `../`, `./` och dubbla sökvägsseparatorer avvisas. Två äldre tester justeras för ändrat descriptor-API. Kör full source-only ARM64-pytest på **exakt sista commit**, och häv inga release-spärrar vid enbart syntetiskt grönt resultat.
+Sex nya syntetiska tester i `tests/test_file_workspace.py` provar (1) slutlänk redan närvarande, (2) slutlänk byts precis före läs-öppning, (3) förälderlänk byts precis före katalogöppning, (4) förälderns sökvägsalias byts efter fd-öppning men före atomär replace, (5) FIFO avvisas utan blockering, (6) `../`, `./` och dubbla sökvägsseparatorer avvisas. Tre äldre tester justeras: läsningens blockstorlek, atomär rename och disk-full-felinjektion flyttas till motsvarande descriptor-baserade gränser. Kör full source-only ARM64-pytest på **exakt sista commit**, och häv inga release-spärrar vid enbart syntetiskt grönt resultat.
 
 ## Öppna begränsningar (NO-GO)
 
