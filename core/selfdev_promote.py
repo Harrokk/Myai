@@ -455,6 +455,70 @@ def _discard_unprepared_backup_tree(rollback_root):
         os.fsync(parent_fd)
 
 
+def _create_private_rollback_root(rollback_root):
+    """Create and durably publish a private rollback root using pinned dirfds.
+
+    The selfdev session already exists. Only the optional rollbacks parent
+    and the fresh promotion-ID directory may be created.
+    """
+    rollback_root = Path(rollback_root)
+    flags = (
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    with _pinned_parent(rollback_root.parent) as (session_fd, rollbacks_name):
+        session_info = os.fstat(session_fd)
+        if (
+            not stat.S_ISDIR(session_info.st_mode)
+            or session_info.st_uid != os.geteuid()
+            or session_info.st_mode & 0o022
+        ):
+            raise PermissionError("Osäker selfdev-sessionskatalog.")
+
+        try:
+            os.mkdir(rollbacks_name, mode=0o700, dir_fd=session_fd)
+        except FileExistsError:
+            pass
+        rollbacks_fd = os.open(rollbacks_name, flags, dir_fd=session_fd)
+        try:
+            rollbacks_info = os.fstat(rollbacks_fd)
+            if (
+                not stat.S_ISDIR(rollbacks_info.st_mode)
+                or rollbacks_info.st_uid != os.geteuid()
+                or rollbacks_info.st_mode & 0o022
+            ):
+                raise PermissionError("Osäker rollback-förälderkatalog.")
+
+            os.mkdir(rollback_root.name, mode=0o700, dir_fd=rollbacks_fd)
+            root_fd = os.open(
+                rollback_root.name, flags, dir_fd=rollbacks_fd
+            )
+            try:
+                root_info = os.fstat(root_fd)
+                named = os.stat(
+                    rollback_root.name,
+                    dir_fd=rollbacks_fd,
+                    follow_symlinks=False,
+                )
+                if (
+                    not stat.S_ISDIR(root_info.st_mode)
+                    or root_info.st_uid != os.geteuid()
+                    or root_info.st_mode & 0o077
+                    or named.st_dev != root_info.st_dev
+                    or named.st_ino != root_info.st_ino
+                ):
+                    raise PermissionError(
+                        "Rollback-katalogen byttes eller har osäkra rättigheter."
+                    )
+                os.fsync(root_fd)
+                os.fsync(rollbacks_fd)
+                os.fsync(session_fd)
+            finally:
+                os.close(root_fd)
+        finally:
+            os.close(rollbacks_fd)
+
+
 def _atomic_write_record(path, record):
     """Publish a complete bounded recovery journal within a pinned dirfd."""
     path = Path(path)
@@ -1210,15 +1274,9 @@ class SelfDevPromotionManager:
         rollback_root = (
             self.workspace.session_root / "rollbacks" / promotion_id
         )
-        if rollback_root.exists():
-            raise FileExistsError("Promotion-ID finns redan.")
-        # Private backup metadata, including originally world-readable code.
-        rollback_root.mkdir(parents=True, exist_ok=False, mode=0o700)
-
-        # Make parent directory entries durable before relying on a
-        # journal stored under this newly created promotion directory.
-        _sync_directory(rollback_root.parent)
-        _sync_directory(rollback_root.parent.parent)
+        # Create and sync both directory entries without resolving a
+        # replaceable parent symlink between the initial checks and mkdir.
+        _create_private_rollback_root(rollback_root)
         backups = {}
         planned_hashes = {}
         try:
