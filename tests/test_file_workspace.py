@@ -419,3 +419,131 @@ def test_workspace_listing_preserves_full_relative_path_sort(tmp_path):
     assert [x["path"] for x in result] == [
         "a.txt", "notes.txt", "notes/one.txt", "notes0.txt"
     ]
+
+
+def test_workspace_read_refuses_preexisting_file_symlink(tmp_path):
+    import pytest
+
+    cfg = settings(tmp_path)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "private.txt"
+    outside.write_text("OUTSIDE_SECRET", encoding="utf-8")
+    (root / "note.txt").symlink_to(outside)
+
+    with pytest.raises(PermissionError):
+        workspace.read_workspace_text("note.txt", cfg)
+    assert outside.read_text(encoding="utf-8") == "OUTSIDE_SECRET"
+
+
+def test_workspace_read_rejects_last_moment_file_symlink_swap(
+    tmp_path, monkeypatch
+):
+    import pytest
+
+    cfg = settings(tmp_path)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    target = root / "note.txt"
+    target.write_text("SAFE", encoding="utf-8")
+    outside = tmp_path / "private.txt"
+    outside.write_text("OUTSIDE_SECRET", encoding="utf-8")
+
+    real_open = workspace.os.open
+    swapped = []
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        if path == "note.txt" and kwargs.get("dir_fd") is not None:
+            target.unlink()
+            target.symlink_to(outside)
+            swapped.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.os, "open", swap_before_open)
+    with pytest.raises(PermissionError):
+        workspace.read_workspace_text("note.txt", cfg)
+    assert swapped == [True]
+    assert outside.read_text(encoding="utf-8") == "OUTSIDE_SECRET"
+
+
+def test_workspace_write_rejects_parent_symlink_swap_before_open(
+    tmp_path, monkeypatch
+):
+    import pytest
+
+    cfg = settings(tmp_path, write_enabled=True)
+    root = tmp_path / "workspace"
+    (root / "notes").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    real_open = workspace.os.open
+    swapped = []
+
+    def swap_parent(path, flags, *args, **kwargs):
+        if path == "notes" and kwargs.get("dir_fd") is not None:
+            (root / "notes").rename(root / "notes-old")
+            (root / "notes").symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.os, "open", swap_parent)
+    with pytest.raises(PermissionError):
+        workspace.write_workspace_text("notes/new.txt", "SAFE", cfg)
+    assert swapped == [True]
+    assert not (outside / "new.txt").exists()
+
+
+def test_workspace_write_uses_pinned_directory_after_symlink_swap(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path, write_enabled=True)
+    root = tmp_path / "workspace"
+    (root / "notes").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "note.txt"
+    protected.write_text("PROTECTED", encoding="utf-8")
+
+    real_replace = workspace.os.replace
+    swaps = []
+
+    def replace_after_alias_swap(source, dest, **kwargs):
+        assert source.endswith(".tmp")
+        assert dest == "note.txt"
+        assert kwargs["src_dir_fd"] == kwargs["dst_dir_fd"]
+        (root / "notes").rename(root / "notes-old")
+        (root / "notes").symlink_to(outside, target_is_directory=True)
+        swaps.append(True)
+        return real_replace(source, dest, **kwargs)
+
+    monkeypatch.setattr(workspace.os, "replace", replace_after_alias_swap)
+    result = workspace.write_workspace_text("notes/note.txt", "INSIDE", cfg)
+    assert result["path"] == "notes/note.txt"
+    assert swaps == [True]
+    assert (root / "notes-old" / "note.txt").read_text(encoding="utf-8") == "INSIDE"
+    assert protected.read_text(encoding="utf-8") == "PROTECTED"
+
+
+def test_workspace_read_rejects_fifo_without_blocking(tmp_path):
+    import pytest
+
+    if not hasattr(workspace.os, "mkfifo"):
+        pytest.skip("FIFO test only applies to Unix")
+    cfg = settings(tmp_path)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    workspace.os.mkfifo(root / "pipe.txt")
+    with pytest.raises(ValueError, match="vanliga textfiler"):
+        workspace.read_workspace_text("pipe.txt", cfg)
+
+
+def test_workspace_io_rejects_dot_and_parent_components(tmp_path):
+    import pytest
+
+    cfg = settings(tmp_path, write_enabled=True)
+    for path in ("../other.txt", "foo/../note.txt", "./note.txt", "a//b.txt"):
+        with pytest.raises(ValueError):
+            workspace.read_workspace_text(path, cfg)
+        with pytest.raises(ValueError):
+            workspace.write_workspace_text(path, "unsafe", cfg)
