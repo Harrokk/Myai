@@ -6,6 +6,7 @@ import re
 import secrets
 import stat
 import time
+from contextlib import contextmanager
 
 
 _ALLOWED_DIRS = {
@@ -130,7 +131,7 @@ def _allowed_relative_path(
     )
 
 
-def _stage_source_files(project_root, workspace_root):
+def _stage_source_files(project_root, workspace_root, *, target_dir_fd=None):
     """Stage approved sources and hash the very bytes copied from pinned FDs.
 
     The project root is operator-trusted. Each descendant and final file is
@@ -255,7 +256,11 @@ def _stage_source_files(project_root, workspace_root):
 
     source_fd = os.open(project_root, directory_flags)
     try:
-        target_fd = os.open(workspace_root, directory_flags)
+        target_fd = (
+            os.dup(target_dir_fd)
+            if target_dir_fd is not None
+            else os.open(workspace_root, directory_flags)
+        )
         try:
             visit(source_fd, target_fd)
         finally:
@@ -427,6 +432,72 @@ def manifest_digest(
     ).hexdigest()
 
 
+@contextmanager
+def _new_private_session_workspace(session_root):
+    """Create a new session and workspace through pinned no-follow dirs.
+
+    The yielded workspace FD remains pinned while approved project sources
+    are staged. Never reuse an existing session or follow its symlink.
+    """
+    session_root = Path(session_root)
+    if not session_root.is_absolute() or ".." in session_root.parts:
+        raise PermissionError("Sessionsroten måste vara en absolut säker sökväg.")
+    if not all(hasattr(os, key) for key in ("O_DIRECTORY", "O_NOFOLLOW")):
+        raise RuntimeError("Säkert skapande av session kräver Linux dir_fd.")
+    flags = (
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    directory_fd = os.open("/", flags)
+    try:
+        for part in session_root.parts[1:-1]:
+            try:
+                os.mkdir(part, mode=0o700, dir_fd=directory_fd)
+            except FileExistsError:
+                pass
+            next_fd = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+
+        parent = os.fstat(directory_fd)
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or parent.st_mode & 0o022
+        ):
+            raise PermissionError("Selfdev-sessionens förälder är osäker.")
+        # O_EXCL-like directory creation: even a dangling symlink or
+        # previously existing directory is rejected by mkdir.
+        os.mkdir(session_root.name, mode=0o700, dir_fd=directory_fd)
+        session_fd = os.open(session_root.name, flags, dir_fd=directory_fd)
+        try:
+            session_info = os.fstat(session_fd)
+            if (
+                session_info.st_uid != os.geteuid()
+                or session_info.st_mode & 0o077
+            ):
+                raise PermissionError("Selfdev-sessionen är inte privat.")
+            os.mkdir("workspace", mode=0o700, dir_fd=session_fd)
+            workspace_fd = os.open("workspace", flags, dir_fd=session_fd)
+            try:
+                workspace_info = os.fstat(workspace_fd)
+                if (
+                    workspace_info.st_uid != os.geteuid()
+                    or workspace_info.st_mode & 0o077
+                ):
+                    raise PermissionError("Staging-workspacen är inte privat.")
+                os.fsync(workspace_fd)
+                os.fsync(session_fd)
+                os.fsync(directory_fd)
+                yield workspace_fd
+            finally:
+                os.close(workspace_fd)
+        finally:
+            os.close(session_fd)
+    finally:
+        os.close(directory_fd)
+
+
 class SelfDevWorkspace:
     def __init__(
         self,
@@ -455,8 +526,11 @@ class SelfDevWorkspace:
                 / "selfdev"
             )
         )
+        # Retain the lexical directory spelling. Resolving here would
+        # silently follow a preexisting selfdev-root symlink before creation
+        # can reject it with O_NOFOLLOW.
         self.session_root = (
-            base.resolve()
+            base.absolute()
             / self.session_id
         )
         self.workspace_root = (
@@ -493,22 +567,15 @@ class SelfDevWorkspace:
             ),
         )
 
-        if instance.session_root.exists():
-            raise FileExistsError(
-                "Selfdev-sessionen finns redan."
+        # Create both directories with relative mkdir under pinned
+        # O_DIRECTORY|O_NOFOLLOW parents, then stage into that SAME open
+        # workspace inode rather than resolving its mutable pathname again.
+        with _new_private_session_workspace(instance.session_root) as target_fd:
+            baseline = _stage_source_files(
+                instance.project_root,
+                instance.workspace_root,
+                target_dir_fd=target_fd,
             )
-
-        instance.workspace_root.mkdir(
-            parents=True,
-            exist_ok=False,
-        )
-
-        # One pinned source descriptor supplies both staged bytes and the
-        # baseline digest. No second path-based source hash/read occurs.
-        baseline = _stage_source_files(
-            instance.project_root,
-            instance.workspace_root,
-        )
 
         metadata = {
             "session_id": identifier,
