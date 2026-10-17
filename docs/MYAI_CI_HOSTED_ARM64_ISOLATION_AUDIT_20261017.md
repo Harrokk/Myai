@@ -18,6 +18,20 @@ Tidigare `.github/workflows/tests.yml` hade `runs-on: [self-hosted,Linux,ARM64,v
 - Förtydliga workflow-namn, concurrency-grupp, jobbsteg och GitHub Actions-sammanfattning så att testresultaten inte kallas ”på VENTUNO” när de körs på en GitHub-hostad ARM64-VM.
 - Resultatet måste verifieras i **ett faktiskt GitHub-hostat ARM64-jobb på exakt PR-HEAD**, inklusive hela repo-testsviten. Att bara syntaktiskt validera YAML räcker inte.
 
+## Historisk revisionsspärr: behåll immutabelt underlag
+
+Första fullständiga GitHub-hostade ARM64-körningen verifierade native ARM64-hostingen och passerade 3 492 tester, men rapporterade tre förväntade revisionskonflikter eftersom `tests.yml` ingår bland de 103 manuella workflows som tidigare hashinventerats mot `config/ventuno_manual_workflow_git_oids_20261016.json`.
+
+**Ändra inte** originalinventeringens SHA-1-blob-ID för `tests.yml` för att få en grön indikator på oförändrad källa. Det vore ett falskt påstående att den historiska manuella granskningen täcker den nya filen. Den här PR:en lämnar därför `config/ventuno_manual_workflow_git_oids_20261016.json` **orörd** och ändrar endast de tre berörda regressionstesterna så att de förväntar sig följande säkra tillstånd:
+
+- Fortfarande exakt 103 tidigare inventerade workflows, varav 102 stämmer mot gamla baslinjen och **en** (`tests.yml`) är avsiktligt förändrad.
+- `ident.check()` måste returnera `blocked-manual-workflow-source-changed` och ange `tests.yml` i `unverified_filenames`.
+- En extra syntetiskt manipulerad workflow i testet ska ge 101 matchande filer, inte 102.
+- `ventuno_remote_revision_closeout.closeout()` måste fortsätta returnera `blocked-source-revision-incomplete`. `main_merge_authorized` och `production_deployment_authorized` förblir `False`.
+- Ett eventuellt **nytt** separat daterat revisionsbevis måste kräva en ny, explicit manuell granskning och får inte skrivas ovanpå det gamla underlaget.
+
+På så sätt kan CI-testsviten bli grön samtidigt som historisk release-authorization fortfarande är **NO-GO**. De två statusarna mäter olika saker och får inte sammanblandas.
+
 ## Kvarstående release-NO-GO
 
 - Detta ändrar **bara `tests.yml` på den aktuella grenen**. Äldre utvecklingsgrenar och andra självhostade `ventuno-*.yml`-workflows kan fortfarande köra kod på det fysiska kortet. De måste inventeras och granskas separat för triggers, behörigheter, skrivrättigheter, API-token och fysiska sidoeffekter.
