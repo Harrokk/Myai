@@ -1,0 +1,145 @@
+name: VENTUNO full pass4 regression and hosted voice advisory audit
+
+on:
+  push:
+    branches: [dev/manual-audit-six-regression-alignment-20261017]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-independent-six-regression-final
+  cancel-in-progress: false
+
+jobs:
+  full-arm64:
+    name: Whole project on VENTUNO ARM64, source-only
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact SHA to new private temporary root
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-full-pass4-XXXXXXXX")"
+          chmod 700 "$work"
+          echo "MYAI_FOUR_PASS_SCRATCH=$work" >> "$GITHUB_ENV"
+          git init -q "$work"
+          git -C "$work" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$work" -c credential.helper= fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$work" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$work" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$work" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Full source, dependency and exception privacy regression
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_FOUR_PASS_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 60s \
+            /usr/bin/python3 -B -m scripts.ventuno_remote_revision_closeout
+          timeout --signal=TERM --kill-after=3s 45s \
+            /usr/bin/python3 -B -m scripts.ventuno_historical_consent_audit
+          timeout --signal=TERM --kill-after=3s 45s \
+            /usr/bin/python3 -B -m scripts.ventuno_dependency_source_review
+          timeout --signal=TERM --kill-after=3s 220s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q -rs
+          echo "This is source-only evidence; main merge, hardware and production release remain NO-GO."
+
+      - name: Delete exactly temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_FOUR_PASS_SCRATCH:-}" in
+            "$RUNNER_TEMP"/myai-full-pass4-*)
+              if [ -d "$MYAI_FOUR_PASS_SCRATCH" ] && [ ! -L "$MYAI_FOUR_PASS_SCRATCH" ]; then
+                rm -rf -- "$MYAI_FOUR_PASS_SCRATCH"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unknown scratch; refuse unsafe cleanup" >&2; exit 2 ;;
+          esac
+
+  pinned-wheel-advisories:
+    name: Check public vulnerabilities of pinned 28-wheel voice snapshot on hosted runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact source into hosted scratch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d "$RUNNER_TEMP/myai-audit-deps-XXXXXXXX")"
+          echo "MYAI_DEPS_SCRATCH=$dir" >> "$GITHUB_ENV"
+          git init -q "$dir"
+          git -C "$dir" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -C "$dir" -c credential.helper= fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$dir" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$dir" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git -C "$dir" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Audit 28 pinned voice package versions against public PyPI vulnerability service
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DEPS_SCRATCH"
+          python3 -m venv "$RUNNER_TEMP/myai-pipaudit-env"
+          "$RUNNER_TEMP/myai-pipaudit-env/bin/python" -m pip -q install --disable-pip-version-check pip-audit==2.10.1
+          set +e
+          timeout 100s "$RUNNER_TEMP/myai-pipaudit-env/bin/pip-audit" \
+            --disable-pip --no-deps --require-hashes \
+            -r requirements-voice-arm64-hashed.lock \
+            --format=json -o "$RUNNER_TEMP/myai-pipaudit-output.json"
+          status=$?
+          set -e
+          python3 - "$RUNNER_TEMP/myai-pipaudit-output.json" "$status" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          status = int(sys.argv[2])
+          data = json.loads(p.read_text()) if p.exists() else {}
+          deps = data.get("dependencies", [])
+          affected = [
+              {"name": row.get("name"), "vulnerabilities": [
+                  x.get("id", "unknown") for x in row.get("vulns", [])
+              ]}
+              for row in deps if row.get("vulns")
+          ]
+          print(json.dumps({
+              "package_entries": len(deps),
+              "vulnerable_packages": affected,
+              "pip_audit_status": status,
+              "live_installed_arm64_packages_attested": False,
+              "license_sbom_complete": False,
+              "production_release_authorized": False,
+          }, sort_keys=True))
+          if not p.exists() or len(deps) != 28 or status:
+              raise SystemExit(2)
+          PY
+
+      - name: Delete only hosted audit scratch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_DEPS_SCRATCH:-}" in
+            "$RUNNER_TEMP"/myai-audit-deps-*)
+              if [ -d "$MYAI_DEPS_SCRATCH" ] && [ ! -L "$MYAI_DEPS_SCRATCH" ]; then
+                rm -rf -- "$MYAI_DEPS_SCRATCH"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unknown hosted scratch root" >&2; exit 2 ;;
+          esac
