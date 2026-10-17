@@ -413,7 +413,14 @@ def test_snapshot_reads_open_inode_if_source_name_changes_mid_copy(
 
     def rename_after_open(path, flags, *args, **kwargs):
         descriptor = real_open(path, flags, *args, **kwargs)
-        if path == "example.py" and kwargs.get("dir_fd") is not None:
+        if (
+            path == "example.py"
+            and kwargs.get("dir_fd") is not None
+            and (flags & os.O_ACCMODE) == os.O_RDONLY
+            and not swaps
+        ):
+            # Source-only injection: destination staging opens the same
+            # basename with O_WRONLY and must not trigger another swap.
             source.rename(project / "core" / "original.py")
             source.symlink_to(outside)
             swaps.append(True)
