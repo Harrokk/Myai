@@ -9,11 +9,16 @@ def test_git_blob_oid_matches_standard_git_blob_payload():
     assert ident._blob_oid(b"hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
 
 
-def test_all_103_manual_workflows_are_byte_identical_to_review_baseline():
+def test_prior_manual_review_baseline_blocks_intentionally_changed_ci_workflow():
+    # The original 2026-10-16 evidence is immutable. Rehosting tests.yml
+    # must keep the earlier 103-file closeout FAIL-CLOSED until a *new*
+    # manual approval produces separate, dated review evidence.
     report = ident.check()
-    assert report["status"] == "all-103-source-blobs-unchanged-not-authorized"
-    assert report["matched"] == 103
-    assert report["unverified_count"] == 0
+    assert report["status"] == "blocked-manual-workflow-source-changed"
+    assert report["matched"] == 102
+    assert report["unverified_count"] == 1
+    assert report["unverified_filenames"] == ["tests.yml"]
+    assert report["manifest_valid"] is True
     assert report["third_party_actions_verified"] is False
     assert report["production_release_authorized"] is False
 
@@ -28,7 +33,9 @@ def test_changed_source_blob_is_blocked(tmp_path):
     result = ident.check(manifest_path=target)
     assert result["status"] == "blocked-manual-workflow-source-changed"
     assert first in result["unverified_filenames"]
-    assert result["matched"] == 102
+    # tests.yml was already flagged by the frozen earlier baseline.
+    assert result["matched"] == 101
+    assert "tests.yml" in result["unverified_filenames"]
 
 
 def test_invalid_manifest_symlink_or_permission_claim_is_denied(tmp_path):
@@ -43,11 +50,11 @@ def test_invalid_manifest_symlink_or_permission_claim_is_denied(tmp_path):
     assert ident.check(manifest_path=target)["status"] == "blocked-manual-workflow-source-changed"
 
 
-def test_source_closeout_success_does_not_grant_hardware_or_merge():
+def test_prior_remote_closeout_stays_blocked_after_ci_workflow_migration():
     report = review.closeout()
-    assert report["status"] == "source-revision-checks-complete-with-physical-holds"
-    assert report["remote_source_gates_passed"] is True
-    assert all(report["checks"].values())
+    assert report["status"] == "blocked-source-revision-incomplete"
+    assert report["remote_source_gates_passed"] is False
+    assert report["checks"]["all_103_manual_workflow_contents_unchanged"] is False
     assert report["all_hardware_revision_gates_closed"] is False
     assert report["main_merge_authorized"] is False
     assert report["production_deployment_authorized"] is False
