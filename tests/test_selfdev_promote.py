@@ -55,29 +55,45 @@ def make_workspace(tmp_path):
     return project, workspace
 
 
-def approve_verification(
-    workspace,
-):
-    changes = (
-        workspace
-        .changed_files()
-    )
-    workspace.verification_path.write_text(
-        json.dumps(
-            {
-                "passed": True,
-                "sandbox": "bubblewrap",
-                "network_isolated": True,
-                "host_devices_exposed": False,
-                "workspace_manifest_digest": (
-                    changes[
-                        "manifest_digest"
-                    ]
-                ),
-            }
-        ),
-        encoding="utf-8",
-    )
+def approve_verification(workspace):
+    """Synthetic complete sandbox-success record used only in unit tests."""
+    changes = workspace.changed_files()
+    kinds = {
+        ".py": "python-compile",
+        ".json": "json",
+        ".toml": "toml",
+        ".sh": "shell",
+    }
+    checks = [
+        {
+            "type": kinds[Path(relative).suffix.lower()],
+            "path": relative,
+            "returncode": 0,
+            "passed": True,
+            "error": None,
+        }
+        for relative in sorted(changes["changed"] + changes["added"])
+        if Path(relative).suffix.lower() in kinds
+    ]
+    checks.append({
+        "type": "pytest", "path": None, "returncode": 0,
+        "passed": True, "error": None,
+    })
+    workspace.save_verification({
+        "session_id": workspace.session_id,
+        "passed": True,
+        "returncode": 0,
+        "error": None,
+        "sandbox": "bubblewrap",
+        "network_isolated": True,
+        "host_devices_exposed": False,
+        "workspace_manifest_digest": changes["manifest_digest"],
+        "changed": changes["changed"],
+        "added": changes["added"],
+        "deleted": changes["deleted"],
+        "source_drift": [],
+        "checks": checks,
+    })
 
 
 def settings(
