@@ -7,7 +7,6 @@ import stat
 import os
 from pathlib import Path
 import secrets
-import shutil
 import tempfile
 import time
 from contextlib import contextmanager
@@ -327,6 +326,133 @@ def _copy_verified_backup(source, destination):
                     raise
         finally:
             os.close(source_fd)
+
+
+def _discard_unprepared_backup_tree(rollback_root):
+    """Remove only an unprepared private backup tree via pinned dirfds.
+
+    This is called exclusively before the PREPARED journal has been
+    published. Reject links, special files and unsafe inode substitutions
+    rather than following or deleting an unexpectedly redirected subtree.
+    """
+    path = Path(rollback_root)
+    directory_flags = (
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    file_flags = (
+        os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    inspected = 0
+
+    def remove_children(directory_fd, depth):
+        nonlocal inspected
+        if depth > 40:
+            raise RuntimeError("För djup osäker rollback-katalog.")
+        with os.scandir(directory_fd) as iterator:
+            names = sorted(entry.name for entry in iterator)
+        for name in names:
+            if name in ("", ".", ".."):
+                raise PermissionError("Ogiltigt rollback-filnamn.")
+            inspected += 1
+            if inspected > 10_000:
+                raise RuntimeError("För många rollback-filer för säker städning.")
+            before = os.stat(
+                name, dir_fd=directory_fd, follow_symlinks=False
+            )
+            if stat.S_ISDIR(before.st_mode):
+                child_fd = os.open(
+                    name, directory_flags, dir_fd=directory_fd
+                )
+                try:
+                    observed = os.fstat(child_fd)
+                    if (
+                        observed.st_dev != before.st_dev
+                        or observed.st_ino != before.st_ino
+                        or observed.st_uid != os.geteuid()
+                    ):
+                        raise PermissionError(
+                            "Rollback-katalogen byttes under städning."
+                        )
+                    remove_children(child_fd, depth + 1)
+                finally:
+                    os.close(child_fd)
+                after = os.stat(
+                    name, dir_fd=directory_fd, follow_symlinks=False
+                )
+                if (
+                    not stat.S_ISDIR(after.st_mode)
+                    or after.st_dev != before.st_dev
+                    or after.st_ino != before.st_ino
+                ):
+                    raise PermissionError("Rollback-katalogen byttes.")
+                os.rmdir(name, dir_fd=directory_fd)
+            elif stat.S_ISREG(before.st_mode) and before.st_nlink == 1:
+                file_fd = os.open(name, file_flags, dir_fd=directory_fd)
+                try:
+                    observed = os.fstat(file_fd)
+                    if (
+                        not stat.S_ISREG(observed.st_mode)
+                        or observed.st_nlink != 1
+                        or observed.st_dev != before.st_dev
+                        or observed.st_ino != before.st_ino
+                        or observed.st_uid != os.geteuid()
+                    ):
+                        raise PermissionError(
+                            "Rollback-filen byttes under städning."
+                        )
+                    after = os.stat(
+                        name, dir_fd=directory_fd, follow_symlinks=False
+                    )
+                    if (
+                        not stat.S_ISREG(after.st_mode)
+                        or after.st_nlink != 1
+                        or after.st_dev != observed.st_dev
+                        or after.st_ino != observed.st_ino
+                    ):
+                        raise PermissionError(
+                            "Rollback-filen byttes före borttagning."
+                        )
+                    os.unlink(name, dir_fd=directory_fd)
+                finally:
+                    os.close(file_fd)
+            else:
+                raise PermissionError(
+                    "Osäker symlink eller specialfil i rollback-backup."
+                )
+        os.fsync(directory_fd)
+
+    with _pinned_parent(path) as (parent_fd, name):
+        before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or before.st_mode & 0o077
+        ):
+            raise PermissionError("Osäker ofärdig rollback-rot.")
+        root_fd = os.open(name, directory_flags, dir_fd=parent_fd)
+        try:
+            opened = os.fstat(root_fd)
+            if (
+                opened.st_dev != before.st_dev
+                or opened.st_ino != before.st_ino
+            ):
+                raise PermissionError("Rollback-roten byttes under städning.")
+            remove_children(root_fd, 0)
+        finally:
+            os.close(root_fd)
+        after = os.stat(
+            name, dir_fd=parent_fd, follow_symlinks=False
+        )
+        if (
+            not stat.S_ISDIR(after.st_mode)
+            or after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+        ):
+            raise PermissionError("Rollback-roten byttes före borttagning.")
+        os.rmdir(name, dir_fd=parent_fd)
+        os.fsync(parent_fd)
 
 
 def _atomic_write_record(path, record):
@@ -1132,8 +1258,7 @@ class SelfDevPromotionManager:
         except BaseException:
             # No active file has been modified before the journal is
             # prepared; remove an unusable partial backup safely.
-            shutil.rmtree(rollback_root)
-            _sync_directory(rollback_root.parent)
+            _discard_unprepared_backup_tree(rollback_root)
             raise
 
         journal = {

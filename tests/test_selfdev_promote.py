@@ -3246,3 +3246,127 @@ def test_backup_path_rejects_symlinked_rollback_root(tmp_path):
     (tmp_path / "root-link").symlink_to(outside, target_is_directory=True)
     with pytest.raises(PermissionError, match="symlink"):
         active._safe_backup_path(tmp_path / "root-link", "core/example.py")
+
+
+def test_unprepared_rollback_cleanup_removes_nested_private_backup(tmp_path):
+    import os
+    from core import selfdev_promote as module
+
+    folder = tmp_path / "rollbacks" / "promo1"
+    nested = folder / "files" / "core"
+    nested.mkdir(parents=True, mode=0o700)
+    folder.chmod(0o700)
+    (nested / "example.py").write_text("OLD = True\n", encoding="utf-8")
+    module._discard_unprepared_backup_tree(folder)
+    assert not folder.exists()
+    assert (tmp_path / "rollbacks").is_dir()
+
+
+def test_unprepared_rollback_cleanup_never_follows_swapped_parent(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    parent = tmp_path / "rollbacks"
+    folder = parent / "promo1"
+    folder.mkdir(parents=True, mode=0o700)
+    (folder / "original.py").write_text("OLD = 1\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    protected = outside / "promo1"
+    protected.mkdir(parents=True)
+    marker = protected / "keep.py"
+    marker.write_text("PROTECTED = 1\n", encoding="utf-8")
+    real_scandir = os.scandir
+    switched = []
+
+    def swap_after_directory_is_pinned(target):
+        if isinstance(target, int) and not switched:
+            parent.rename(tmp_path / "rollbacks-old")
+            parent.symlink_to(outside, target_is_directory=True)
+            switched.append(True)
+        return real_scandir(target)
+
+    monkeypatch.setattr(module.os, "scandir", swap_after_directory_is_pinned)
+    module._discard_unprepared_backup_tree(folder)
+
+    assert switched == [True]
+    assert not (tmp_path / "rollbacks-old" / "promo1").exists()
+    assert marker.read_text(encoding="utf-8") == "PROTECTED = 1\n"
+
+
+def test_unprepared_rollback_cleanup_rejects_parent_link_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    parent = tmp_path / "rollbacks"
+    folder = parent / "promo1"
+    folder.mkdir(parents=True, mode=0o700)
+    outside = tmp_path / "outside"
+    protected = outside / "promo1"
+    protected.mkdir(parents=True)
+    marker = protected / "keep.py"
+    marker.write_text("PROTECTED = 1\n", encoding="utf-8")
+    real_open = os.open
+    switched = []
+
+    def swap_before_parent_open(name, flags, *args, **kwargs):
+        if name == "rollbacks" and kwargs.get("dir_fd") is not None:
+            parent.rename(tmp_path / "rollbacks-old")
+            parent.symlink_to(outside, target_is_directory=True)
+            switched.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_parent_open)
+    with pytest.raises(OSError):
+        module._discard_unprepared_backup_tree(folder)
+
+    assert switched == [True]
+    assert (tmp_path / "rollbacks-old" / "promo1").is_dir()
+    assert marker.read_text(encoding="utf-8") == "PROTECTED = 1\n"
+
+
+def test_unprepared_rollback_cleanup_rejects_symlink_inside_backup(tmp_path):
+    from core import selfdev_promote as module
+
+    folder = tmp_path / "rollbacks" / "promo1"
+    folder.mkdir(parents=True, mode=0o700)
+    outside = tmp_path / "protected.py"
+    outside.write_text("PRIVATE = 1\n", encoding="utf-8")
+    (folder / "link.py").symlink_to(outside)
+
+    with pytest.raises(PermissionError, match="symlink"):
+        module._discard_unprepared_backup_tree(folder)
+
+    assert folder.exists()
+    assert outside.read_text(encoding="utf-8") == "PRIVATE = 1\n"
+
+
+def test_unprepared_rollback_cleanup_rejects_swapped_file(tmp_path, monkeypatch):
+    import os
+    from core import selfdev_promote as module
+
+    folder = tmp_path / "rollbacks" / "promo1"
+    folder.mkdir(parents=True, mode=0o700)
+    target = folder / "example.py"
+    target.write_text("OLD = 1\n", encoding="utf-8")
+    outside = tmp_path / "private.py"
+    outside.write_text("PRIVATE = 1\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def swap_during_file_open(name, flags, *args, **kwargs):
+        if name == "example.py" and kwargs.get("dir_fd") is not None:
+            target.rename(folder / "old.py")
+            target.symlink_to(outside)
+            swapped.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_during_file_open)
+    with pytest.raises(OSError):
+        module._discard_unprepared_backup_tree(folder)
+
+    assert swapped == [True]
+    assert outside.read_text(encoding="utf-8") == "PRIVATE = 1\n"
