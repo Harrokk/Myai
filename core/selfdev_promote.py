@@ -1848,14 +1848,15 @@ class SelfDevPromotionManager:
                 self._unlink_verified_added(target, expected)
 
     def inspect_recovery_artifacts(self, promotion_id):
-        """Report orphaned restore snapshots without reading or deleting them.
+        """Read-only orphan snapshot inventory anchored to open backup dirfds.
 
-        Files left by SIGKILL/power loss are *not* automatically removed;
-        human review must determine whether recovery is still pending.
+        Never re-resolve a listed child pathname after symlink inspection.
+        A concurrent local writer can still rename entries between stat and
+        open, so inode identity is checked and ambiguous changes block.
         """
         identifier = _safe_identifier(promotion_id)
-        rollback_root = (
-            self.workspace.session_root / "rollbacks" / identifier
+        backup_root = (
+            self.workspace.session_root / "rollbacks" / identifier / "files"
         )
         result = {
             "promotion_id": identifier,
@@ -1863,53 +1864,96 @@ class SelfDevPromotionManager:
             "status": "blocked",
             "orphan_snapshot_count": 0,
         }
+        directory_flags = (
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        stack = []
+        inspected = 0
+        count = 0
+
         try:
-            # Inspect links without resolving them or traversing outside.
-            for directory in (
-                self.workspace.session_root,
-                self.workspace.session_root / "rollbacks",
-                rollback_root,
-                rollback_root / "files",
-            ):
-                if directory.is_symlink():
-                    raise PermissionError("Återställningskatalogen är en symlink.")
-            backup_root = rollback_root / "files"
-            if not backup_root.exists():
+            try:
+                with _pinned_parent(backup_root) as (parent_fd, name):
+                    try:
+                        root_fd = os.open(
+                            name, directory_flags, dir_fd=parent_fd
+                        )
+                    except FileNotFoundError:
+                        result["status"] = "no_artifacts"
+                        return result
+            except FileNotFoundError:
                 result["status"] = "no_artifacts"
                 return result
-            if not backup_root.is_dir():
-                raise RuntimeError("Backup-roten är inte en katalog.")
+            except OSError as error:
+                if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise PermissionError(
+                        "Symlink i återställningskatalogen."
+                    ) from error
+                raise
 
-            stack = [backup_root]
-            inspected = 0
-            count = 0
+            stack.append((root_fd, 0))
             while stack:
-                directory = stack.pop()
-                if directory.is_symlink():
-                    raise PermissionError("Symlink i återställningskatalogen.")
-                with os.scandir(directory) as iterator:
-                    for entry in iterator:
+                directory_fd, depth = stack.pop()
+                try:
+                    if depth > 40:
+                        raise RuntimeError(
+                            "För djup återställningskatalog."
+                        )
+                    with os.scandir(directory_fd) as iterator:
+                        names = sorted(item.name for item in iterator)
+                    for name in names:
                         inspected += 1
                         if inspected > 5000:
                             raise RuntimeError(
                                 "För många filer i återställningskatalogen."
                             )
-                        if entry.is_symlink():
+                        info = os.stat(
+                            name, dir_fd=directory_fd,
+                            follow_symlinks=False,
+                        )
+                        if stat.S_ISLNK(info.st_mode):
                             raise PermissionError(
                                 "Symlink i återställningskatalogen."
                             )
-                        if entry.is_dir(follow_symlinks=False):
-                            stack.append(Path(entry.path))
-                            continue
-                        if entry.name.startswith(".verified-backup-") and (
-                            entry.name.endswith(".tmp")
+                        if stat.S_ISDIR(info.st_mode):
+                            try:
+                                child_fd = os.open(
+                                    name, directory_flags,
+                                    dir_fd=directory_fd,
+                                )
+                            except OSError as error:
+                                raise RuntimeError(
+                                    "Återställningskatalogen ändrades under "
+                                    "inventeringen."
+                                ) from error
+                            child_info = os.fstat(child_fd)
+                            if (
+                                not stat.S_ISDIR(child_info.st_mode)
+                                or child_info.st_dev != info.st_dev
+                                or child_info.st_ino != info.st_ino
+                            ):
+                                os.close(child_fd)
+                                raise RuntimeError(
+                                    "Återställningskatalogen byttes under "
+                                    "inventeringen."
+                                )
+                            stack.append((child_fd, depth + 1))
+                        elif (
+                            name.startswith(".verified-backup-")
+                            and name.endswith(".tmp")
                         ):
-                            info = entry.stat(follow_symlinks=False)
-                            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                            if (
+                                not stat.S_ISREG(info.st_mode)
+                                or info.st_nlink != 1
+                            ):
                                 raise RuntimeError(
                                     "Osäker temporär återställningsfil."
                                 )
                             count += 1
+                finally:
+                    os.close(directory_fd)
+
             result["orphan_snapshot_count"] = count
             result["status"] = (
                 "orphan_snapshots_detected" if count else "no_artifacts"
@@ -1917,6 +1961,9 @@ class SelfDevPromotionManager:
         except (OSError, RuntimeError, ValueError) as error:
             result["status"] = "blocked"
             result["reason"] = str(error)
+        finally:
+            for opened_fd, _ in stack:
+                os.close(opened_fd)
         return result
 
     def inspect_recovery(self, promotion_id):

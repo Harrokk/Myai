@@ -3753,3 +3753,96 @@ def test_interrupted_inventory_rejects_oversized_untrusted_journal(tmp_path):
     path.write_bytes(b"X" * (1024 * 1024 + 1))
     with pytest.raises(RuntimeError, match="skadad återställningsjournal"):
         active._require_no_interrupted_promotion()
+
+
+def test_orphan_inventory_scans_pinned_root_when_alias_changes(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    backup_root = workspace.session_root / "rollbacks" / "promo1" / "files"
+    (backup_root / "core" / ".verified-backup-orphan.tmp").write_text(
+        "ORPHAN\n", encoding="utf-8"
+    )
+    outside = tmp_path / "outside-backup"
+    outside.mkdir()
+    (outside / ".verified-backup-secret.tmp").write_text(
+        "PRIVATE\n", encoding="utf-8"
+    )
+    real_scan = os.scandir
+    swaps = []
+
+    def move_alias_after_open(fd):
+        if isinstance(fd, int) and not swaps:
+            backup_root.rename(backup_root.with_name("files-old"))
+            backup_root.symlink_to(outside, target_is_directory=True)
+            swaps.append(True)
+        return real_scan(fd)
+
+    monkeypatch.setattr(module.os, "scandir", move_alias_after_open)
+    report = active.inspect_recovery_artifacts("promo1")
+    assert report["status"] == "orphan_snapshots_detected"
+    assert report["orphan_snapshot_count"] == 1
+    assert swaps == [True]
+    assert (outside / ".verified-backup-secret.tmp").read_text(
+        encoding="utf-8"
+    ) == "PRIVATE\n"
+
+
+def test_orphan_inventory_rejects_swapped_nested_directory_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    backup_root = workspace.session_root / "rollbacks" / "promo1" / "files"
+    original = backup_root / "core"
+    outside = tmp_path / "private"
+    outside.mkdir()
+    (outside / ".verified-backup-private.tmp").write_text(
+        "KEEP\n", encoding="utf-8"
+    )
+    real_open = os.open
+    swapped = []
+
+    def swap_child_before_open(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            original.rename(backup_root / "core-old")
+            original.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_child_before_open)
+    result = active.inspect_recovery_artifacts("promo1")
+    assert result["status"] == "blocked"
+    assert swapped == [True]
+    assert (outside / ".verified-backup-private.tmp").read_text(
+        encoding="utf-8"
+    ) == "KEEP\n"
+
+
+def test_orphan_inventory_refuses_symlinked_parent_without_reading_outside(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollbacks = workspace.session_root / "rollbacks"
+    outside = tmp_path / "private-rollbacks"
+    outside.mkdir()
+    rollbacks.rename(rollbacks.with_name("rollbacks-old"))
+    rollbacks.symlink_to(outside, target_is_directory=True)
+    result = active.inspect_recovery_artifacts("promo1")
+    assert result["status"] == "blocked"
+    assert "Symlink" in result["reason"]
+    assert list(outside.iterdir()) == []
