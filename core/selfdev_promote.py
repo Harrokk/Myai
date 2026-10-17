@@ -1165,12 +1165,12 @@ class SelfDevPromotionManager:
         """Do not follow backup symlinks or accept multiply-linked backups."""
         backup = self._safe_backup_path(rollback_root, relative)
         try:
-            attributes = backup.lstat()
-        except OSError as error:
-            raise RuntimeError("Backup saknas eller går inte att läsa.") from error
-        if not stat.S_ISREG(attributes.st_mode) or attributes.st_nlink != 1:
-            raise RuntimeError("Osäker backupfil (symlink eller hårdlänk).")
-        if _sha256(backup) != expected_hash:
+            observed = _hash_existing_regular_path(backup)
+        except (OSError, PermissionError, RuntimeError) as error:
+            raise RuntimeError(
+                "Osäker backupfil (symlink eller hårdlänk)."
+            ) from error
+        if observed != expected_hash:
             raise RuntimeError("Backup är skadad eller saknas.")
         return backup
 
@@ -1182,13 +1182,11 @@ class SelfDevPromotionManager:
         This closes link swaps between backup validation and source copy.
         """
         backup = self._verified_backup(rollback_root, relative, expected_hash)
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        if hasattr(os, "O_NONBLOCK"):
-            flags |= os.O_NONBLOCK
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
         try:
-            descriptor = os.open(str(backup), flags)
+            with _pinned_parent(backup) as (parent_fd, name):
+                descriptor = os.open(name, flags, dir_fd=parent_fd)
         except OSError as error:
             raise RuntimeError("Backup kan inte öppnas säkert.") from error
 
