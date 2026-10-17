@@ -929,11 +929,8 @@ def weather_forecast(
                 user_input
             )
         )
-    except Exception as error:
-        return (
-            "Vädret kunde inte hämtas: "
-            f"{error}"
-        )
+    except Exception:
+        return "Vädret kunde inte hämtas: feltext dold."
 
 
 TOOLS = {

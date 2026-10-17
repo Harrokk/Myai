@@ -106,6 +106,7 @@ def test_fetch_extracts_visible_html_text():
     )
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
@@ -136,6 +137,7 @@ def test_redirect_to_private_address_is_blocked():
 
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
@@ -157,6 +159,7 @@ def test_binary_content_is_rejected():
     )
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
@@ -176,6 +179,7 @@ def test_page_size_limit_is_enforced():
     )
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
         max_bytes=10,
@@ -199,6 +203,7 @@ def test_content_length_limit_is_enforced_before_body_read():
     )
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
         max_bytes=100,
@@ -232,6 +237,7 @@ def test_html_metadata_canonical_and_external_links_are_extracted():
 
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
@@ -254,6 +260,7 @@ def test_fetch_blocks_nonpublic_connected_peer_after_public_dns():
     session = FakeSession([response])
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda item: private_resolver("", 0)[0][4][0],
     )
@@ -276,6 +283,7 @@ def test_fetch_accepts_public_connected_peer():
     )
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda response: public_resolver("", 0)[0][4][0],
     )
@@ -293,6 +301,7 @@ def test_successful_streamed_response_is_closed():
     session = FakeSession([response])
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda item: public_resolver("", 0)[0][4][0],
     )
@@ -315,6 +324,7 @@ def test_redirect_response_is_closed_before_next_request():
     session = FakeSession([redirect, final])
     client = public_web_client.PublicWebClient(
         session=session,
+        unsafe_test_session=True,
         resolver=public_resolver,
         peer_ip_getter=lambda item: public_resolver("", 0)[0][4][0],
     )
@@ -324,3 +334,21 @@ def test_redirect_response_is_closed_before_next_request():
     assert result["text"] == "final"
     assert redirect.closed is True
     assert final.closed is True
+
+
+
+def test_custom_http_session_fails_closed_without_explicit_test_opt_in():
+    session = FakeSession([])
+    with pytest.raises(ValueError, match="Osäker extern HTTP-session"):
+        public_web_client.PublicWebClient(
+            session=session,
+            resolver=public_resolver,
+            peer_ip_getter=lambda _: "93.184.216.34",
+        )
+    assert session.calls == []
+
+
+def test_default_client_always_uses_ip_pinned_socket_transport():
+    from core.public_web_transport import PinnedPublicWebTransport
+    default = public_web_client.PublicWebClient(resolver=public_resolver)
+    assert isinstance(default.session, PinnedPublicWebTransport)

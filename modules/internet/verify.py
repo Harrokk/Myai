@@ -127,8 +127,8 @@ def source_verify_page(user_input):
         return format_source_verification(
             verify_source_page(url, query=query)
         )
-    except Exception as error:
-        return f"Källgranskningen kunde inte köras: {error}"
+    except Exception:
+        return "Källgranskningen kunde inte köras: feltext dold."
 
 
 TOOLS = {

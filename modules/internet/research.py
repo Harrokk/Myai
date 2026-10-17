@@ -269,8 +269,8 @@ def research_top_three(user_input):
         return format_research_top_candidates(
             research_top_candidates_data(query)
         )
-    except Exception as error:
-        return f"Research kunde inte köras: {error}"
+    except Exception:
+        return "Research kunde inte köras: feltext dold."
 
 
 TOOLS = {

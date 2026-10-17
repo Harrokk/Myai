@@ -1305,11 +1305,8 @@ def shopping_compare_sweden(
                 query
             )
         )
-    except Exception as error:
-        return (
-            "Prisjämförelsen kunde inte köras: "
-            f"{error}"
-        )
+    except Exception:
+        return "Prisjämförelsen kunde inte köras: feltext dold."
 
 
 TOOLS = {
