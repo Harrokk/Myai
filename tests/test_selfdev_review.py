@@ -90,10 +90,9 @@ def test_review_reports_verification_status(tmp_path):
     _, workspace = make_workspace(
         tmp_path
     )
-    workspace.verification_path.write_text(
-        '{"passed": true}',
-        encoding="utf-8",
-    )
+    # Use the real atomic/private record writer so this test still
+    # exercises review status rather than deliberately unsafe file mode.
+    workspace.save_verification({"passed": True})
 
     review = build_selfdev_review(
         workspace
