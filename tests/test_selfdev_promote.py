@@ -1957,3 +1957,18 @@ def test_orphan_snapshot_inventory_rejects_symlinked_backup_directory(
     assert (external / ".verified-backup-outside.tmp").read_text(
         encoding="utf-8"
     ) == "OUTSIDE"
+
+
+def test_promotion_verification_reader_rejects_linked_approved_record(tmp_path):
+    _, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    outside = tmp_path / "forged-approval.json"
+    outside.write_bytes(workspace.verification_path.read_bytes())
+    workspace.verification_path.unlink()
+    workspace.verification_path.symlink_to(outside)
+
+    with pytest.raises(OSError):
+        manager(workspace, settings())._verification()
+    assert outside.exists()
+
+
