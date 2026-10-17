@@ -443,23 +443,71 @@ class SelfDevPromotionManager:
         )
 
     def _private_selfdev_directory(self, *, create=False):
-        """Reject redirection and shared-writable metadata directories."""
+        """Validate (and optionally create) the private directory via dirfds.
+
+        Avoid resolving mutable parent pathnames separately for mkdir, stat
+        and ownership checks. Only the trusted project-root spelling is
+        returned; callers performing I/O must independently pin their FDs.
+        """
         runtime = self.workspace.project_root / "runtime"
         directory = runtime / "selfdev"
-        if runtime.is_symlink() or directory.is_symlink():
-            raise PermissionError("Selfdev-katalogen får inte vara symlink.")
-        if create:
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        for item in (runtime, directory):
-            if not item.is_dir() or item.is_symlink():
-                raise PermissionError("Selfdev-katalogen är ogiltig.")
-            info = item.lstat()
-            if os.name == "posix" and (
-                info.st_uid != os.geteuid() or (info.st_mode & 0o022)
+        directory_flags = (
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+
+        try:
+            with _pinned_parent(directory, create=create) as (
+                runtime_fd, name
             ):
-                raise PermissionError(
-                    "Selfdev-katalogen har osäkra behörigheter."
+                runtime_info = os.fstat(runtime_fd)
+                if (
+                    not stat.S_ISDIR(runtime_info.st_mode)
+                    or runtime_info.st_uid != os.geteuid()
+                    or runtime_info.st_mode & 0o022
+                ):
+                    raise PermissionError(
+                        "Selfdev-katalogen har osäkra behörigheter."
+                    )
+
+                if create:
+                    try:
+                        os.mkdir(name, mode=0o700, dir_fd=runtime_fd)
+                    except FileExistsError:
+                        pass
+
+                selfdev_fd = os.open(
+                    name, directory_flags, dir_fd=runtime_fd
                 )
+                try:
+                    private_info = os.fstat(selfdev_fd)
+                    if (
+                        not stat.S_ISDIR(private_info.st_mode)
+                        or private_info.st_uid != os.geteuid()
+                        or private_info.st_mode & 0o022
+                    ):
+                        raise PermissionError(
+                            "Selfdev-katalogen har osäkra behörigheter."
+                        )
+                    current = os.stat(
+                        name, dir_fd=runtime_fd, follow_symlinks=False
+                    )
+                    if (
+                        not stat.S_ISDIR(current.st_mode)
+                        or current.st_dev != private_info.st_dev
+                        or current.st_ino != private_info.st_ino
+                    ):
+                        raise PermissionError(
+                            "Selfdev-katalogen ändrades under kontroll."
+                        )
+                finally:
+                    os.close(selfdev_fd)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise PermissionError(
+                    "Selfdev-katalogen får inte vara symlink."
+                ) from error
+            raise
         return directory
 
     @contextmanager
