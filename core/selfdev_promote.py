@@ -249,6 +249,86 @@ def _atomic_copy(
             os.close(source_fd)
 
 
+def _hash_existing_regular_path(path):
+    """Hash the current allowed regular file using no-follow parent handles."""
+    from core.selfdev_workspace import _hash_pinned_regular_file
+
+    with _pinned_parent(path) as (parent_fd, name):
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        file_fd = os.open(name, flags, dir_fd=parent_fd)
+        try:
+            info = os.fstat(file_fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise PermissionError("Osäker källfil vid backupkontroll.")
+            return _hash_pinned_regular_file(file_fd)
+        finally:
+            os.close(file_fd)
+
+
+def _copy_verified_backup(source, destination):
+    """Stage a private backup of one pinned active source inode.
+
+    Return SHA-256 of the exact bytes copied to the private backup.
+    Abort and unlink a partial backup on source mutation or I/O failure.
+    """
+    with _pinned_parent(source) as (source_parent_fd, source_name):
+        source_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        source_flags |= getattr(os, "O_CLOEXEC", 0)
+        source_fd = os.open(source_name, source_flags, dir_fd=source_parent_fd)
+        try:
+            before = os.fstat(source_fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                raise PermissionError("Backup kräver en vanlig källfil utan hårdlänkar.")
+
+            with _pinned_parent(destination, create=True) as (dest_parent_fd, name):
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                flags |= getattr(os, "O_CLOEXEC", 0)
+                dest_fd = os.open(name, flags, 0o600, dir_fd=dest_parent_fd)
+                try:
+                    digest = hashlib.sha256()
+                    copied = 0
+                    while True:
+                        piece = os.read(source_fd, 65_536)
+                        if not piece:
+                            break
+                        digest.update(piece)
+                        copied += len(piece)
+                        remaining = memoryview(piece)
+                        while remaining:
+                            written = os.write(dest_fd, remaining)
+                            if written <= 0:
+                                raise OSError("Säkerhetskopian kunde inte skrivas.")
+                            remaining = remaining[written:]
+
+                    after = os.fstat(source_fd)
+                    if (
+                        copied != before.st_size
+                        or after.st_dev != before.st_dev
+                        or after.st_ino != before.st_ino
+                        or after.st_size != before.st_size
+                        or after.st_mtime_ns != before.st_mtime_ns
+                        or after.st_ctime_ns != before.st_ctime_ns
+                    ):
+                        raise RuntimeError("Extern ändring under säkerhetskopiering.")
+                    os.fchmod(dest_fd, stat.S_IMODE(before.st_mode) & 0o777)
+                    os.fsync(dest_fd)
+                    os.close(dest_fd)
+                    dest_fd = -1
+                    os.fsync(dest_parent_fd)
+                    return digest.hexdigest()
+                except BaseException:
+                    if dest_fd >= 0:
+                        os.close(dest_fd)
+                    try:
+                        os.unlink(name, dir_fd=dest_parent_fd)
+                    except FileNotFoundError:
+                        pass
+                    raise
+        finally:
+            os.close(source_fd)
+
+
 def _atomic_write_record(path, record):
     """Publish a complete bounded recovery journal within a pinned dirfd."""
     path = Path(path)
@@ -925,21 +1005,12 @@ class SelfDevPromotionManager:
                         "Källfil i staging har ändrats efter verifiering."
                     )
                 if target.exists():
-                    old_digest = _sha256(target)
                     backup = self._safe_backup_path(rollback_root, relative)
-                    backup.parent.mkdir(parents=True, exist_ok=True)
-                    # Backups are not source promotions; copy and sync them
-                    # separately so source-replace fault injection remains
-                    # precise and backups stay durable before PREPARED.
-                    shutil.copy2(target, backup)
-                    with backup.open("rb") as handle:
-                        os.fsync(handle.fileno())
-                    _sync_directory(backup.parent)
-                    # The source may have changed while backup was copied.
-                    if (
-                        _sha256(backup) != old_digest
-                        or _sha256(target) != old_digest
-                    ):
+                    # Hash exactly the bytes copied from one pinned active
+                    # inode, then re-open the active name without following
+                    # symlinks before preparing the rollback journal.
+                    old_digest = _copy_verified_backup(target, backup)
+                    if _hash_existing_regular_path(target) != old_digest:
                         raise RuntimeError(
                             "Extern ändring under säkerhetskopiering."
                         )
