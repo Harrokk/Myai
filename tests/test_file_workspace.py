@@ -395,16 +395,17 @@ def test_workspace_listing_stops_before_scanning_later_directories(
     workspace.write_workspace_text("a/first.txt", "one", cfg)
     workspace.write_workspace_text("z/last.txt", "two", cfg)
 
-    real_scandir = workspace.os.scandir
+    real_open = workspace.os.open
     visited = []
 
-    def traced_scandir(path):
-        visited.append(Path(path).name)
-        if Path(path).name == "z":
-            raise AssertionError("Workspace scanned directories after the cap")
-        return real_scandir(path)
+    def traced_open(path, flags, *args, **kwargs):
+        if isinstance(path, str) and kwargs.get("dir_fd") is not None:
+            visited.append(path)
+            if path == "z":
+                raise AssertionError("Workspace opened directories after the cap")
+        return real_open(path, flags, *args, **kwargs)
 
-    monkeypatch.setattr(workspace.os, "scandir", traced_scandir)
+    monkeypatch.setattr(workspace.os, "open", traced_open)
     listed = workspace.list_workspace_files(cfg)
     assert [item["path"] for item in listed] == ["a/first.txt"]
     assert "a" in visited
@@ -547,3 +548,116 @@ def test_workspace_io_rejects_dot_and_parent_components(tmp_path):
             workspace.read_workspace_text(path, cfg)
         with pytest.raises(ValueError):
             workspace.write_workspace_text(path, "unsafe", cfg)
+
+
+def test_workspace_listing_rejects_final_symlink_swapped_after_enumeration(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    target = root / "safe.txt"
+    target.write_text("OK", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("SECRET_METADATA_" * 100, encoding="utf-8")
+    real_stat = workspace.os.stat
+    swaps = []
+
+    def stat_with_final_swap(path, *args, **kwargs):
+        if path == "safe.txt" and kwargs.get("dir_fd") is not None:
+            target.unlink()
+            target.symlink_to(outside)
+            swaps.append(True)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.os, "stat", stat_with_final_swap)
+    found = workspace.list_workspace_files(cfg)
+    assert swaps == [True]
+    assert found == []
+
+
+def test_workspace_listing_rejects_directory_link_swap_before_open(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path)
+    root = tmp_path / "workspace"
+    nested = root / "notes"
+    nested.mkdir(parents=True)
+    (nested / "ok.txt").write_text("OK", encoding="utf-8")
+    outside = tmp_path / "private"
+    outside.mkdir()
+    (outside / "private.txt").write_text("SECRET", encoding="utf-8")
+    real_open = workspace.os.open
+    did_swap = []
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        if path == "notes" and kwargs.get("dir_fd") is not None:
+            nested.rename(root / "old-notes")
+            nested.symlink_to(outside, target_is_directory=True)
+            did_swap.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.os, "open", swap_before_open)
+    found = workspace.list_workspace_files(cfg)
+    assert did_swap == [True]
+    assert found == []
+    assert (outside / "private.txt").read_text(encoding="utf-8") == "SECRET"
+
+
+def test_workspace_listing_keeps_pinned_directory_after_alias_change(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path)
+    root = tmp_path / "workspace"
+    nested = root / "notes"
+    nested.mkdir(parents=True)
+    (nested / "ok.txt").write_text("OK", encoding="utf-8")
+    outside = tmp_path / "private"
+    outside.mkdir()
+    (outside / "outside.txt").write_text("SECRET", encoding="utf-8")
+    real_open = workspace.os.open
+    swapped = []
+
+    def swap_after_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "notes" and kwargs.get("dir_fd") is not None:
+            nested.rename(root / "old-notes")
+            nested.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return descriptor
+
+    monkeypatch.setattr(workspace.os, "open", swap_after_open)
+    found = workspace.list_workspace_files(cfg)
+    assert swapped == [True]
+    assert found == [{"path": "notes/ok.txt", "size_bytes": 2}]
+    assert (outside / "outside.txt").read_text(encoding="utf-8") == "SECRET"
+
+
+def test_workspace_listing_closes_pinned_descriptors_on_early_cap(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path)
+    cfg["files"]["max_list_entries"] = 1
+    root = tmp_path / "workspace"
+    (root / "a" / "b").mkdir(parents=True)
+    (root / "a" / "b" / "first.txt").write_text("X", encoding="utf-8")
+    (root / "z").mkdir()
+    real_open = workspace.os.open
+    real_close = workspace.os.close
+    opened = []
+    closed = []
+
+    def traced_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        opened.append(descriptor)
+        return descriptor
+
+    def traced_close(descriptor):
+        closed.append(descriptor)
+        return real_close(descriptor)
+
+    monkeypatch.setattr(workspace.os, "open", traced_open)
+    monkeypatch.setattr(workspace.os, "close", traced_close)
+    listed = workspace.list_workspace_files(cfg)
+    assert [item["path"] for item in listed] == ["a/b/first.txt"]
+    assert sorted(opened) == sorted(closed)
