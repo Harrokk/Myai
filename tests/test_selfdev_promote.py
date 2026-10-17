@@ -2129,3 +2129,128 @@ def test_atomic_promotion_copy_preserves_safe_source_permissions(tmp_path):
     target = tmp_path / "script-active.sh"
     module._atomic_copy(source, target)
     assert stat.S_IMODE(target.stat().st_mode) == 0o751
+
+
+def test_rollback_added_file_delete_refuses_replaced_symlink(tmp_path):
+    import hashlib
+
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    inside = tmp_path / "source"
+    inside.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("SECRET = True\n", encoding="utf-8")
+    target = inside / "new.py"
+    content = b"SAFE = True\n"
+    target.write_bytes(content)
+    target.unlink()
+    target.symlink_to(outside)
+
+    with pytest.raises(RuntimeError, match="Ny fil saknas eller har ändrats"):
+        SelfDevPromotionManager._unlink_verified_added(
+            target, hashlib.sha256(content).hexdigest()
+        )
+
+    assert target.is_symlink()
+    assert outside.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_rollback_added_file_delete_refuses_external_content_change(tmp_path):
+    import hashlib
+
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    target = tmp_path / "new.py"
+    before = b"APPROVED = True\n"
+    target.write_bytes(b"EXTERNAL = True\n")
+
+    with pytest.raises(RuntimeError, match="ändrats"):
+        SelfDevPromotionManager._unlink_verified_added(
+            target, hashlib.sha256(before).hexdigest()
+        )
+    assert target.read_bytes() == b"EXTERNAL = True\n"
+
+
+def test_rollback_added_file_delete_uses_pinned_parent_after_alias_swap(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import os
+
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    new_file = inside / "new.py"
+    new_file.write_text("STAGED = True\n", encoding="utf-8")
+    content_hash = hashlib.sha256(new_file.read_bytes()).hexdigest()
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "new.py"
+    protected.write_text("PROTECTED = True\n", encoding="utf-8")
+
+    original_unlink = os.unlink
+    swapped = []
+
+    def swap_before_unlink(path, *args, **kwargs):
+        if path == "new.py" and kwargs.get("dir_fd") is not None:
+            inside.rename(tmp_path / "inside-old")
+            inside.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_promote.os.unlink", swap_before_unlink)
+    SelfDevPromotionManager._unlink_verified_added(new_file, content_hash)
+
+    assert swapped == [True]
+    assert not (tmp_path / "inside-old" / "new.py").exists()
+    assert protected.read_text(encoding="utf-8") == "PROTECTED = True\n"
+
+
+def test_rollback_added_file_delete_detects_file_alias_swap_after_hash(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import os
+
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    target = tmp_path / "new.py"
+    content = b"STAGED = True\n"
+    target.write_bytes(content)
+    outside = tmp_path / "outside.py"
+    outside.write_text("SECRET = 1\n", encoding="utf-8")
+    original_stat = os.stat
+    swapped = []
+
+    def swap_during_recheck(path, *args, **kwargs):
+        if (
+            path == "new.py"
+            and kwargs.get("dir_fd") is not None
+            and kwargs.get("follow_symlinks") is False
+        ):
+            target.rename(tmp_path / "old.py")
+            target.symlink_to(outside)
+            swapped.append(True)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_promote.os.stat", swap_during_recheck)
+    with pytest.raises(RuntimeError, match="ändrades före"):
+        SelfDevPromotionManager._unlink_verified_added(
+            target, hashlib.sha256(content).hexdigest()
+        )
+
+    assert swapped == [True]
+    assert target.is_symlink()
+    assert outside.read_text(encoding="utf-8") == "SECRET = 1\n"
+
+
+def test_rollback_added_file_delete_requires_signed_expected_hash(tmp_path):
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    target = tmp_path / "new.py"
+    target.write_text("SAFE = True\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="giltig hash"):
+        SelfDevPromotionManager._unlink_verified_added(target, None)
+    assert target.read_text(encoding="utf-8") == "SAFE = True\n"
