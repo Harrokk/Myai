@@ -226,9 +226,11 @@ def _stage_source_files(project_root, workspace_root):
                         digest.update(chunk)
                         view = memoryview(chunk)
                         while view:
-                            view = view[os.write(target_file, view):]
+                            written = os.write(target_file, view)
+                            if written <= 0:
+                                raise OSError("Kunde inte skriva staging-filen.")
+                            view = view[written:]
 
-                    os.fsync(target_file)
                     after = os.fstat(source_file)
                     if (
                         copied != before.st_size
@@ -241,6 +243,10 @@ def _stage_source_files(project_root, workspace_root):
                         raise RuntimeError(
                             "Källfilen ändrades under selfdev-kopieringen."
                         )
+                    # Keep executable-bit semantics from copy2 without
+                    # propagating setuid/setgid/sticky or extended attributes.
+                    os.fchmod(target_file, stat.S_IMODE(before.st_mode) & 0o777)
+                    os.fsync(target_file)
                     baseline[relative.as_posix()] = digest.hexdigest()
                 finally:
                     os.close(target_file)
