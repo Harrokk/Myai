@@ -84,16 +84,66 @@ def _sync_directory(path):
         os.close(descriptor)
 
 
-def _source_matches_before_replace(destination, expected):
-    """Fail closed if a non-cooperating process modified a target."""
+@contextmanager
+def _pinned_parent(path, *, create=False):
+    """Traverse all parents from / using no-follow dirfd opens.
+
+    No pathname is re-resolved to select the parent of an active-code
+    replacement. The operator controls the root path and its ownership.
+    """
+    if not all(hasattr(os, attr) for attr in ("O_DIRECTORY", "O_NOFOLLOW")):
+        raise RuntimeError("Säker selfdev-promotion kräver Linux dir_fd.")
+    target = Path(path)
+    if not target.is_absolute() or ".." in target.parts:
+        raise PermissionError("Säker promotion kräver en absolut tillåten sökväg.")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    directory_fd = os.open("/", flags)
+    try:
+        for name in target.parts[1:-1]:
+            if create:
+                try:
+                    os.mkdir(name, mode=0o700, dir_fd=directory_fd)
+                except FileExistsError:
+                    pass
+            new_fd = os.open(name, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = new_fd
+        yield directory_fd, target.name
+    finally:
+        os.close(directory_fd)
+
+
+def _source_matches_before_replace(destination, expected, *, directory_fd):
+    """Check pinned target's exact bytes without following target symlinks."""
     if expected is _NO_EXPECTED_SOURCE:
         return
-    if destination.is_symlink():
-        raise RuntimeError("Extern ändring av källkodsfil (symlink).")
+    filename = Path(destination).name
     if expected is None:
-        if os.path.lexists(destination):
-            raise RuntimeError("Extern ändring: ny målkodsfil finns redan.")
-    elif not destination.is_file() or _sha256(destination) != expected:
+        try:
+            os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise RuntimeError("Extern ändring: ny målkodsfil finns redan.")
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(filename, flags, dir_fd=directory_fd)
+    except OSError as error:
+        raise RuntimeError(
+            "Extern ändring av källkodsfil; promotion avbröts."
+        ) from error
+    try:
+        from core.selfdev_workspace import _hash_pinned_regular_file
+        observed = _hash_pinned_regular_file(fd)
+    except (OSError, PermissionError, RuntimeError) as error:
+        raise RuntimeError(
+            "Extern ändring av källkodsfil; promotion avbröts."
+        ) from error
+    finally:
+        os.close(fd)
+    if observed != expected:
         raise RuntimeError(
             "Extern ändring av källkodsfil; promotion avbröts."
         )
@@ -102,33 +152,100 @@ def _source_matches_before_replace(destination, expected):
 _NO_EXPECTED_SOURCE = object()
 
 
-def _atomic_copy(source, destination, *, expected_old=_NO_EXPECTED_SOURCE):
+def _atomic_copy(
+    source, destination, *,
+    expected_old=_NO_EXPECTED_SOURCE,
+    expected_source=None,
+):
+    """Copy from pinned source to pinned destination, validating before rename."""
     source = Path(source)
     destination = Path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        prefix=destination.name + ".",
-        suffix=".tmp",
-        dir=str(destination.parent),
-    )
-    os.close(descriptor)
-    temp = Path(temp_name)
-    try:
-        shutil.copy2(source, temp)
-        # A power cut after rename must not expose an unsynced new file.
-        with temp.open("rb") as handle:
-            os.fsync(handle.fileno())
-        # Check again immediately before replace, not only during preflight.
-        # This narrows but cannot eliminate races with non-cooperating writers.
-        _source_matches_before_replace(destination, expected_old)
-        os.replace(temp, destination)
-        _sync_directory(destination.parent)
-    except BaseException:
+    with _pinned_parent(source) as (source_parent_fd, source_name):
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        source_fd = os.open(source_name, flags, dir_fd=source_parent_fd)
         try:
-            temp.unlink()
-        except FileNotFoundError:
-            pass
-        raise
+            source_info = os.fstat(source_fd)
+            if not stat.S_ISREG(source_info.st_mode):
+                raise PermissionError("Promotion-källfilen är inte en vanlig fil.")
+
+            with _pinned_parent(destination, create=True) as (
+                target_parent_fd, target_name
+            ):
+                temporary = (
+                    "." + target_name + "." + secrets.token_hex(12) + ".tmp"
+                )
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                flags |= getattr(os, "O_CLOEXEC", 0)
+                target_fd = os.open(
+                    temporary, flags, 0o600, dir_fd=target_parent_fd
+                )
+                try:
+                    digest = hashlib.sha256()
+                    bytes_read = 0
+                    while True:
+                        piece = os.read(source_fd, 65_536)
+                        if not piece:
+                            break
+                        digest.update(piece)
+                        bytes_read += len(piece)
+                        view = memoryview(piece)
+                        while view:
+                            written = os.write(target_fd, view)
+                            if written <= 0:
+                                raise OSError("Promotion-kopiering kunde inte slutföras.")
+                            view = view[written:]
+
+                    after = os.fstat(source_fd)
+                    if (
+                        bytes_read != source_info.st_size
+                        or after.st_dev != source_info.st_dev
+                        or after.st_ino != source_info.st_ino
+                        or after.st_size != source_info.st_size
+                        or after.st_mtime_ns != source_info.st_mtime_ns
+                        or after.st_ctime_ns != source_info.st_ctime_ns
+                    ):
+                        raise RuntimeError(
+                            "Källfilen ändrades under promotion-kopieringen."
+                        )
+                    if (
+                        expected_source is not None
+                        and digest.hexdigest() != expected_source
+                    ):
+                        raise RuntimeError(
+                            "Källfil i staging har ändrats efter verifiering."
+                        )
+                    os.fchmod(
+                        target_fd, stat.S_IMODE(source_info.st_mode) & 0o777
+                    )
+                    os.fsync(target_fd)
+                    os.close(target_fd)
+                    target_fd = -1
+
+                    _source_matches_before_replace(
+                        destination, expected_old, directory_fd=target_parent_fd
+                    )
+                    # Descriptor-relative rename never follows a swapped
+                    # intermediate symlink or final target link.
+                    os.replace(
+                        temporary, target_name,
+                        src_dir_fd=target_parent_fd,
+                        dst_dir_fd=target_parent_fd,
+                    )
+                    os.fsync(target_parent_fd)
+                    # Preserve the existing failure-injection/durability hook
+                    # used by promotion and rollback regression tests.
+                    _sync_directory(destination.parent)
+                except BaseException:
+                    if target_fd >= 0:
+                        os.close(target_fd)
+                    try:
+                        os.unlink(temporary, dir_fd=target_parent_fd)
+                    except FileNotFoundError:
+                        pass
+                    raise
+        finally:
+            os.close(source_fd)
 
 
 def _atomic_write_record(path, record):
@@ -832,6 +949,7 @@ class SelfDevPromotionManager:
                 _atomic_copy(
                     source, target,
                     expected_old=backups[relative]["sha256"],
+                    expected_source=planned_hashes[relative],
                 )
                 after_hashes[relative] = _sha256(target)
                 if after_hashes[relative] != planned_hashes[relative]:
