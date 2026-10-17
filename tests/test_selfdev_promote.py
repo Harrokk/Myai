@@ -3646,3 +3646,110 @@ def test_atomic_copy_never_reopens_swapped_destination_parent_after_rename(
         encoding="utf-8"
     ) == "APPROVED = True\n"
     assert protected.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_interrupted_inventory_uses_pinned_journal_instead_of_swapped_alias(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+
+    original_dir = workspace.session_root / "rollbacks" / "promo1"
+    protected = tmp_path / "outside-promotion"
+    protected.mkdir()
+    (protected / "promotion.json").write_text(
+        '{"state": "prepared", "not_signed": true}', encoding="utf-8"
+    )
+    real_open = os.open
+    swapped = []
+
+    def move_alias_after_journal_open(name, flags, *args, **kwargs):
+        fd = real_open(name, flags, *args, **kwargs)
+        if name == "promotion.json" and kwargs.get("dir_fd") is not None:
+            original_dir.rename(original_dir.with_name("promo1-old"))
+            original_dir.symlink_to(protected, target_is_directory=True)
+            swapped.append(True)
+        return fd
+
+    monkeypatch.setattr(module.os, "open", move_alias_after_journal_open)
+    active._require_no_interrupted_promotion()
+    assert swapped == [True]
+    assert (protected / "promotion.json").read_text(encoding="utf-8") == (
+        '{"state": "prepared", "not_signed": true}'
+    )
+
+
+def test_interrupted_inventory_rejects_parent_symlink_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollbacks = workspace.session_root / "rollbacks"
+    outside = tmp_path / "outside-rollbacks"
+    outside.mkdir()
+    real_open = os.open
+    swapped = []
+
+    def swap_before_rollback_open(name, flags, *args, **kwargs):
+        if name == "rollbacks" and kwargs.get("dir_fd") is not None:
+            rollbacks.rename(rollbacks.with_name("rollbacks-old"))
+            rollbacks.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_rollback_open)
+    with pytest.raises(RuntimeError, match="symlink"):
+        active._require_no_interrupted_promotion()
+    assert swapped == [True]
+
+
+def test_interrupted_inventory_rejects_final_journal_symlink(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    protected = tmp_path / "outside-journal.json"
+    protected.write_bytes(path.read_bytes())
+    path.unlink()
+    path.symlink_to(protected)
+
+    with pytest.raises(RuntimeError, match="säker återställningsjournal"):
+        active._require_no_interrupted_promotion()
+    assert protected.is_file()
+
+
+def test_interrupted_inventory_rejects_missing_journal_without_mutation(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    path.unlink()
+
+    with pytest.raises(RuntimeError, match="saknar säker återställningsjournal"):
+        active._require_no_interrupted_promotion()
+    assert not path.exists()
+
+
+def test_interrupted_inventory_rejects_oversized_untrusted_journal(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    path = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    path.write_bytes(b"X" * (1024 * 1024 + 1))
+    with pytest.raises(RuntimeError, match="skadad återställningsjournal"):
+        active._require_no_interrupted_promotion()
