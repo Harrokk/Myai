@@ -189,47 +189,73 @@ def list_workspace_files(settings=None):
     if max_entries <= 0:
         raise ValueError("files.max_list_entries måste vara större än 0.")
 
-    def sorted_files(directory):
-        # Sort one directory at a time rather than building and sorting
-        # the entire workspace tree before applying max_list_entries.
-        # Include "/" when ordering directories to preserve full-path sort.
-        with os.scandir(directory) as scan:
+    if not all(hasattr(os, key) for key in ("O_DIRECTORY", "O_NOFOLLOW")):
+        raise RuntimeError("Säker kataloglistning kräver Linux dir_fd/O_NOFOLLOW.")
+
+    # Open the trusted workspace root once. Every child lookup thereafter
+    # is relative to an already open directory inode, not a path that can
+    # be redirected with a concurrent symlink swap.
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory_flags |= getattr(os, "O_CLOEXEC", 0)
+
+    def sorted_files(directory_fd, parents):
+        # Sorting is local to one directory; the outer result cap still
+        # prevents traversing later directories once enough files exist.
+        # os.scandir(fd) anchors enumeration to an open directory.
+        with os.scandir(directory_fd) as scan:
             children = sorted(
-                scan,
-                key=lambda entry: (
-                    entry.name.lower()
-                    + ("/" if entry.is_dir(follow_symlinks=False) else "")
+                (
+                    (entry.name, entry.is_dir(follow_symlinks=False))
+                    for entry in scan
                 ),
+                key=lambda item: item[0].lower() + ("/" if item[1] else ""),
             )
-        for child in children:
-            if child.is_symlink():
+
+        for name, _was_dir in children:
+            if name in {"", ".", ".."}:
                 continue
-            path = Path(child.path)
             try:
-                path.resolve(strict=True).relative_to(root)
-            except (OSError, RuntimeError, ValueError):
+                details = os.stat(
+                    name, dir_fd=directory_fd, follow_symlinks=False
+                )
+            except (OSError, ValueError):
+                # A name may disappear while its directory is being read.
                 continue
-            if child.is_file(follow_symlinks=False):
-                yield path
-            elif child.is_dir(follow_symlinks=False):
-                yield from sorted_files(path)
 
-    entries = []
-    for path in sorted_files(root):
-        try:
-            size = path.stat().st_size
-        except (OSError, RuntimeError):
-            continue
-        entries.append(
-            {
-                "path": path.relative_to(root).as_posix(),
-                "size_bytes": size,
-            }
-        )
-        if len(entries) >= max_entries:
-            break
+            if stat.S_ISREG(details.st_mode):
+                yield {
+                    "path": "/".join((*parents, name)),
+                    "size_bytes": details.st_size,
+                }
+            elif stat.S_ISDIR(details.st_mode):
+                # Reopen by dir_fd with no-follow even after a prior stat;
+                # if replaced with a symlink this open must fail closed.
+                try:
+                    child_fd = os.open(name, directory_flags, dir_fd=directory_fd)
+                except OSError as error:
+                    if error.errno in {
+                        errno.ENOENT, errno.ELOOP, errno.ENOTDIR, errno.EACCES
+                    }:
+                        continue
+                    raise
+                try:
+                    yield from sorted_files(child_fd, (*parents, name))
+                finally:
+                    os.close(child_fd)
 
-    return entries
+    directory_fd = os.open(root, directory_flags)
+    try:
+        entries = []
+        from contextlib import closing
+
+        with closing(sorted_files(directory_fd, ())) as paths:
+            for entry in paths:
+                entries.append(entry)
+                if len(entries) >= max_entries:
+                    break
+        return entries
+    finally:
+        os.close(directory_fd)
 
 
 def read_workspace_text(user_path, settings=None):
