@@ -268,3 +268,65 @@ def test_nonstandard_or_cross_protocol_ports_never_connect(url):
     with pytest.raises(ValueError, match="standardport"):
         f.fetch(url)
     assert connections == []
+
+
+# IPv6 transition addresses can look global while carrying a private IPv4
+# destination. These tests must never open a real socket.
+@pytest.mark.parametrize("address", [
+    "64:ff9b::a9fe:a9fe",                 # NAT64 -> 169.254.169.254
+    "64:ff9b::a00:1",                    # NAT64 -> 10.0.0.1
+    "64:ff9b::808:808",                  # conservative: even public NAT64
+    "64:ff9b:1::a00:1",                 # local-use translation
+    "2002:0808:0808::1",                # 6to4
+    "2001:0000:4136:e378:8000:63bf:3fff:fdd2",  # Teredo
+    "::ffff:127.0.0.1",                 # IPv4 mapped loopback
+])
+def test_ipv6_transition_dns_addresses_blocked_before_socket(address):
+    assert client._is_public_ip(address) is False
+    connections = []
+
+    def resolve(host, port, type=None):
+        return [(client.socket.AF_INET6, client.socket.SOCK_STREAM, 6,
+                 "", (address, port, 0, 0))]
+
+    f, connections, _ = make_client(resolver=resolve)
+    FakeHTTPConnection.made.clear()
+    with pytest.raises(ValueError, match="Privat"):
+        f.fetch("https://example.com/page")
+    assert connections == []
+    assert FakeHTTPConnection.made == []
+
+
+@pytest.mark.parametrize("address", [
+    "64:ff9b::a9fe:a9fe",
+    "64:ff9b::a00:1",
+    "2002:0808:0808::1",
+])
+def test_pinned_transport_rejects_transition_ip_even_if_preapproved(address):
+    def forbidden_connector(*args, **kwargs):
+        pytest.fail("A transition IPv6 address reached the socket connector")
+
+    FakeHTTPConnection.made.clear()
+    transport = PinnedPublicWebTransport(
+        connector=forbidden_connector,
+        connection_factory=FakeHTTPConnection,
+        ssl_context_factory=FakeVerifyingSSL,
+    )
+    with pytest.raises(ValueError, match="Privat"):
+        transport.get(
+            "https://example.com/",
+            approved_ips=(address,),
+            timeout=5,
+            headers={"Accept": "text/plain"},
+            allow_redirects=False,
+            stream=True,
+        )
+    assert FakeHTTPConnection.made == []
+
+
+@pytest.mark.parametrize("address", [
+    "93.184.216.34",
+    "2606:4700:4700::1111",
+])
+def test_ordinary_public_ip_addresses_remain_eligible(address):
+    assert client._is_public_ip(address) is True

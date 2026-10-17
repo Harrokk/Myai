@@ -1,9 +1,12 @@
-import ipaddress
 import socket
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
-from core.public_web_transport import PinnedPublicWebTransport, _PinnedResponse
+from core.public_web_transport import (
+    PinnedPublicWebTransport,
+    _PinnedResponse,
+    is_public_connect_address,
+)
 
 
 ALLOWED_CONTENT_TYPES = {
@@ -99,12 +102,8 @@ class _VisibleTextParser(HTMLParser):
 
 
 def _is_public_ip(address):
-    try:
-        ip = ipaddress.ip_address(address)
-    except ValueError:
-        return False
-
-    return ip.is_global
+    # Use the same policy for initial DNS answers and the pinned TCP peer.
+    return is_public_connect_address(address)
 
 
 def _response_peer_ip(response):
