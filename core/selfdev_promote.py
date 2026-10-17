@@ -1289,8 +1289,8 @@ class SelfDevPromotionManager:
 
     def _verified_backup(self, rollback_root, relative, expected_hash):
         """Do not follow backup symlinks or accept multiply-linked backups."""
-        backup = self._safe_backup_path(rollback_root, relative)
         try:
+            backup = self._safe_backup_path(rollback_root, relative)
             observed = _hash_existing_regular_path(backup)
         except (OSError, PermissionError, RuntimeError) as error:
             raise RuntimeError(
