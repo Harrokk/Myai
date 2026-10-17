@@ -1,11 +1,9 @@
 import hashlib
 import json
 import os
-import tempfile
 from pathlib import Path
 import re
 import secrets
-import shutil
 import stat
 import time
 
@@ -132,57 +130,139 @@ def _allowed_relative_path(
     )
 
 
-def _iter_source_files(
-    project_root,
-):
-    root = Path(
-        project_root
-    )
+def _stage_source_files(project_root, workspace_root):
+    """Stage approved sources and hash the very bytes copied from pinned FDs.
 
-    for child in sorted(
-        root.iterdir(),
-        key=lambda item: item.name,
-    ):
-        if child.is_symlink():
-            continue
+    The project root is operator-trusted. Each descendant and final file is
+    opened with O_NOFOLLOW, avoiding symlink swaps after enumeration.
+    """
+    if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
+        raise RuntimeError("Säker källkopiering kräver Linux dir_fd.")
 
-        if child.is_file():
-            if (
-                _is_allowed_root_file(
-                    child
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory_flags |= getattr(os, "O_CLOEXEC", 0)
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+    file_flags |= getattr(os, "O_CLOEXEC", 0)
+    create_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    create_flags |= getattr(os, "O_CLOEXEC", 0)
+    baseline = {}
+
+    def visit(source_fd, target_fd, parts=()):
+        # Enumeration is relative to the already open directory, but every
+        # entry is checked and opened again relative to that SAME inode.
+        with os.scandir(source_fd) as entries:
+            names = sorted(entry.name for entry in entries)
+
+        for name in names:
+            if name in {"", ".", ".."}:
+                continue
+            relative_parts = (*parts, name)
+            relative = Path(*relative_parts)
+            try:
+                details = os.stat(
+                    name, dir_fd=source_fd, follow_symlinks=False
                 )
-                and child.suffix
-                in _ALLOWED_SUFFIXES
-            ):
-                yield child
-            continue
+            except FileNotFoundError as error:
+                raise RuntimeError(
+                    "En källfil försvann under selfdev-kopieringen."
+                ) from error
 
-        if (
-            not child.is_dir()
-            or child.name
-            not in _ALLOWED_DIRS
-        ):
-            continue
-
-        for path in sorted(
-            child.rglob(
-                "*"
-            )
-        ):
-            if (
-                not path.is_file()
-                or path.is_symlink()
-            ):
+            if stat.S_ISLNK(details.st_mode):
                 continue
 
-            relative = path.relative_to(
-                root
-            )
+            if stat.S_ISDIR(details.st_mode):
+                if len(relative_parts) == 1:
+                    permitted_dir = name in _ALLOWED_DIRS
+                else:
+                    permitted_dir = _allowed_relative_path(
+                        Path(*parts, "placeholder.py")
+                    )
+                if not permitted_dir or name in {
+                    ".git", "runtime", "__pycache__", ".venv", "venv"
+                }:
+                    continue
 
-            if _allowed_relative_path(
-                relative
-            ):
-                yield path
+                source_child = os.open(
+                    name, directory_flags, dir_fd=source_fd
+                )
+                try:
+                    # The session workspace is newly created, so an
+                    # unexpected existing destination is not trusted.
+                    os.mkdir(name, mode=0o700, dir_fd=target_fd)
+                    target_child = os.open(
+                        name, directory_flags, dir_fd=target_fd
+                    )
+                    try:
+                        visit(source_child, target_child, relative_parts)
+                    finally:
+                        os.close(target_child)
+                finally:
+                    os.close(source_child)
+                continue
+
+            if not stat.S_ISREG(details.st_mode):
+                continue
+            if not _allowed_relative_path(relative):
+                continue
+
+            source_file = os.open(name, file_flags, dir_fd=source_fd)
+            try:
+                before = os.fstat(source_file)
+                if not stat.S_ISREG(before.st_mode):
+                    raise PermissionError(
+                        "Källfilen ändrades till en specialfil."
+                    )
+                target_file = os.open(
+                    name, create_flags, 0o600, dir_fd=target_fd
+                )
+                try:
+                    digest = hashlib.sha256()
+                    copied = 0
+                    while True:
+                        chunk = os.read(source_file, 65_536)
+                        if not chunk:
+                            break
+                        copied += len(chunk)
+                        digest.update(chunk)
+                        view = memoryview(chunk)
+                        while view:
+                            written = os.write(target_file, view)
+                            if written <= 0:
+                                raise OSError("Kunde inte skriva staging-filen.")
+                            view = view[written:]
+
+                    after = os.fstat(source_file)
+                    if (
+                        copied != before.st_size
+                        or before.st_dev != after.st_dev
+                        or before.st_ino != after.st_ino
+                        or before.st_size != after.st_size
+                        or before.st_mtime_ns != after.st_mtime_ns
+                        or before.st_ctime_ns != after.st_ctime_ns
+                    ):
+                        raise RuntimeError(
+                            "Källfilen ändrades under selfdev-kopieringen."
+                        )
+                    # Keep executable-bit semantics from copy2 without
+                    # propagating setuid/setgid/sticky or extended attributes.
+                    os.fchmod(target_file, stat.S_IMODE(before.st_mode) & 0o777)
+                    os.fsync(target_file)
+                    baseline[relative.as_posix()] = digest.hexdigest()
+                finally:
+                    os.close(target_file)
+            finally:
+                os.close(source_file)
+
+    source_fd = os.open(project_root, directory_flags)
+    try:
+        target_fd = os.open(workspace_root, directory_flags)
+        try:
+            visit(source_fd, target_fd)
+        finally:
+            os.close(target_fd)
+    finally:
+        os.close(source_fd)
+    return baseline
 
 
 def build_manifest(root):
@@ -320,31 +400,12 @@ class SelfDevWorkspace:
             exist_ok=False,
         )
 
-        baseline = {}
-
-        for source in _iter_source_files(
-            instance.project_root
-        ):
-            relative = source.relative_to(
-                instance.project_root
-            )
-            destination = (
-                instance.workspace_root
-                / relative
-            )
-            destination.parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-            shutil.copy2(
-                source,
-                destination,
-            )
-            baseline[
-                relative.as_posix()
-            ] = _sha256(
-                source
-            )
+        # One pinned source descriptor supplies both staged bytes and the
+        # baseline digest. No second path-based source hash/read occurs.
+        baseline = _stage_source_files(
+            instance.project_root,
+            instance.workspace_root,
+        )
 
         metadata = {
             "session_id": identifier,
