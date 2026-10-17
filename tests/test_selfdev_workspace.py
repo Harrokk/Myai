@@ -964,7 +964,6 @@ def test_manifest_missing_root_is_empty_but_symlinked_root_is_rejected(
 def test_source_drift_rejects_swapped_project_parent_before_hash(
     tmp_path, monkeypatch
 ):
-    import os
     from core import selfdev_workspace as module
 
     project = make_project(tmp_path)
@@ -973,21 +972,19 @@ def test_source_drift_rejects_swapped_project_parent_before_hash(
     (outside / "core").mkdir(parents=True)
     private = outside / "core" / "example.py"
     private.write_text("VALUE = 1\n", encoding="utf-8")
-    original_open = os.open
+    actual_hash = module._hash_allowed_relative
     swapped = []
 
-    def switch_project_at_open(name, flags, *args, **kwargs):
-        if (
-            name == "project"
-            and kwargs.get("dir_fd") is not None
-            and not swapped
-        ):
+    def change_source_root_just_before_hash(root, relative):
+        if not swapped:
             project.rename(tmp_path / "project-original")
             project.symlink_to(outside, target_is_directory=True)
             swapped.append(True)
-        return original_open(name, flags, *args, **kwargs)
+        return actual_hash(root, relative)
 
-    monkeypatch.setattr(module.os, "open", switch_project_at_open)
+    monkeypatch.setattr(
+        module, "_hash_allowed_relative", change_source_root_just_before_hash
+    )
     assert "core/example.py" in session.source_drift()
     assert swapped == [True]
     assert private.read_text(encoding="utf-8") == "VALUE = 1\n"
