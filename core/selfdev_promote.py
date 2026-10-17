@@ -513,29 +513,40 @@ class SelfDevPromotionManager:
     @staticmethod
     def _read_recovery_json(path, *, include_raw=False):
         """Bounded, single-inode, strictly decoded read of recovery records."""
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        if hasattr(os, "O_NONBLOCK"):
-            flags |= os.O_NONBLOCK
-
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
         try:
-            descriptor = os.open(str(path), flags)
+            with _pinned_parent(Path(path)) as (directory_fd, name):
+                descriptor = os.open(name, flags, dir_fd=directory_fd)
+                with os.fdopen(descriptor, "rb") as handle:
+                    before = os.fstat(handle.fileno())
+                    if (
+                        not stat.S_ISREG(before.st_mode)
+                        or before.st_nlink != 1
+                        or before.st_size > 1024 * 1024
+                    ):
+                        raise RuntimeError(
+                            "Osäker eller för stor återställningsjournal."
+                        )
+                    content = handle.read(1024 * 1024 + 1)
+                    after = os.fstat(handle.fileno())
+                    if (
+                        before.st_dev != after.st_dev
+                        or before.st_ino != after.st_ino
+                        or before.st_size != after.st_size
+                        or before.st_mtime_ns != after.st_mtime_ns
+                        or before.st_ctime_ns != after.st_ctime_ns
+                        or len(content) != before.st_size
+                    ):
+                        raise RuntimeError(
+                            "Återställningsjournalen ändrades under läsning."
+                        )
         except OSError as error:
             if error.errno == errno.ELOOP:
                 raise RuntimeError(
                     "Återställningsjournalen är en symlink."
                 ) from error
             raise RuntimeError("Återställningsjournalen kan inte läsas.") from error
-        with os.fdopen(descriptor, "rb") as handle:
-            info = os.fstat(handle.fileno())
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_nlink != 1
-                or info.st_size > 1024 * 1024
-            ):
-                raise RuntimeError("Osäker eller för stor återställningsjournal.")
-            content = handle.read(1024 * 1024 + 1)
         if len(content) > 1024 * 1024:
             raise RuntimeError("Återställningsjournalen är för stor.")
 

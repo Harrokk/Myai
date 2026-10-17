@@ -2352,3 +2352,105 @@ def test_journal_atomic_writer_limits_record_size_before_io(tmp_path):
             journal / "promotion.json", {"blob": "X" * (1024 * 1024)}
         )
     assert not journal.exists()
+
+
+def test_journal_reader_refuses_parent_symlink_swapped_before_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    journal_dir = tmp_path / "journal"
+    journal_dir.mkdir()
+    journal_path = journal_dir / "promotion.json"
+    journal_path.write_text('{"state":"prepared"}', encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "promotion.json").write_text(
+        '{"state":"FORGED"}', encoding="utf-8"
+    )
+    real_open = os.open
+    changes = []
+
+    def swap_parent(path, flags, *args, **kwargs):
+        if path == "journal" and kwargs.get("dir_fd") is not None:
+            journal_dir.rename(tmp_path / "journal-old")
+            journal_dir.symlink_to(outside, target_is_directory=True)
+            changes.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_parent)
+    with pytest.raises(RuntimeError, match="kan inte läsas"):
+        module.SelfDevPromotionManager._read_recovery_json(journal_path)
+    assert changes == [True]
+    assert (outside / "promotion.json").read_text(
+        encoding="utf-8"
+    ) == '{"state":"FORGED"}'
+
+
+def test_journal_reader_uses_pinned_original_inode_when_alias_swaps(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    journal_dir = tmp_path / "journal"
+    journal_dir.mkdir()
+    journal_path = journal_dir / "promotion.json"
+    journal_path.write_text('{"state":"prepared"}', encoding="utf-8")
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"state":"FORGED"}', encoding="utf-8")
+    real_open = os.open
+    swaps = []
+
+    def swap_after_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "promotion.json" and kwargs.get("dir_fd") is not None:
+            journal_path.rename(journal_dir / "old-promotion.json")
+            journal_path.symlink_to(outside)
+            swaps.append(True)
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", swap_after_open)
+    found = module.SelfDevPromotionManager._read_recovery_json(journal_path)
+    assert swaps == [True]
+    assert found == {"state": "prepared"}
+    assert outside.read_text(encoding="utf-8") == '{"state":"FORGED"}'
+
+
+def test_journal_reader_detects_concurrent_mutation_of_open_record(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    journal = tmp_path / "promotion.json"
+    journal.write_text('{"state":"prepared"}', encoding="utf-8")
+    original = os.fstat
+    seen = []
+
+    def change_on_second_fstat(fd):
+        if seen:
+            journal.write_text('{"state":"changed-now"}', encoding="utf-8")
+        seen.append(True)
+        return original(fd)
+
+    monkeypatch.setattr(module.os, "fstat", change_on_second_fstat)
+    with pytest.raises(RuntimeError, match="ändrades under läsning"):
+        module.SelfDevPromotionManager._read_recovery_json(journal)
+    assert len(seen) >= 2
+
+
+def test_journal_reader_rejects_preexisting_parent_symlink(tmp_path):
+    from core import selfdev_promote as module
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "promotion.json").write_text(
+        '{"state":"FORGED"}', encoding="utf-8"
+    )
+    (tmp_path / "journal").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(RuntimeError, match="kan inte läsas"):
+        module.SelfDevPromotionManager._read_recovery_json(
+            tmp_path / "journal" / "promotion.json"
+        )
