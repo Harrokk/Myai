@@ -250,16 +250,11 @@ def _atomic_copy(
 
 
 def _atomic_write_record(path, record):
-    """Publish a complete bounded recovery journal within a pinned dirfd.
-
-    The journal is a recovery authority: never follow session parent
-    symlinks or overwrite a symlink/hardlink destination.
-    """
+    """Publish a complete bounded recovery journal within a pinned dirfd."""
     path = Path(path)
     encoded = (
-        json.dumps(
-            record, ensure_ascii=False, indent=2, allow_nan=False
-        ) + "\n"
+        json.dumps(record, ensure_ascii=False, indent=2, allow_nan=False)
+        + "\n"
     ).encode("utf-8")
     if len(encoded) > 1024 * 1024:
         raise ValueError("Återställningsjournalen är för stor.")
@@ -281,49 +276,44 @@ def _atomic_write_record(path, record):
         flags |= getattr(os, "O_CLOEXEC", 0)
         file_fd = os.open(temporary, flags, 0o600, dir_fd=directory_fd)
         try:
-            try:
-                with os.fdopen(file_fd, "wb") as handle:
-                    file_fd = -1
-                    handle.write(encoded)
-                    handle.flush()
-                    os.fsync(handle.fileno())
+            with os.fdopen(file_fd, "wb") as handle:
+                file_fd = -1
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
 
-                try:
-                    current = os.stat(
-                        name, dir_fd=directory_fd, follow_symlinks=False
-                    )
-                except FileNotFoundError:
-                    current = None
-                if (
-                    (existing is None) != (current is None)
-                    or (
-                        current is not None and (
-                            not stat.S_ISREG(current.st_mode)
-                            or current.st_nlink != 1
-                            or existing.st_dev != current.st_dev
-                            or existing.st_ino != current.st_ino
-                        )
-                    )
-                ):
-                    raise PermissionError(
-                        "Journalfilen byttes före publicering."
-                    )
-                os.replace(
-                    temporary, name,
-                    src_dir_fd=directory_fd,
-                    dst_dir_fd=directory_fd,
+            try:
+                current = os.stat(
+                    name, dir_fd=directory_fd, follow_symlinks=False
                 )
-                os.fsync(directory_fd)
-            except BaseException:
-                if file_fd >= 0:
-                    os.close(file_fd)
-                try:
-                    os.unlink(temporary, dir_fd=directory_fd)
-                except FileNotFoundError:
-                    pass
-                raise
-        finally:
-            pass
+            except FileNotFoundError:
+                current = None
+            if (
+                (existing is None) != (current is None)
+                or (
+                    current is not None and (
+                        not stat.S_ISREG(current.st_mode)
+                        or current.st_nlink != 1
+                        or existing.st_dev != current.st_dev
+                        or existing.st_ino != current.st_ino
+                    )
+                )
+            ):
+                raise PermissionError("Journalfilen byttes före publicering.")
+
+            os.replace(
+                temporary, name,
+                src_dir_fd=directory_fd, dst_dir_fd=directory_fd,
+            )
+            os.fsync(directory_fd)
+        except BaseException:
+            if file_fd >= 0:
+                os.close(file_fd)
+            try:
+                os.unlink(temporary, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            raise
 
 
 class SelfDevPromotionManager:
