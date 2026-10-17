@@ -383,3 +383,37 @@ def test_workspace_read_exact_limit_reports_not_truncated(tmp_path):
     assert result["content"] == "åäö"
     assert result["total_chars"] == 3
     assert result["truncated"] is False
+
+
+def test_workspace_listing_stops_before_scanning_later_directories(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path, write_enabled=True)
+    cfg["files"]["max_list_entries"] = 1
+    workspace.write_workspace_text("a/first.txt", "one", cfg)
+    workspace.write_workspace_text("z/last.txt", "two", cfg)
+
+    real_scandir = workspace.os.scandir
+    visited = []
+
+    def traced_scandir(path):
+        visited.append(Path(path).name)
+        if Path(path).name == "z":
+            raise AssertionError("Workspace scanned directories after the cap")
+        return real_scandir(path)
+
+    monkeypatch.setattr(workspace.os, "scandir", traced_scandir)
+    listed = workspace.list_workspace_files(cfg)
+    assert [item["path"] for item in listed] == ["a/first.txt"]
+    assert "a" in visited
+    assert "z" not in visited
+
+
+def test_workspace_listing_preserves_full_relative_path_sort(tmp_path):
+    cfg = settings(tmp_path, write_enabled=True)
+    for name in ("notes/one.txt", "notes0.txt", "notes.txt", "a.txt"):
+        workspace.write_workspace_text(name, "x", cfg)
+    result = workspace.list_workspace_files(cfg)
+    assert [x["path"] for x in result] == [
+        "a.txt", "notes.txt", "notes/one.txt", "notes0.txt"
+    ]
