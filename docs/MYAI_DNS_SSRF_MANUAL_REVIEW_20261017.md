@@ -15,7 +15,7 @@ Old core/public_web_client.py verified public DNS addresses before calling reque
 - Synthetic tests cover numeric IP socket targeting, TLS hostname/SNI, private peer rejection BEFORE send, mixed DNS replies, disabled cert verification, empty username, failed connection cleanup, private HTTP redirects and second-hop DNS rebinding. No real web, device, camera or microphone access is used.
 
 ## Scope and unresolved issues
-- An explicitly injected custom session object remains possible for offline test doubles. Production construction WITHOUT such injection uses pinned transport. Supplying an arbitrary requests session to this API could bypass the pre-send guarantee and is NOT an authorized production configuration. This needs interface lockdown before deployment.
+- By default any injected custom session object which is not PinnedPublicWebTransport is rejected **before any network call**. Offline FakeSession test doubles require explicit unsafe_test_session=True; that option is for synthetic tests, never release wiring. Production construction uses the pinned transport automatically. The guarded opt-in is deliberately disclosed for future review.
 - The web-fetch tool in modules/internet/fetch.py uses the public client. Local trusted Ollama, GenieX and SearXNG clients require separate active-configuration attestation; they do not automatically inherit this public-URL policy.
 - Real IPv6, TLS chains, Python native ABI, firewall/network routing and captive proxies have not been exercised here. Mocked tests are NOT live integration proof.
 - Other sources accepting user-supplied URLs must be traced and reviewed before complete application-wide SSRF release signoff.
