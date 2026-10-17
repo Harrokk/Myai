@@ -89,8 +89,11 @@ def test_verifier_command_is_network_and_device_isolated(
     assert command[
         dev_index + 1
     ] == "/dev"
-    assert "--bind" in command
-    assert "/workspace" in command
+    # Staged code is data under test, never a writable sandbox mount.
+    assert "--bind" not in command
+    mount_at = command.index("/workspace")
+    assert command[mount_at - 2] == "--ro-bind"
+    assert command[mount_at - 1] == str(workspace.workspace_root)
     assert command[-3:] == [
         "-m",
         "pytest",
@@ -431,3 +434,53 @@ def test_verifier_marks_removed_staging_file_during_checks_as_failure(
     assert result["passed"] is False
     assert result["returncode"] == -1
     assert "Staging-workspacen ändrades" in result["error"]
+
+
+def test_verifier_redirects_compile_and_pytest_caches_outside_staging(tmp_path):
+    workspace = make_workspace(tmp_path)
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap",
+        python_executable="/usr/bin/python3",
+    )
+    command = verifier.build_command()
+
+    def env_value(key):
+        for i in range(len(command) - 2):
+            if command[i:i + 2] == ["--setenv", key]:
+                return command[i + 2]
+        raise AssertionError(f"Missing sandbox env: {key}")
+
+    assert env_value("HOME") == "/tmp"
+    assert env_value("PYTHONDONTWRITEBYTECODE") == "1"
+    assert env_value("PYTHONPYCACHEPREFIX").startswith("/tmp/")
+    assert env_value("XDG_CACHE_HOME").startswith("/tmp/")
+    assert env_value("PYTEST_ADDOPTS") == "-p no:cacheprovider"
+    assert "--tmpfs" in command
+    assert command[command.index("--tmpfs") + 1] == "/tmp"
+
+
+def test_all_validation_commands_have_readonly_staging_mount(tmp_path):
+    workspace = make_workspace(tmp_path)
+    workspace.write_text("config/example.json", '{"ok": true}\n')
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap",
+        python_executable="/usr/bin/python3",
+    )
+
+    # .py uses explicit py_compile; .json uses json.tool. Both must have
+    # exactly the same read-only workspace mount as pytest.
+    commands = [verifier.build_command()] + [
+        command for _, _, command in verifier.build_validation_commands()
+    ]
+    assert len(commands) >= 3
+    for command in commands:
+        assert "--bind" not in command
+        workspace_mounts = [
+            i for i, token in enumerate(command)
+            if token == "/workspace" and i >= 2
+            and command[i - 2] == "--ro-bind"
+        ]
+        assert len(workspace_mounts) == 1
+        index = workspace_mounts[0]
+        assert command[index - 1] == str(workspace.workspace_root)
+        assert "--unshare-all" in command
