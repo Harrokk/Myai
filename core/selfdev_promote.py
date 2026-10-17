@@ -1223,6 +1223,73 @@ class SelfDevPromotionManager:
                 "Promotion kräver verifiering utan host-enheter."
             )
 
+        # A successful-looking header is not sufficient: it must carry
+        # consistent per-command results for this exact session and files.
+        # This rejects incomplete/corrupt/spoofed flag-only records; it is
+        # NOT cryptographic attestation against a same-UID local writer.
+        if data.get("session_id") != self.workspace.session_id:
+            raise RuntimeError("Verifieringen gäller fel selfdev-session.")
+        if (
+            data.get("passed") is not True
+            or type(data.get("returncode")) is not int
+            or data["returncode"] != 0
+            or data.get("error") is not None
+            or data.get("source_drift") != []
+            or data.get("deleted") != []
+            or data.get("network_isolated") is not True
+            or data.get("host_devices_exposed") is not False
+        ):
+            raise RuntimeError("Ofullständigt eller ogiltigt verifieringsresultat.")
+
+        changed = data.get("changed")
+        added = data.get("added")
+        if (
+            not isinstance(changed, list)
+            or not isinstance(added, list)
+            or any(
+                not isinstance(relative, str)
+                or not _allowed_relative_path(Path(relative))
+                or Path(relative).as_posix() != relative
+                for relative in changed + added
+            )
+            or len(set(changed + added)) != len(changed) + len(added)
+        ):
+            raise RuntimeError("Verifieringens ändringslista är ogiltig.")
+
+        kind = {
+            ".py": "python-compile",
+            ".json": "json",
+            ".toml": "toml",
+            ".sh": "shell",
+        }
+        expected_checks = [
+            (kind[Path(relative).suffix.lower()], relative)
+            for relative in sorted(changed + added)
+            if Path(relative).suffix.lower() in kind
+        ]
+        expected_checks.append(("pytest", None))
+        checks = data.get("checks")
+        if (
+            not isinstance(checks, list)
+            or len(checks) != len(expected_checks)
+        ):
+            raise RuntimeError("Verifieringens sandboxkontroller är ofullständiga.")
+        for check, (expected_kind, expected_path) in zip(
+            checks, expected_checks
+        ):
+            if (
+                not isinstance(check, dict)
+                or check.get("type") != expected_kind
+                or check.get("path") != expected_path
+                or check.get("passed") is not True
+                or type(check.get("returncode")) is not int
+                or check["returncode"] != 0
+                or check.get("error") is not None
+            ):
+                raise RuntimeError(
+                    "Verifieringens sandboxkontroller är motsägelsefulla."
+                )
+
         return data
 
     def _safe_project_target(self, relative):
@@ -1442,6 +1509,17 @@ class SelfDevPromotionManager:
         ):
             raise RuntimeError(
                 "Selfdev-workspacen har ändrats efter verifieringen."
+            )
+        # Exact file lists must match the manifest that was actually run
+        # through sandbox validation; a matching digest alone does not
+        # justify accepting a different set of reported checks.
+        if (
+            verification["changed"] != changes["changed"]
+            or verification["added"] != changes["added"]
+            or verification["deleted"] != changes["deleted"]
+        ):
+            raise RuntimeError(
+                "Verifieringsresultatet gäller andra selfdev-filer."
             )
 
         drift = (
