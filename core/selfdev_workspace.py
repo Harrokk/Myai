@@ -620,8 +620,20 @@ class SelfDevWorkspace:
         return instance
 
     def _session_directory_fd(self):
-        """Open the session root through the shared no-follow root opener."""
-        return _open_directory_nofollow(self.session_root)
+        """Require a private owned session inode on every reopen."""
+        descriptor = _open_directory_nofollow(self.session_root)
+        try:
+            details = os.fstat(descriptor)
+            if (
+                not stat.S_ISDIR(details.st_mode)
+                or details.st_uid != os.geteuid()
+                or details.st_mode & 0o077
+            ):
+                raise PermissionError("Osäker selfdev-sessionskatalog.")
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
 
     def _read_session_record(self, filename):
         """Read one stable, bounded session JSON inode through pinned dirfds.
@@ -636,7 +648,12 @@ class SelfDevWorkspace:
             file_fd = os.open(filename, flags, dir_fd=directory_fd)
             try:
                 before = os.fstat(file_fd)
-                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or before.st_nlink != 1
+                    or before.st_uid != os.geteuid()
+                    or before.st_mode & 0o077
+                ):
                     raise PermissionError("Osäker selfdev-sessionsfil.")
                 limit = 4 * 1024 * 1024
                 if before.st_size > limit:
@@ -662,6 +679,8 @@ class SelfDevWorkspace:
                     or before.st_size != after.st_size
                     or before.st_mtime_ns != after.st_mtime_ns
                     or before.st_ctime_ns != after.st_ctime_ns
+                    or before.st_uid != after.st_uid
+                    or stat.S_IMODE(before.st_mode) != stat.S_IMODE(after.st_mode)
                     or len(content) != before.st_size
                 ):
                     raise RuntimeError(
@@ -724,7 +743,10 @@ class SelfDevWorkspace:
                 except FileNotFoundError:
                     existing = None
                 if existing is not None and (
-                    not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1
+                    not stat.S_ISREG(existing.st_mode)
+                    or existing.st_nlink != 1
+                    or existing.st_uid != os.geteuid()
+                    or existing.st_mode & 0o077
                 ):
                     raise PermissionError("Osäker selfdev-sessionsfil.")
                 os.replace(
