@@ -468,3 +468,18 @@ def test_snapshot_never_traverses_preexisting_source_directory_symlink(tmp_path)
     workspace = SelfDevWorkspace.create(project, "skip-source-dir-link")
     assert not (workspace.workspace_root / "core" / "shortcut").exists()
     assert not any("shortcut" in path for path in workspace.metadata()["baseline"])
+
+
+def test_snapshot_preserves_safe_executable_bits(tmp_path):
+    import stat
+
+    project = make_project(tmp_path)
+    script = project / "scripts" / "run.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    script.chmod(0o755)
+
+    workspace = SelfDevWorkspace.create(project, "staged-executable")
+    staged = workspace.workspace_root / "scripts" / "run.sh"
+    assert staged.read_bytes() == script.read_bytes()
+    assert stat.S_IMODE(staged.stat().st_mode) == 0o755
