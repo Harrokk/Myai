@@ -2254,3 +2254,101 @@ def test_rollback_added_file_delete_requires_signed_expected_hash(tmp_path):
     with pytest.raises(RuntimeError, match="giltig hash"):
         SelfDevPromotionManager._unlink_verified_added(target, None)
     assert target.read_text(encoding="utf-8") == "SAFE = True\n"
+
+
+def test_journal_atomic_writer_rejects_symlinked_approved_record(tmp_path):
+    from core import selfdev_promote as module
+
+    directory = tmp_path / "journal"
+    directory.mkdir()
+    outside = tmp_path / "external.json"
+    outside.write_text('{"state":"PRIVATE"}', encoding="utf-8")
+    (directory / "promotion.json").symlink_to(outside)
+
+    with pytest.raises(PermissionError, match="Osäker journalfil"):
+        module._atomic_write_record(
+            directory / "promotion.json", {"state": "prepared"}
+        )
+    assert outside.read_text(encoding="utf-8") == '{"state":"PRIVATE"}'
+    assert not list(directory.glob(".promotion.json.*.tmp"))
+
+
+def test_journal_atomic_writer_rejects_hardlinked_target(tmp_path):
+    from core import selfdev_promote as module
+
+    directory = tmp_path / "journal"
+    directory.mkdir()
+    protected = tmp_path / "protected.json"
+    protected.write_text('{"protected":true}', encoding="utf-8")
+    os = module.os
+    os.link(protected, directory / "promotion.json")
+
+    with pytest.raises(PermissionError, match="Osäker journalfil"):
+        module._atomic_write_record(
+            directory / "promotion.json", {"state": "prepared"}
+        )
+    assert protected.read_text(encoding="utf-8") == '{"protected":true}'
+
+
+def test_journal_atomic_writer_pins_parent_during_symlink_swap(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    journal = tmp_path / "journal"
+    journal.mkdir()
+    outside = tmp_path / "external"
+    outside.mkdir()
+    protected = outside / "promotion.json"
+    protected.write_text("PRIVATE", encoding="utf-8")
+    real_replace = os.replace
+    swaps = []
+
+    def switch_alias(src, dst, *args, **kwargs):
+        if dst == "promotion.json" and kwargs.get("dst_dir_fd") is not None:
+            journal.rename(tmp_path / "journal-old")
+            journal.symlink_to(outside, target_is_directory=True)
+            swaps.append(True)
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", switch_alias)
+    module._atomic_write_record(journal / "promotion.json", {"state": "prepared"})
+    assert swaps == [True]
+    assert (tmp_path / "journal-old" / "promotion.json").is_file()
+    assert protected.read_text(encoding="utf-8") == "PRIVATE"
+
+
+def test_journal_atomic_writer_failure_preserves_old_and_removes_temp(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    journal = tmp_path / "journal"
+    journal.mkdir()
+    target = journal / "promotion.json"
+    target.write_text('{"state":"old"}', encoding="utf-8")
+    real_replace = os.replace
+
+    def fail_rename(src, dst, *args, **kwargs):
+        if dst == "promotion.json" and kwargs.get("dst_dir_fd") is not None:
+            raise OSError("synthetic journal rename failure")
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", fail_rename)
+    with pytest.raises(OSError, match="synthetic journal rename failure"):
+        module._atomic_write_record(target, {"state": "completed"})
+    assert target.read_text(encoding="utf-8") == '{"state":"old"}'
+    assert not list(journal.glob(".promotion.json.*.tmp"))
+
+
+def test_journal_atomic_writer_limits_record_size_before_io(tmp_path):
+    from core import selfdev_promote as module
+
+    journal = tmp_path / "journal"
+    with pytest.raises(ValueError, match="för stor"):
+        module._atomic_write_record(
+            journal / "promotion.json", {"blob": "X" * (1024 * 1024)}
+        )
+    assert not journal.exists()
