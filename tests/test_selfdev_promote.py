@@ -1026,17 +1026,24 @@ def test_directory_fsync_failure_after_rename_restores_original(tmp_path, monkey
     project, workspace = make_workspace(tmp_path)
     approve_verification(workspace)
     active = manager(workspace, settings())
-    real_sync = module._sync_directory
+    import os
+    real_sync = module.os.fsync
+    target_inode = (project / "core").stat()
     injected = [False]
 
-    def fail_first_source_directory_sync(path):
-        if path == project / "core" and not injected[0]:
+    def fail_first_source_directory_sync(fd):
+        info = os.fstat(fd)
+        if (
+            info.st_ino == target_inode.st_ino
+            and info.st_dev == target_inode.st_dev
+            and not injected[0]
+        ):
             injected[0] = True
             raise OSError("simulated source directory fsync failure")
-        return real_sync(path)
+        return real_sync(fd)
 
     with monkeypatch.context() as patch:
-        patch.setattr(module, "_sync_directory", fail_first_source_directory_sync)
+        patch.setattr(module.os, "fsync", fail_first_source_directory_sync)
         with pytest.raises(OSError, match="directory fsync failure"):
             active.promote("PROMOTE session1")
 
@@ -3598,3 +3605,44 @@ def test_sync_prepared_backup_tree_rejects_nested_directory_swap(
         module._sync_prepared_backup_tree(root)
     assert changed == [True]
     assert (outside / "external.py").read_text(encoding="utf-8") == "PRIVATE\n"
+
+
+def test_atomic_copy_never_reopens_swapped_destination_parent_after_rename(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "staging.py"
+    source.write_text("APPROVED = True\n", encoding="utf-8")
+    active = tmp_path / "active"
+    active.mkdir()
+    destination = active / "module.py"
+    destination.write_text("OLD = True\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "module.py"
+    protected.write_text("PRIVATE = True\n", encoding="utf-8")
+    real_replace = os.replace
+    switched = []
+
+    def swap_alias_after_rename(src, dst, *args, **kwargs):
+        result = real_replace(src, dst, *args, **kwargs)
+        if dst == "module.py" and kwargs.get("dst_dir_fd") is not None:
+            active.rename(tmp_path / "active-old")
+            active.symlink_to(outside, target_is_directory=True)
+            switched.append(True)
+        return result
+
+    def forbid_path_based_directory_sync(path):
+        raise AssertionError("post-replace must never reopen destination path")
+
+    monkeypatch.setattr(module.os, "replace", swap_alias_after_rename)
+    monkeypatch.setattr(module, "_sync_directory", forbid_path_based_directory_sync)
+    module._atomic_copy(source, destination)
+
+    assert switched == [True]
+    assert (tmp_path / "active-old" / "module.py").read_text(
+        encoding="utf-8"
+    ) == "APPROVED = True\n"
+    assert protected.read_text(encoding="utf-8") == "PRIVATE = True\n"
