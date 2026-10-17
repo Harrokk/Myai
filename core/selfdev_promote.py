@@ -448,19 +448,12 @@ class SelfDevPromotionManager:
             )
 
     def _verification(self):
-        path = (
-            self.workspace
-            .verification_path
-        )
-
-        if not path.exists():
+        try:
+            data = self.workspace.read_verification()
+        except FileNotFoundError as error:
             raise RuntimeError(
                 "Selfdev-sessionen saknar verifieringsresultat."
-            )
-
-        data = _read_json(
-            path
-        )
+            ) from error
 
         if not data.get(
             "passed",

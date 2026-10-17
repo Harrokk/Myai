@@ -120,3 +120,16 @@ def test_review_truncates_large_diff(tmp_path):
 
     assert review["diff_truncated"] is True
     assert "[diff trunkerad]" in review["diff"]
+
+
+def test_review_never_accepts_verification_symlink(tmp_path):
+    _, workspace = make_workspace(tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"passed":true}', encoding="utf-8")
+    workspace.verification_path.symlink_to(outside)
+
+    review = build_selfdev_review(workspace)
+    assert review["verification"]["passed"] is False
+    assert "kunde inte läsas" in review["verification"]["error"]
+
+

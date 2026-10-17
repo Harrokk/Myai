@@ -431,14 +431,6 @@ class SelfDevVerifier:
                 time.time()
             ),
         }
-        self.workspace.verification_path.write_text(
-            json.dumps(
-                record,
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        self.workspace.save_verification(record)
 
         return record

@@ -648,3 +648,109 @@ def test_manifest_rejects_in_place_file_change_while_hashing(
     with pytest.raises(RuntimeError, match="ändrades under hashkontrollen"):
         build_manifest(session.workspace_root)
     assert changed == [True]
+
+
+def test_session_metadata_refuses_symlink_to_outside_json(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-no-follow")
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"baseline":{"../private.py":"invalid"}}', encoding="utf-8")
+    session.metadata_path.unlink()
+    session.metadata_path.symlink_to(outside)
+
+    with pytest.raises(OSError):
+        session.metadata()
+    assert outside.read_text(encoding="utf-8").startswith('{"baseline"')
+
+
+def test_verification_read_refuses_external_symlink_even_if_passed(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-no-follow")
+    outside = tmp_path / "approved.json"
+    outside.write_text('{"passed":true,"sandbox":"bubblewrap"}', encoding="utf-8")
+    session.verification_path.symlink_to(outside)
+
+    with pytest.raises(OSError):
+        session.read_verification()
+    assert outside.read_text(encoding="utf-8") == (
+        '{"passed":true,"sandbox":"bubblewrap"}'
+    )
+
+
+def test_verification_write_refuses_link_and_cleans_temp_file(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-write-no-follow")
+    outside = tmp_path / "outside.json"
+    outside.write_text("IMMUTABLE", encoding="utf-8")
+    session.verification_path.symlink_to(outside)
+
+    with pytest.raises(PermissionError, match="sessionsfil"):
+        session.save_verification({"passed": True})
+
+    assert outside.read_text(encoding="utf-8") == "IMMUTABLE"
+    assert not list(session.session_root.glob(".verification.json.*.tmp"))
+
+
+def test_verification_record_replace_failure_preserves_previous_json(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-atomic")
+    session.save_verification({"passed": False, "test_value": "ORIGINAL"})
+    real_replace = os.replace
+
+    def refuse_replace(source, target, *args, **kwargs):
+        if target == "verification.json" and kwargs.get("dst_dir_fd") is not None:
+            raise OSError("synthetic rename failure")
+        return real_replace(source, target, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.replace", refuse_replace)
+    with pytest.raises(OSError, match="synthetic rename failure"):
+        session.save_verification({"passed": True})
+    assert session.read_verification() == {
+        "passed": False,
+        "test_value": "ORIGINAL",
+    }
+    assert not list(session.session_root.glob(".verification.json.*.tmp"))
+
+
+def test_verification_invalidation_uses_open_session_directory(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-alias-swap")
+    session.save_verification({"passed": True})
+    outside = tmp_path / "outside-session"
+    outside.mkdir()
+    external = outside / "verification.json"
+    external.write_text('{"marker":"UNCHANGED"}', encoding="utf-8")
+    session_root = session.session_root
+    moved = session_root.with_name("verify-alias-swap-moved")
+    real_unlink = os.unlink
+    swapped = []
+
+    def swap_on_unlink(name, *args, **kwargs):
+        if name == "verification.json" and kwargs.get("dir_fd") is not None:
+            session_root.rename(moved)
+            session_root.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_unlink(name, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.unlink", swap_on_unlink)
+    session.invalidate_verification()
+
+    assert swapped == [True]
+    assert not (moved / "verification.json").exists()
+    assert external.read_text(encoding="utf-8") == '{"marker":"UNCHANGED"}'
+
+
+def test_oversized_session_record_is_rejected_before_json_parse(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-size-limit")
+    session.metadata_path.write_bytes(b"{" + b"x" * (4 * 1024 * 1024 + 1))
+    with pytest.raises(ValueError, match="för stor"):
+        session.metadata()
