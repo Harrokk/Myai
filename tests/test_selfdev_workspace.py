@@ -240,3 +240,109 @@ def test_staging_replace_failure_preserves_original(tmp_path, monkeypatch):
         encoding="utf-8"
     ) == original
     assert not list((workspace.workspace_root / "core").glob(".example.py.*.tmp"))
+
+
+def test_staging_blocks_parent_symlink_swapped_before_open(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "parentrace")
+    inner = workspace.workspace_root / "core"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "example.py"
+    protected.write_text("SECRET = True\n", encoding="utf-8")
+
+    real_open = os.open
+    changed = []
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        if path == "core" and kwargs.get("dir_fd") is not None:
+            inner.rename(workspace.workspace_root / "core-old")
+            inner.symlink_to(outside, target_is_directory=True)
+            changed.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.open", swap_before_open)
+    with pytest.raises(OSError):
+        workspace.write_text("core/example.py", "BAD = True\n")
+    assert changed == [True]
+    assert protected.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_staging_pins_directory_when_alias_swaps_before_replace(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "pinrace")
+    inner = workspace.workspace_root / "core"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "example.py"
+    protected.write_text("SECRET = True\n", encoding="utf-8")
+
+    real_replace = os.replace
+    changed = []
+
+    def swap_after_open(source, dest, **kwargs):
+        assert source.endswith(".tmp")
+        assert dest == "example.py"
+        assert kwargs["src_dir_fd"] == kwargs["dst_dir_fd"]
+        inner.rename(workspace.workspace_root / "core-old")
+        inner.symlink_to(outside, target_is_directory=True)
+        changed.append(True)
+        return real_replace(source, dest, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.replace", swap_after_open)
+    workspace.write_text("core/example.py", "VALUE = 7\n")
+    assert changed == [True]
+    assert (workspace.workspace_root / "core-old" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 7\n"
+    assert protected.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_staging_final_symlink_swap_at_rename_replaces_only_link(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "lastmoment")
+    dest = workspace.workspace_root / "core" / "example.py"
+    outside = tmp_path / "outside.py"
+    outside.write_text("PROTECTED = True\n", encoding="utf-8")
+    real_replace = os.replace
+
+    def late_swap(source, target, **kwargs):
+        dest.unlink()
+        dest.symlink_to(outside)
+        return real_replace(source, target, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.replace", late_swap)
+    workspace.write_text("core/example.py", "VALUE = 11\n")
+    assert dest.read_text(encoding="utf-8") == "VALUE = 11\n"
+    assert not dest.is_symlink()
+    assert outside.read_text(encoding="utf-8") == "PROTECTED = True\n"
+
+
+def test_staging_rejects_fifo_and_keeps_existing_verification(
+    tmp_path
+):
+    import os
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("Unix FIFO required")
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "specialtarget")
+    target = workspace.workspace_root / "core" / "pipe.py"
+    os.mkfifo(target)
+    workspace.verification_path.write_text("old attestation", encoding="utf-8")
+    with pytest.raises(PermissionError, match="specialfiler"):
+        workspace.write_text("core/pipe.py", "BAD = True\n")
+    assert workspace.verification_path.read_text(encoding="utf-8") == "old attestation"
+    assert target.is_fifo()
