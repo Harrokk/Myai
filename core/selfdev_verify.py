@@ -125,7 +125,10 @@ class SelfDevVerifier:
 
         command.extend(
             [
-                "--bind",
+                # The sandbox must never mutate the staged files that it
+                # is supposed to validate. Post-run rehashes alone cannot
+                # detect a transient edit that was restored before exit.
+                "--ro-bind",
                 str(
                     self.workspace.workspace_root
                 ),
@@ -138,6 +141,18 @@ class SelfDevVerifier:
                 "--setenv",
                 "PYTHONDONTWRITEBYTECODE",
                 "1",
+                # Explicit py_compile still writes .pyc even with
+                # PYTHONDONTWRITEBYTECODE; redirect that cache to the
+                # sandbox's private writable tmpfs, never the workspace.
+                "--setenv",
+                "PYTHONPYCACHEPREFIX",
+                "/tmp/myai-pycache",
+                "--setenv",
+                "XDG_CACHE_HOME",
+                "/tmp/myai-cache",
+                "--setenv",
+                "PYTEST_ADDOPTS",
+                "-p no:cacheprovider",
             ]
         )
         command.extend(
