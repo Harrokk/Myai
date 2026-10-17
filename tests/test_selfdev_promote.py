@@ -2974,3 +2974,114 @@ def test_promotion_lock_rejects_existing_final_symlink(tmp_path):
         with active._project_mutation_lock():
             pytest.fail("symlinked lock should not be acquired")
     assert external.read_text(encoding="utf-8") == "UNCHANGED"
+
+
+def test_private_selfdev_creation_uses_pinned_runtime_directory(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    runtime = project / "runtime"
+    outside = tmp_path / "outside-runtime"
+    outside.mkdir()
+    protected = outside / "protected.txt"
+    protected.write_text("UNCHANGED", encoding="utf-8")
+    real_open = os.open
+    changes = []
+
+    def swap_before_runtime_open(name, flags, *args, **kwargs):
+        if name == "runtime" and kwargs.get("dir_fd") is not None:
+            runtime.rename(project / "runtime-old")
+            runtime.symlink_to(outside, target_is_directory=True)
+            changes.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_runtime_open)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._private_selfdev_directory(create=True)
+
+    assert changes == [True]
+    assert protected.read_text(encoding="utf-8") == "UNCHANGED"
+
+
+def test_private_selfdev_creation_rejects_final_symlink_swap(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    selfdev = project / "runtime" / "selfdev"
+    outside = tmp_path / "outside-selfdev"
+    outside.mkdir()
+    real_open = os.open
+    changes = []
+
+    def swap_before_selfdev_open(name, flags, *args, **kwargs):
+        if name == "selfdev" and kwargs.get("dir_fd") is not None:
+            selfdev.rename(selfdev.with_name("selfdev-old"))
+            selfdev.symlink_to(outside, target_is_directory=True)
+            changes.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_selfdev_open)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._private_selfdev_directory(create=True)
+
+    assert changes == [True]
+    assert not (outside / ".promotion.lock").exists()
+
+
+def test_private_selfdev_detects_directory_alias_swapped_after_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    selfdev = project / "runtime" / "selfdev"
+    outside = tmp_path / "outside-selfdev"
+    outside.mkdir()
+    real_open = os.open
+    changes = []
+
+    def swap_after_selfdev_open(name, flags, *args, **kwargs):
+        descriptor = real_open(name, flags, *args, **kwargs)
+        if name == "selfdev" and kwargs.get("dir_fd") is not None:
+            selfdev.rename(selfdev.with_name("selfdev-old"))
+            selfdev.symlink_to(outside, target_is_directory=True)
+            changes.append(True)
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", swap_after_selfdev_open)
+    with pytest.raises(PermissionError, match="ändrades under kontroll"):
+        active._private_selfdev_directory(create=True)
+    assert changes == [True]
+
+
+def test_private_selfdev_directory_refuses_excessive_permissions(
+    tmp_path,
+):
+    import os
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    runtime = project / "runtime"
+    os.chmod(runtime, 0o777)
+    with pytest.raises(PermissionError, match="osäkra behörigheter"):
+        active._private_selfdev_directory(create=True)
+
+
+def test_private_selfdev_directory_without_create_does_not_make_files(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    project_root = project / "runtime" / "selfdev"
+    assert active._private_selfdev_directory(create=False) == project_root
+    assert not (project_root / ".journal-integrity-key").exists()
