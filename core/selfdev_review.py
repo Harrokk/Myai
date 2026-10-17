@@ -89,30 +89,15 @@ def build_selfdev_review(
         truncated = True
 
     verification = None
-
-    if (
-        workspace
-        .verification_path
-        .exists()
-    ):
-        try:
-            verification = json.loads(
-                workspace
-                .verification_path
-                .read_text(
-                    encoding="utf-8"
-                )
-            )
-        except (
-            OSError,
-            json.JSONDecodeError,
-        ):
-            verification = {
-                "passed": False,
-                "error": (
-                    "verification.json kunde inte läsas"
-                ),
-            }
+    try:
+        verification = workspace.read_verification()
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, TypeError, RuntimeError):
+        verification = {
+            "passed": False,
+            "error": "verification.json kunde inte läsas",
+        }
 
     return {
         "session_id": (
