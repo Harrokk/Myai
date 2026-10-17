@@ -3483,3 +3483,118 @@ def test_private_rollback_root_rejects_shared_writable_parent(tmp_path):
     with pytest.raises(PermissionError, match="förälderkatalog"):
         module._create_private_rollback_root(parent / "promo1")
     assert not (parent / "promo1").exists()
+
+
+def test_sync_prepared_backup_tree_flushes_nested_dirs_without_path_sync(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollbacks" / "promo1"
+    nested = root / "files" / "core" / "internal"
+    nested.mkdir(parents=True)
+    os.chmod(root, 0o700)
+    (nested / "example.py").write_text("VALID = True\n", encoding="utf-8")
+    original_fsync = os.fsync
+    calls = []
+
+    def track_fsync(fd):
+        calls.append(fd)
+        return original_fsync(fd)
+
+    def forbid_path_sync(path):
+        raise AssertionError("Backup sync must use only pinned dirfds")
+
+    monkeypatch.setattr(module.os, "fsync", track_fsync)
+    monkeypatch.setattr(module, "_sync_directory", forbid_path_sync)
+    module._sync_prepared_backup_tree(root)
+    assert len(calls) >= 4
+
+
+def test_sync_prepared_backup_tree_allows_no_changed_files(tmp_path):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollbacks" / "promo1"
+    root.mkdir(parents=True, mode=0o700)
+    os.chmod(root, 0o700)
+    module._sync_prepared_backup_tree(root)
+    assert not (root / "files").exists()
+
+
+def test_sync_prepared_backup_tree_refuses_symlink_child(tmp_path):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollbacks" / "promo1"
+    files = root / "files"
+    files.mkdir(parents=True)
+    os.chmod(root, 0o700)
+    outside = tmp_path / "outside.py"
+    outside.write_text("PRIVATE\n", encoding="utf-8")
+    (files / "bad.py").symlink_to(outside)
+    with pytest.raises(PermissionError, match="Osäker länk"):
+        module._sync_prepared_backup_tree(root)
+    assert outside.read_text(encoding="utf-8") == "PRIVATE\n"
+
+
+def test_sync_prepared_backup_tree_rejects_parent_swap_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    parent = tmp_path / "rollbacks"
+    root = parent / "promo1"
+    root.mkdir(parents=True, mode=0o700)
+    os.chmod(root, 0o700)
+    outside = tmp_path / "outside"
+    protected = outside / "promo1"
+    protected.mkdir(parents=True)
+    real_open = os.open
+    changed = []
+
+    def swap_parent_before_open(name, flags, *args, **kwargs):
+        if name == "rollbacks" and kwargs.get("dir_fd") is not None:
+            parent.rename(tmp_path / "rollbacks-old")
+            parent.symlink_to(outside, target_is_directory=True)
+            changed.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_parent_before_open)
+    with pytest.raises(OSError):
+        module._sync_prepared_backup_tree(root)
+    assert changed == [True]
+    assert protected.is_dir()
+
+
+def test_sync_prepared_backup_tree_rejects_nested_directory_swap(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollbacks" / "promo1"
+    nested = root / "files" / "core"
+    nested.mkdir(parents=True)
+    os.chmod(root, 0o700)
+    (nested / "example.py").write_text("BACKUP\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "external.py").write_text("PRIVATE\n", encoding="utf-8")
+    real_open = os.open
+    changed = []
+
+    def swap_before_dir_open(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            nested.rename(nested.with_name("core-old"))
+            nested.symlink_to(outside, target_is_directory=True)
+            changed.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_dir_open)
+    with pytest.raises(OSError):
+        module._sync_prepared_backup_tree(root)
+    assert changed == [True]
+    assert (outside / "external.py").read_text(encoding="utf-8") == "PRIVATE\n"
