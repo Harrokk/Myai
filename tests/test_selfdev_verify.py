@@ -325,3 +325,109 @@ def test_verifier_stops_before_pytest_when_type_check_fails(
     assert result["checks"][0][
         "passed"
     ] is False
+
+
+def test_verifier_marks_staging_mutation_during_checks_as_failure(tmp_path):
+    workspace = make_workspace(tmp_path)
+    staged = workspace.workspace_root / "core" / "example.py"
+    calls = []
+
+    def alter_staging(command, *, timeout):
+        calls.append(command)
+        if len(calls) == 1:
+            # Bypass the workspace API: model a noncooperating sandbox writer.
+            staged.write_text("UNVERIFIED = True\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap", command_runner=alter_staging
+    )
+    result = verifier.verify()
+    assert len(calls) >= 1
+    assert result["passed"] is False
+    assert result["returncode"] == -1
+    assert "Staging-workspacen ändrades" in result["error"]
+    assert workspace.read_verification() == result
+
+
+def test_verifier_marks_source_drift_during_checks_as_failure(tmp_path):
+    workspace = make_workspace(tmp_path)
+    active = workspace.project_root / "core" / "example.py"
+    calls = []
+
+    def alter_active(command, *, timeout):
+        calls.append(command)
+        if len(calls) == 1:
+            active.write_text("UNTRUSTED = True\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap", command_runner=alter_active
+    )
+    result = verifier.verify()
+    assert result["passed"] is False
+    assert result["returncode"] == -1
+    assert "Aktiv källkod ändrades" in result["error"]
+    assert result["source_drift"] == ["core/example.py"]
+    assert workspace.read_verification() == result
+
+
+def test_verifier_marks_existing_source_drift_as_failure(tmp_path):
+    workspace = make_workspace(tmp_path)
+    (workspace.project_root / "core" / "example.py").write_text(
+        "UNTRUSTED = True\n", encoding="utf-8"
+    )
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        command_runner=lambda command, timeout: SimpleNamespace(
+            returncode=0, stdout="checks pass", stderr=""
+        ),
+    )
+    result = verifier.verify()
+    assert result["passed"] is False
+    assert result["returncode"] == -1
+    assert result["source_drift"] == ["core/example.py"]
+
+
+@pytest.mark.parametrize("returncode", ["0", 0.1, False, None])
+def test_verifier_refuses_noninteger_command_runner_returncode(
+    tmp_path, returncode
+):
+    workspace = make_workspace(tmp_path)
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        command_runner=lambda command, timeout: SimpleNamespace(
+            returncode=returncode, stdout="ok", stderr=""
+        ),
+    )
+    result = verifier.verify()
+    assert result["passed"] is False
+    assert result["returncode"] == -1
+    assert result["checks"][0]["passed"] is False
+    assert result["checks"][0]["returncode"] == -1
+    assert result["checks"][0]["error"].startswith("TypeError:")
+    assert workspace.read_verification() == result
+
+
+def test_verifier_marks_removed_staging_file_during_checks_as_failure(
+    tmp_path,
+):
+    workspace = make_workspace(tmp_path)
+    staged = workspace.workspace_root / "core" / "example.py"
+    calls = []
+
+    def remove_staging(command, *, timeout):
+        calls.append(command)
+        if len(calls) == 1:
+            staged.unlink()
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap", command_runner=remove_staging
+    )
+    result = verifier.verify()
+    assert result["passed"] is False
+    assert result["returncode"] == -1
+    assert "Staging-workspacen ändrades" in result["error"]
