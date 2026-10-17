@@ -82,6 +82,8 @@ def test_verifier_command_is_network_and_device_isolated(
     command = verifier.build_command()
 
     assert "--unshare-all" in command
+    assert "--clearenv" in command
+    assert command.index("--unshare-all") < command.index("--clearenv")
     assert "--dev" in command
     dev_index = command.index(
         "--dev"
@@ -484,3 +486,92 @@ def test_all_validation_commands_have_readonly_staging_mount(tmp_path):
         index = workspace_mounts[0]
         assert command[index - 1] == str(workspace.workspace_root)
         assert "--unshare-all" in command
+
+
+def test_default_verifier_runner_does_not_inherit_host_secrets(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_verify as module
+
+    monkeypatch.setenv("MYAI_SYNTHETIC_SECRET", "CANARY-DO-NOT-LEAK")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "untrusted-import-path"))
+    monkeypatch.setenv("LD_PRELOAD", str(tmp_path / "fake-library.so"))
+    subprocess_calls = []
+
+    def fake_subprocess_run(command, **kwargs):
+        subprocess_calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_subprocess_run)
+    result = SelfDevVerifier._default_runner(
+        ["/usr/bin/bwrap", "--version"], timeout=3
+    )
+
+    assert result.returncode == 0
+    assert len(subprocess_calls) == 1
+    _, kwargs = subprocess_calls[0]
+    assert kwargs["timeout"] == 3
+    assert kwargs["check"] is False
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    isolated_environment = kwargs["env"]
+    assert isolated_environment["HOME"] == "/tmp"
+    assert isolated_environment["LANG"] == "C.UTF-8"
+    assert isolated_environment["PATH"].startswith("/usr/local/sbin:")
+    assert "MYAI_SYNTHETIC_SECRET" not in isolated_environment
+    assert "PYTHONPATH" not in isolated_environment
+    assert "LD_PRELOAD" not in isolated_environment
+    assert "CANARY-DO-NOT-LEAK" not in repr(isolated_environment)
+
+
+def test_sandbox_command_reintroduces_only_explicit_env_after_clearenv(
+    tmp_path, monkeypatch
+):
+    workspace = make_workspace(tmp_path)
+    monkeypatch.setenv("MYAI_SYNTHETIC_SECRET", "CANARY-DO-NOT-LEAK")
+    monkeypatch.setenv("PYTHONPATH", "/outside")
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap",
+        python_executable="/usr/bin/python3",
+    )
+
+    command = verifier.build_command()
+    assert command.count("--clearenv") == 1
+    clear_at = command.index("--clearenv")
+    variables = {}
+    for i in range(len(command) - 2):
+        if command[i] == "--setenv":
+            assert i > clear_at
+            variables[command[i + 1]] = command[i + 2]
+    assert variables["HOME"] == "/tmp"
+    assert variables["PWD"] == "/workspace"
+    assert variables["PATH"] == (
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    )
+    assert variables["LANG"] == "C.UTF-8"
+    assert variables["LC_ALL"] == "C.UTF-8"
+    assert variables["PYTHONPYCACHEPREFIX"].startswith("/tmp/")
+    assert "MYAI_SYNTHETIC_SECRET" not in variables
+    assert "PYTHONPATH" not in variables
+    assert "LD_PRELOAD" not in variables
+    assert "CANARY-DO-NOT-LEAK" not in repr(command)
+
+
+def test_every_selfdev_validation_command_clears_inherited_environment(tmp_path):
+    workspace = make_workspace(tmp_path)
+    workspace.write_text("config/example.json", '{"ok":true}\n')
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap",
+        python_executable="/usr/bin/python3",
+    )
+
+    commands = [verifier.build_command()] + [
+        command for _, _, command in verifier.build_validation_commands()
+    ]
+    assert len(commands) >= 3
+    for command in commands:
+        assert command.count("--clearenv") == 1
+        assert command.index("--clearenv") < command.index("--setenv")
+        assert "--unshare-all" in command
+        assert "--bind" not in command
+        assert "--ro-bind" in command

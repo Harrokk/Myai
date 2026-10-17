@@ -64,12 +64,22 @@ class SelfDevVerifier:
         *,
         timeout,
     ):
+        # Sanitize even the host-side Bubblewrap launcher environment:
+        # untrusted host variables (notably PYTHONPATH/LD_PRELOAD and
+        # API credentials) must not reach the verifier subprocess.
+        runner_environment = {
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME": "/tmp",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        }
         return subprocess.run(
             command,
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
+            env=runner_environment,
         )
 
     def _system_ro_paths(self):
@@ -106,6 +116,9 @@ class SelfDevVerifier:
             "--die-with-parent",
             "--new-session",
             "--unshare-all",
+            # Drop all inherited environment variables before running any
+            # staged code; keep only the explicit safe settings below.
+            "--clearenv",
             "--proc",
             "/proc",
             "--dev",
@@ -138,6 +151,20 @@ class SelfDevVerifier:
                 "--setenv",
                 "HOME",
                 "/tmp",
+                # bwrap --clearenv preserves PWD; replace its inherited
+                # pathname after --chdir with the sandbox-only location.
+                "--setenv",
+                "PWD",
+                "/workspace",
+                "--setenv",
+                "PATH",
+                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "--setenv",
+                "LANG",
+                "C.UTF-8",
+                "--setenv",
+                "LC_ALL",
+                "C.UTF-8",
                 "--setenv",
                 "PYTHONDONTWRITEBYTECODE",
                 "1",
