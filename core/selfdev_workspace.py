@@ -523,24 +523,103 @@ class SelfDevWorkspace:
                 )
             ),
         }
-        instance.metadata_path.write_text(
-            json.dumps(
-                metadata,
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        instance.save_session_metadata(metadata)
 
         return instance
 
+    def _session_directory_fd(self):
+        if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
+            raise RuntimeError("Säker selfdev-session kräver Linux dir_fd.")
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        return os.open(self.session_root, flags)
+
+    def _read_session_record(self, filename):
+        # Session records are small, user-independent JSON files. A checked
+        # pathname followed by read_text() could follow a replaced symlink.
+        directory_fd = self._session_directory_fd()
+        try:
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+            file_fd = os.open(filename, flags, dir_fd=directory_fd)
+            with os.fdopen(file_fd, "rb") as handle:
+                details = os.fstat(handle.fileno())
+                if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                    raise PermissionError("Osäker selfdev-sessionsfil.")
+                limit = 4 * 1024 * 1024
+                if details.st_size > limit:
+                    raise ValueError("Selfdev-sessionsfilen är för stor.")
+                payload = handle.read(limit + 1)
+                if len(payload) > limit:
+                    raise ValueError("Selfdev-sessionsfilen är för stor.")
+        finally:
+            os.close(directory_fd)
+        record = json.loads(payload.decode("utf-8"))
+        if not isinstance(record, dict):
+            raise ValueError("Selfdev-sessionsfilen måste vara ett JSON-objekt.")
+        return record
+
+    def _write_session_record(self, filename, data):
+        # Publish complete records with an exclusive temp and rename in the
+        # same pinned directory. Never follow a pre-existing target symlink.
+        directory_fd = self._session_directory_fd()
+        temporary = "." + filename + "." + secrets.token_hex(12) + ".tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        try:
+            descriptor = os.open(temporary, flags, 0o600, dir_fd=directory_fd)
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    json.dump(data, handle, ensure_ascii=False, indent=2)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                try:
+                    existing = os.stat(
+                        filename, dir_fd=directory_fd, follow_symlinks=False
+                    )
+                except FileNotFoundError:
+                    existing = None
+                if existing is not None and (
+                    not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1
+                ):
+                    raise PermissionError("Osäker selfdev-sessionsfil.")
+                os.replace(
+                    temporary, filename,
+                    src_dir_fd=directory_fd, dst_dir_fd=directory_fd,
+                )
+                os.fsync(directory_fd)
+            except BaseException:
+                try:
+                    os.unlink(temporary, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+                raise
+        finally:
+            os.close(directory_fd)
+
+    def save_session_metadata(self, record):
+        self._write_session_record("session.json", record)
+
     def metadata(self):
-        return json.loads(
-            self.metadata_path.read_text(
-                encoding="utf-8"
-            )
-        )
+        return self._read_session_record("session.json")
+
+    def save_verification(self, record):
+        self._write_session_record("verification.json", record)
+
+    def read_verification(self):
+        return self._read_session_record("verification.json")
+
+    def invalidate_verification(self):
+        directory_fd = self._session_directory_fd()
+        try:
+            try:
+                os.unlink("verification.json", dir_fd=directory_fd)
+            except FileNotFoundError:
+                return
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     def _candidate_path(
         self,
@@ -680,10 +759,7 @@ class SelfDevWorkspace:
         finally:
             os.close(directory_fd)
 
-        try:
-            self.verification_path.unlink()
-        except FileNotFoundError:
-            pass
+        self.invalidate_verification()
 
         return target
 
