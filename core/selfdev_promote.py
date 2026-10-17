@@ -2,6 +2,7 @@ import json
 import errno
 import hmac
 import hashlib
+import re
 import stat
 import os
 from pathlib import Path
@@ -990,7 +991,10 @@ class SelfDevPromotionManager:
                     )
                 if observed != original:
                     to_restore.append(relative)
-            self._restore_from_backup(rollback_root, backups, to_restore)
+            self._restore_from_backup(
+                rollback_root, backups, to_restore,
+                expected_after=planned_hashes,
+            )
             self._write_journal(
                 record_path,
                 {
@@ -1105,42 +1109,82 @@ class SelfDevPromotionManager:
                 except FileNotFoundError:
                     pass
 
+    @staticmethod
+    def _unlink_verified_added(target, expected_hash):
+        """Remove an added file only if its pinned regular inode still matches.
+
+        The parent lookup and unlink use one open dirfd. This prevents a
+        parent-symlink swap from redirecting deletion outside the project.
+        Python/POSIX unlink is not an atomic hash-and-unlink CAS; the
+        cooperating writer lock and OS permissions remain necessary.
+        """
+        if not isinstance(expected_hash, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected_hash
+        ):
+            raise RuntimeError("Rollback saknar giltig hash för ny fil.")
+        from core.selfdev_workspace import _hash_pinned_regular_file
+
+        with _pinned_parent(target) as (directory_fd, name):
+            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            try:
+                descriptor = os.open(name, flags, dir_fd=directory_fd)
+            except OSError as error:
+                raise RuntimeError(
+                    "Ny fil saknas eller har ändrats under rollback."
+                ) from error
+            try:
+                before = os.fstat(descriptor)
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                    raise RuntimeError("Rollback vägrar ta bort osäker ny fil.")
+                if _hash_pinned_regular_file(descriptor) != expected_hash:
+                    raise RuntimeError(
+                        "Ny fil har ändrats; rollback vägrar radera."
+                    )
+                # Reject alias exchanges that happened while hashing.
+                now = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                if (
+                    not stat.S_ISREG(now.st_mode)
+                    or now.st_nlink != 1
+                    or now.st_dev != before.st_dev
+                    or now.st_ino != before.st_ino
+                    or now.st_size != before.st_size
+                    or now.st_mtime_ns != before.st_mtime_ns
+                    or now.st_ctime_ns != before.st_ctime_ns
+                ):
+                    raise RuntimeError(
+                        "Ny fil ändrades före rollback-borttagning."
+                    )
+                os.unlink(name, dir_fd=directory_fd)
+                os.fsync(directory_fd)
+            finally:
+                os.close(descriptor)
+
     def _restore_from_backup(
         self,
         rollback_root,
         backups,
         paths,
+        *,
+        expected_after=None,
     ):
-        for relative in reversed(
-            list(
-                paths
-            )
-        ):
-            info = backups[
-                relative
-            ]
-            target = (
-                self._safe_project_target(
-                    relative
-                )
-            )
-
-            if info[
-                "existed"
-            ]:
+        for relative in reversed(list(paths)):
+            info = backups[relative]
+            target = self._safe_project_target(relative)
+            if info["existed"]:
                 with self._backup_verified_snapshot(
                     rollback_root, relative, info["sha256"]
                 ) as backup:
-                    _atomic_copy(
-                        backup,
-                        target,
-                    )
+                    _atomic_copy(backup, target)
             else:
-                try:
-                    target.unlink()
-                    _sync_directory(target.parent)
-                except FileNotFoundError:
-                    pass
+                # Every added-file deletion must be backed by the content
+                # digest from the signed journal or verified staging manifest.
+                expected = (
+                    expected_after.get(relative)
+                    if isinstance(expected_after, dict)
+                    else None
+                )
+                self._unlink_verified_added(target, expected)
 
     def inspect_recovery_artifacts(self, promotion_id):
         """Report orphaned restore snapshots without reading or deleting them.
@@ -1418,7 +1462,10 @@ class SelfDevPromotionManager:
                         )
                     need_restore.append(relative)
 
-        self._restore_from_backup(rollback_root, backups, need_restore)
+        self._restore_from_backup(
+            rollback_root, backups, need_restore,
+            expected_after=planned,
+        )
         record["state"] = "recovered"
         record["rolled_back"] = True
         record["recovered_unix_time"] = time.time()
@@ -1742,6 +1789,7 @@ class SelfDevPromotionManager:
             rollback_root,
             backups,
             paths,
+            expected_after=after_hashes,
         )
 
         record[
