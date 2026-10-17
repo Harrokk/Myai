@@ -675,7 +675,9 @@ def test_excel_write_disabled_is_audited_as_denied(
         'A, B och rader test, 1'
     )
 
-    assert "avstängd" in result
+    assert result == "Kunde inte skapa Excel-filen: feltext dold."
+    assert "avstängd" not in result
+    assert not (tmp_path / "workspace" / "budget.xlsx").exists()
     audit_text = (
         tmp_path
         / "runtime"
