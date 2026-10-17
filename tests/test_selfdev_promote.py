@@ -4642,3 +4642,132 @@ def test_rollback_precheck_rejects_missing_active_file_without_journal_write(
     assert not missing.exists()
     journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
     assert active._read_journal(journal)["state"] == "completed"
+
+
+def test_promotion_verification_rejects_header_only_success_record(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approved = manager(workspace, settings())
+    changes = workspace.changed_files()
+    workspace.save_verification({
+        "passed": True,
+        "sandbox": "bubblewrap",
+        "network_isolated": True,
+        "host_devices_exposed": False,
+        "workspace_manifest_digest": changes["manifest_digest"],
+    })
+
+    with pytest.raises(RuntimeError, match="fel selfdev-session"):
+        approved.promote("PROMOTE session1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+    assert not (workspace.session_root / "rollbacks" / "promo1").exists()
+
+
+def test_promotion_verification_rejects_record_from_another_session(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    record = workspace.read_verification()
+    record["session_id"] = "session2"
+    workspace.save_verification(record)
+
+    with pytest.raises(RuntimeError, match="fel selfdev-session"):
+        manager(workspace, settings()).promote("PROMOTE session1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("returncode", True),
+    ("returncode", 1),
+    ("error", "command failed"),
+    ("passed", "true"),
+    ("network_isolated", 1),
+    ("host_devices_exposed", 0),
+    ("source_drift", ["core/example.py"]),
+    ("deleted", ["core/example.py"]),
+])
+def test_promotion_verification_requires_strict_success_evidence(
+    tmp_path, field, value
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    record = workspace.read_verification()
+    record[field] = value
+    workspace.save_verification(record)
+
+    with pytest.raises(RuntimeError):
+        manager(workspace, settings()).promote("PROMOTE session1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda record: record.update({"checks": []}),
+    lambda record: record["checks"].pop(),
+    lambda record: record["checks"][0].update({"passed": False}),
+    lambda record: record["checks"][0].update({"returncode": True}),
+    lambda record: record["checks"][0].update({"path": "tests/test_new.py"}),
+    lambda record: record["checks"][0].update({"error": "bad"}),
+    lambda record: record["checks"][0].update({"type": "pytest"}),
+])
+def test_promotion_verification_rejects_incomplete_or_forged_checks(
+    tmp_path, mutation
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    record = workspace.read_verification()
+    mutation(record)
+    workspace.save_verification(record)
+
+    with pytest.raises(RuntimeError, match="sandboxkontroller"):
+        manager(workspace, settings()).promote("PROMOTE session1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_promotion_verification_rejects_attested_file_list_mismatch(
+    tmp_path
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    record = workspace.read_verification()
+    changed = record["changed"]
+    added = record["added"]
+    # Valid but reclassified filename and checks: the manifest digest alone
+    # must not authorize a different set of reviewed source changes.
+    record["changed"] = sorted(changed + added)
+    record["added"] = []
+    workspace.save_verification(record)
+
+    with pytest.raises(RuntimeError, match="andra selfdev-filer"):
+        manager(workspace, settings()).promote("PROMOTE session1")
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 1\n"
+
+
+def test_promotion_accepts_real_verifier_output_schema_with_runner_stub(
+    tmp_path
+):
+    from types import SimpleNamespace
+    from core.selfdev_verify import SelfDevVerifier
+
+    project, workspace = make_workspace(tmp_path)
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        command_runner=lambda command, timeout: SimpleNamespace(
+            returncode=0, stdout="synthetic success", stderr=""
+        ),
+    )
+    result = verifier.verify()
+    assert result["passed"] is True
+    promoted = manager(workspace, settings()).promote("PROMOTE session1")
+    assert promoted["state"] == "completed"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
