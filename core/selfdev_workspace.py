@@ -671,7 +671,29 @@ class SelfDevWorkspace:
         finally:
             os.close(directory_fd)
 
-        record = json.loads(bytes(content).decode("utf-8"))
+        def unique_object_pairs(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError(
+                        "Dubbla fältnamn i selfdev-sessionsfilen."
+                    )
+                result[key] = value
+            return result
+
+        def reject_nonfinite_constant(value):
+            raise ValueError(
+                "Icke-ändligt numeriskt värde i selfdev-sessionsfilen."
+            )
+
+        try:
+            record = json.loads(
+                bytes(content).decode("utf-8"),
+                object_pairs_hook=unique_object_pairs,
+                parse_constant=reject_nonfinite_constant,
+            )
+        except (UnicodeError, RecursionError) as error:
+            raise ValueError("Ogiltig JSON i selfdev-sessionsfilen.") from error
         if not isinstance(record, dict):
             raise ValueError("Selfdev-sessionsfilen måste vara ett JSON-objekt.")
         return record
@@ -687,7 +709,10 @@ class SelfDevWorkspace:
             descriptor = os.open(temporary, flags, 0o600, dir_fd=directory_fd)
             try:
                 with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                    json.dump(data, handle, ensure_ascii=False, indent=2)
+                    json.dump(
+                        data, handle, ensure_ascii=False, indent=2,
+                        allow_nan=False,
+                    )
                     handle.write("\n")
                     handle.flush()
                     os.fsync(handle.fileno())
