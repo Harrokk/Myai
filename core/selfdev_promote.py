@@ -2566,13 +2566,15 @@ class SelfDevPromotionManager:
                 )
             )
 
-            if (
-                not target.exists()
-                or _sha256(
-                    target
-                )
-                != expected_hash
-            ):
+            try:
+                observed = _hash_existing_regular_path(target)
+            except (OSError, PermissionError, RuntimeError) as error:
+                raise RuntimeError(
+                    "Aktiv källkod har ändrats efter promotion; "
+                    "automatisk rollback vägrar skriva över nyare arbete: "
+                    + relative
+                ) from error
+            if observed != expected_hash:
                 raise RuntimeError(
                     "Aktiv källkod har ändrats efter promotion; "
                     "automatisk rollback vägrar skriva över nyare arbete: "
