@@ -479,17 +479,21 @@ def test_fault_unwritable_workspace_storage_leaves_no_target(
             tmp_path
         )
     )
-    def fail_temp_create(*args, **kwargs):
-        # The writer now uses secure mkstemp() rather than a fixed
-        # Path.write_text(".tmp") target. Simulate no free disk space
-        # at the temporary file creation boundary.
-        raise OSError("synthetic disk full")
+    real_open = workspace.os.open
 
-    monkeypatch.setattr(
-        workspace.tempfile,
-        "mkstemp",
-        fail_temp_create,
-    )
+    def fail_temp_create(path, flags, *args, **kwargs):
+        # Descriptor-based writer creates a randomized exclusive staging
+        # file relative to the pinned parent directory, not via mkstemp().
+        if (
+            isinstance(path, str)
+            and path.startswith(".full.txt.")
+            and path.endswith(".tmp")
+            and kwargs.get("dir_fd") is not None
+        ):
+            raise OSError("synthetic disk full")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.os, "open", fail_temp_create)
 
     with pytest.raises(
         OSError,
@@ -506,11 +510,9 @@ def test_fault_unwritable_workspace_storage_leaves_no_target(
         / "workspace"
         / "full.txt"
     ).exists()
-    assert not (
-        tmp_path
-        / "workspace"
-        / "full.txt.tmp"
-    ).exists()
+    assert not list(
+        (tmp_path / "workspace").glob(".full.txt.*.tmp")
+    )
 
 
 def test_fault_atomic_health_replace_failure_preserves_previous_snapshot(
