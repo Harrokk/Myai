@@ -2620,7 +2620,9 @@ def test_verified_backup_rejects_parent_symlink_swap_before_directory_open(
         return real_open(name, flags, *args, **kwargs)
 
     monkeypatch.setattr(module.os, "open", switch_before_open)
-    with pytest.raises(RuntimeError, match="Osäker backupfil"):
+    # This is a forbidden path, not a corrupt backup data hash: preserve
+    # PermissionError for legacy migration and read-only inspections.
+    with pytest.raises(PermissionError, match="symlink"):
         active._verified_backup(rollback_root, "core/example.py", expected)
     assert switches == [True]
     assert (outside / "example.py").read_text(encoding="utf-8") == (
