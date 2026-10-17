@@ -519,6 +519,91 @@ def _create_private_rollback_root(rollback_root):
             os.close(rollbacks_fd)
 
 
+def _sync_prepared_backup_tree(rollback_root):
+    """Flush nested backup directory entries using one no-follow FD tree.
+
+    The caller has finished backing up active files but has NOT published
+    the PREPARED journal. A suspicious link or name replacement fails
+    closed before any active source is modified.
+    """
+    flags = (
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    visited = 0
+
+    def sync_descendants(directory_fd, depth):
+        nonlocal visited
+        if depth > 40:
+            raise RuntimeError("För djupt rollback-backupträd.")
+        with os.scandir(directory_fd) as entries:
+            names = sorted(entry.name for entry in entries)
+        for name in names:
+            if name in ("", ".", ".."):
+                raise PermissionError("Ogiltigt namn i rollback-backup.")
+            visited += 1
+            if visited > 10_000:
+                raise RuntimeError("För många filer i rollback-backup.")
+            before = os.stat(
+                name, dir_fd=directory_fd, follow_symlinks=False
+            )
+            if stat.S_ISDIR(before.st_mode):
+                child_fd = os.open(name, flags, dir_fd=directory_fd)
+                try:
+                    observed = os.fstat(child_fd)
+                    if (
+                        before.st_dev != observed.st_dev
+                        or before.st_ino != observed.st_ino
+                        or observed.st_uid != os.geteuid()
+                    ):
+                        raise PermissionError(
+                            "Rollback-katalogen byttes före synkronisering."
+                        )
+                    sync_descendants(child_fd, depth + 1)
+                    after = os.stat(
+                        name, dir_fd=directory_fd, follow_symlinks=False
+                    )
+                    if (
+                        not stat.S_ISDIR(after.st_mode)
+                        or after.st_dev != observed.st_dev
+                        or after.st_ino != observed.st_ino
+                    ):
+                        raise PermissionError(
+                            "Rollback-katalogen byttes under synkronisering."
+                        )
+                finally:
+                    os.close(child_fd)
+            elif not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                raise PermissionError(
+                    "Osäker länk eller specialfil i rollback-backup."
+                )
+        os.fsync(directory_fd)
+
+    with _pinned_parent(Path(rollback_root) / ".backup-sync-check") as (
+        root_fd, _
+    ):
+        info = os.fstat(root_fd)
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+        ):
+            raise PermissionError("Osäker rollback-backuprot.")
+        try:
+            files_fd = os.open("files", flags, dir_fd=root_fd)
+        except FileNotFoundError:
+            os.fsync(root_fd)
+            return
+        try:
+            before = os.fstat(files_fd)
+            if before.st_uid != os.geteuid():
+                raise PermissionError("Osäker backup-katalogägare.")
+            sync_descendants(files_fd, 0)
+        finally:
+            os.close(files_fd)
+        os.fsync(root_fd)
+
+
 def _atomic_write_record(path, record):
     """Publish a complete bounded recovery journal within a pinned dirfd."""
     path = Path(path)
@@ -1304,15 +1389,9 @@ class SelfDevPromotionManager:
                     }
                 else:
                     backups[relative] = {"existed": False, "sha256": None}
-            # Ensure nested backup directory entries reach stable storage.
-            for current_dir in sorted(
-                {parent for parent in (rollback_root / "files").rglob("*")
-                 if parent.is_dir()},
-                key=lambda p: len(p.parts),
-                reverse=True,
-            ) if (rollback_root / "files").exists() else ():
-                _sync_directory(current_dir)
-            _sync_directory(rollback_root)
+            # Sync each nested backup directory from pinned no-follow FDs
+            # before publishing the PREPARED recovery journal.
+            _sync_prepared_backup_tree(rollback_root)
         except BaseException:
             # No active file has been modified before the journal is
             # prepared; remove an unusable partial backup safely.
