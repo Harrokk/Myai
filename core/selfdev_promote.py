@@ -2162,11 +2162,12 @@ class SelfDevPromotionManager:
                 self._verified_backup(
                     rollback_root, relative, expected_original
                 )
-                if not target.is_file():
+                try:
+                    current_sha = _hash_existing_regular_path(target)
+                except (OSError, RuntimeError) as error:
                     raise RuntimeError(
                         "Aktiv fil saknas eller har ändrats efter avbrottet."
-                    )
-                current_sha = _sha256(target)
+                    ) from error
                 if current_sha not in {expected_original, after_sha}:
                     raise RuntimeError(
                         "Aktiv källkod har nyare arbete; återställning stoppades."
@@ -2176,8 +2177,16 @@ class SelfDevPromotionManager:
             else:
                 if expected_original is not None:
                     raise RuntimeError("Ogiltig backupmetadata.")
-                if target.exists():
-                    if not target.is_file() or _sha256(target) != after_sha:
+                try:
+                    current_sha = _hash_existing_regular_path(target)
+                except FileNotFoundError:
+                    current_sha = None
+                except (OSError, RuntimeError) as error:
+                    raise RuntimeError(
+                        "Aktiv källkod har nyare arbete; återställning stoppades."
+                    ) from error
+                if current_sha is not None:
+                    if current_sha != after_sha:
                         raise RuntimeError(
                             "Aktiv källkod har nyare arbete; återställning stoppades."
                         )
