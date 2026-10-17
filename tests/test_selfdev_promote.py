@@ -4527,3 +4527,102 @@ def test_failed_promotion_revert_refuses_missing_modified_file(
     assert not (project / "core" / "example.py").exists()
     journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
     assert active._read_journal(journal)["state"] == "prepared"
+
+
+def test_rollback_precheck_rejects_parent_symlink_swap_after_target_validation(
+    tmp_path, monkeypatch
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    core = project / "core"
+    external = tmp_path / "outside-core"
+    external.mkdir()
+    (external / "example.py").write_text("VALUE = 2\n", encoding="utf-8")
+    real_target = active._safe_project_target
+    swapped = [False]
+
+    def swap_after_target_check(relative):
+        checked = real_target(relative)
+        if not swapped[0] and str(relative) == "core/example.py":
+            core.rename(project / "core-original")
+            core.symlink_to(external, target_is_directory=True)
+            swapped[0] = True
+        return checked
+
+    monkeypatch.setattr(active, "_safe_project_target", swap_after_target_check)
+    with pytest.raises(RuntimeError, match="Aktiv källkod har ändrats"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+    assert swapped == [True]
+    assert (external / "example.py").read_text(encoding="utf-8") == (
+        "VALUE = 2\n"
+    )
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "completed"
+
+
+def test_rollback_precheck_rejects_final_symlink_after_target_validation(
+    tmp_path, monkeypatch
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    file = project / "core" / "example.py"
+    outside = tmp_path / "outside-active.py"
+    outside.write_text("VALUE = 2\n", encoding="utf-8")
+    original_target = active._safe_project_target
+    changed = [False]
+
+    def swap_final_after_check(relative):
+        checked = original_target(relative)
+        if not changed[0] and str(relative) == "core/example.py":
+            file.rename(file.with_name("example-original.py"))
+            file.symlink_to(outside)
+            changed[0] = True
+        return checked
+
+    monkeypatch.setattr(active, "_safe_project_target", swap_final_after_check)
+    with pytest.raises(RuntimeError, match="Aktiv källkod har ändrats"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+
+    assert changed == [True]
+    assert outside.read_text(encoding="utf-8") == "VALUE = 2\n"
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "completed"
+
+
+def test_rollback_precheck_rejects_active_file_hardlink(tmp_path):
+    import os
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    target = project / "core" / "example.py"
+    alias = tmp_path / "linked-active.py"
+    os.link(target, alias)
+
+    with pytest.raises(RuntimeError, match="Aktiv källkod har ändrats"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+    assert alias.read_text(encoding="utf-8") == "VALUE = 2\n"
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "completed"
+
+
+def test_rollback_precheck_rejects_missing_active_file_without_journal_write(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    missing = project / "core" / "example.py"
+    missing.unlink()
+
+    with pytest.raises(RuntimeError, match="Aktiv källkod har ändrats"):
+        active.rollback("promo1", "ROLLBACK session1 promo1")
+    assert not missing.exists()
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "completed"
