@@ -1264,3 +1264,77 @@ def test_session_metadata_accepts_valid_baseline_digest_for_new_session(tmp_path
     assert metadata["baseline_digest"] == manifest_digest(metadata["baseline"])
     assert session.source_drift() == []
     assert session.changed_files()["changed"] == []
+
+
+def test_reopened_session_refuses_group_or_world_accessible_directory(tmp_path):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "session-mode-reopen")
+    old = session.metadata_path.read_bytes()
+    os.chmod(session.session_root, 0o755)
+
+    with pytest.raises(PermissionError, match="sessionskatalog"):
+        session.metadata()
+    with pytest.raises(PermissionError, match="sessionskatalog"):
+        session.save_verification({"passed": True})
+    assert session.metadata_path.read_bytes() == old
+    assert not session.verification_path.exists()
+
+
+def test_reopened_session_metadata_refuses_world_readable_json(tmp_path):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "record-mode-metadata")
+    old = session.metadata_path.read_bytes()
+    os.chmod(session.metadata_path, 0o644)
+
+    with pytest.raises(PermissionError, match="sessionsfil"):
+        session.metadata()
+    assert session.metadata_path.read_bytes() == old
+    assert not session.verification_path.exists()
+
+
+def test_verification_read_refuses_group_writable_json_without_edit(tmp_path):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "record-mode-verification")
+    session.save_verification({"passed": False, "detail": "ORIGINAL"})
+    old = session.verification_path.read_bytes()
+    os.chmod(session.verification_path, 0o660)
+
+    with pytest.raises(PermissionError, match="sessionsfil"):
+        session.read_verification()
+    assert session.verification_path.read_bytes() == old
+
+
+def test_verification_writer_rejects_insecure_existing_inode_and_cleans_temp(
+    tmp_path,
+):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "record-mode-publish")
+    session.save_verification({"passed": False, "detail": "ORIGINAL"})
+    old = session.verification_path.read_bytes()
+    os.chmod(session.verification_path, 0o644)
+
+    with pytest.raises(PermissionError, match="sessionsfil"):
+        session.save_verification({"passed": True, "detail": "REPLACED"})
+    assert session.verification_path.read_bytes() == old
+    assert not list(session.session_root.glob(".verification.json.*.tmp"))
+
+
+def test_private_record_and_directory_modes_preserved_for_normal_session(tmp_path):
+    import stat
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "record-private-normal")
+    session.save_verification({"passed": False})
+    assert stat.S_IMODE(session.session_root.stat().st_mode) & 0o077 == 0
+    assert stat.S_IMODE(session.metadata_path.stat().st_mode) & 0o077 == 0
+    assert stat.S_IMODE(session.verification_path.stat().st_mode) & 0o077 == 0
+    assert session.metadata()["session_id"] == session.session_id
+    assert session.read_verification() == {"passed": False}
