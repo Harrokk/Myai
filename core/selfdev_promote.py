@@ -1002,6 +1002,13 @@ class SelfDevPromotionManager:
         if len(content) > 1024 * 1024:
             raise RuntimeError("Återställningsjournalen är för stor.")
 
+        return SelfDevPromotionManager._decode_recovery_json_bytes(
+            content, include_raw=include_raw
+        )
+
+    @staticmethod
+    def _decode_recovery_json_bytes(content, *, include_raw=False):
+        """Apply the existing strict JSON rules to bytes from any pinned FD."""
         def unique_pairs(pairs):
             result = {}
             for key, value in pairs:
@@ -1023,8 +1030,40 @@ class SelfDevPromotionManager:
         except (UnicodeError, ValueError, RecursionError) as error:
             raise RuntimeError("Återställningsjournalens JSON är ogiltig.") from error
 
+    @staticmethod
+    def _read_pinned_journal_fd(fd):
+        """Read one already opened journal inode without resolving its path."""
+        before = os.fstat(fd)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size > 1024 * 1024
+        ):
+            raise RuntimeError("Osäker eller för stor återställningsjournal.")
+        content = b""
+        while len(content) <= 1024 * 1024:
+            chunk = os.read(fd, min(65_536, 1024 * 1024 + 1 - len(content)))
+            if not chunk:
+                break
+            content += chunk
+        after = os.fstat(fd)
+        if (
+            len(content) > 1024 * 1024
+            or before.st_dev != after.st_dev
+            or before.st_ino != after.st_ino
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or before.st_ctime_ns != after.st_ctime_ns
+            or len(content) != before.st_size
+        ):
+            raise RuntimeError("Återställningsjournalen ändrades under läsning.")
+        return SelfDevPromotionManager._decode_recovery_json_bytes(content)
+
     def _read_journal(self, path):
-        record = self._read_recovery_json(path)
+        return self._verify_journal_record(self._read_recovery_json(path))
+
+    def _verify_journal_record(self, record):
+        """Verify HMAC for the exact already decoded journal snapshot."""
         if not isinstance(record, dict) or record.get("journal_version") != 1:
             raise RuntimeError("Återställningsjournal saknar integritetsskydd.")
         signature = record.get("journal_hmac")
@@ -1161,53 +1200,143 @@ class SelfDevPromotionManager:
         return target
 
     def _require_no_interrupted_promotion(self):
-        # An interrupted update in *any* known session cannot be covered
-        # by a new update in another session.
+        """Fail closed if any pinned session contains an interrupted update.
+
+        Enumerate each directory by the same open FD used to inspect/open its
+        entries. Never re-resolve a checked directory pathname for journal IO.
+        """
         sources = {
             self.workspace.project_root / "runtime" / "selfdev",
             self.workspace.session_root.parent,
         }
-        for sessions_root in sources:
-            if not sessions_root.exists():
-                continue
-            if sessions_root.is_symlink():
-                raise RuntimeError("Selfdev-sessionkatalogen är en symlink.")
-            for session_root in sessions_root.iterdir():
-                if session_root.is_symlink():
-                    raise RuntimeError("Otillåten selfdev-sessionsymlink.")
-                if not session_root.is_dir():
-                    continue
-                journal_dir = session_root / "rollbacks"
-                if journal_dir.is_symlink():
-                    raise RuntimeError("Otillåten selfdev-rollbacksymlink.")
-                if not journal_dir.exists():
-                    continue
-                for candidate in journal_dir.iterdir():
-                    if candidate.is_symlink():
-                        raise RuntimeError("Otillåten selfdev-journalsymlink.")
-                    if not candidate.is_dir():
-                        continue
-                    record_path = candidate / "promotion.json"
-                    if not record_path.is_file() or record_path.is_symlink():
-                        raise RuntimeError(
-                            "Ofullständig selfdev-promotion saknar återställningsjournal."
-                        )
-                    try:
-                        record = self._read_journal(record_path)
-                    except (OSError, ValueError, TypeError, RuntimeError) as error:
-                        raise RuntimeError(
-                            "Selfdev-promotion har en skadad återställningsjournal."
-                        ) from error
-                    if not isinstance(record, dict):
-                        raise RuntimeError("Ogiltig återställningsjournal.")
-                    status = record.get("state")
-                    if status in {"completed", "recovered", "reverted"}:
-                        continue
-                    if status is None and record.get("promoted_unix_time"):
-                        continue
+        dir_flags = (
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        file_flags = (
+            os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        inspected = 0
+
+        def entries(fd):
+            nonlocal inspected
+            with os.scandir(fd) as listing:
+                names = sorted(item.name for item in listing)
+            inspected += len(names)
+            if inspected > 10_000:
+                raise RuntimeError("För många selfdev-sessioner att kontrollera.")
+            return names
+
+        def open_directory(parent_fd, name, description):
+            try:
+                return os.open(name, dir_flags, dir_fd=parent_fd)
+            except OSError as error:
+                if error.errno in (errno.ELOOP, errno.ENOTDIR):
                     raise RuntimeError(
-                        "Ofullständig selfdev-promotion måste återställas manuellt."
+                        "Otillåten selfdev-" + description + "symlink."
+                    ) from error
+                raise
+
+        def check_directory(root):
+            try:
+                with _pinned_parent(root) as (parent_fd, name):
+                    try:
+                        sessions_fd = open_directory(
+                            parent_fd, name, "sessionskatalog"
+                        )
+                    except FileNotFoundError:
+                        return
+            except (NotADirectoryError, OSError) as error:
+                # A missing entire optional session tree is acceptable, but
+                # a substituted symlink or non-directory is never acceptable.
+                if isinstance(error, FileNotFoundError):
+                    return
+                raise RuntimeError(
+                    "Selfdev-sessionkatalogen kan inte öppnas säkert."
+                ) from error
+
+            try:
+                for session_name in entries(sessions_fd):
+                    info = os.stat(
+                        session_name, dir_fd=sessions_fd,
+                        follow_symlinks=False,
                     )
+                    if stat.S_ISLNK(info.st_mode):
+                        raise RuntimeError("Otillåten selfdev-sessionsymlink.")
+                    if not stat.S_ISDIR(info.st_mode):
+                        continue
+                    with os.fdopen(
+                        open_directory(sessions_fd, session_name, "session"), "rb"
+                    ) as session_handle:
+                        session_fd = session_handle.fileno()
+                        try:
+                            rollbacks_fd = open_directory(
+                                session_fd, "rollbacks", "rollback"
+                            )
+                        except FileNotFoundError:
+                            continue
+                        try:
+                            for promotion_name in entries(rollbacks_fd):
+                                promotion_info = os.stat(
+                                    promotion_name, dir_fd=rollbacks_fd,
+                                    follow_symlinks=False,
+                                )
+                                if stat.S_ISLNK(promotion_info.st_mode):
+                                    raise RuntimeError(
+                                        "Otillåten selfdev-journalsymlink."
+                                    )
+                                if not stat.S_ISDIR(promotion_info.st_mode):
+                                    continue
+                                journal_dir_fd = open_directory(
+                                    rollbacks_fd, promotion_name, "journal"
+                                )
+                                try:
+                                    try:
+                                        journal_fd = os.open(
+                                            "promotion.json", file_flags,
+                                            dir_fd=journal_dir_fd,
+                                        )
+                                    except OSError as error:
+                                        raise RuntimeError(
+                                            "Ofullständig selfdev-promotion saknar "
+                                            "säker återställningsjournal."
+                                        ) from error
+                                    try:
+                                        record = self._verify_journal_record(
+                                            self._read_pinned_journal_fd(journal_fd)
+                                        )
+                                    except (
+                                        OSError, ValueError, TypeError, RuntimeError
+                                    ) as error:
+                                        raise RuntimeError(
+                                            "Selfdev-promotion har en skadad "
+                                            "återställningsjournal."
+                                        ) from error
+                                    finally:
+                                        os.close(journal_fd)
+                                    status = record.get("state")
+                                    if status in {
+                                        "completed", "recovered", "reverted"
+                                    }:
+                                        continue
+                                    if status is None and record.get(
+                                        "promoted_unix_time"
+                                    ):
+                                        continue
+                                    raise RuntimeError(
+                                        "Ofullständig selfdev-promotion måste "
+                                        "återställas manuellt."
+                                    )
+                                finally:
+                                    os.close(journal_dir_fd)
+                        finally:
+                            os.close(rollbacks_fd)
+            finally:
+                os.close(sessions_fd)
+
+        for source in sources:
+            check_directory(source)
 
     def _preflight_promotion(
         self,
