@@ -1,7 +1,9 @@
 name: VENTUNO source-only DNS socket pinning and file audit
 on:
   push:
-    branches: [dev/manual-full-files-and-dns-ssrf-20261017]
+    branches:
+      - dev/manual-full-files-and-dns-ssrf-20261017
+      - dev/manual-audit-ipv6-transition-ssrf-20261017
 permissions:
   contents: read
 jobs:
