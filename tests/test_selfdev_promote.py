@@ -4007,3 +4007,79 @@ def test_actual_recovery_rejects_hardlinked_active_code_preflight(
 
     assert current.read_text(encoding="utf-8") == "VALUE = 2\n"
     assert alias.read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_actual_recovery_refuses_external_change_after_preflight(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    target = project / "core" / "example.py"
+    original_copy = module._atomic_copy
+    switched = []
+
+    def change_active_just_before_copy(source, destination, **kwargs):
+        if "rollbacks" in str(source) and not switched:
+            target.write_text("EXTERNAL = True\n", encoding="utf-8")
+            switched.append(True)
+        return original_copy(source, destination, **kwargs)
+
+    monkeypatch.setattr(module, "_atomic_copy", change_active_just_before_copy)
+    with pytest.raises(RuntimeError, match="Extern ändring"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert switched == [True]
+    assert target.read_text(encoding="utf-8") == "EXTERNAL = True\n"
+    journal = workspace.session_root / "rollbacks" / "promo1" / "promotion.json"
+    assert active._read_journal(journal)["state"] == "prepared"
+
+
+def test_restore_from_backup_requires_expected_active_digest(
+    tmp_path,
+):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    record = active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    target = project / "core" / "example.py"
+    before = target.read_bytes()
+
+    with pytest.raises(RuntimeError, match="förväntad hash"):
+        active._restore_from_backup(
+            rollback_root,
+            record["backups"],
+            ["core/example.py"],
+            expected_after={},
+        )
+
+    assert target.read_bytes() == before
+
+
+def test_recovery_rejects_mutated_verified_snapshot_at_copy_time(
+    tmp_path, monkeypatch,
+):
+    from core import selfdev_promote as module
+
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    target = project / "core" / "example.py"
+    original_copy = module._atomic_copy
+    corrupted = []
+
+    def mutate_snapshot_before_copy(source, destination, **kwargs):
+        if "rollbacks" in str(source) and not corrupted:
+            source.write_bytes(b"CHANGED AFTER SNAPSHOT\n")
+            corrupted.append(True)
+        return original_copy(source, destination, **kwargs)
+
+    monkeypatch.setattr(module, "_atomic_copy", mutate_snapshot_before_copy)
+    with pytest.raises(RuntimeError, match="staging har ändrats"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert corrupted == [True]
+    assert target.read_text(encoding="utf-8") == "VALUE = 2\n"

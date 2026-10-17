@@ -1833,10 +1833,25 @@ class SelfDevPromotionManager:
             info = backups[relative]
             target = self._safe_project_target(relative)
             if info["existed"]:
+                expected = (
+                    expected_after.get(relative)
+                    if isinstance(expected_after, dict)
+                    else None
+                )
+                if not isinstance(expected, str) or not re.fullmatch(
+                    r"[0-9a-f]{64}", expected
+                ):
+                    raise RuntimeError(
+                        "Rollback saknar giltig förväntad hash för tidigare fil."
+                    )
                 with self._backup_verified_snapshot(
                     rollback_root, relative, info["sha256"]
                 ) as backup:
-                    _atomic_copy(backup, target)
+                    _atomic_copy(
+                        backup, target,
+                        expected_old=expected,
+                        expected_source=info["sha256"],
+                    )
             else:
                 # Every added-file deletion must be backed by the content
                 # digest from the signed journal or verified staging manifest.
