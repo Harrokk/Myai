@@ -190,3 +190,67 @@ def test_failed_peer_socket_is_closed_even_before_response():
         f.fetch("http://example.com/fail")
     assert FakeHTTPConnection.made[-1].closed is True
     assert FakeHTTPConnection.made[-1].requests == []
+
+
+
+def test_pinned_redirect_to_private_host_never_connects_to_target():
+    class RedirectHTTPConnection(FakeHTTPConnection):
+        def __init__(self, host, *, port, timeout):
+            super().__init__(host, port=port, timeout=timeout)
+            self.raw.status = 302
+            self.raw.getheaders = lambda: [
+                ("Location", "http://localhost/admin"),
+            ]
+
+    def resolve(host, port, type=None):
+        if host == "localhost":
+            return [(client.socket.AF_INET, client.socket.SOCK_STREAM, 6,
+                     "", ("127.0.0.1", port))]
+        return public_resolver(host, port, type)
+
+    sockets = []
+    def connector(address, *, timeout):
+        sockets.append(address)
+        return Socket(address[0])
+
+    transport = PinnedPublicWebTransport(
+        connector=connector,
+        connection_factory=RedirectHTTPConnection,
+        ssl_context_factory=FakeVerifyingSSL,
+    )
+    f = client.PublicWebClient(resolver=resolve, session=transport)
+    with pytest.raises(ValueError, match="Privat"):
+        f.fetch("https://example.com/start")
+    assert sockets == [("93.184.216.34", 443)]
+
+
+def test_dns_rebind_on_second_redirect_hop_denied_before_new_connection():
+    class RedirectHTTPConnection(FakeHTTPConnection):
+        def __init__(self, host, *, port, timeout):
+            super().__init__(host, port=port, timeout=timeout)
+            self.raw.status = 302
+            self.raw.getheaders = lambda: [("Location", "/again")]
+
+    dns_queries = []
+    def resolve(host, port, type=None):
+        dns_queries.append(host)
+        if len(dns_queries) == 1:
+            return public_resolver(host, port, type)
+        return [(client.socket.AF_INET, client.socket.SOCK_STREAM, 6,
+                 "", ("10.10.10.10", port))]
+
+    sockets = []
+    def connector(address, *, timeout):
+        sockets.append(address)
+        return Socket(address[0])
+
+    transport = PinnedPublicWebTransport(
+        connector=connector,
+        connection_factory=RedirectHTTPConnection,
+        ssl_context_factory=FakeVerifyingSSL,
+    )
+    f = client.PublicWebClient(resolver=resolve, session=transport)
+    with pytest.raises(ValueError, match="Privat"):
+        f.fetch("https://example.com/first")
+    assert dns_queries == ["example.com", "example.com"]
+    assert sockets == [("93.184.216.34", 443)]
