@@ -744,33 +744,28 @@ class SelfDevWorkspace:
         self,
     ):
         metadata = self.metadata()
-        baseline = metadata.get(
-            "baseline",
-            {},
-        )
+        baseline = metadata.get("baseline", {})
+        if not isinstance(baseline, dict):
+            raise ValueError("Ogiltig selfdev-baseline i sessionsmetadata.")
+
         drift = []
-
-        for relative, expected in (
-            baseline.items()
-        ):
-            source = (
-                self.project_root
-                / relative
-            )
-
-            if not source.exists():
-                drift.append(
-                    relative
-                )
+        for relative, expected in baseline.items():
+            # Session metadata may be tampered with. Do not concatenate its
+            # strings directly onto a host path and follow arbitrary links.
+            _manifest_parts(relative)
+            if not isinstance(expected, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", expected
+            ):
+                raise ValueError("Ogiltig SHA-256 i selfdev-baseline.")
+            try:
+                current = _hash_allowed_relative(self.project_root, relative)
+            except OSError:
+                # Missing, unreadable and symlink-swapped source entries all
+                # count as drift; they cannot silently attest as matching.
+                drift.append(relative)
                 continue
 
-            if _sha256(
-                source
-            ) != expected:
-                drift.append(
-                    relative
-                )
+            if current != expected:
+                drift.append(relative)
 
-        return sorted(
-            drift
-        )
+        return sorted(drift)
