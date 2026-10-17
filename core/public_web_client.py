@@ -146,10 +146,19 @@ class PublicWebClient:
         session=None,
         resolver=None,
         peer_ip_getter=None,
+        unsafe_test_session=False,
     ):
         self.timeout_seconds = float(timeout_seconds)
         self.max_bytes = int(max_bytes)
         self.max_redirects = int(max_redirects)
+        if (
+            session is not None
+            and not isinstance(session, PinnedPublicWebTransport)
+            and not unsafe_test_session
+        ):
+            raise ValueError(
+                "Osäker extern HTTP-session nekas utan uttryckligt testläge."
+            )
         self.session = session if session is not None else PinnedPublicWebTransport()
         self.resolver = resolver or socket.getaddrinfo
         self.peer_ip_getter = peer_ip_getter or _response_peer_ip
@@ -279,8 +288,8 @@ class PublicWebClient:
                     current, approved_ips=approved_ips, **request_args
                 )
             else:
-                # Explicitly injected response/session doubles are for offline
-                # tests. Normal production construction always uses pinning.
+                # Only callers that explicitly enabled unsafe_test_session
+                # may supply synthetic response/session doubles.
                 response = self.session.get(current, **request_args)
 
             try:
