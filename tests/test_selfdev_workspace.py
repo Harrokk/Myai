@@ -754,3 +754,120 @@ def test_oversized_session_record_is_rejected_before_json_parse(tmp_path):
     session.metadata_path.write_bytes(b"{" + b"x" * (4 * 1024 * 1024 + 1))
     with pytest.raises(ValueError, match="för stor"):
         session.metadata()
+
+
+def test_new_session_creates_private_session_and_workspace_dirs(tmp_path):
+    import stat
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "core").mkdir()
+    (project / "core" / "example.py").write_text(
+        "VALUE = 1\n", encoding="utf-8"
+    )
+    session = SelfDevWorkspace.create(project, "private-session")
+    assert stat.S_IMODE(session.session_root.stat().st_mode) & 0o077 == 0
+    assert stat.S_IMODE(session.workspace_root.stat().st_mode) & 0o077 == 0
+    assert (session.workspace_root / "core" / "example.py").read_bytes() == (
+        b"VALUE = 1\n"
+    )
+
+
+def test_new_session_rejects_selfdev_root_symlink_without_following(
+    tmp_path,
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "runtime").mkdir()
+    (project / "runtime" / "selfdev").symlink_to(
+        outside, target_is_directory=True
+    )
+
+    with pytest.raises(OSError):
+        SelfDevWorkspace.create(project, "protected-session")
+    assert not (outside / "protected-session").exists()
+
+
+def test_new_session_rejects_parent_symlink_swapped_before_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    real_open = os.open
+    moved = []
+
+    def swap_runtime_before_open(name, flags, *args, **kwargs):
+        if name == "runtime" and kwargs.get("dir_fd") is not None and not moved:
+            original = project / "runtime"
+            original.rename(project / "runtime-original")
+            original.symlink_to(outside, target_is_directory=True)
+            moved.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_runtime_before_open)
+    with pytest.raises(OSError):
+        SelfDevWorkspace.create(project, "safety-test")
+    assert moved == [True]
+    assert not (outside / "selfdev").exists()
+
+
+def test_new_session_rejects_preexisting_session_symlink(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    selfdev = project / "runtime" / "selfdev"
+    selfdev.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (selfdev / "session-already").symlink_to(
+        outside, target_is_directory=True
+    )
+    with pytest.raises(FileExistsError):
+        SelfDevWorkspace.create(project, "session-already")
+    assert not (outside / "workspace").exists()
+
+
+def test_new_session_staging_keeps_pinned_destination_after_alias_swap(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = tmp_path / "project"
+    (project / "core").mkdir(parents=True)
+    (project / "core" / "example.py").write_text(
+        "VALUE = 1\n", encoding="utf-8"
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "session-race").mkdir()
+    real_open = os.open
+    moved = []
+
+    def swap_parent_after_workspace_open(name, flags, *args, **kwargs):
+        fd = real_open(name, flags, *args, **kwargs)
+        if name == "workspace" and kwargs.get("dir_fd") is not None and not moved:
+            original = project / "runtime" / "selfdev"
+            original.rename(project / "runtime" / "selfdev-original")
+            original.symlink_to(outside, target_is_directory=True)
+            moved.append(True)
+        return fd
+
+    monkeypatch.setattr(module.os, "open", swap_parent_after_workspace_open)
+    with pytest.raises(OSError):
+        # The staged bytes stay in the original opened directory inode.
+        # The subsequent session-metadata writer must refuse the swapped
+        # parent rather than writing to the external session.
+        SelfDevWorkspace.create(project, "session-race")
+    assert moved == [True]
+    assert (
+        project / "runtime" / "selfdev-original" / "session-race"
+        / "workspace" / "core" / "example.py"
+    ).read_bytes() == b"VALUE = 1\n"
+    assert not (outside / "session-race" / "session.json").exists()
