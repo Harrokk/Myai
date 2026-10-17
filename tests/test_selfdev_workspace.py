@@ -1137,3 +1137,59 @@ def test_metadata_reader_uses_open_inode_after_session_alias_swap(
     assert protected.read_text(encoding="utf-8") == (
         '{"session_id":"FORGED"}'
     )
+
+
+def test_session_verification_rejects_duplicate_top_level_json_keys(
+    tmp_path,
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-duplicate-keys")
+    session.verification_path.write_text(
+        '{"passed":false,"passed":true,"sandbox":"bubblewrap"}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Dubbla fältnamn"):
+        session.read_verification()
+
+
+def test_session_metadata_rejects_duplicate_nested_json_fields(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-duplicate-keys")
+    session.metadata_path.write_text(
+        '{"baseline":{"core/example.py":"a","core/example.py":"b"}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Dubbla fältnamn"):
+        session.metadata()
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_session_verification_rejects_nonfinite_json_constants(
+    tmp_path, constant
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-nonfinite")
+    session.verification_path.write_text(
+        '{"passed":true,"score":' + constant + '}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Icke-ändligt"):
+        session.read_verification()
+
+
+def test_session_writer_refuses_nonfinite_and_preserves_previous_record(
+    tmp_path,
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "verify-write-strict")
+    session.save_verification({"passed": False, "detail": "ORIGINAL"})
+    original = session.verification_path.read_bytes()
+    with pytest.raises(ValueError, match="Out of range float"):
+        session.save_verification({"passed": True, "score": float("nan")})
+
+    assert session.verification_path.read_bytes() == original
+    assert session.read_verification() == {
+        "passed": False,
+        "detail": "ORIGINAL",
+    }
+    assert not list(session.session_root.glob(".verification.json.*.tmp"))
