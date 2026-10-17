@@ -3,7 +3,7 @@ import socket
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
-import requests
+from core.public_web_transport import PinnedPublicWebTransport, _PinnedResponse
 
 
 ALLOWED_CONTENT_TYPES = {
@@ -108,6 +108,8 @@ def _is_public_ip(address):
 
 
 def _response_peer_ip(response):
+    if isinstance(response, _PinnedResponse):
+        return response._pinned_peer_ip
     raw = getattr(response, "raw", None)
     connection = (
         getattr(raw, "_connection", None)
@@ -148,7 +150,7 @@ class PublicWebClient:
         self.timeout_seconds = float(timeout_seconds)
         self.max_bytes = int(max_bytes)
         self.max_redirects = int(max_redirects)
-        self.session = session or requests.Session()
+        self.session = session if session is not None else PinnedPublicWebTransport()
         self.resolver = resolver or socket.getaddrinfo
         self.peer_ip_getter = peer_ip_getter or _response_peer_ip
 
@@ -161,7 +163,7 @@ class PublicWebClient:
         if self.max_redirects < 0 or self.max_redirects > 10:
             raise ValueError("max_redirects måste vara mellan 0 och 10.")
 
-    def validate_url(self, url):
+    def _validated_public_addresses(self, url):
         try:
             parsed = urlparse(url)
         except ValueError as error:
@@ -170,7 +172,7 @@ class PublicWebClient:
         if parsed.scheme not in {"http", "https"}:
             raise ValueError("Endast http/https är tillåtet.")
 
-        if parsed.username or parsed.password:
+        if "@" in parsed.netloc:
             raise ValueError("URL med inbäddade inloggningsuppgifter blockeras.")
 
         hostname = parsed.hostname
@@ -214,6 +216,11 @@ class PublicWebClient:
                 "Privat, lokal eller icke-publik IP-adress blockeras."
             )
 
+        return tuple(sorted(addresses))
+
+    def validate_url(self, url):
+        # Retain public validation API without initiating a connection.
+        self._validated_public_addresses(url)
         return url
 
     def _read_body(self, response):
@@ -252,21 +259,29 @@ class PublicWebClient:
         current = str(url or "").strip()
 
         for redirect_index in range(self.max_redirects + 1):
-            self.validate_url(current)
-
-            response = self.session.get(
-                current,
-                timeout=self.timeout_seconds,
-                headers={
+            approved_ips = self._validated_public_addresses(current)
+            request_args = {
+                "timeout": self.timeout_seconds,
+                "headers": {
                     "User-Agent": "MyAI/1.0 local-assistant",
                     "Accept": (
                         "text/html,text/plain,application/json,"
                         "application/xml;q=0.9"
                     ),
                 },
-                allow_redirects=False,
-                stream=True,
-            )
+                "allow_redirects": False,
+                "stream": True,
+            }
+            if isinstance(self.session, PinnedPublicWebTransport):
+                # The approved address is used for TCP itself; do not perform
+                # a second DNS lookup through requests/proxies.
+                response = self.session.get(
+                    current, approved_ips=approved_ips, **request_args
+                )
+            else:
+                # Explicitly injected response/session doubles are for offline
+                # tests. Normal production construction always uses pinning.
+                response = self.session.get(current, **request_args)
 
             try:
                 peer_ip = self.peer_ip_getter(response)
