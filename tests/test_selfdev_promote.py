@@ -2894,3 +2894,83 @@ def test_journal_key_reader_rejects_modified_key_permissions(tmp_path):
     with pytest.raises(RuntimeError, match="integritetsnyckel"):
         active._journal_integrity_key(create=False)
     assert key.read_bytes() == original
+
+
+def test_promotion_lock_rejects_parent_symlink_swapped_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    inside = project / "runtime" / "selfdev"
+    outside = tmp_path / "outside-lock"
+    outside.mkdir()
+    protected = outside / ".promotion.lock"
+    protected.write_text("UNTOUCHED", encoding="utf-8")
+    real_open = os.open
+    swaps = []
+
+    def swap_before_lock_parent_open(path, flags, *args, **kwargs):
+        if path == "selfdev" and kwargs.get("dir_fd") is not None:
+            inside.rename(inside.with_name("selfdev-old"))
+            inside.symlink_to(outside, target_is_directory=True)
+            swaps.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_lock_parent_open)
+    with pytest.raises(OSError):
+        with active._project_mutation_lock():
+            pytest.fail("unsafe lock parent entered")
+
+    assert swaps == [True]
+    assert protected.read_text(encoding="utf-8") == "UNTOUCHED"
+    assert not (project / "runtime" / "selfdev-old" / ".promotion.lock").exists()
+
+
+def test_promotion_lock_fd_stays_on_original_inode_after_parent_alias_swap(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    inside = project / "runtime" / "selfdev"
+    outside = tmp_path / "outside-lock"
+    outside.mkdir()
+    protected = outside / ".promotion.lock"
+    protected.write_text("UNTOUCHED", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def switch_after_lock_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == ".promotion.lock" and kwargs.get("dir_fd") is not None:
+            inside.rename(inside.with_name("selfdev-old"))
+            inside.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", switch_after_lock_open)
+    with active._project_mutation_lock():
+        assert swapped == [True]
+
+    old_lock = project / "runtime" / "selfdev-old" / ".promotion.lock"
+    assert old_lock.is_file()
+    assert protected.read_text(encoding="utf-8") == "UNTOUCHED"
+
+
+def test_promotion_lock_rejects_existing_final_symlink(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    target = project / "runtime" / "selfdev" / ".promotion.lock"
+    external = tmp_path / "private-lock"
+    external.write_text("UNCHANGED", encoding="utf-8")
+    target.symlink_to(external)
+
+    with pytest.raises(OSError):
+        with active._project_mutation_lock():
+            pytest.fail("symlinked lock should not be acquired")
+    assert external.read_text(encoding="utf-8") == "UNCHANGED"

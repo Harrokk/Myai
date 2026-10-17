@@ -471,14 +471,27 @@ class SelfDevPromotionManager:
         """
         lock_dir = self._private_selfdev_directory(create=True)
         lock_path = lock_dir / ".promotion.lock"
-        flags = os.O_CREAT | os.O_RDWR
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        if hasattr(os, "O_NONBLOCK"):
-            flags |= os.O_NONBLOCK
-        if hasattr(os, "O_BINARY"):
-            flags |= os.O_BINARY
-        descriptor = os.open(str(lock_path), flags, 0o600)
+        flags = (
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        flags |= getattr(os, "O_BINARY", 0)
+        # A symlink swap of runtime/selfdev between the preflight and this
+        # open must not select an external lock. Pin every parent component.
+        with _pinned_parent(lock_path) as (directory_fd, lock_name):
+            parent = os.fstat(directory_fd)
+            if (
+                not stat.S_ISDIR(parent.st_mode)
+                or parent.st_uid != os.geteuid()
+                or parent.st_mode & 0o022
+            ):
+                raise PermissionError(
+                    "Selfdev-katalogen har osäkra behörigheter."
+                )
+            descriptor = os.open(
+                lock_name, flags, 0o600, dir_fd=directory_fd
+            )
         acquired = False
         try:
             metadata = os.fstat(descriptor)
