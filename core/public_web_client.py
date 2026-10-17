@@ -190,7 +190,7 @@ class PublicWebClient:
             raise ValueError("URL saknar värdnamn.")
 
         try:
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
         except ValueError as error:
             raise ValueError("URL innehåller ogiltig port.") from error
 
