@@ -490,3 +490,161 @@ def test_snapshot_preserves_safe_executable_bits(tmp_path):
     staged = workspace.workspace_root / "scripts" / "run.sh"
     assert staged.read_bytes() == script.read_bytes()
     assert stat.S_IMODE(staged.stat().st_mode) == 0o755
+
+
+def test_manifest_matches_staged_baseline_and_ignores_symlink_to_private_file(
+    tmp_path
+):
+    from core.selfdev_workspace import build_manifest
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "manifest-equals-baseline")
+    outside = tmp_path / "private.py"
+    outside.write_text("PRIVATE = True\n", encoding="utf-8")
+    (session.workspace_root / "core" / "link.py").symlink_to(outside)
+
+    scanned = build_manifest(session.workspace_root)
+    assert scanned == session.metadata()["baseline"]
+    assert "core/link.py" not in scanned
+    assert outside.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_manifest_rejects_symlink_substitution_at_final_file_open(
+    tmp_path, monkeypatch
+):
+    import os
+
+    from core.selfdev_workspace import build_manifest
+
+    project = make_project(tmp_path)
+    staged = SelfDevWorkspace.create(project, "manifest-swap")
+    target = staged.workspace_root / "core" / "example.py"
+    private = tmp_path / "private.py"
+    private.write_text("CONFIDENTIAL = True\n", encoding="utf-8")
+    original_open = os.open
+    happened = []
+
+    def replace_before_open(name, flags, *args, **kwargs):
+        if name == "example.py" and kwargs.get("dir_fd") is not None:
+            target.unlink()
+            target.symlink_to(private)
+            happened.append(True)
+        return original_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.open", replace_before_open)
+    with pytest.raises(OSError):
+        build_manifest(staged.workspace_root)
+    assert happened == [True]
+    assert private.read_text(encoding="utf-8") == "CONFIDENTIAL = True\n"
+
+
+def test_manifest_rejects_symlink_substitution_at_directory_open(
+    tmp_path, monkeypatch
+):
+    import os
+
+    from core.selfdev_workspace import build_manifest
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "manifest-parent-swap")
+    target = session.workspace_root / "core"
+    private = tmp_path / "private-dir"
+    private.mkdir()
+    (private / "private.py").write_text("SECRET = 1\n", encoding="utf-8")
+    real_open = os.open
+
+    def substitute_directory(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            target.rename(session.workspace_root / "core-saved")
+            target.symlink_to(private, target_is_directory=True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.open", substitute_directory)
+    with pytest.raises(OSError):
+        build_manifest(session.workspace_root)
+    assert (private / "private.py").read_text(encoding="utf-8") == "SECRET = 1\n"
+
+
+def test_source_drift_does_not_follow_replaced_final_source_symlink(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "drift-final-symlink")
+    target = project / "core" / "example.py"
+    private = tmp_path / "private.py"
+    private.write_text("PRIVATE = True\n", encoding="utf-8")
+    target.unlink()
+    target.symlink_to(private)
+
+    assert session.source_drift() == ["core/example.py"]
+    assert private.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_source_drift_rejects_parent_swap_to_symlink(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "drift-parent-swap")
+    target = project / "core"
+    private = tmp_path / "private-directory"
+    private.mkdir()
+    (private / "example.py").write_text("SECRET = True\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def swap_at_directory_open(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            target.rename(project / "core-original")
+            target.symlink_to(private, target_is_directory=True)
+            swapped.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.open", swap_at_directory_open)
+    assert session.source_drift() == ["core/example.py"]
+    assert swapped == [True]
+    assert (private / "example.py").read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_source_drift_rejects_tampered_metadata_escape_before_io(
+    tmp_path, monkeypatch
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "invalid-metadata-path")
+    record = session.metadata()
+    record["baseline"]["../outside.py"] = "a" * 64
+    session.metadata_path.write_text(json.dumps(record), encoding="utf-8")
+
+    def no_hash(*args, **kwargs):
+        raise AssertionError("Untrusted relative path reached hashing")
+
+    monkeypatch.setattr(
+        "core.selfdev_workspace._hash_allowed_relative", no_hash
+    )
+    with pytest.raises(PermissionError, match="sessionsmetadata"):
+        session.source_drift()
+
+
+def test_manifest_rejects_in_place_file_change_while_hashing(
+    tmp_path, monkeypatch
+):
+    import os
+
+    from core.selfdev_workspace import build_manifest
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "manifest-mutation")
+    target = session.workspace_root / "core" / "example.py"
+    real_read = os.read
+    changed = []
+
+    def mutate_after_first_read(fd, length):
+        chunk = real_read(fd, length)
+        if chunk == b"VALUE = 1\n" and not changed:
+            target.write_text("VALUE = 1234567\n", encoding="utf-8")
+            changed.append(True)
+        return chunk
+
+    monkeypatch.setattr("core.selfdev_workspace.os.read", mutate_after_first_read)
+    with pytest.raises(RuntimeError, match="ändrades under hashkontrollen"):
+        build_manifest(session.workspace_root)
+    assert changed == [True]
