@@ -66,7 +66,7 @@ def _safe_parts(value):
     """Lexical user path components; never use resolved pathnames for I/O."""
     relative = _normalize_user_path(value)
     parts = relative.split("/")
-    if any(part in {"", ".", ".."} or "\\x00" in part for part in parts):
+    if any(part in {"", ".", ".."} or chr(0) in part for part in parts):
         raise ValueError("Sökvägen försöker lämna det tillåtna workspace.")
     return tuple(parts)
 
