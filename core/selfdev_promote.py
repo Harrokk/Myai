@@ -2318,7 +2318,13 @@ class SelfDevPromotionManager:
             if not isinstance(relative, str) or not is_sha(expected_after):
                 raise RuntimeError("Ogiltiga legacy-journalhashar.")
             target = self._safe_project_target(relative)
-            if not target.is_file() or _sha256(target) != expected_after:
+            try:
+                current_hash = _hash_existing_regular_path(target)
+            except (OSError, PermissionError, RuntimeError) as error:
+                raise RuntimeError(
+                    "Aktiv kod skiljer sig från legacy-journalen."
+                ) from error
+            if current_hash != expected_after:
                 raise RuntimeError(
                     "Aktiv kod skiljer sig från legacy-journalen."
                 )
