@@ -11,13 +11,14 @@
 
 ## Verifierade fynd och pågående åtgärd
 - **Kritisk SSRF-race:** `core/public_web_client.py` kontrollerade publik DNS men lät `requests.Session.get()` göra ny DNS/anslutning innan peer-IP kontrollerades. Den första GET kunde nå privat IP. Korrigeras med `core/public_web_transport.py`: numeriskt fastlåst TCP, verifierat peer före första HTTP-byte, CA/SNI för ursprungligt värdnamn, inga proxies, omprövar varje redirect; syntetiska nätverks- och DNS-race-tester.
+- **Privat undantagsläcka vid internetverktyg:** `modules/internet/search.py` och `modules/internet/research.py` skrev rå `Exception`-text till användaren vid misslyckade externa anrop. Wrappern återger nu endast generisk, sanerad felstatus; separata syntetiska tester avvisar råa tokens/sökvägar.
 - Andra HTTP-klienter `core/ollama_client.py` och `core/geniex_client.py` anropar konfigurerade *lokala* backend-endpoints för modelltrafik och omfattas **inte automatiskt** av den publika webbklientens offentliga DNS-policy; behöver separat aktiv inställningsattestation innan release.
 - `modules/internet/search.py` använder lokal SearXNG-adress i standardkonfiguration. Skilj lokal betrodd söktjänst från godtyckligt användarsupplied offentligt webbhämtar-URL.
 - Fullständigt beroende-/license-/transitivt SBOM, extern `uses:`-kod och fysisk Voice/NPU/rollback är **fortfarande öppna**.
 
 ## Täckning i detta pass
-- DEEP: **8** filer
-- SCREENED: **114** filer
+- DEEP: **10** filer
+- SCREENED: **112** filer
 - INDEXED (inte handlästa): **726** filer
 
 ## Komplett filregister
@@ -436,8 +437,8 @@ Kolumnerna är granskningsnivå, Git-blobbens SHA-1-prefix och exakt sökväg. F
 | DEEP | `097a2d003d08` | `modules/internet/fetch.py` |
 | SCREENED | `b9cadc11f3b0` | `modules/internet/fx.py` |
 | SCREENED | `81b9ed478271` | `modules/internet/price_compare.py` |
-| SCREENED | `a5306e45e646` | `modules/internet/research.py` |
-| SCREENED | `5a6137f2856b` | `modules/internet/search.py` |
+| DEEP | `a5306e45e646` | `modules/internet/research.py` |
+| DEEP | `5a6137f2856b` | `modules/internet/search.py` |
 | SCREENED | `1d16ac754920` | `modules/internet/shopping.py` |
 | SCREENED | `e763826cbb3d` | `modules/internet/verify.py` |
 | SCREENED | `0cd862f25aa3` | `modules/internet/weather.py` |
