@@ -1574,7 +1574,7 @@ class SelfDevPromotionManager:
                 source = self.workspace.workspace_root / relative
                 target = self._safe_project_target(relative)
                 planned_hashes[relative] = changes["manifest"][relative]
-                if _sha256(source) != planned_hashes[relative]:
+                if _hash_existing_regular_path(source) != planned_hashes[relative]:
                     raise RuntimeError(
                         "Källfil i staging har ändrats efter verifiering."
                     )
@@ -1628,7 +1628,7 @@ class SelfDevPromotionManager:
             for relative in paths:
                 source = self.workspace.workspace_root / relative
                 target = self._safe_project_target(relative)
-                if _sha256(source) != planned_hashes[relative]:
+                if _hash_existing_regular_path(source) != planned_hashes[relative]:
                     raise RuntimeError(
                         "Källfil i staging har ändrats efter verifiering."
                     )
