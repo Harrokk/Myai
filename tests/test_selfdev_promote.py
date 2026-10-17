@@ -3923,3 +3923,87 @@ def test_inspect_recovery_blocks_hardlinked_active_target(tmp_path, monkeypatch)
 
     assert result["status"] == "blocked"
     assert alias.read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_actual_recovery_rejects_swapped_core_parent_after_safe_target(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    core = project / "core"
+    outside = tmp_path / "outside-core"
+    outside.mkdir()
+    protected = outside / "example.py"
+    protected.write_text("VALUE = 2\n", encoding="utf-8")
+    original_check = active._safe_project_target
+    changed = []
+
+    def redirect_after_validation(relative):
+        target = original_check(relative)
+        if str(relative) == "core/example.py" and not changed:
+            core.rename(project / "core-old")
+            core.symlink_to(outside, target_is_directory=True)
+            changed.append(True)
+        return target
+
+    monkeypatch.setattr(active, "_safe_project_target", redirect_after_validation)
+    with pytest.raises(RuntimeError, match="Aktiv fil saknas"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert changed == [True]
+    assert protected.read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert (project / "core-old" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_actual_recovery_blocks_added_file_swapped_to_symlink(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    candidate = project / "tests" / "test_new.py"
+    candidate.write_text("def test_new():\n    assert True\n", encoding="utf-8")
+    outside = tmp_path / "outside-added"
+    outside.write_text("PRIVATE\n", encoding="utf-8")
+    original_check = active._safe_project_target
+    changed = []
+
+    def redirect_after_validation(relative):
+        target = original_check(relative)
+        if str(relative) == "tests/test_new.py" and not changed:
+            candidate.rename(candidate.with_name("test_new_original.py"))
+            candidate.symlink_to(outside)
+            changed.append(True)
+        return target
+
+    monkeypatch.setattr(active, "_safe_project_target", redirect_after_validation)
+    with pytest.raises(RuntimeError, match="nyare arbete"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert changed == [True]
+    assert outside.read_text(encoding="utf-8") == "PRIVATE\n"
+    assert (project / "core" / "example.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 2\n"
+
+
+def test_actual_recovery_rejects_hardlinked_active_code_preflight(
+    tmp_path, monkeypatch,
+):
+    import os
+
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    current = project / "core" / "example.py"
+    alias = tmp_path / "same-inode-code"
+    os.link(current, alias)
+
+    with pytest.raises(RuntimeError, match="Aktiv fil saknas"):
+        active.recover_interrupted("promo1", "RECOVER session1 promo1")
+
+    assert current.read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert alias.read_text(encoding="utf-8") == "VALUE = 2\n"
