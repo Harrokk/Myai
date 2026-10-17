@@ -364,7 +364,7 @@ def test_workspace_read_invalid_utf8_late_in_file_fails_closed(tmp_path):
     cfg = settings(tmp_path, max_read_chars=5)
     root = tmp_path / "workspace"
     root.mkdir()
-    (root / "broken.txt").write_bytes(b"A" * 40_000 + b"\\xff")
+    (root / "broken.txt").write_bytes(b"A" * 40_000 + b"\xff")
 
     try:
         workspace.read_workspace_text("broken.txt", cfg)
