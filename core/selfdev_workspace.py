@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import stat
 import time
 
 
@@ -438,35 +439,82 @@ class SelfDevWorkspace:
         relative_path,
         content,
     ):
-        target = self._candidate_path(
-            relative_path
-        )
-        target.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        # Keep lexical allowlisting and existing selfdev preflight checks,
+        # but do not rely on these path checks for subsequent file I/O.
+        target = self._candidate_path(relative_path)
+        relative = Path(relative_path)
+        if not all(hasattr(os, key) for key in ("O_DIRECTORY", "O_NOFOLLOW")):
+            raise RuntimeError("Säker selfdev-skrivning kräver Linux dir_fd.")
 
-        # Never follow a swapped final-file symlink. Stage a fresh,
-        # exclusive file then atomically replace the destination.
-        descriptor, temporary = tempfile.mkstemp(
-            prefix="." + target.name + ".",
-            suffix=".tmp",
-            dir=str(target.parent),
-        )
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        directory_fd = os.open(self.workspace_root, flags)
+
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(str(content))
-                handle.flush()
-                os.fsync(handle.fileno())
-            # A link may have appeared after the initial path check.
-            target = self._candidate_path(relative_path)
-            os.replace(temporary, target)
-        except BaseException:
+            for component in relative.parts[:-1]:
+                # Directories are created and reopened relative to a pinned
+                # inode. A concurrent symlink swap must fail at os.open().
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=directory_fd)
+                except FileExistsError:
+                    pass
+                next_fd = os.open(component, flags, dir_fd=directory_fd)
+                os.close(directory_fd)
+                directory_fd = next_fd
+
+            filename = relative.name
+
+            def check_target():
+                try:
+                    details = os.stat(
+                        filename,
+                        dir_fd=directory_fd,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError:
+                    return
+                if not stat.S_ISREG(details.st_mode):
+                    raise PermissionError(
+                        "Symlänkar och specialfiler är inte tillåtna "
+                        "i selfdev-workspacen."
+                    )
+
+            check_target()
+            temporary = "." + filename + "." + secrets.token_hex(12) + ".tmp"
+            file_flags = (
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            temporary_fd = os.open(
+                temporary, file_flags, 0o600, dir_fd=directory_fd
+            )
             try:
-                os.unlink(temporary)
-            except FileNotFoundError:
-                pass
-            raise
+                with os.fdopen(temporary_fd, "w", encoding="utf-8") as handle:
+                    temporary_fd = -1
+                    handle.write(str(content))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+
+                # Recheck an inserted symlink; a last-instant race after
+                # this check is safe because rename replaces the entry
+                # without following its target.
+                check_target()
+                os.replace(
+                    temporary,
+                    filename,
+                    src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd,
+                )
+            except BaseException:
+                if temporary_fd >= 0:
+                    os.close(temporary_fd)
+                try:
+                    os.unlink(temporary, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+                raise
+        finally:
+            os.close(directory_fd)
 
         try:
             self.verification_path.unlink()
