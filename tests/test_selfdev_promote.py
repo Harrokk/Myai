@@ -2620,7 +2620,9 @@ def test_verified_backup_rejects_parent_symlink_swap_before_directory_open(
         return real_open(name, flags, *args, **kwargs)
 
     monkeypatch.setattr(module.os, "open", switch_before_open)
-    with pytest.raises(RuntimeError, match="Osäker backupfil"):
+    # This is a forbidden path, not a corrupt backup data hash: preserve
+    # PermissionError for legacy migration and read-only inspections.
+    with pytest.raises(PermissionError, match="symlink"):
         active._verified_backup(rollback_root, "core/example.py", expected)
     assert switches == [True]
     assert (outside / "example.py").read_text(encoding="utf-8") == (
@@ -3166,3 +3168,81 @@ def test_project_target_rejects_nonregular_existing_final_file(tmp_path):
     os.mkfifo(target)
     with pytest.raises(PermissionError, match="specialfil"):
         active._safe_project_target("core/example.py")
+
+
+def test_backup_path_allows_missing_nested_directory_during_creation(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    root = tmp_path / "backup-root"
+    root.mkdir()
+    assert active._safe_backup_path(root, "core/example.py") == (
+        root / "files" / "core" / "example.py"
+    )
+    assert not (root / "files").exists()
+
+
+def test_backup_path_rejects_preexisting_parent_symlink(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    root = tmp_path / "backup-root"
+    root.mkdir()
+    outside = tmp_path / "outside-backups"
+    outside.mkdir()
+    (root / "files").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_backup_path(root, "core/example.py")
+
+
+def test_backup_path_rejects_swapped_nested_directory_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    root = tmp_path / "backup-root"
+    nested = root / "files" / "core"
+    nested.mkdir(parents=True)
+    outside = tmp_path / "outside-backups"
+    outside.mkdir()
+    (outside / "example.py").write_text("PRIVATE = 1\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def swap_before_open(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            nested.rename(nested.with_name("core-old"))
+            nested.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_open)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_backup_path(root, "core/example.py")
+    assert swapped == [True]
+    assert (outside / "example.py").read_text(encoding="utf-8") == "PRIVATE = 1\n"
+
+
+def test_backup_path_rejects_final_symlink_without_following(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    root = tmp_path / "backup-root"
+    parent = root / "files" / "core"
+    parent.mkdir(parents=True)
+    outside = tmp_path / "outside.py"
+    outside.write_text("PRIVATE = True\n", encoding="utf-8")
+    (parent / "example.py").symlink_to(outside)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_backup_path(root, "core/example.py")
+    assert outside.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_backup_path_rejects_symlinked_rollback_root(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "root-link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(PermissionError, match="symlink"):
+        active._safe_backup_path(tmp_path / "root-link", "core/example.py")
