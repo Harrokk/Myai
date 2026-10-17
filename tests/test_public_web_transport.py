@@ -254,3 +254,17 @@ def test_dns_rebind_on_second_redirect_hop_denied_before_new_connection():
         f.fetch("https://example.com/first")
     assert dns_queries == ["example.com", "example.com"]
     assert sockets == [("93.184.216.34", 443)]
+
+
+
+@pytest.mark.parametrize("url", [
+    "http://example.com:443/unsafe",
+    "https://example.com:8080/private",
+    "https://example.com:0/invalid",
+    "http://example.com:2375/docker",
+])
+def test_nonstandard_or_cross_protocol_ports_never_connect(url):
+    f, connections, _ = make_client(resolver=public_resolver)
+    with pytest.raises(ValueError, match="standardport"):
+        f.fetch(url)
+    assert connections == []
