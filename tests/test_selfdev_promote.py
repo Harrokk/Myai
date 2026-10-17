@@ -979,7 +979,7 @@ def test_backup_copy_failure_happens_before_any_active_code_change(
     project, workspace = make_workspace(tmp_path)
     approve_verification(workspace)
     active = manager(workspace, settings())
-    original = module.shutil.copy2
+    original = module._copy_verified_backup
 
     def refuse_backup(source, destination, *args, **kwargs):
         if "rollbacks" in str(destination):
@@ -987,7 +987,7 @@ def test_backup_copy_failure_happens_before_any_active_code_change(
         return original(source, destination, *args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(module.shutil, "copy2", refuse_backup)
+        patch.setattr(module, "_copy_verified_backup", refuse_backup)
         with pytest.raises(OSError, match="backup storage failure"):
             active.promote("PROMOTE session1")
 
@@ -2454,3 +2454,140 @@ def test_journal_reader_rejects_preexisting_parent_symlink(tmp_path):
         module.SelfDevPromotionManager._read_recovery_json(
             tmp_path / "journal" / "promotion.json"
         )
+
+
+def test_backup_copy_uses_same_pinned_source_for_bytes_and_digest(
+    tmp_path, monkeypatch,
+):
+    import hashlib
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "original.py"
+    private = tmp_path / "private.py"
+    destination = tmp_path / "backup" / "source.py"
+    source.write_text("SOURCE = True\n", encoding="utf-8")
+    private.write_text("SECRET = True\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def rename_after_source_open(path, flags, *args, **kwargs):
+        fd = real_open(path, flags, *args, **kwargs)
+        if path == "original.py" and kwargs.get("dir_fd") is not None:
+            source.rename(tmp_path / "original-saved.py")
+            source.symlink_to(private)
+            swapped.append(True)
+        return fd
+
+    monkeypatch.setattr(module.os, "open", rename_after_source_open)
+    digest = module._copy_verified_backup(source, destination)
+    assert swapped == [True]
+    assert destination.read_bytes() == b"SOURCE = True\n"
+    assert digest == hashlib.sha256(destination.read_bytes()).hexdigest()
+    assert private.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_backup_copy_fails_closed_when_parent_is_swapped_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    inside = tmp_path / "source"
+    inside.mkdir()
+    original = inside / "file.py"
+    original.write_text("ACTIVE = True\n", encoding="utf-8")
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "file.py").write_text("SECRET = True\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        if path == "source" and kwargs.get("dir_fd") is not None:
+            inside.rename(tmp_path / "original-dir")
+            inside.symlink_to(private, target_is_directory=True)
+            swapped.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_before_open)
+    with pytest.raises(OSError):
+        module._copy_verified_backup(original, tmp_path / "backup" / "file.py")
+    assert swapped == [True]
+    assert not (tmp_path / "backup").exists()
+
+
+def test_backup_copy_stages_in_pinned_backup_directory_after_alias_swap(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "active.py"
+    source.write_text("ACTIVE = True\n", encoding="utf-8")
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    destination = backup_dir / "active.py"
+    private = tmp_path / "private"
+    private.mkdir()
+    protected = private / "active.py"
+    protected.write_text("DO_NOT_COPY = True\n", encoding="utf-8")
+    real_open = os.open
+    switched = []
+
+    def switch_after_destination_open(path, flags, *args, **kwargs):
+        fd = real_open(path, flags, *args, **kwargs)
+        if path == "active.py" and kwargs.get("dir_fd") is not None and (
+            flags & os.O_CREAT
+        ):
+            backup_dir.rename(tmp_path / "backup-old")
+            backup_dir.symlink_to(private, target_is_directory=True)
+            switched.append(True)
+        return fd
+
+    monkeypatch.setattr(module.os, "open", switch_after_destination_open)
+    digest = module._copy_verified_backup(source, destination)
+    assert switched == [True]
+    assert (tmp_path / "backup-old" / "active.py").read_text(
+        encoding="utf-8"
+    ) == "ACTIVE = True\n"
+    assert protected.read_text(encoding="utf-8") == "DO_NOT_COPY = True\n"
+    assert len(digest) == 64
+
+
+def test_backup_copy_rejects_source_changed_during_read_and_cleans_file(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    source = tmp_path / "active.py"
+    destination = tmp_path / "backup" / "active.py"
+    source.write_bytes(b"VALUE = 1\n")
+    real_read = os.read
+    mutated = []
+
+    def rewrite_during_read(fd, length):
+        chunk = real_read(fd, length)
+        if chunk == b"VALUE = 1\n" and not mutated:
+            source.write_bytes(b"VALUE = 1234567\n")
+            mutated.append(True)
+        return chunk
+
+    monkeypatch.setattr(module.os, "read", rewrite_during_read)
+    with pytest.raises(RuntimeError, match="ändring under säkerhetskopiering"):
+        module._copy_verified_backup(source, destination)
+    assert mutated == [True]
+    assert not destination.exists()
+
+
+def test_backup_copy_rejects_source_symlink_before_read(tmp_path):
+    from core import selfdev_promote as module
+
+    private = tmp_path / "private.py"
+    private.write_text("CONFIDENTIAL = True\n", encoding="utf-8")
+    source = tmp_path / "active.py"
+    source.symlink_to(private)
+    with pytest.raises(OSError):
+        module._copy_verified_backup(source, tmp_path / "backup" / "active.py")
+    assert not (tmp_path / "backup").exists()
