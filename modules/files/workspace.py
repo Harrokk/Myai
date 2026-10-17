@@ -177,21 +177,34 @@ def read_workspace_text(user_path, settings=None):
     if max_chars <= 0:
         raise ValueError("files.max_read_chars måste vara större än 0.")
 
+    # Do not materialize an arbitrary-size workspace file in RAM merely
+    # to compute total_chars. Preserve accurate Unicode character counts
+    # while retaining at most max_chars characters of the visible excerpt.
+    visible = []
+    kept_chars = 0
+    total_chars = 0
     try:
-        content = path.read_text(encoding="utf-8")
+        with path.open("r", encoding="utf-8") as handle:
+            while True:
+                block = handle.read(16_384)
+                if not block:
+                    break
+                total_chars += len(block)
+                if kept_chars < max_chars:
+                    excerpt = block[: max_chars - kept_chars]
+                    visible.append(excerpt)
+                    kept_chars += len(excerpt)
     except UnicodeDecodeError as error:
         raise ValueError(
             "Filen är inte en UTF-8-textfil och kan inte läsas "
             "med detta textverktyg."
         ) from error
 
-    truncated = len(content) > max_chars
-
     return {
         "path": path.relative_to(workspace_root(settings)).as_posix(),
-        "content": content[:max_chars],
-        "truncated": truncated,
-        "total_chars": len(content),
+        "content": "".join(visible),
+        "truncated": total_chars > max_chars,
+        "total_chars": total_chars,
     }
 
 
