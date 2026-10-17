@@ -243,8 +243,8 @@ def internet_search(user_input):
     try:
         query = extract_search_query(user_input)
         return format_search_results(search_web(query))
-    except Exception as error:
-        return f"Internetsökningen misslyckades: {error}"
+    except Exception:
+        return "Internetsökningen misslyckades: feltext dold."
 
 
 TOOLS = {
