@@ -312,3 +312,108 @@ def test_failed_atomic_write_cleans_only_new_temporary_file(tmp_path, monkeypatc
 
     assert destination.read_text(encoding="utf-8") == "old"
     assert sorted(path.name for path in root.iterdir()) == ["note.txt"]
+
+
+def test_workspace_read_large_unicode_file_uses_bounded_blocks(tmp_path, monkeypatch):
+    """Memory usage may grow with max_read_chars, not the input file size."""
+    cfg = settings(tmp_path, max_read_chars=5)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    source = root / "large.txt"
+    source.write_text("åäö" * 100_000, encoding="utf-8")
+
+    real_open = Path.open
+    block_sizes = []
+
+    class BoundedReader:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc_value, tb):
+            return self.stream.__exit__(exc_type, exc_value, tb)
+
+        def read(self, size=-1):
+            assert 0 < size <= 16_384, "Workspace tried an unbounded read"
+            block_sizes.append(size)
+            return self.stream.read(size)
+
+    def guarded_open(path, *args, **kwargs):
+        stream = real_open(path, *args, **kwargs)
+        if path == source:
+            return BoundedReader(stream)
+        return stream
+
+    monkeypatch.setattr(Path, "open", guarded_open)
+    result = workspace.read_workspace_text("large.txt", cfg)
+    assert result == {
+        "path": "large.txt",
+        "content": "åäöåä",
+        "truncated": True,
+        "total_chars": 300_000,
+    }
+    assert len(block_sizes) > 2
+    assert max(block_sizes) <= 16_384
+
+
+def test_workspace_read_invalid_utf8_late_in_file_fails_closed(tmp_path):
+    """A truncated excerpt must not hide invalid UTF-8 later in the file."""
+    cfg = settings(tmp_path, max_read_chars=5)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "broken.txt").write_bytes(b"A" * 40_000 + b"\xff")
+
+    try:
+        workspace.read_workspace_text("broken.txt", cfg)
+    except ValueError as error:
+        assert "UTF-8" in str(error)
+    else:
+        raise AssertionError("Invalid UTF-8 must be rejected")
+
+
+def test_workspace_read_exact_limit_reports_not_truncated(tmp_path):
+    cfg = settings(tmp_path, max_read_chars=3)
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "exact.txt").write_text("åäö", encoding="utf-8")
+    result = workspace.read_workspace_text("exact.txt", cfg)
+    assert result["content"] == "åäö"
+    assert result["total_chars"] == 3
+    assert result["truncated"] is False
+
+
+def test_workspace_listing_stops_before_scanning_later_directories(
+    tmp_path, monkeypatch
+):
+    cfg = settings(tmp_path, write_enabled=True)
+    cfg["files"]["max_list_entries"] = 1
+    workspace.write_workspace_text("a/first.txt", "one", cfg)
+    workspace.write_workspace_text("z/last.txt", "two", cfg)
+
+    real_scandir = workspace.os.scandir
+    visited = []
+
+    def traced_scandir(path):
+        visited.append(Path(path).name)
+        if Path(path).name == "z":
+            raise AssertionError("Workspace scanned directories after the cap")
+        return real_scandir(path)
+
+    monkeypatch.setattr(workspace.os, "scandir", traced_scandir)
+    listed = workspace.list_workspace_files(cfg)
+    assert [item["path"] for item in listed] == ["a/first.txt"]
+    assert "a" in visited
+    assert "z" not in visited
+
+
+def test_workspace_listing_preserves_full_relative_path_sort(tmp_path):
+    cfg = settings(tmp_path, write_enabled=True)
+    for name in ("notes/one.txt", "notes0.txt", "notes.txt", "a.txt"):
+        workspace.write_workspace_text(name, "x", cfg)
+    result = workspace.list_workspace_files(cfg)
+    assert [x["path"] for x in result] == [
+        "a.txt", "notes.txt", "notes/one.txt", "notes0.txt"
+    ]

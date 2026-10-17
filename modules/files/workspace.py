@@ -134,26 +134,43 @@ def list_workspace_files(settings=None):
     if max_entries <= 0:
         raise ValueError("files.max_list_entries måste vara större än 0.")
 
+    def sorted_files(directory):
+        # Sort one directory at a time rather than building and sorting
+        # the entire workspace tree before applying max_list_entries.
+        # Include "/" when ordering directories to preserve full-path sort.
+        with os.scandir(directory) as scan:
+            children = sorted(
+                scan,
+                key=lambda entry: (
+                    entry.name.lower()
+                    + ("/" if entry.is_dir(follow_symlinks=False) else "")
+                ),
+            )
+        for child in children:
+            if child.is_symlink():
+                continue
+            path = Path(child.path)
+            try:
+                path.resolve(strict=True).relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if child.is_file(follow_symlinks=False):
+                yield path
+            elif child.is_dir(follow_symlinks=False):
+                yield from sorted_files(path)
+
     entries = []
-
-    for path in sorted(root.rglob("*"), key=lambda item: str(item).lower()):
-        # Do not expose metadata from files reached through symbolic links.
-        # Resolving such links can escape the configured workspace boundary.
-        if path.is_symlink() or not path.is_file():
-            continue
-
+    for path in sorted_files(root):
         try:
-            path.resolve(strict=True).relative_to(root)
-        except (OSError, RuntimeError, ValueError):
+            size = path.stat().st_size
+        except (OSError, RuntimeError):
             continue
-
         entries.append(
             {
                 "path": path.relative_to(root).as_posix(),
-                "size_bytes": path.stat().st_size,
+                "size_bytes": size,
             }
         )
-
         if len(entries) >= max_entries:
             break
 
@@ -177,21 +194,34 @@ def read_workspace_text(user_path, settings=None):
     if max_chars <= 0:
         raise ValueError("files.max_read_chars måste vara större än 0.")
 
+    # Do not materialize an arbitrary-size workspace file in RAM merely
+    # to compute total_chars. Preserve accurate Unicode character counts
+    # while retaining at most max_chars characters of the visible excerpt.
+    visible = []
+    kept_chars = 0
+    total_chars = 0
     try:
-        content = path.read_text(encoding="utf-8")
+        with path.open("r", encoding="utf-8") as handle:
+            while True:
+                block = handle.read(16_384)
+                if not block:
+                    break
+                total_chars += len(block)
+                if kept_chars < max_chars:
+                    excerpt = block[: max_chars - kept_chars]
+                    visible.append(excerpt)
+                    kept_chars += len(excerpt)
     except UnicodeDecodeError as error:
         raise ValueError(
             "Filen är inte en UTF-8-textfil och kan inte läsas "
             "med detta textverktyg."
         ) from error
 
-    truncated = len(content) > max_chars
-
     return {
         "path": path.relative_to(workspace_root(settings)).as_posix(),
-        "content": content[:max_chars],
-        "truncated": truncated,
-        "total_chars": len(content),
+        "content": "".join(visible),
+        "truncated": total_chars > max_chars,
+        "total_chars": total_chars,
     }
 
 
