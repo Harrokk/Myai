@@ -265,41 +265,144 @@ def _stage_source_files(project_root, workspace_root):
     return baseline
 
 
-def build_manifest(root):
-    base = Path(
-        root
+def _manifest_open_flags():
+    """Required POSIX no-follow flags for integrity reads."""
+    if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
+        raise RuntimeError("Säker selfdev-integritetskontroll kräver Linux dir_fd.")
+    close_on_exec = getattr(os, "O_CLOEXEC", 0)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | close_on_exec
+    file_flags = (
+        os.O_RDONLY | os.O_NOFOLLOW
+        | getattr(os, "O_NONBLOCK", 0) | close_on_exec
     )
+    return directory_flags, file_flags
+
+
+def _hash_pinned_regular_file(file_fd):
+    """Hash only the already opened regular inode, rejecting detectable edits."""
+    before = os.fstat(file_fd)
+    if not stat.S_ISREG(before.st_mode):
+        raise PermissionError("Selfdev-kontroll kräver en vanlig källfil.")
+
+    digest = hashlib.sha256()
+    counted = 0
+    while True:
+        block = os.read(file_fd, 65_536)
+        if not block:
+            break
+        counted += len(block)
+        digest.update(block)
+
+    after = os.fstat(file_fd)
+    if (
+        counted != before.st_size
+        or before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or before.st_ctime_ns != after.st_ctime_ns
+    ):
+        raise RuntimeError("Selfdev-källfilen ändrades under hashkontrollen.")
+    return digest.hexdigest()
+
+
+def _manifest_parts(relative):
+    """Reject forged session metadata paths before any open or traversal."""
+    if not isinstance(relative, str):
+        raise PermissionError("Ogiltig selfdev-sökväg i sessionsmetadata.")
+    parts = relative.split("/")
+    if (
+        any(part in {"", ".", ".."} or chr(0) in part for part in parts)
+        or not _allowed_relative_path(Path(relative))
+        or Path(*parts).as_posix() != relative
+    ):
+        raise PermissionError("Otillåten selfdev-sökväg i sessionsmetadata.")
+    return parts
+
+
+def _hash_allowed_relative(root, relative):
+    """Read one allowlisted session-baseline path via pinned directory FDs."""
+    parts = _manifest_parts(relative)
+    directory_flags, file_flags = _manifest_open_flags()
+    directory_fd = os.open(root, directory_flags)
+    try:
+        for component in parts[:-1]:
+            child_fd = os.open(component, directory_flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child_fd
+        file_fd = os.open(parts[-1], file_flags, dir_fd=directory_fd)
+        try:
+            return _hash_pinned_regular_file(file_fd)
+        finally:
+            os.close(file_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def build_manifest(root):
+    """Hash only approved regular files through anchored non-follow opens.
+
+    A missing root preserves the old empty-manifest behavior. An existing
+    untrusted symlink/root or swapped descendant must fail closed.
+    """
+    root = Path(root)
+    if not root.exists() and not root.is_symlink():
+        return {}
+
+    directory_flags, file_flags = _manifest_open_flags()
     result = {}
 
-    if not base.exists():
-        return result
+    def visit(directory_fd, parts=()):
+        with os.scandir(directory_fd) as scan:
+            names = sorted(entry.name for entry in scan)
 
-    for path in sorted(
-        base.rglob(
-            "*"
-        )
-    ):
-        if (
-            not path.is_file()
-            or path.is_symlink()
-        ):
-            continue
+        for name in names:
+            if name in {"", ".", ".."}:
+                continue
 
-        relative = path.relative_to(
-            base
-        )
-
-        if _allowed_relative_path(
-            relative
-        ):
-            result[
-                relative.as_posix()
-            ] = _sha256(
-                path
+            relative_parts = (*parts, name)
+            relative = Path(*relative_parts)
+            metadata = os.stat(
+                name, dir_fd=directory_fd, follow_symlinks=False
             )
+            if stat.S_ISLNK(metadata.st_mode):
+                continue
 
+            if stat.S_ISDIR(metadata.st_mode):
+                if name in {
+                    ".git", "runtime", "__pycache__", ".venv", "venv"
+                }:
+                    continue
+                if not parts:
+                    if name not in _ALLOWED_DIRS:
+                        continue
+                elif not _allowed_relative_path(Path(*relative_parts, "probe.py")):
+                    continue
+
+                child_fd = os.open(name, directory_flags, dir_fd=directory_fd)
+                try:
+                    visit(child_fd, relative_parts)
+                finally:
+                    os.close(child_fd)
+                continue
+
+            if not stat.S_ISREG(metadata.st_mode):
+                continue
+            if not _allowed_relative_path(relative):
+                continue
+
+            file_fd = os.open(name, file_flags, dir_fd=directory_fd)
+            try:
+                result[relative.as_posix()] = _hash_pinned_regular_file(file_fd)
+            finally:
+                os.close(file_fd)
+
+    root_fd = os.open(root, directory_flags)
+    try:
+        visit(root_fd)
+    finally:
+        os.close(root_fd)
     return result
-
 
 def manifest_digest(
     manifest,
