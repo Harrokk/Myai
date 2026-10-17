@@ -611,7 +611,7 @@ def test_source_drift_rejects_tampered_metadata_escape_before_io(
     project = make_project(tmp_path)
     session = SelfDevWorkspace.create(project, "invalid-metadata-path")
     record = session.metadata()
-    record["baseline"]["../outside.py"] = "a" * 64
+    record["baseline"] = {"../outside.py": "a" * 64, **record["baseline"]}
     session.metadata_path.write_text(json.dumps(record), encoding="utf-8")
 
     def no_hash(*args, **kwargs):
