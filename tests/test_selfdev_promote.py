@@ -2770,3 +2770,127 @@ def test_backup_snapshot_refuses_preexisting_temporary_symlink(
 
     assert alias.is_symlink()
     assert target.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_journal_key_refuses_parent_link_swapped_before_directory_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    private = project / "runtime" / "selfdev"
+    outside = tmp_path / "outside-key-dir"
+    outside.mkdir()
+    protected = outside / ".journal-integrity-key"
+    protected.write_bytes(b"X" * 32)
+    real_open = os.open
+    swapped = []
+
+    def swap_parent_before_open(path, flags, *args, **kwargs):
+        if path == "selfdev" and kwargs.get("dir_fd") is not None:
+            private.rename(private.with_name("selfdev-old"))
+            private.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_parent_before_open)
+    with pytest.raises(OSError):
+        active._journal_integrity_key(create=True)
+    assert swapped == [True]
+    assert protected.read_bytes() == b"X" * 32
+
+
+def test_journal_key_publication_stays_inside_pinned_directory_if_alias_swaps(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    original_dir = project / "runtime" / "selfdev"
+    outside = tmp_path / "outside-key-dir"
+    outside.mkdir()
+    protected = outside / ".journal-integrity-key"
+    protected.write_bytes(b"Y" * 32)
+    real_link = os.link
+    switched = []
+
+    def redirect_alias_before_publish(source, target, **kwargs):
+        if target == ".journal-integrity-key":
+            original_dir.rename(original_dir.with_name("selfdev-old"))
+            original_dir.symlink_to(outside, target_is_directory=True)
+            switched.append(True)
+        return real_link(source, target, **kwargs)
+
+    monkeypatch.setattr(module.os, "link", redirect_alias_before_publish)
+    secret = active._journal_integrity_key(create=True)
+
+    assert switched == [True]
+    assert len(secret) == 32
+    assert (project / "runtime" / "selfdev-old" / ".journal-integrity-key").read_bytes() == secret
+    assert protected.read_bytes() == b"Y" * 32
+    assert not list((project / "runtime" / "selfdev-old").glob(".journal-key.*"))
+
+
+def test_journal_key_reader_rejects_final_symlink_swapped_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    valid = active._journal_integrity_key(create=True)
+    key = project / "runtime" / "selfdev" / ".journal-integrity-key"
+    external = tmp_path / "external-key"
+    external.write_bytes(b"Z" * 32)
+    real_open = os.open
+    swapped = []
+
+    def swap_key_before_open(path, flags, *args, **kwargs):
+        if path == ".journal-integrity-key" and kwargs.get("dir_fd") is not None:
+            key.rename(key.with_name(".journal-integrity-key-old"))
+            key.symlink_to(external)
+            swapped.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_key_before_open)
+    with pytest.raises(RuntimeError, match="integritetsnyckeln"):
+        active._journal_integrity_key()
+    assert swapped == [True]
+    assert external.read_bytes() == b"Z" * 32
+    assert key.with_name(".journal-integrity-key-old").read_bytes() == valid
+
+
+def test_journal_key_fails_closed_when_existing_key_is_hardlinked(
+    tmp_path,
+):
+    import os
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    key = project / "runtime" / "selfdev" / ".journal-integrity-key"
+    original = active._journal_integrity_key(create=True)
+    alias = tmp_path / "duplicate-key"
+    os.link(key, alias)
+
+    with pytest.raises(RuntimeError, match="integritetsnyckel"):
+        active._journal_integrity_key(create=True)
+    assert key.read_bytes() == original
+    assert alias.read_bytes() == original
+
+
+def test_journal_key_reader_rejects_modified_key_permissions(tmp_path):
+    import os
+
+    project, workspace = make_workspace(tmp_path)
+    active = manager(workspace, settings())
+    key = project / "runtime" / "selfdev" / ".journal-integrity-key"
+    original = active._journal_integrity_key(create=True)
+    os.chmod(key, 0o644)
+    with pytest.raises(RuntimeError, match="integritetsnyckel"):
+        active._journal_integrity_key(create=False)
+    assert key.read_bytes() == original
