@@ -2037,9 +2037,12 @@ class SelfDevPromotionManager:
                         relative,
                         original,
                     )
-                    if not target.is_file():
-                        raise RuntimeError("Ursprungsfil saknas eller har ändrats.")
-                    current = _sha256(target)
+                    try:
+                        current = _hash_existing_regular_path(target)
+                    except (OSError, RuntimeError) as error:
+                        raise RuntimeError(
+                            "Ursprungsfil saknas eller har ändrats."
+                        ) from error
                     if current not in {original, expected}:
                         raise RuntimeError("Extern kodändring blockerar återställning.")
                     if current != original:
@@ -2047,9 +2050,19 @@ class SelfDevPromotionManager:
                 else:
                     if original is not None:
                         raise RuntimeError("Felaktigt original för ny fil.")
-                    if os.path.lexists(target):
-                        if not target.is_file() or _sha256(target) != expected:
-                            raise RuntimeError("Extern kodändring blockerar återställning.")
+                    try:
+                        current = _hash_existing_regular_path(target)
+                    except FileNotFoundError:
+                        current = None
+                    except (OSError, RuntimeError) as error:
+                        raise RuntimeError(
+                            "Extern kodändring blockerar återställning."
+                        ) from error
+                    if current is not None:
+                        if current != expected:
+                            raise RuntimeError(
+                                "Extern kodändring blockerar återställning."
+                            )
                         needed += 1
             result["file_count"] = len(backups)
             result["would_restore"] = needed
