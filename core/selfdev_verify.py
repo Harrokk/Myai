@@ -151,6 +151,11 @@ class SelfDevVerifier:
                 "--setenv",
                 "HOME",
                 "/tmp",
+                # bwrap --clearenv preserves PWD; replace its inherited
+                # pathname after --chdir with the sandbox-only location.
+                "--setenv",
+                "PWD",
+                "/workspace",
                 "--setenv",
                 "PATH",
                 "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
