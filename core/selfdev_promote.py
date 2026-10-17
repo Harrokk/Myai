@@ -1229,35 +1229,61 @@ class SelfDevPromotionManager:
 
         return record
 
-    def _safe_backup_path(
-        self,
-        rollback_root,
-        relative,
-    ):
-        if not _allowed_relative_path(relative):
+    def _safe_backup_path(self, rollback_root, relative):
+        """Check backup paths via no-follow dirfds, never Path.resolve().
+
+        A missing files/ or nested backup directory is permitted during
+        initial backup creation. Subsequent reads still require the actual
+        backup to exist and revalidate its inode from a pinned descriptor.
+        """
+        path = Path(relative)
+        if not _allowed_relative_path(path):
             raise PermissionError("Otillåten backup-sökväg.")
         root = Path(rollback_root)
-        if root.is_symlink():
-            raise PermissionError("Rollback-roten får inte vara symlink.")
-        base = root / "files"
-        if base.is_symlink():
-            raise PermissionError("Backup-roten får inte vara symlink.")
-        current = base
-        for part in Path(relative).parts:
-            current = current / part
-            if current.is_symlink():
-                raise PermissionError("Backup genom symlink är inte tillåten.")
-        base = base.resolve(strict=False)
-        candidate = current.resolve(strict=False)
-
+        candidate = root / "files" / path
+        directory_flags = (
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
         try:
-            candidate.relative_to(
-                base
-            )
-        except ValueError as error:
-            raise PermissionError(
-                "Rollback-backup försökte lämna backup-roten."
-            ) from error
+            with _pinned_parent(root / ".selfdev-backup-root-check") as (
+                root_fd, _
+            ):
+                directory_fd = os.dup(root_fd)
+                try:
+                    missing_parent = False
+                    for component in ("files", *path.parts[:-1]):
+                        try:
+                            child_fd = os.open(
+                                component, directory_flags, dir_fd=directory_fd
+                            )
+                        except FileNotFoundError:
+                            missing_parent = True
+                            break
+                        os.close(directory_fd)
+                        directory_fd = child_fd
+
+                    if not missing_parent:
+                        try:
+                            final = os.stat(
+                                path.name,
+                                dir_fd=directory_fd,
+                                follow_symlinks=False,
+                            )
+                        except FileNotFoundError:
+                            final = None
+                        if final is not None and not stat.S_ISREG(final.st_mode):
+                            raise PermissionError(
+                                "Backup genom symlink eller specialfil är inte tillåten."
+                            )
+                finally:
+                    os.close(directory_fd)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise PermissionError(
+                    "Backup genom symlink är inte tillåten."
+                ) from error
+            raise
 
         return candidate
 
