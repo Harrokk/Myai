@@ -595,11 +595,21 @@ class SelfDevWorkspace:
         return instance
 
     def _session_directory_fd(self):
+        """Open the session root without following any parent symlink."""
         if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
             raise RuntimeError("Säker selfdev-session kräver Linux dir_fd.")
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         flags |= getattr(os, "O_CLOEXEC", 0)
-        return os.open(self.session_root, flags)
+        directory_fd = os.open("/", flags)
+        try:
+            for component in self.session_root.parts[1:]:
+                next_fd = os.open(component, flags, dir_fd=directory_fd)
+                os.close(directory_fd)
+                directory_fd = next_fd
+            return directory_fd
+        except BaseException:
+            os.close(directory_fd)
+            raise
 
     def _read_session_record(self, filename):
         # Session records are small, user-independent JSON files. A checked
