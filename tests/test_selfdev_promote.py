@@ -2591,3 +2591,89 @@ def test_backup_copy_rejects_source_symlink_before_read(tmp_path):
     with pytest.raises(OSError):
         module._copy_verified_backup(source, tmp_path / "backup" / "active.py")
     assert not (tmp_path / "backup").exists()
+
+
+def test_verified_backup_rejects_parent_symlink_swap_before_directory_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    backup_dir = rollback_root / "files" / "core"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "example.py").write_text("SECRET = True\n", encoding="utf-8")
+    expected = workspace.metadata()["baseline"]["core/example.py"]
+    real_open = os.open
+    switches = []
+
+    def switch_before_open(name, flags, *args, **kwargs):
+        if name == "core" and kwargs.get("dir_fd") is not None:
+            backup_dir.rename(rollback_root / "files" / "core-old")
+            backup_dir.symlink_to(outside, target_is_directory=True)
+            switches.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", switch_before_open)
+    with pytest.raises(RuntimeError, match="Osäker backupfil"):
+        active._verified_backup(rollback_root, "core/example.py", expected)
+    assert switches == [True]
+    assert (outside / "example.py").read_text(encoding="utf-8") == (
+        "SECRET = True\n"
+    )
+
+
+def test_backup_snapshot_rejects_symlink_swap_between_verify_and_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    backup_path = rollback_root / "files" / "core" / "example.py"
+    external = tmp_path / "private.py"
+    external.write_text("SECRET = True\n", encoding="utf-8")
+    expected = workspace.metadata()["baseline"]["core/example.py"]
+    real_open = os.open
+    opens = []
+
+    def swap_between_opens(name, flags, *args, **kwargs):
+        if name == "example.py" and kwargs.get("dir_fd") is not None:
+            opens.append(True)
+            if len(opens) == 2:
+                backup_path.unlink()
+                backup_path.symlink_to(external)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", swap_between_opens)
+    with pytest.raises(RuntimeError, match="Backup kan inte öppnas säkert"):
+        with active._backup_verified_snapshot(
+            rollback_root, "core/example.py", expected
+        ):
+            pytest.fail("should not enter unsafe backup snapshot")
+
+    assert opens == [True, True]
+    assert external.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_verified_backup_rejects_external_content_change(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    backup_path = rollback_root / "files" / "core" / "example.py"
+    backup_path.write_text("TAMPERED = True\n", encoding="utf-8")
+    original_hash = workspace.metadata()["baseline"]["core/example.py"]
+
+    with pytest.raises(RuntimeError, match="Backup är skadad"):
+        active._verified_backup(rollback_root, "core/example.py", original_hash)
