@@ -1,3 +1,4 @@
+import hmac
 import hashlib
 import json
 import os
@@ -744,7 +745,41 @@ class SelfDevWorkspace:
         self._write_session_record("session.json", record)
 
     def metadata(self):
-        return self._read_session_record("session.json")
+        """Validate the session identity and internal baseline integrity.
+
+        This detects corruption, a record copied from another session or
+        project, and partial edits. The unhashed digest is not an
+        authentication code against a writer who controls the whole record.
+        """
+        record = self._read_session_record("session.json")
+        if record.get("session_id") != self.session_id:
+            raise ValueError("Selfdev-sessionsmetadata gäller fel session.")
+        if record.get("project_root") != str(self.project_root):
+            raise ValueError("Selfdev-sessionsmetadata gäller fel projektrot.")
+
+        baseline = record.get("baseline")
+        if not isinstance(baseline, dict) or len(baseline) > 10_000:
+            raise ValueError("Ogiltig selfdev-baseline i sessionsmetadata.")
+        for relative, expected in baseline.items():
+            _manifest_parts(relative)
+            if (
+                not isinstance(expected, str)
+                or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+            ):
+                raise ValueError("Ogiltig SHA-256 i selfdev-baseline.")
+
+        reported_digest = record.get("baseline_digest")
+        if (
+            not isinstance(reported_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", reported_digest) is None
+            or not hmac.compare_digest(
+                reported_digest, manifest_digest(baseline)
+            )
+        ):
+            raise ValueError(
+                "Selfdev-baslinjens sammandrag stämmer inte."
+            )
+        return record
 
     def save_verification(self, record):
         self._write_session_record("verification.json", record)

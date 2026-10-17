@@ -1193,3 +1193,74 @@ def test_session_writer_refuses_nonfinite_and_preserves_previous_record(
         "detail": "ORIGINAL",
     }
     assert not list(session.session_root.glob(".verification.json.*.tmp"))
+
+
+def test_session_metadata_refuses_copied_record_from_another_session(tmp_path):
+    project = make_project(tmp_path)
+    first = SelfDevWorkspace.create(project, "metadata-origin-first")
+    second = SelfDevWorkspace.create(project, "metadata-origin-second")
+    baseline = second.metadata()
+    second.metadata_path.write_bytes(first.metadata_path.read_bytes())
+
+    with pytest.raises(ValueError, match="fel session"):
+        second.metadata()
+    with pytest.raises(ValueError, match="fel session"):
+        second.changed_files()
+    assert first.metadata()["session_id"] == "metadata-origin-first"
+    assert baseline["session_id"] == "metadata-origin-second"
+
+
+def test_session_metadata_refuses_copied_project_root(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-origin-project")
+    record = session.metadata()
+    record["project_root"] = str(tmp_path / "another-project")
+    session.metadata_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fel projektrot"):
+        session.metadata()
+    with pytest.raises(ValueError, match="fel projektrot"):
+        session.source_drift()
+
+
+@pytest.mark.parametrize("reader", ["changed_files", "source_drift"])
+def test_session_metadata_refuses_baseline_modified_without_digest_update(
+    tmp_path, reader
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-baseline-mismatch")
+    record = session.metadata()
+    assert "core/example.py" in record["baseline"]
+    record["baseline"]["core/example.py"] = "0" * 64
+    session.metadata_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="sammandrag stämmer inte"):
+        getattr(session, reader)()
+    assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
+
+
+def test_session_metadata_refuses_invalid_baseline_digest_without_writes(
+    tmp_path,
+):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-digest-invalid")
+    record = session.metadata()
+    record["baseline_digest"] = "f" * 64
+    session.metadata_path.write_text(json.dumps(record), encoding="utf-8")
+    preserved = session.metadata_path.read_bytes()
+
+    with pytest.raises(ValueError, match="sammandrag stämmer inte"):
+        session.metadata()
+    assert session.metadata_path.read_bytes() == preserved
+    assert (project / "core" / "example.py").read_bytes() == b"VALUE = 1\n"
+
+
+def test_session_metadata_accepts_valid_baseline_digest_for_new_session(tmp_path):
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "metadata-baseline-valid")
+    from core.selfdev_workspace import manifest_digest
+
+    metadata = session.metadata()
+    assert metadata["baseline_digest"] == manifest_digest(metadata["baseline"])
+    assert session.source_drift() == []
+    assert session.changed_files()["changed"] == []
