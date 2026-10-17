@@ -137,7 +137,8 @@ def test_missing_opencv_is_reported(monkeypatch):
 
     text = capture.camera_capture()
 
-    assert "OpenCV saknas" in text
+    assert text == "Kamerabilden kunde inte tas: feltext dold."
+    assert "OpenCV saknas" not in text
 
 
 

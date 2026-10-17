@@ -461,7 +461,8 @@ def test_fault_required_audit_storage_failure_blocks_workspace_before_write(
         'Skapa filen "blocked.txt" med innehållet hemligt.'
     )
 
-    assert "synthetic audit storage failure" in result
+    assert result == "Kunde inte skriva filen: feltext dold."
+    assert "synthetic audit storage failure" not in result
     assert not (
         tmp_path
         / "workspace"

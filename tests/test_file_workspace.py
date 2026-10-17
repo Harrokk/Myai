@@ -241,7 +241,9 @@ def test_workspace_write_disabled_is_audited_as_denied(
         'Skapa filen "note.txt" med innehållet Hej.'
     )
 
-    assert "avstängd" in result
+    assert result == "Kunde inte skriva filen: feltext dold."
+    assert "avstängd" not in result
+    assert not (tmp_path / "workspace" / "note.txt").exists()
     audit_text = (
         tmp_path
         / "runtime"
