@@ -3846,3 +3846,80 @@ def test_orphan_inventory_refuses_symlinked_parent_without_reading_outside(
     assert result["status"] == "blocked"
     assert "Symlink" in result["reason"]
     assert list(outside.iterdir()) == []
+
+
+def test_inspect_recovery_rejects_active_parent_symlink_swap_after_path_check(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    from core import selfdev_promote as module
+
+    project_core = project / "core"
+    outside = tmp_path / "outside-core"
+    outside.mkdir()
+    protected = outside / "example.py"
+    protected.write_text("VALUE = 2\n", encoding="utf-8")
+    original_target = active._safe_project_target
+    swapped = []
+
+    def switch_parent_after_target_validation(relative):
+        target = original_target(relative)
+        if str(relative) == "core/example.py" and not swapped:
+            project_core.rename(project / "core-old")
+            project_core.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return target
+
+    monkeypatch.setattr(active, "_safe_project_target", switch_parent_after_target_validation)
+    result = active.inspect_recovery("promo1")
+
+    assert swapped == [True]
+    assert result["status"] == "blocked"
+    assert protected.read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert (project / "core-old" / "example.py").is_file()
+
+
+def test_inspect_recovery_rejects_added_file_swap_after_path_check(
+    tmp_path, monkeypatch,
+):
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    outside = tmp_path / "private-added.py"
+    outside.write_text("PRIVATE\n", encoding="utf-8")
+    target = project / "tests" / "test_new.py"
+    target.write_text("def test_new():\n    assert True\n", encoding="utf-8")
+    original_check = active._safe_project_target
+    swapped = []
+
+    def replace_added_file_after_check(relative):
+        found = original_check(relative)
+        if str(relative) == "tests/test_new.py" and not swapped:
+            target.rename(target.with_name("test_new_saved.py"))
+            target.symlink_to(outside)
+            swapped.append(True)
+        return found
+
+    monkeypatch.setattr(active, "_safe_project_target", replace_added_file_after_check)
+    result = active.inspect_recovery("promo1")
+
+    assert swapped == [True]
+    assert result["status"] == "blocked"
+    assert outside.read_text(encoding="utf-8") == "PRIVATE\n"
+
+
+def test_inspect_recovery_blocks_hardlinked_active_target(tmp_path, monkeypatch):
+    import os
+
+    project, workspace, active = _journal_test_crash_before_second_copy(
+        tmp_path, monkeypatch
+    )
+    target = project / "core" / "example.py"
+    alias = tmp_path / "same-inode"
+    os.link(target, alias)
+    result = active.inspect_recovery("promo1")
+
+    assert result["status"] == "blocked"
+    assert alias.read_text(encoding="utf-8") == "VALUE = 2\n"
