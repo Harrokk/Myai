@@ -16,6 +16,37 @@ from urllib.parse import urlsplit
 from requests.structures import CaseInsensitiveDict
 
 
+# RFC 6052 NAT64 and IPv6 tunnelling can encode a private IPv4
+# destination inside an apparently global IPv6 literal. A plain
+# ipaddress.is_global check is insufficient for the well-known NAT64
+# prefix (e.g. 64:ff9b::a9fe:a9fe maps to 169.254.169.254).
+# Public-page fetching denies these transition networks completely;
+# IPv6-only NAT64 deployments need a separately reviewed egress policy.
+_BLOCKED_IPV6_TRANSITION_NETWORKS = (
+    ipaddress.ip_network("64:ff9b::/96"),    # well-known NAT64
+    ipaddress.ip_network("64:ff9b:1::/48"),  # local-use translation prefix
+    ipaddress.ip_network("2002::/16"),       # 6to4
+    ipaddress.ip_network("2001::/32"),       # Teredo
+)
+
+
+def is_public_connect_address(address):
+    """Fail closed on non-global and IPv4-carrying transition addresses."""
+    try:
+        parsed = ipaddress.ip_address(address)
+    except (TypeError, ValueError):
+        return False
+
+    if not parsed.is_global:
+        return False
+
+    if isinstance(parsed, ipaddress.IPv6Address):
+        return not any(
+            parsed in network for network in _BLOCKED_IPV6_TRANSITION_NETWORKS
+        )
+    return True
+
+
 class _PinnedResponse:
     def __init__(self, connection, http_response, verified_peer_ip):
         self._connection = connection
@@ -99,7 +130,7 @@ class PinnedPublicWebTransport:
             approved = tuple(str(ipaddress.ip_address(ip)) for ip in approved_ips)
         except ValueError as error:
             raise ValueError("Ogiltig verifierad IP-adress.") from error
-        if not all(ipaddress.ip_address(ip).is_global for ip in approved):
+        if not all(is_public_connect_address(ip) for ip in approved):
             raise ValueError("Privat eller icke-publik anslutningsadress.")
         target_ip = approved[0]
 
@@ -119,7 +150,7 @@ class PinnedPublicWebTransport:
                 peer = str(ipaddress.ip_address(raw_socket.getpeername()[0]))
             except (OSError, ValueError, IndexError, TypeError) as error:
                 raise ValueError("TCP-anslutningens faktiska IP kan inte intygas.") from error
-            if peer != target_ip or not ipaddress.ip_address(peer).is_global:
+            if peer != target_ip or not is_public_connect_address(peer):
                 raise ValueError("Anslutningens IP avviker från verifierad publik IP.")
 
             if parsed.scheme == "https":
