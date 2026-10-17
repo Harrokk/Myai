@@ -346,3 +346,125 @@ def test_staging_rejects_fifo_and_keeps_existing_verification(
         workspace.write_text("core/pipe.py", "BAD = True\n")
     assert workspace.verification_path.read_text(encoding="utf-8") == "old attestation"
     assert target.is_fifo()
+
+
+def test_snapshot_baseline_hashes_exact_staged_bytes_without_reopening_source(
+    tmp_path, monkeypatch
+):
+    import hashlib
+
+    project = make_project(tmp_path)
+
+    def disallow_second_hash(path):
+        raise AssertionError("create must not reopen a source to hash it")
+
+    monkeypatch.setattr("core.selfdev_workspace._sha256", disallow_second_hash)
+    workspace = SelfDevWorkspace.create(project, "single-source-fd")
+    staged = (workspace.workspace_root / "core" / "example.py").read_bytes()
+    assert staged == b"VALUE = 1\n"
+    assert workspace.metadata()["baseline"]["core/example.py"] == (
+        hashlib.sha256(staged).hexdigest()
+    )
+
+
+def test_snapshot_rejects_symlink_swapped_before_final_source_open(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    source = project / "core" / "example.py"
+    outside = tmp_path / "sensitive.py"
+    outside.write_text("SECRET = True\n", encoding="utf-8")
+    real_open = os.open
+    swaps = []
+
+    def swap_entry_before_open(path, flags, *args, **kwargs):
+        if path == "example.py" and kwargs.get("dir_fd") is not None:
+            source.unlink()
+            source.symlink_to(outside)
+            swaps.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_workspace.os.open", swap_entry_before_open)
+    with pytest.raises(OSError):
+        SelfDevWorkspace.create(project, "swap-before-source-open")
+
+    assert swaps == [True]
+    assert outside.read_text(encoding="utf-8") == "SECRET = True\n"
+    assert not (
+        project / "runtime" / "selfdev" / "swap-before-source-open"
+        / "workspace" / "core" / "example.py"
+    ).exists()
+
+
+def test_snapshot_reads_open_inode_if_source_name_changes_mid_copy(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import os
+
+    project = make_project(tmp_path)
+    source = project / "core" / "example.py"
+    outside = tmp_path / "sensitive.py"
+    outside.write_text("SECRET = True\n", encoding="utf-8")
+    real_open = os.open
+    swaps = []
+
+    def rename_after_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == "example.py" and kwargs.get("dir_fd") is not None:
+            source.rename(project / "core" / "original.py")
+            source.symlink_to(outside)
+            swaps.append(True)
+        return descriptor
+
+    monkeypatch.setattr("core.selfdev_workspace.os.open", rename_after_open)
+    workspace = SelfDevWorkspace.create(project, "source-inode-pinned")
+    staged = (workspace.workspace_root / "core" / "example.py").read_bytes()
+    assert swaps == [True]
+    assert staged == b"VALUE = 1\n"
+    assert workspace.metadata()["baseline"]["core/example.py"] == (
+        hashlib.sha256(staged).hexdigest()
+    )
+    assert outside.read_text(encoding="utf-8") == "SECRET = True\n"
+
+
+def test_snapshot_rejects_in_place_source_mutation_during_copy(
+    tmp_path, monkeypatch
+):
+    import os
+
+    project = make_project(tmp_path)
+    source = project / "core" / "example.py"
+    real_read = os.read
+    mutated = []
+
+    def mutate_after_first_source_read(descriptor, count):
+        data = real_read(descriptor, count)
+        if data == b"VALUE = 1\n" and not mutated:
+            source.write_text("VALUE = 50000000\n", encoding="utf-8")
+            mutated.append(True)
+        return data
+
+    monkeypatch.setattr("core.selfdev_workspace.os.read", mutate_after_first_source_read)
+    with pytest.raises(RuntimeError, match="ändrades under selfdev-kopieringen"):
+        SelfDevWorkspace.create(project, "mutated-source")
+
+    assert mutated == [True]
+    assert not (
+        project / "runtime" / "selfdev" / "mutated-source" / "session.json"
+    ).exists()
+
+
+def test_snapshot_never_traverses_preexisting_source_directory_symlink(tmp_path):
+    project = make_project(tmp_path)
+    outside = tmp_path / "outside-dir"
+    outside.mkdir()
+    (outside / "private.py").write_text("DO_NOT_COPY = True\n", encoding="utf-8")
+    (project / "core" / "shortcut").symlink_to(
+        outside, target_is_directory=True
+    )
+    workspace = SelfDevWorkspace.create(project, "skip-source-dir-link")
+    assert not (workspace.workspace_root / "core" / "shortcut").exists()
+    assert not any("shortcut" in path for path in workspace.metadata()["baseline"])
