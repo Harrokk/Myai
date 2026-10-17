@@ -21,7 +21,7 @@
     "ventuno-all-manual-actions-inventory.yml": "b8b1f5b2eff1c005338fe19807ecc3e5fd0caa13",
     "ventuno-alsa-mixer-readonly.yml": "ebeb8268c85ca84fb24eac32f7b19dddd74c67db",
     "ventuno-alsa-routing-readonly.yml": "76fcd299fb66a34f0d73b4fd8fb14cd14b4bb0ba",
-    "ventuno-audio-stage-path-guard.yml": "b966789d3f4db4b636b3d060c299cf83cec92856",
+    "ventuno-audio-stage-path-guard.yml": "190d2c35b838427c2bfe55b7e7402c85ae7b227a",
     "ventuno-big-hardware-test-readiness.yml": "3c3fc0aecf1bff981a3a2085597712d0e7410c05",
     "ventuno-capture-permissions-readonly.yml": "573370f9216534bb6d7e87b11090485eb48d3b35",
     "ventuno-compatible-voice-wheel-resolution.yml": "7326d72c10a2f6c9804c0f5e8b396d87bc2683c9",
