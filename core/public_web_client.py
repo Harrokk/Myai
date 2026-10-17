@@ -194,6 +194,12 @@ class PublicWebClient:
         except ValueError as error:
             raise ValueError("URL innehåller ogiltig port.") from error
 
+        # A public webpage must not act as a generic port scanner or
+        # cross-protocol gateway to arbitrary exposed services.
+        expected_port = 443 if parsed.scheme == "https" else 80
+        if port != expected_port:
+            raise ValueError("Endast standardport 80/443 för publik webb är tillåten.")
+
         try:
             resolved = self.resolver(
                 hostname,
