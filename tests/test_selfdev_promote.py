@@ -4186,3 +4186,120 @@ def test_legacy_migration_refuses_mutated_active_inode_during_hash(
         )
     assert changed == [True]
     assert path.read_bytes() == original
+
+
+def test_legacy_archive_pins_parent_during_publication_alias_swap(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollback"
+    root.mkdir(mode=0o700)
+    external = tmp_path / "external"
+    external.mkdir()
+    protected = external / "promotion.legacy-unsigned.json"
+    protected.write_bytes(b"DO NOT REPLACE")
+    old_open = os.open
+    swaps = []
+
+    def swap_alias_after_exclusive_open(name, flags, *args, **kwargs):
+        fd = old_open(name, flags, *args, **kwargs)
+        if (
+            name == "promotion.legacy-unsigned.json"
+            and flags & os.O_EXCL
+            and kwargs.get("dir_fd") is not None
+        ):
+            root.rename(tmp_path / "rollback-original")
+            root.symlink_to(external, target_is_directory=True)
+            swaps.append(True)
+        return fd
+
+    monkeypatch.setattr(module.os, "open", swap_alias_after_exclusive_open)
+    module._publish_or_verify_legacy_archive(root, b'{"legacy":true}')
+
+    assert swaps == [True]
+    assert (
+        tmp_path / "rollback-original" / "promotion.legacy-unsigned.json"
+    ).read_bytes() == b'{"legacy":true}'
+    assert protected.read_bytes() == b"DO NOT REPLACE"
+
+
+def test_legacy_archive_rejects_swapped_parent_before_open(
+    tmp_path, monkeypatch,
+):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollback"
+    root.mkdir(mode=0o700)
+    outside = tmp_path / "external"
+    outside.mkdir()
+    protected = outside / "promotion.legacy-unsigned.json"
+    protected.write_bytes(b"EXTERNAL")
+    real_open = os.open
+    swaps = []
+
+    def redirect_parent_before_open(name, flags, *args, **kwargs):
+        if name == "rollback" and kwargs.get("dir_fd") is not None:
+            root.rename(tmp_path / "rollback-original")
+            root.symlink_to(outside, target_is_directory=True)
+            swaps.append(True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", redirect_parent_before_open)
+    with pytest.raises(OSError):
+        module._publish_or_verify_legacy_archive(root, b'{"legacy":true}')
+    assert swaps == [True]
+    assert protected.read_bytes() == b"EXTERNAL"
+
+
+def test_legacy_archive_existing_symlink_is_never_followed(tmp_path):
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollback"
+    root.mkdir(mode=0o700)
+    outside = tmp_path / "external.json"
+    outside.write_bytes(b"CONFIDENTIAL")
+    (root / "promotion.legacy-unsigned.json").symlink_to(outside)
+    with pytest.raises(PermissionError, match="symlink"):
+        module._publish_or_verify_legacy_archive(root, b'{"legacy":true}')
+    assert outside.read_bytes() == b"CONFIDENTIAL"
+
+
+def test_legacy_archive_existing_hardlink_or_modified_bytes_fail_closed(
+    tmp_path,
+):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollback"
+    root.mkdir(mode=0o700)
+    archive = root / "promotion.legacy-unsigned.json"
+    expected = b'{"legacy":true}'
+    module._publish_or_verify_legacy_archive(root, expected)
+    module._publish_or_verify_legacy_archive(root, expected)
+    assert archive.read_bytes() == expected
+    alias = tmp_path / "hardlinked-archive"
+    os.link(archive, alias)
+    with pytest.raises(RuntimeError, match="matchar inte originaljournalen"):
+        module._publish_or_verify_legacy_archive(root, expected)
+    alias.unlink()
+    archive.write_bytes(b"NEWER")
+    with pytest.raises(RuntimeError, match="matchar inte originaljournalen"):
+        module._publish_or_verify_legacy_archive(root, expected)
+    assert archive.read_bytes() == b"NEWER"
+
+
+def test_legacy_archive_rejects_unsafe_existing_file_permissions(tmp_path):
+    import os
+    from core import selfdev_promote as module
+
+    root = tmp_path / "rollback"
+    root.mkdir(mode=0o700)
+    archive = root / "promotion.legacy-unsigned.json"
+    module._publish_or_verify_legacy_archive(root, b'{"legacy":true}')
+    os.chmod(archive, 0o644)
+    with pytest.raises(RuntimeError, match="matchar inte originaljournalen"):
+        module._publish_or_verify_legacy_archive(root, b'{"legacy":true}')
+    assert archive.read_bytes() == b'{"legacy":true}'
