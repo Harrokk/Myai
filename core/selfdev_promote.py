@@ -1176,57 +1176,82 @@ class SelfDevPromotionManager:
 
     @contextmanager
     def _backup_verified_snapshot(self, rollback_root, relative, expected_hash):
-        """Read a verified backup inode once; never reopen the original path.
+        """Snapshot a verified backup via one pinned backup-directory inode.
 
-        The private temporary snapshot is checked before source restoration.
-        This closes link swaps between backup validation and source copy.
+        The yielded Path is still reopened by the restoration caller, which
+        must itself reject symlinks; no external path is read or modified if
+        the original directory alias is later moved.
         """
         backup = self._verified_backup(rollback_root, relative, expected_hash)
         flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
         flags |= getattr(os, "O_CLOEXEC", 0)
-        try:
-            with _pinned_parent(backup) as (parent_fd, name):
+        with _pinned_parent(backup) as (parent_fd, name):
+            try:
                 descriptor = os.open(name, flags, dir_fd=parent_fd)
-        except OSError as error:
-            raise RuntimeError("Backup kan inte öppnas säkert.") from error
+            except OSError as error:
+                raise RuntimeError("Backup kan inte öppnas säkert.") from error
 
-        snapshot = None
-        try:
-            with os.fdopen(descriptor, "rb") as source:
-                info = os.fstat(source.fileno())
-                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                    raise RuntimeError("Osäker backupfil vid återställning.")
-                out_fd, filename = tempfile.mkstemp(
-                    prefix=".verified-backup-",
-                    suffix=".tmp",
-                    dir=str(backup.parent),
-                )
-                snapshot = Path(filename)
-                with os.fdopen(out_fd, "wb") as destination:
-                    digest = hashlib.sha256()
-                    while True:
-                        part = source.read(1024 * 1024)
-                        if not part:
-                            break
-                        digest.update(part)
-                        destination.write(part)
-                    if digest.hexdigest() != expected_hash:
-                        raise RuntimeError(
-                            "Backup ändrades efter verifiering; återställning stoppas."
+            temporary = (
+                ".verified-backup-" + secrets.token_hex(12) + ".tmp"
+            )
+            snapshot = backup.parent / temporary
+            created = False
+            try:
+                with os.fdopen(descriptor, "rb") as source:
+                    info = os.fstat(source.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                        raise RuntimeError("Osäker backupfil vid återställning.")
+
+                    create_flags = (
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                        | getattr(os, "O_CLOEXEC", 0)
+                    )
+                    out_fd = os.open(
+                        temporary, create_flags, 0o600, dir_fd=parent_fd
+                    )
+                    created = True
+                    with os.fdopen(out_fd, "wb") as destination:
+                        digest = hashlib.sha256()
+                        copied = 0
+                        while True:
+                            part = source.read(1024 * 1024)
+                            if not part:
+                                break
+                            copied += len(part)
+                            digest.update(part)
+                            destination.write(part)
+                        if digest.hexdigest() != expected_hash:
+                            raise RuntimeError(
+                                "Backup ändrades efter verifiering; återställning stoppas."
+                            )
+                        after = os.fstat(source.fileno())
+                        if (
+                            copied != info.st_size
+                            or after.st_dev != info.st_dev
+                            or after.st_ino != info.st_ino
+                            or after.st_size != info.st_size
+                            or after.st_mtime_ns != info.st_mtime_ns
+                            or after.st_ctime_ns != info.st_ctime_ns
+                        ):
+                            raise RuntimeError(
+                                "Backup ändrades efter verifiering; återställning stoppas."
+                            )
+                        # Preserve ordinary owner/group/other mode bits only.
+                        os.fchmod(
+                            destination.fileno(),
+                            stat.S_IMODE(info.st_mode) & 0o777,
                         )
-                    # Preserve backup source permissions, minus special bits.
-                    os.fchmod(destination.fileno(), stat.S_IMODE(info.st_mode) & 0o777)
-                    destination.flush()
-                    os.fsync(destination.fileno())
-            _sync_directory(snapshot.parent)
-            yield snapshot
-        finally:
-            if snapshot is not None:
-                try:
-                    snapshot.unlink()
-                    _sync_directory(snapshot.parent)
-                except FileNotFoundError:
-                    pass
+                        destination.flush()
+                        os.fsync(destination.fileno())
+                os.fsync(parent_fd)
+                yield snapshot
+            finally:
+                if created:
+                    try:
+                        os.unlink(temporary, dir_fd=parent_fd)
+                    except FileNotFoundError:
+                        pass
+                    os.fsync(parent_fd)
 
     @staticmethod
     def _unlink_verified_added(target, expected_hash):

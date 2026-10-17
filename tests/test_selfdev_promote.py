@@ -2677,3 +2677,96 @@ def test_verified_backup_rejects_external_content_change(tmp_path):
 
     with pytest.raises(RuntimeError, match="Backup är skadad"):
         active._verified_backup(rollback_root, "core/example.py", original_hash)
+
+
+def test_backup_snapshot_temp_and_cleanup_stay_in_pinned_directory(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    parent = rollback_root / "files" / "core"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "example.py"
+    protected.write_text("PRIVATE = True\n", encoding="utf-8")
+    original_open = os.open
+    swaps = []
+
+    def swap_after_snapshot_open(path, flags, *args, **kwargs):
+        descriptor = original_open(path, flags, *args, **kwargs)
+        if (
+            isinstance(path, str)
+            and path.startswith(".verified-backup-")
+            and kwargs.get("dir_fd") is not None
+            and flags & os.O_EXCL
+        ):
+            parent.rename(rollback_root / "files" / "core-old")
+            parent.symlink_to(outside, target_is_directory=True)
+            swaps.append(True)
+        return descriptor
+
+    monkeypatch.setattr(module.os, "open", swap_after_snapshot_open)
+    expected = workspace.metadata()["baseline"]["core/example.py"]
+    with active._backup_verified_snapshot(
+        rollback_root, "core/example.py", expected
+    ) as snapshot:
+        assert snapshot.name.startswith(".verified-backup-")
+
+    assert swaps == [True]
+    assert not list(
+        (rollback_root / "files" / "core-old").glob(".verified-backup-*")
+    )
+    assert protected.read_text(encoding="utf-8") == "PRIVATE = True\n"
+    assert not list(outside.glob(".verified-backup-*"))
+
+
+def test_backup_snapshot_cleanup_after_consumer_error(tmp_path):
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    expected = workspace.metadata()["baseline"]["core/example.py"]
+    parent = rollback_root / "files" / "core"
+
+    with pytest.raises(OSError, match="simulated restore error"):
+        with active._backup_verified_snapshot(
+            rollback_root, "core/example.py", expected
+        ):
+            raise OSError("simulated restore error")
+
+    assert not list(parent.glob(".verified-backup-*"))
+
+
+def test_backup_snapshot_refuses_preexisting_temporary_symlink(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_promote as module
+
+    project, workspace = make_workspace(tmp_path)
+    approve_verification(workspace)
+    active = manager(workspace, settings())
+    active.promote("PROMOTE session1")
+    rollback_root = workspace.session_root / "rollbacks" / "promo1"
+    parent = rollback_root / "files" / "core"
+    target = tmp_path / "private.py"
+    target.write_text("SECRET = True\n", encoding="utf-8")
+    alias = parent / (".verified-backup-" + "a" * 24 + ".tmp")
+    alias.symlink_to(target)
+    monkeypatch.setattr(module.secrets, "token_hex", lambda length: "a" * (length * 2))
+    expected = workspace.metadata()["baseline"]["core/example.py"]
+
+    with pytest.raises(FileExistsError):
+        with active._backup_verified_snapshot(
+            rollback_root, "core/example.py", expected
+        ):
+            pytest.fail("must not use preexisting temporary file")
+
+    assert alias.is_symlink()
+    assert target.read_text(encoding="utf-8") == "SECRET = True\n"
