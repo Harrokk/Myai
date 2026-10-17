@@ -22,3 +22,5 @@
 - Full fysisk recovery vid strömavbrott, beroende-/licens-SBOM, native ABI och VENTUNO NPU/rösttest är ännu inte genomförda. Det återstår också en komplett manuell repositoryrevision fil-för-fil.
 - **DRAFT och NO-GO för merge/deploy/aktiv promotion/recovery.** Kräv helt grön ARM64-testsvit på exakt HEAD.
 
+
+**Testkorrigering:** Gemensam testfixture skapar normalt `tests/`; testet för en legitim saknad målkatalog raderar därför först endast den tillfälliga testkopian av `tests/`, innan `_safe_project_target` anropas. Första ARM64-körningen föll enbart på det tidigare felaktiga fixture-antagandet (1 failed, 3 370 passed). Den faktiska säkerhetsändringen har inte behövt backas ut.
