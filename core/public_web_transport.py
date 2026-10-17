@@ -86,7 +86,10 @@ class PinnedPublicWebTransport:
         if not parsed.hostname or "@" in parsed.netloc:
             raise ValueError("Ogiltigt värdnamn.")
 
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        expected_port = 443 if parsed.scheme == "https" else 80
+        port = parsed.port if parsed.port is not None else expected_port
+        if port != expected_port:
+            raise ValueError("Publik webb får bara använda standardport 80/443.")
         if not isinstance(approved_ips, (tuple, list)) or not approved_ips:
             raise ValueError("Ingen verifierad publik IP-adress finns.")
 
