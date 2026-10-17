@@ -1662,17 +1662,18 @@ class SelfDevPromotionManager:
                 target = self._safe_project_target(relative)
                 original = backups[relative]["sha256"]
                 desired = planned_hashes[relative]
-                if target.is_symlink():
-                    raise RuntimeError(
-                        "Extern filändring under promotion; manuell återställning krävs."
-                    )
-                if not os.path.lexists(target):
+                try:
+                    observed = _hash_existing_regular_path(target)
+                except FileNotFoundError as error:
                     if original is not None:
                         raise RuntimeError(
                             "Extern filändring under promotion; manuell återställning krävs."
-                        )
+                        ) from error
                     continue
-                observed = _sha256(target)
+                except (OSError, PermissionError, RuntimeError) as error:
+                    raise RuntimeError(
+                        "Extern filändring under promotion; manuell återställning krävs."
+                    ) from error
                 if observed not in {original, desired}:
                     raise RuntimeError(
                         "Extern filändring under promotion; manuell återställning krävs."
