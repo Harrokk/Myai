@@ -544,6 +544,7 @@ def test_sandbox_command_reintroduces_only_explicit_env_after_clearenv(
             assert i > clear_at
             variables[command[i + 1]] = command[i + 2]
     assert variables["HOME"] == "/tmp"
+    assert variables["PWD"] == "/workspace"
     assert variables["PATH"] == (
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     )
