@@ -1200,11 +1200,7 @@ class SelfDevPromotionManager:
         return target
 
     def _require_no_interrupted_promotion(self):
-        """Fail closed if any pinned session contains an interrupted update.
-
-        Enumerate each directory by the same open FD used to inspect/open its
-        entries. Never re-resolve a checked directory pathname for journal IO.
-        """
+        """Fail closed on interrupted journals without following directory links."""
         sources = {
             self.workspace.project_root / "runtime" / "selfdev",
             self.workspace.session_root.parent,
@@ -1219,45 +1215,44 @@ class SelfDevPromotionManager:
         )
         inspected = 0
 
-        def entries(fd):
+        def list_names(fd):
             nonlocal inspected
             with os.scandir(fd) as listing:
-                names = sorted(item.name for item in listing)
+                names = sorted(entry.name for entry in listing)
             inspected += len(names)
             if inspected > 10_000:
                 raise RuntimeError("För många selfdev-sessioner att kontrollera.")
             return names
 
-        def open_directory(parent_fd, name, description):
+        def open_dir(parent_fd, name, kind):
             try:
                 return os.open(name, dir_flags, dir_fd=parent_fd)
             except OSError as error:
                 if error.errno in (errno.ELOOP, errno.ENOTDIR):
                     raise RuntimeError(
-                        "Otillåten selfdev-" + description + "symlink."
+                        "Otillåten selfdev-" + kind + "symlink."
                     ) from error
                 raise
 
-        def check_directory(root):
+        for root in sources:
             try:
-                with _pinned_parent(root) as (parent_fd, name):
+                with _pinned_parent(root) as (parent_fd, basename):
                     try:
-                        sessions_fd = open_directory(
-                            parent_fd, name, "sessionskatalog"
+                        sessions_fd = open_dir(
+                            parent_fd, basename, "sessionskatalog"
                         )
                     except FileNotFoundError:
-                        return
-            except (NotADirectoryError, OSError) as error:
-                # A missing entire optional session tree is acceptable, but
-                # a substituted symlink or non-directory is never acceptable.
-                if isinstance(error, FileNotFoundError):
-                    return
+                        continue
+            except FileNotFoundError:
+                # Optional session roots may not have been created yet.
+                continue
+            except OSError as error:
                 raise RuntimeError(
                     "Selfdev-sessionkatalogen kan inte öppnas säkert."
                 ) from error
 
             try:
-                for session_name in entries(sessions_fd):
+                for session_name in list_names(sessions_fd):
                     info = os.stat(
                         session_name, dir_fd=sessions_fd,
                         follow_symlinks=False,
@@ -1266,18 +1261,20 @@ class SelfDevPromotionManager:
                         raise RuntimeError("Otillåten selfdev-sessionsymlink.")
                     if not stat.S_ISDIR(info.st_mode):
                         continue
-                    with os.fdopen(
-                        open_directory(sessions_fd, session_name, "session"), "rb"
-                    ) as session_handle:
-                        session_fd = session_handle.fileno()
+
+                    session_fd = open_dir(
+                        sessions_fd, session_name, "session"
+                    )
+                    try:
                         try:
-                            rollbacks_fd = open_directory(
+                            rollbacks_fd = open_dir(
                                 session_fd, "rollbacks", "rollback"
                             )
                         except FileNotFoundError:
                             continue
+
                         try:
-                            for promotion_name in entries(rollbacks_fd):
+                            for promotion_name in list_names(rollbacks_fd):
                                 promotion_info = os.stat(
                                     promotion_name, dir_fd=rollbacks_fd,
                                     follow_symlinks=False,
@@ -1288,7 +1285,8 @@ class SelfDevPromotionManager:
                                     )
                                 if not stat.S_ISDIR(promotion_info.st_mode):
                                     continue
-                                journal_dir_fd = open_directory(
+
+                                journal_dir_fd = open_dir(
                                     rollbacks_fd, promotion_name, "journal"
                                 )
                                 try:
@@ -1315,6 +1313,7 @@ class SelfDevPromotionManager:
                                         ) from error
                                     finally:
                                         os.close(journal_fd)
+
                                     status = record.get("state")
                                     if status in {
                                         "completed", "recovered", "reverted"
@@ -1332,11 +1331,10 @@ class SelfDevPromotionManager:
                                     os.close(journal_dir_fd)
                         finally:
                             os.close(rollbacks_fd)
+                    finally:
+                        os.close(session_fd)
             finally:
                 os.close(sessions_fd)
-
-        for source in sources:
-            check_directory(source)
 
     def _preflight_promotion(
         self,
