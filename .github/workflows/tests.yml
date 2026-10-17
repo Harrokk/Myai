@@ -1,4 +1,4 @@
-name: MyAI tests on VENTUNO Q
+name: MyAI source-only tests (hosted ARM64)
 
 on:
   push:
@@ -12,22 +12,32 @@ permissions:
   contents: read
 
 concurrency:
-  group: myai-ci-ventuno
+  group: myai-ci-hosted-arm64
   cancel-in-progress: false
 
 jobs:
   test:
     name: Run isolated MyAI unit tests
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    # Never execute untrusted branch Python tests under the VENTUNO
+    # production user's credentials. Use a disposable GitHub-hosted VM.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
+      - name: Enforce disposable hosted ARM64 runner
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+
       - name: Fetch exact commit in temporary workspace
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(id -un)" = "arduino"
           mkdir -p "$RUNNER_TEMP/myai-ci-source"
           cd "$RUNNER_TEMP/myai-ci-source"
           git init -q
@@ -38,12 +48,22 @@ jobs:
           git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Create isolated ARM64 test venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-ci-venv"
+          "$RUNNER_TEMP/myai-ci-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "pytest==8.3.5" "cryptography==45.0.7" \
+            -r "$RUNNER_TEMP/myai-ci-source/requirements.txt"
+
       - name: Compile Python sources
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-ci-source"
-          /home/arduino/MyAI/.venv/bin/python -m compileall -q core modules scripts mail.py
+          "$RUNNER_TEMP/myai-ci-venv/bin/python" -m compileall -q core modules scripts mail.py
 
       - name: Audit tracked source and privacy configuration (read-only)
         shell: bash
@@ -52,19 +72,19 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-ci-source"
-          /home/arduino/MyAI/.venv/bin/python -B scripts/static_repository_audit.py
+          "$RUNNER_TEMP/myai-ci-venv/bin/python" -B scripts/static_repository_audit.py
 
-      - name: Run full test suite without modifying live installation
+      - name: Run full test suite on disposable ARM64 host
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-ci-source"
-          /home/arduino/MyAI/.venv/bin/python -m pytest -q -rs
+          "$RUNNER_TEMP/myai-ci-venv/bin/python" -m pytest -q -rs
 
       - name: Summarize test run
         if: always()
         shell: bash
         run: |
-          echo "## MyAI CI on VENTUNO Q" >> "$GITHUB_STEP_SUMMARY"
+          echo "## MyAI source-only CI on GitHub-hosted ARM64" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Tests execute from runner temporary workspace, not /home/arduino/MyAI." >> "$GITHUB_STEP_SUMMARY"
+          echo "Tests execute on a disposable GitHub-hosted ARM64 runner, never on the active VENTUNO installation." >> "$GITHUB_STEP_SUMMARY"
