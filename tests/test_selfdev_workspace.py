@@ -1148,6 +1148,9 @@ def test_session_verification_rejects_duplicate_top_level_json_keys(
         '{"passed":false,"passed":true,"sandbox":"bubblewrap"}',
         encoding="utf-8",
     )
+    # Synthetic malformed JSON must still have valid private permissions
+    # so this test exercises duplicate-key rejection rather than mode checks.
+    session.verification_path.chmod(0o600)
     with pytest.raises(ValueError, match="Dubbla fältnamn"):
         session.read_verification()
 
@@ -1173,6 +1176,7 @@ def test_session_verification_rejects_nonfinite_json_constants(
         '{"passed":true,"score":' + constant + '}',
         encoding="utf-8",
     )
+    session.verification_path.chmod(0o600)
     with pytest.raises(ValueError, match="Icke-ändligt"):
         session.read_verification()
 
