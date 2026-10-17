@@ -294,13 +294,14 @@ class SelfDevVerifier:
                     command,
                     timeout=self.timeout_seconds,
                 )
-                check_returncode = int(
-                    getattr(
-                        result,
-                        "returncode",
-                        1,
+                # subprocess.CompletedProcess supplies a real integer.
+                # Coercing strings, booleans or floats via int() could turn
+                # a synthetic/malformed runner result into false success.
+                check_returncode = getattr(result, "returncode", None)
+                if type(check_returncode) is not int:
+                    raise TypeError(
+                        "Sandboxkörningen saknar giltig heltalsreturkod."
                     )
-                )
                 check_stdout = str(
                     getattr(
                         result,
@@ -371,13 +372,31 @@ class SelfDevVerifier:
             time.monotonic()
             - started
         )
+        # Rehash after commands: sandbox validation may have altered staged
+        # code, and the active source may have changed while checks ran.
+        # Never persist a passing record for a workspace/version we did not
+        # actually validate. Promotion independently rechecks this later.
+        after_checks = self.workspace.changed_files()
+        source_drift = self.workspace.source_drift()
+        unchanged = (
+            after_checks["manifest_digest"] == changes["manifest_digest"]
+            and after_checks["changed"] == changes["changed"]
+            and after_checks["added"] == changes["added"]
+            and after_checks["deleted"] == changes["deleted"]
+        )
+        if not unchanged and error is None:
+            error = "Staging-workspacen ändrades under verifieringen."
+        if source_drift and error is None:
+            error = "Aktiv källkod ändrades under verifieringen."
+        if error is not None and returncode == 0:
+            # A verifier-level integrity failure is not subprocess success.
+            returncode = -1
         passed = (
             returncode == 0
             and error is None
-            and all(
-                check["passed"]
-                for check in checks
-            )
+            and unchanged
+            and not source_drift
+            and all(check["passed"] for check in checks)
         )
         record = {
             "session_id": (
@@ -412,10 +431,7 @@ class SelfDevVerifier:
                     "deleted"
                 ]
             ),
-            "source_drift": (
-                self.workspace
-                .source_drift()
-            ),
+            "source_drift": source_drift,
             "sandbox": "bubblewrap",
             "network_isolated": True,
             "host_devices_exposed": False,
