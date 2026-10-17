@@ -1,6 +1,9 @@
 import os
 import re
-import tempfile
+import errno
+import secrets
+import stat
+from contextlib import contextmanager
 from pathlib import Path
 
 from core.audit_log import (
@@ -57,6 +60,58 @@ def resolve_workspace_path(value, settings=None):
         ) from error
 
     return candidate
+
+
+def _safe_parts(value):
+    """Lexical user path components; never use resolved pathnames for I/O."""
+    relative = _normalize_user_path(value)
+    parts = relative.split("/")
+    if any(part in {"", ".", ".."} or "\\x00" in part for part in parts):
+        raise ValueError("Sökvägen försöker lämna det tillåtna workspace.")
+    return tuple(parts)
+
+
+@contextmanager
+def _anchored_parent(user_path, settings, *, create=False):
+    """Pin every Linux directory inode; reject symlinks on every hop.
+
+    All later file operations use the final opened directory fd, not a
+    pathname reconstructed after a check. The configured workspace root
+    and its ancestors must be operator-trusted.
+    """
+    parts = _safe_parts(user_path)
+    required = ("O_DIRECTORY", "O_NOFOLLOW")
+    if not all(hasattr(os, key) for key in required):
+        raise RuntimeError("Säker filåtkomst kräver Linux dir_fd/O_NOFOLLOW.")
+
+    root = workspace_root(settings)
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    directory_fd = os.open(root, flags)
+    try:
+        for part in parts[:-1]:
+            try:
+                if create:
+                    try:
+                        os.mkdir(part, mode=0o700, dir_fd=directory_fd)
+                    except FileExistsError:
+                        pass
+                new_fd = os.open(part, flags, dir_fd=directory_fd)
+            except OSError as error:
+                if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise PermissionError(
+                        "Symboliska länkar är inte tillåtna i workspace."
+                    ) from error
+                raise
+            os.close(directory_fd)
+            directory_fd = new_fd
+
+        yield directory_fd, parts[-1], "/".join(parts)
+    finally:
+        os.close(directory_fd)
 
 
 def extract_file_path(user_text):
@@ -179,12 +234,6 @@ def list_workspace_files(settings=None):
 
 def read_workspace_text(user_path, settings=None):
     config = _ensure_enabled(settings)
-    path = resolve_workspace_path(user_path, settings)
-
-    if not path.exists() or not path.is_file():
-        raise FileNotFoundError(
-            f"Filen finns inte i workspace: {user_path}"
-        )
 
     try:
         max_chars = int(config.get("max_read_chars", 20000))
@@ -194,36 +243,54 @@ def read_workspace_text(user_path, settings=None):
     if max_chars <= 0:
         raise ValueError("files.max_read_chars måste vara större än 0.")
 
-    # Do not materialize an arbitrary-size workspace file in RAM merely
-    # to compute total_chars. Preserve accurate Unicode character counts
-    # while retaining at most max_chars characters of the visible excerpt.
+    # A descriptor-relative O_NOFOLLOW open prevents a parent/final symlink
+    # swap between validation and use. O_NONBLOCK prevents a swapped FIFO
+    # from hanging the assistant before its regular-file check.
     visible = []
     kept_chars = 0
     total_chars = 0
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            while True:
-                block = handle.read(16_384)
-                if not block:
-                    break
-                total_chars += len(block)
-                if kept_chars < max_chars:
-                    excerpt = block[: max_chars - kept_chars]
-                    visible.append(excerpt)
-                    kept_chars += len(excerpt)
-    except UnicodeDecodeError as error:
-        raise ValueError(
-            "Filen är inte en UTF-8-textfil och kan inte läsas "
-            "med detta textverktyg."
-        ) from error
+    with _anchored_parent(user_path, settings) as (directory_fd, filename, relative):
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        try:
+            descriptor = os.open(filename, flags, dir_fd=directory_fd)
+        except OSError as error:
+            if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise PermissionError(
+                    "Symboliska länkar är inte tillåtna i workspace."
+                ) from error
+            raise
+
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("Endast vanliga textfiler får läsas i workspace.")
+            try:
+                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                    descriptor = -1  # fdopen owns the descriptor
+                    while True:
+                        block = handle.read(16_384)
+                        if not block:
+                            break
+                        total_chars += len(block)
+                        if kept_chars < max_chars:
+                            excerpt = block[: max_chars - kept_chars]
+                            visible.append(excerpt)
+                            kept_chars += len(excerpt)
+            except UnicodeDecodeError as error:
+                raise ValueError(
+                    "Filen är inte en UTF-8-textfil och kan inte läsas "
+                    "med detta textverktyg."
+                ) from error
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
 
     return {
-        "path": path.relative_to(workspace_root(settings)).as_posix(),
+        "path": relative,
         "content": "".join(visible),
         "truncated": total_chars > max_chars,
         "total_chars": total_chars,
     }
-
 
 def write_workspace_text(user_path, content, settings=None):
     config = _ensure_enabled(settings)
@@ -233,7 +300,6 @@ def write_workspace_text(user_path, content, settings=None):
             "Skrivning i workspace är avstängd i konfigurationen."
         )
 
-    path = resolve_workspace_path(user_path, settings)
     allowed = config.get(
         "allowed_write_extensions",
         sorted(DEFAULT_ALLOWED_WRITE_EXTENSIONS),
@@ -245,44 +311,59 @@ def write_workspace_text(user_path, content, settings=None):
         for extension in allowed
     }
 
-    if path.suffix.lower() not in allowed:
+    parts = _safe_parts(user_path)
+    suffix = Path(parts[-1]).suffix.lower()
+    if suffix not in allowed:
         raise ValueError(
-            f"Filtypen {path.suffix or '(utan ändelse)'} är inte "
+            f"Filtypen {suffix or '(utan ändelse)'} är inte "
             "tillåten för allmän workspace-skrivning."
         )
 
     text = str(content)
-
     if not text:
         raise ValueError("Tomt filinnehåll skrivs inte utan uttrycklig text.")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # A fixed .tmp filename is unsafe: another process can replace it
-    # with a symlink before write_text() follows it outside the workspace.
-    # mkstemp() creates a new, exclusive file with a non-predictable name.
-    descriptor, temporary = tempfile.mkstemp(
-        prefix="." + path.name + ".",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except BaseException:
+    with _anchored_parent(user_path, settings, create=True) as (
+        directory_fd, filename, relative
+    ):
+        # Fail closed on an existing symlink or non-file. If an attacker
+        # swaps the target AFTER this check, descriptor-relative os.replace
+        # replaces only that directory entry, never follows the symlink.
         try:
-            os.unlink(temporary)
+            existing = os.stat(
+                filename, dir_fd=directory_fd, follow_symlinks=False
+            )
         except FileNotFoundError:
-            pass
-        raise
+            existing = None
+        if existing is not None and not stat.S_ISREG(existing.st_mode):
+            raise PermissionError("Målfilen måste vara en vanlig fil.")
+
+        # Random, exclusive staging in the SAME pinned directory inode.
+        # Only relative names plus dir_fd are passed to os.replace/unlink.
+        temporary = "." + filename + "." + secrets.token_hex(12) + ".tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(temporary, flags, 0o600, dir_fd=directory_fd)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(
+                temporary, filename,
+                src_dir_fd=directory_fd, dst_dir_fd=directory_fd,
+            )
+        except BaseException:
+            try:
+                os.unlink(temporary, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            raise
 
     return {
-        "path": path.relative_to(workspace_root(settings)).as_posix(),
+        "path": relative,
         "chars_written": len(text),
     }
-
 
 def workspace_list(user_text=""):
     try:
