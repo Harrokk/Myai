@@ -133,3 +133,107 @@ def test_review_never_accepts_verification_symlink(tmp_path):
     assert "kunde inte läsas" in review["verification"]["error"]
 
 
+
+
+def test_review_rejects_swapped_active_file_symlink(tmp_path, monkeypatch):
+    import os
+    import pytest
+
+    project, workspace = make_workspace(tmp_path)
+    original = project / "core" / "example.py"
+    secret = tmp_path / "secret.py"
+    secret.write_text("DO_NOT_DISCLOSE = True\n", encoding="utf-8")
+    real_open = os.open
+    swaps = []
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        if path == "example.py" and kwargs.get("dir_fd") is not None:
+            original.unlink()
+            original.symlink_to(secret)
+            swaps.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_review.os.open", swap_before_open)
+    with pytest.raises(OSError):
+        build_selfdev_review(workspace)
+
+    assert swaps == [True]
+    assert secret.read_text(encoding="utf-8") == "DO_NOT_DISCLOSE = True\n"
+
+
+def test_review_rejects_swapped_parent_symlink(tmp_path, monkeypatch):
+    import os
+    import pytest
+
+    project, workspace = make_workspace(tmp_path)
+    original = project / "core"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "example.py").write_text("PRIVATE = 1\n", encoding="utf-8")
+    real_open = os.open
+    swapped = []
+
+    def swap_before_directory_open(path, flags, *args, **kwargs):
+        if path == "core" and kwargs.get("dir_fd") is not None:
+            original.rename(project / "core-original")
+            original.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_review.os.open", swap_before_directory_open)
+    with pytest.raises(OSError):
+        build_selfdev_review(workspace)
+    assert swapped == [True]
+    assert (outside / "example.py").read_text(encoding="utf-8") == "PRIVATE = 1\n"
+
+
+def test_review_rejects_oversized_changed_file(tmp_path):
+    import pytest
+
+    _, workspace = make_workspace(tmp_path)
+    workspace.write_text("core/example.py", "X" * (2 * 1024 * 1024 + 1))
+
+    with pytest.raises(ValueError, match="filstorleksgräns"):
+        build_selfdev_review(workspace)
+
+
+def test_review_rejects_total_source_budget_before_diff(tmp_path, monkeypatch):
+    import pytest
+    from core import selfdev_review as module
+
+    _, workspace = make_workspace(tmp_path)
+
+    def synthetic_read(*args, **kwargs):
+        return [], 5 * 1024 * 1024
+
+    monkeypatch.setattr(module, "_read_lines", synthetic_read)
+    with pytest.raises(ValueError, match="totala datagräns"):
+        build_selfdev_review(workspace)
+
+
+def test_review_refuses_expected_changed_file_disappearing_after_manifest(
+    tmp_path, monkeypatch
+):
+    import os
+    import pytest
+
+    project, workspace = make_workspace(tmp_path)
+    target = project / "core" / "example.py"
+    real_open = os.open
+
+    def disappear_before_review_open(path, flags, *args, **kwargs):
+        if path == "example.py" and kwargs.get("dir_fd") is not None:
+            target.unlink()
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr("core.selfdev_review.os.open", disappear_before_review_open)
+    with pytest.raises(FileNotFoundError):
+        build_selfdev_review(workspace)
+
+
+def test_review_rejects_invalid_diff_limit(tmp_path):
+    import pytest
+
+    _, workspace = make_workspace(tmp_path)
+    with pytest.raises(ValueError, match="max_diff_chars"):
+        build_selfdev_review(workspace, max_diff_chars=0)
