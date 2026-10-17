@@ -4083,3 +4083,106 @@ def test_recovery_rejects_mutated_verified_snapshot_at_copy_time(
 
     assert corrupted == [True]
     assert target.read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_legacy_migration_rejects_active_parent_swapped_after_target_check(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_promote as module
+
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    original_target = active._safe_project_target
+    core = project / "core"
+    external = tmp_path / "external-core"
+    external.mkdir()
+    (external / "example.py").write_text("EXTERNAL = True\n", encoding="utf-8")
+    swapped = [False]
+
+    def swap_after_target_validation(relative):
+        target = original_target(relative)
+        if not swapped[0] and str(relative) == "core/example.py":
+            core.rename(project / "core-original")
+            core.symlink_to(external, target_is_directory=True)
+            swapped[0] = True
+        return target
+
+    monkeypatch.setattr(active, "_safe_project_target", swap_after_target_validation)
+    with pytest.raises(RuntimeError, match="Aktiv kod skiljer"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert swapped == [True]
+    assert (external / "example.py").read_text(encoding="utf-8") == (
+        "EXTERNAL = True\n"
+    )
+    assert path.read_bytes() == original
+
+
+def test_legacy_migration_rejects_active_file_symlink_after_target_check(
+    tmp_path, monkeypatch
+):
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    original_target = active._safe_project_target
+    target = project / "core" / "example.py"
+    external = tmp_path / "external-active.py"
+    external.write_text("EXTERNAL = True\n", encoding="utf-8")
+    swapped = [False]
+
+    def replace_checked_file(relative):
+        checked = original_target(relative)
+        if not swapped[0] and str(relative) == "core/example.py":
+            target.rename(target.with_name("example-old.py"))
+            target.symlink_to(external)
+            swapped[0] = True
+        return checked
+
+    monkeypatch.setattr(active, "_safe_project_target", replace_checked_file)
+    with pytest.raises(RuntimeError, match="Aktiv kod skiljer"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert swapped == [True]
+    assert external.read_text(encoding="utf-8") == "EXTERNAL = True\n"
+    assert path.read_bytes() == original
+
+
+def test_legacy_migration_refuses_hardlinked_active_target(tmp_path):
+    import os
+
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    target = project / "core" / "example.py"
+    alias = tmp_path / "active-hardlink.py"
+    os.link(target, alias)
+    with pytest.raises(RuntimeError, match="Aktiv kod skiljer"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert path.read_bytes() == original
+    assert alias.read_bytes() == target.read_bytes()
+
+
+def test_legacy_migration_refuses_mutated_active_inode_during_hash(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_workspace as workspace_module
+
+    project, workspace, active, path, original = _legacy_completed_record(tmp_path)
+    target = project / "core" / "example.py"
+    real_hash = workspace_module._hash_pinned_regular_file
+    changed = [False]
+
+    def mutate_during_hash(fd):
+        if not changed[0]:
+            target.write_text("MODIFIED = True\n", encoding="utf-8")
+            changed[0] = True
+        return real_hash(fd)
+
+    monkeypatch.setattr(
+        workspace_module, "_hash_pinned_regular_file", mutate_during_hash
+    )
+    with pytest.raises(RuntimeError, match="Aktiv kod skiljer"):
+        active.migrate_legacy_completed(
+            "promo1", "MIGRATE LEGACY session1 promo1"
+        )
+    assert changed == [True]
+    assert path.read_bytes() == original
