@@ -302,7 +302,7 @@ def test_nonce_factory_fails_closed_on_noncanonical_nonce(tmp_path, bad_nonce):
 
 @pytest.mark.parametrize("bad", [
     None, [], set(), frozenset({"a" * 31}), frozenset({"F" * 32}),
-    frozenset({123}), frozenset({"f" * 32} * 257),
+    frozenset({123}), frozenset({f"{i:032x}" for i in range(257)}),
 ])
 def test_untrusted_external_checkpoint_never_accepted(tmp_path, bad):
     db = connection(tmp_path / "checkpoint.db")
