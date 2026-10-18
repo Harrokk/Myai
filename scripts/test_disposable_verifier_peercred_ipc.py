@@ -155,7 +155,10 @@ def _client(listener, address, private, uid, intent, response_fd):
         }
         if intent == "invalid":
             data["passed"] = True  # Untrusted status claims MUST be rejected.
-        send_frame(client, json.dumps(data, separators=(",", ":")).encode())
+        # The server rejects unauthorized UIDs BEFORE reading request bytes.
+        # Do not write to a socket already closed by the peer credential gate.
+        if intent != "unauthorized":
+            send_frame(client, json.dumps(data, separators=(",", ":")).encode())
         response = json.loads(receive_frame(client))
     expected = {
         "unauthorized": "peer_denied",
