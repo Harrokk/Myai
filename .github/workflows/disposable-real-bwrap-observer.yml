@@ -71,7 +71,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MYAI_BWRAP_CHECKOUT"
-          "$MYAI_BWRAP_CHECKOUT/venv/bin/python" -B \
+          PYTHONPATH="$MYAI_BWRAP_CHECKOUT" \
+            "$MYAI_BWRAP_CHECKOUT/venv/bin/python" -B \
             scripts/test_hosted_real_bwrap_observer.py
 
       - name: Remove temporary checkout and ephemeral test keys
