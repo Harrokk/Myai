@@ -749,6 +749,150 @@ def _atomic_write_record(path, record):
             raise
 
 
+def _private_selfdev_directory_for_workspace(workspace, *, create=False):
+    """Validate (and optionally create) the private directory via dirfds.
+
+    Avoid resolving mutable parent pathnames separately for mkdir, stat
+    and ownership checks. Only the trusted project-root spelling is
+    returned; callers performing I/O must independently pin their FDs.
+    """
+    runtime = workspace.project_root / "runtime"
+    directory = runtime / "selfdev"
+    directory_flags = (
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+
+    try:
+        with _pinned_parent(directory, create=create) as (
+            runtime_fd, name
+        ):
+            runtime_info = os.fstat(runtime_fd)
+            if (
+                not stat.S_ISDIR(runtime_info.st_mode)
+                or runtime_info.st_uid != os.geteuid()
+                or runtime_info.st_mode & 0o022
+            ):
+                raise PermissionError(
+                    "Selfdev-katalogen har osäkra behörigheter."
+                )
+
+            if create:
+                try:
+                    os.mkdir(name, mode=0o700, dir_fd=runtime_fd)
+                except FileExistsError:
+                    pass
+
+            selfdev_fd = os.open(
+                name, directory_flags, dir_fd=runtime_fd
+            )
+            try:
+                private_info = os.fstat(selfdev_fd)
+                if (
+                    not stat.S_ISDIR(private_info.st_mode)
+                    or private_info.st_uid != os.geteuid()
+                    or private_info.st_mode & 0o022
+                ):
+                    raise PermissionError(
+                        "Selfdev-katalogen har osäkra behörigheter."
+                    )
+                current = os.stat(
+                    name, dir_fd=runtime_fd, follow_symlinks=False
+                )
+                if (
+                    not stat.S_ISDIR(current.st_mode)
+                    or current.st_dev != private_info.st_dev
+                    or current.st_ino != private_info.st_ino
+                ):
+                    raise PermissionError(
+                        "Selfdev-katalogen ändrades under kontroll."
+                    )
+            finally:
+                os.close(selfdev_fd)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise PermissionError(
+                "Selfdev-katalogen får inte vara symlink."
+            ) from error
+        raise
+    return directory
+
+
+@contextmanager
+def _project_mutation_lock_for_workspace(workspace):
+    """Nonblocking OS lock shared by all selfdev sessions for a project.
+
+    The kernel releases advisory locks if the process crashes. Other
+    non-cooperating filesystem writers are outside this protection.
+    """
+    lock_dir = _private_selfdev_directory_for_workspace(workspace, create=True)
+    lock_path = lock_dir / ".promotion.lock"
+    flags = (
+        os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    flags |= getattr(os, "O_BINARY", 0)
+    # A symlink swap of runtime/selfdev between the preflight and this
+    # open must not select an external lock. Pin every parent component.
+    with _pinned_parent(lock_path) as (directory_fd, lock_name):
+        parent = os.fstat(directory_fd)
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or parent.st_mode & 0o022
+        ):
+            raise PermissionError(
+                "Selfdev-katalogen har osäkra behörigheter."
+            )
+        descriptor = os.open(
+            lock_name, flags, 0o600, dir_fd=directory_fd
+        )
+    acquired = False
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or (os.name == "posix" and (
+                metadata.st_uid != os.geteuid()
+                or (metadata.st_mode & 0o077)
+            ))
+        ):
+            raise PermissionError("Osäker selfdev-projektlåsfil.")
+        if fcntl is not None:
+            try:
+                fcntl.flock(
+                    descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB
+                )
+            except BlockingIOError as error:
+                raise RuntimeError(
+                    "En annan selfdev-uppdatering pågår i projektet."
+                ) from error
+        elif msvcrt is not None:
+            try:
+                if os.fstat(descriptor).st_size == 0:
+                    os.write(descriptor, b"0")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            except OSError as error:
+                raise RuntimeError(
+                    "En annan selfdev-uppdatering pågår i projektet."
+                ) from error
+        else:
+            raise RuntimeError("Operativsystemet saknar säkert selfdev-lås.")
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            if fcntl is not None:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            else:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        os.close(descriptor)
+
+
 class SelfDevPromotionManager:
     def __init__(
         self,
@@ -796,146 +940,16 @@ class SelfDevPromotionManager:
         )
 
     def _private_selfdev_directory(self, *, create=False):
-        """Validate (and optionally create) the private directory via dirfds.
-
-        Avoid resolving mutable parent pathnames separately for mkdir, stat
-        and ownership checks. Only the trusted project-root spelling is
-        returned; callers performing I/O must independently pin their FDs.
-        """
-        runtime = self.workspace.project_root / "runtime"
-        directory = runtime / "selfdev"
-        directory_flags = (
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-            | getattr(os, "O_CLOEXEC", 0)
+        """Compatibility wrapper using the shared project security boundary."""
+        return _private_selfdev_directory_for_workspace(
+            self.workspace, create=create
         )
-
-        try:
-            with _pinned_parent(directory, create=create) as (
-                runtime_fd, name
-            ):
-                runtime_info = os.fstat(runtime_fd)
-                if (
-                    not stat.S_ISDIR(runtime_info.st_mode)
-                    or runtime_info.st_uid != os.geteuid()
-                    or runtime_info.st_mode & 0o022
-                ):
-                    raise PermissionError(
-                        "Selfdev-katalogen har osäkra behörigheter."
-                    )
-
-                if create:
-                    try:
-                        os.mkdir(name, mode=0o700, dir_fd=runtime_fd)
-                    except FileExistsError:
-                        pass
-
-                selfdev_fd = os.open(
-                    name, directory_flags, dir_fd=runtime_fd
-                )
-                try:
-                    private_info = os.fstat(selfdev_fd)
-                    if (
-                        not stat.S_ISDIR(private_info.st_mode)
-                        or private_info.st_uid != os.geteuid()
-                        or private_info.st_mode & 0o022
-                    ):
-                        raise PermissionError(
-                            "Selfdev-katalogen har osäkra behörigheter."
-                        )
-                    current = os.stat(
-                        name, dir_fd=runtime_fd, follow_symlinks=False
-                    )
-                    if (
-                        not stat.S_ISDIR(current.st_mode)
-                        or current.st_dev != private_info.st_dev
-                        or current.st_ino != private_info.st_ino
-                    ):
-                        raise PermissionError(
-                            "Selfdev-katalogen ändrades under kontroll."
-                        )
-                finally:
-                    os.close(selfdev_fd)
-        except OSError as error:
-            if error.errno in (errno.ELOOP, errno.ENOTDIR):
-                raise PermissionError(
-                    "Selfdev-katalogen får inte vara symlink."
-                ) from error
-            raise
-        return directory
 
     @contextmanager
     def _project_mutation_lock(self):
-        """Nonblocking OS lock shared by all selfdev sessions for a project.
-
-        The kernel releases advisory locks if the process crashes. Other
-        non-cooperating filesystem writers are outside this protection.
-        """
-        lock_dir = self._private_selfdev_directory(create=True)
-        lock_path = lock_dir / ".promotion.lock"
-        flags = (
-            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
-            | getattr(os, "O_NONBLOCK", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-        )
-        flags |= getattr(os, "O_BINARY", 0)
-        # A symlink swap of runtime/selfdev between the preflight and this
-        # open must not select an external lock. Pin every parent component.
-        with _pinned_parent(lock_path) as (directory_fd, lock_name):
-            parent = os.fstat(directory_fd)
-            if (
-                not stat.S_ISDIR(parent.st_mode)
-                or parent.st_uid != os.geteuid()
-                or parent.st_mode & 0o022
-            ):
-                raise PermissionError(
-                    "Selfdev-katalogen har osäkra behörigheter."
-                )
-            descriptor = os.open(
-                lock_name, flags, 0o600, dir_fd=directory_fd
-            )
-        acquired = False
-        try:
-            metadata = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_nlink != 1
-                or (os.name == "posix" and (
-                    metadata.st_uid != os.geteuid()
-                    or (metadata.st_mode & 0o077)
-                ))
-            ):
-                raise PermissionError("Osäker selfdev-projektlåsfil.")
-            if fcntl is not None:
-                try:
-                    fcntl.flock(
-                        descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB
-                    )
-                except BlockingIOError as error:
-                    raise RuntimeError(
-                        "En annan selfdev-uppdatering pågår i projektet."
-                    ) from error
-            elif msvcrt is not None:
-                try:
-                    if os.fstat(descriptor).st_size == 0:
-                        os.write(descriptor, b"0")
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
-                except OSError as error:
-                    raise RuntimeError(
-                        "En annan selfdev-uppdatering pågår i projektet."
-                    ) from error
-            else:
-                raise RuntimeError("Operativsystemet saknar säkert selfdev-lås.")
-            acquired = True
+        """Share the exact lock inode with sandbox verification and rollback."""
+        with _project_mutation_lock_for_workspace(self.workspace):
             yield
-        finally:
-            if acquired:
-                if fcntl is not None:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
-                else:
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
-            os.close(descriptor)
 
     def _journal_integrity_key(self, *, create=False):
         """Read/publish the 32-byte project HMAC key under one pinned dirfd.

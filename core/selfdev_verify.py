@@ -296,6 +296,16 @@ class SelfDevVerifier:
         return commands
 
     def verify(self):
+        # The full verification (including invalidating its previous approval,
+        # executing sandbox checks, and publishing a new record) must hold
+        # the SAME project-wide OS lock used by promotion and rollback.
+        # Import lazily to keep verifier/manager module initialization separate.
+        from core.selfdev_promote import _project_mutation_lock_for_workspace
+
+        with _project_mutation_lock_for_workspace(self.workspace):
+            return self._verify_under_project_lock()
+
+    def _verify_under_project_lock(self):
         # A previous approval must not survive an unsuccessful *new*
         # verification attempt. Command construction and initial manifest
         # checks can raise before the ordinary result is persisted.
