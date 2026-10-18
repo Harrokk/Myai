@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import time
 
+from core.selfdev_bounded_runner import run_bounded
 from core.selfdev_workspace import (
     SelfDevWorkspace,
 )
@@ -73,12 +73,9 @@ class SelfDevVerifier:
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
         }
-        return subprocess.run(
+        return run_bounded(
             command,
-            capture_output=True,
-            text=True,
             timeout=timeout,
-            check=False,
             env=runner_environment,
         )
 
