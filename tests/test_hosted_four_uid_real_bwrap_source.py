@@ -96,7 +96,7 @@ def test_updater_ledger_and_unauthorized_clients():
     assert 'request["passed"] = True' in src
     assert "issue_inspection_challenge(" in src
     assert "consume_signed_inspection(" in src
-    assert "ledger.close()" in src
+    assert "db.close()" in src
     assert "reopened = sqlite3.connect(" in src
     assert "raise AssertionError(\"Replay after DB reopen accepted\")" in src
     assert "trusted_verifier_public_key=trusted_key" in src
