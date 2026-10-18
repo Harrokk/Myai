@@ -63,7 +63,7 @@ jobs:
             --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
             --cap-add SETUID --cap-add SETGID \
             --security-opt no-new-privileges \
-            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=64m \
             --mount "type=bind,src=$PWD/wheels,dst=/opt/wheels,readonly" \
             --mount "type=bind,src=$PWD/scripts/test_disposable_ed25519_observer.py,dst=/opt/demo.py,readonly" \
             --mount "type=bind,src=$PWD/core/selfdev_unix_peercred.py,dst=/opt/core/selfdev_unix_peercred.py,readonly" \
