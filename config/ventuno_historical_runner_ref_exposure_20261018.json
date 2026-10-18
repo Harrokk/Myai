@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "observed_on": "2026-10-18",
+  "scope": "Read-only GitHub branch source snapshot; NOT runner access, trigger execution or permission attestation",
+  "production_runner_access_policy_verified": false,
+  "historical_branch_current_execution_state_verified": false,
+  "production_release_authorized": false,
+  "snapshots": [
+    {
+      "branch": "dev/manual-audit-error-redaction-20261016",
+      "workflow": "ventuno-exception-privacy-manual-audit.yml",
+      "blob_sha": "c743b18a3e1c6f5e4cfcb556f5797dd63c9bd21f"
+    },
+    {
+      "branch": "dev/manual-audit-actions-sha-pinning-20261017",
+      "workflow": "ventuno-external-actions-pin-audit.yml",
+      "blob_sha": "c32d32d4ad3815f918922de13e5e7e1ff43c8e1e"
+    },
+    {
+      "branch": "dev/manual-audit-historical-device-gates-20261016",
+      "workflow": "ventuno-manual-audit-dependency-and-consent.yml",
+      "blob_sha": "548209900a36b6aa756d626e667930d882aa06a3"
+    },
+    {
+      "branch": "dev/manual-full-files-and-dns-ssrf-20261017",
+      "workflow": "ventuno-web-socket-ssrf-source-audit.yml",
+      "blob_sha": "5bcb4e24fd0880ec9844488e88a7e13cc9f72ba7"
+    },
+    {
+      "branch": "dev/ventuno-audit-source-closeout-20261016",
+      "workflow": "ventuno-final-source-revision-closeout.yml",
+      "blob_sha": "9f0ef1d59364c3a04f0b6fdcef874bf87820122b"
+    }
+  ]
+}
