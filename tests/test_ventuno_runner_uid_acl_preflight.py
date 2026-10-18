@@ -24,9 +24,8 @@ def good_systemd_bytes():
 
 def good_legacy_bytes(*, active="inactive", enabled="disabled", loaded="loaded"):
     return (
-        f"LoadState={loaded}\\nActiveState={active}\\nUnitFileState={enabled}\\n"
-    ).replace("\\\\n", "\\n").encode()
-
+        f"LoadState={loaded}\nActiveState={active}\nUnitFileState={enabled}\n"
+    ).encode()
 
 def sample():
     accounts = {
