@@ -1,0 +1,75 @@
+name: Disposable verifier Unix peer-credential security test
+on:
+  push:
+    branches: [dev/manual-audit-verifier-peercred-ipc-20261018]
+    paths:
+      - core/selfdev_unix_peercred.py
+      - scripts/test_disposable_verifier_peercred_ipc.py
+      - tests/test_selfdev_unix_peercred.py
+      - .github/workflows/disposable-verifier-peercred-ipc.yml
+      - docs/security/disposable-verifier-peercred-ipc.md
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-peercred:
+    name: Kernel SO_PEERCRED and fourth verifier UID (Docker only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Refuse non-hosted environment
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "x86_64"
+
+      - name: Fetch exact commit to GitHub temporary directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp="$(mktemp -d "$RUNNER_TEMP/myai-peercred-XXXXXXXX")"
+          chmod 700 "$temp"
+          echo "MYAI_PEERCRED_CHECKOUT=$temp" >> "$GITHUB_ENV"
+          git init -q "$temp"
+          git -C "$temp" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$temp" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$temp" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$temp" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run isolated true-UID Unix socket test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PEERCRED_CHECKOUT"
+          image="python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
+          docker pull "$image"
+          docker run --rm --network none --read-only \
+            --pids-limit 64 --memory 256m --cpus 1 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --mount "type=bind,src=$PWD/core/selfdev_unix_peercred.py,dst=/opt/peercred.py,readonly" \
+            --mount "type=bind,src=$PWD/scripts/test_disposable_verifier_peercred_ipc.py,dst=/opt/ipc-test.py,readonly" \
+            -e MYAI_DISPOSABLE_UID_TEST=yes \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            "$image" python /opt/ipc-test.py
+
+      - name: Delete temporary checkout only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_PEERCRED_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-peercred-*)
+              if [ -d "$MYAI_PEERCRED_CHECKOUT" ] && [ ! -L "$MYAI_PEERCRED_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_PEERCRED_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unrecognized path; refusing deletion" >&2; exit 2 ;;
+          esac
