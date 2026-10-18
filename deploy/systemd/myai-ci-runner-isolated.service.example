@@ -1,0 +1,29 @@
+# NOT A DEPLOYABLE SYSTEMD UNIT: review-only .example artifact.
+# Never copy to /etc/systemd/system or start/restart a service automatically.
+# This proposed identity deliberately cannot use VENTUNO audio/NPU devices.
+[Unit]
+Description=MyAI isolated GitHub source-only CI runner - REVIEW ONLY
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myai-ci
+Group=myai-ci
+WorkingDirectory=/var/lib/myai-ci-runner
+ExecStart=/var/lib/myai-ci-runner/runsvc.sh
+StateDirectory=myai-ci-runner
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+TasksMax=64
+Restart=no
