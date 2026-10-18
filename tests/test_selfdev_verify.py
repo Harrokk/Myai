@@ -1,3 +1,6 @@
+import json
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -491,37 +494,60 @@ def test_all_validation_commands_have_readonly_staging_mount(tmp_path):
 def test_default_verifier_runner_does_not_inherit_host_secrets(
     tmp_path, monkeypatch
 ):
-    from core import selfdev_verify as module
-
     monkeypatch.setenv("MYAI_SYNTHETIC_SECRET", "CANARY-DO-NOT-LEAK")
     monkeypatch.setenv("PYTHONPATH", str(tmp_path / "untrusted-import-path"))
     monkeypatch.setenv("LD_PRELOAD", str(tmp_path / "fake-library.so"))
-    subprocess_calls = []
-
-    def fake_subprocess_run(command, **kwargs):
-        subprocess_calls.append((command, kwargs))
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(module.subprocess, "run", fake_subprocess_run)
     result = SelfDevVerifier._default_runner(
-        ["/usr/bin/bwrap", "--version"], timeout=3
+        [sys.executable, "-c",
+         "import json, os; print(json.dumps(dict(os.environ)))"],
+        timeout=5,
     )
-
     assert result.returncode == 0
-    assert len(subprocess_calls) == 1
-    _, kwargs = subprocess_calls[0]
-    assert kwargs["timeout"] == 3
-    assert kwargs["check"] is False
-    assert kwargs["capture_output"] is True
-    assert kwargs["text"] is True
-    isolated_environment = kwargs["env"]
+    assert result.stderr == ""
+    isolated_environment = json.loads(result.stdout)
     assert isolated_environment["HOME"] == "/tmp"
     assert isolated_environment["LANG"] == "C.UTF-8"
     assert isolated_environment["PATH"].startswith("/usr/local/sbin:")
     assert "MYAI_SYNTHETIC_SECRET" not in isolated_environment
     assert "PYTHONPATH" not in isolated_environment
     assert "LD_PRELOAD" not in isolated_environment
-    assert "CANARY-DO-NOT-LEAK" not in repr(isolated_environment)
+    assert "CANARY-DO-NOT-LEAK" not in result.stdout
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_default_runner_aborts_excessive_child_output(stream):
+    from core.selfdev_bounded_runner import run_bounded
+    command = [
+        sys.executable, "-c",
+        "import sys;sys." + stream + ".write('X' * 100000)",
+    ]
+    with pytest.raises(RuntimeError, match="överskred säkerhetsgränsen"):
+        run_bounded(
+            command, timeout=5,
+            env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+            max_output_bytes=2048,
+        )
+
+
+def test_default_runner_preserves_bounded_stdout_stderr():
+    result = SelfDevVerifier._default_runner(
+        [sys.executable, "-c",
+         "import sys;print('OUT');print('ERR', file=sys.stderr)"],
+        timeout=5,
+    )
+    assert result.returncode == 0
+    assert result.stdout == "OUT\\n"
+    assert result.stderr == "ERR\\n"
+
+
+def test_default_runner_kills_timed_out_process():
+    from core.selfdev_bounded_runner import run_bounded
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_bounded(
+            [sys.executable, "-c", "import time;time.sleep(20)"],
+            timeout=0.2,
+            env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+        )
 
 
 def test_sandbox_command_reintroduces_only_explicit_env_after_clearenv(
