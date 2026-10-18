@@ -214,6 +214,10 @@ def _stage_source_files(project_root, workspace_root, *, target_dir_fd=None):
                     raise PermissionError(
                         "Källfilen ändrades till en specialfil."
                     )
+                if before.st_nlink != 1:
+                    raise PermissionError(
+                        "Selfdev-källfilen har otillåtna hårdlänkar."
+                    )
                 target_file = os.open(
                     name, create_flags, 0o600, dir_fd=target_fd
                 )
@@ -241,6 +245,7 @@ def _stage_source_files(project_root, workspace_root, *, target_dir_fd=None):
                         or before.st_size != after.st_size
                         or before.st_mtime_ns != after.st_mtime_ns
                         or before.st_ctime_ns != after.st_ctime_ns
+                        or after.st_nlink != 1
                     ):
                         raise RuntimeError(
                             "Källfilen ändrades under selfdev-kopieringen."
@@ -312,6 +317,10 @@ def _hash_pinned_regular_file(file_fd):
     before = os.fstat(file_fd)
     if not stat.S_ISREG(before.st_mode):
         raise PermissionError("Selfdev-kontroll kräver en vanlig källfil.")
+    if before.st_nlink != 1:
+        raise PermissionError(
+            "Selfdev-kontroll avvisar källfil med hårdlänkar."
+        )
 
     digest = hashlib.sha256()
     counted = 0
@@ -330,6 +339,7 @@ def _hash_pinned_regular_file(file_fd):
         or before.st_size != after.st_size
         or before.st_mtime_ns != after.st_mtime_ns
         or before.st_ctime_ns != after.st_ctime_ns
+        or after.st_nlink != 1
     ):
         raise RuntimeError("Selfdev-källfilen ändrades under hashkontrollen.")
     return digest.hexdigest()
