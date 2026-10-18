@@ -19,6 +19,8 @@ def _voice_stub(monkeypatch):
 def test_source_dependencies_policy_and_explicit_unsafe_release_flags():
     report = dep.inspect()
     assert report["source_policy_checked"] is True
+    assert report["status"] == "source-dependency-policy-checked-production-blocked"
+    assert "release-unlocked" not in report["status"]
     assert report["patched_http_minimums"] is True
     assert report["hashed_arm64_voice_wheels"] == 28
     assert report["installed_versions_examined"] is False
