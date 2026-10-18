@@ -61,19 +61,20 @@ jobs:
           if [ -n "$MYAI_AUDIT_SCRATCH" ]; then rm -rf -- "$MYAI_AUDIT_SCRATCH"; fi
           rm -rf -- "$RUNNER_TEMP/myai-source-review-venv"
   arm64-source-audit:
-    name: ARM64 exact-tree structural replay ONLY
+    name: GitHub-hosted ARM64 exact-tree structural replay ONLY
     needs: hosted-source-audit
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 4
     steps:
-      - name: Fetch exact audit SHA outside installed production tree
+      - name: Fetch exact audit SHA into disposable hosted runner workspace
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
           test "$(uname -m)" = "aarch64"
-          test "$(id -un)" = "arduino"
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
           scratch="$(mktemp -d "$RUNNER_TEMP/myai-two-pass-audit.XXXXXX")"
           chmod 700 "$scratch"
           echo "MYAI_TWO_PASS_SCRATCH=$scratch" >> "$GITHUB_ENV"
@@ -84,7 +85,7 @@ jobs:
           git -c credential.helper= checkout --quiet --detach FETCH_HEAD
           git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Run source-only AST and workflow audit; no model or equipment opened
+      - name: Run hosted ARM64 source-only AST and workflow audit
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
@@ -93,10 +94,8 @@ jobs:
           set -euo pipefail
           cd "$MYAI_TWO_PASS_SCRATCH"
           /usr/bin/python3 -B -m scripts.ventuno_deep_source_audit
-          # Inspect the installed Python environment's OPTIONAL voice
-          # import availability; never import providers or open ALSA.
-          /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_voice_readiness
-          echo "Python package specs and ALSA nodes only: no audio or model execution."
+          /usr/bin/python3 -B -m scripts.static_repository_audit
+          echo "Hosted source-only audit; no VENTUNO hardware, services or installed environment accessed."
       - name: Delete temporary exact-commit checkout
         if: always()
         shell: bash
