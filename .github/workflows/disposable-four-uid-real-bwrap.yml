@@ -54,12 +54,30 @@ jobs:
           test -x /usr/bin/python3
           # NEVER change AppArmor, kernel userns rules or fallback to host tests.
 
-      - name: Install test-only cryptography in temporary hosted venv
+      - name: Stage only public test modules in an accessible temporary directory
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m venv "$MYAI_FOUR_UID_CHECKOUT/venv"
-          "$MYAI_FOUR_UID_CHECKOUT/venv/bin/python" -m pip install \
+          public="$(mktemp -d /tmp/myai-fouruid-public-XXXXXXXX)"
+          chmod 0755 "$public"
+          echo "MYAI_FOUR_UID_PUBLIC=$public" >> "$GITHUB_ENV"
+          mkdir -p "$public/core" "$public/scripts"
+          chmod 0755 "$public/core" "$public/scripts"
+          for module in selfdev_bounded_runner.py selfdev_bwrap_observation.py \
+              selfdev_unix_peercred.py selfdev_signed_evidence.py \
+              selfdev_attestation_replay.py; do
+            cp "$MYAI_FOUR_UID_CHECKOUT/core/$module" "$public/core/$module"
+            chmod 0644 "$public/core/$module"
+          done
+          if [ -f "$MYAI_FOUR_UID_CHECKOUT/core/__init__.py" ]; then
+            cp "$MYAI_FOUR_UID_CHECKOUT/core/__init__.py" "$public/core/__init__.py"
+            chmod 0644 "$public/core/__init__.py"
+          fi
+          cp "$MYAI_FOUR_UID_CHECKOUT/scripts/test_hosted_four_uid_real_bwrap.py" \
+            "$public/scripts/test_hosted_four_uid_real_bwrap.py"
+          chmod 0644 "$public/scripts/test_hosted_four_uid_real_bwrap.py"
+          python3 -m venv "$public/venv"
+          "$public/venv/bin/python" -m pip install \
             --disable-pip-version-check --only-binary=:all: \
             "cryptography==45.0.7"
 
@@ -67,20 +85,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$MYAI_FOUR_UID_CHECKOUT"
-          # The disposable checkout contains ONLY publicly readable source
-          # and disposable test venv. Distinct Linux UIDs must be able to
-          # load Python/cryptography after dropping privileges. This does
-          # NOT expose the separately UID-owned private verifier/test ledger.
-          chmod 0755 "$MYAI_FOUR_UID_CHECKOUT"
+          cd "$MYAI_FOUR_UID_PUBLIC"
+          # Only public reviewed test modules/venv are accessible to all UIDs.
+          # The exact-SHA source checkout stays private to the hosted runner.
+          # Verifier-owned private fixture and updater ledger are separate.
           # Only temporary hosted VM root may prepare simulated Unix UIDs.
           # The verifier and updater immediately drop to their dedicated IDs.
           sudo env \
             MYAI_HOSTED_FOUR_UID_BWRAP=yes \
             MYAI_RUNNER_ENVIRONMENT=github-hosted \
             PYTHONDONTWRITEBYTECODE=1 \
-            PYTHONPATH="$MYAI_FOUR_UID_CHECKOUT" \
-            "$MYAI_FOUR_UID_CHECKOUT/venv/bin/python" -B \
+            PYTHONPATH="$MYAI_FOUR_UID_PUBLIC" \
+            "$MYAI_FOUR_UID_PUBLIC/venv/bin/python" -B \
             scripts/test_hosted_four_uid_real_bwrap.py
 
       - name: Remove only this disposable checkout
@@ -96,4 +112,13 @@ jobs:
               ;;
             "") ;;
             *) echo "Unsafe temporary checkout path; refusing removal" >&2; exit 2 ;;
+          esac
+          case "${MYAI_FOUR_UID_PUBLIC:-}" in
+            /tmp/myai-fouruid-public-*)
+              if [ -d "$MYAI_FOUR_UID_PUBLIC" ] && [ ! -L "$MYAI_FOUR_UID_PUBLIC" ]; then
+                sudo rm -rf -- "$MYAI_FOUR_UID_PUBLIC"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected public test path; refusing removal" >&2; exit 2 ;;
           esac
