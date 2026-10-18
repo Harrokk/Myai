@@ -166,13 +166,16 @@ def consume_operator_review_once(
         raise ValueError("Malformed independent consumed-challenge checkpoint")
     if expected_challenge in independently_consumed_nonces:
         raise ValueError("External checkpoint marks challenge consumed")
-    # Validate protected caller context, not any submitted JSON claims.
-    _expected_context(
-        trusted_verifier_anchor=trusted_verifier_anchor,
-        trusted_operator_public_key=trusted_operator_public_key,
-        device_id=expected_device_id, rotation_sha256="0" * 64,
-        proposed_key_sha256="f" * 64, now_unix=now_unix,
-    )
+    # Independently validate the caller's current anchor and operator key;
+    # never choose a proposed key from untrusted request JSON.
+    old_key_fp = _validate_anchor(trusted_verifier_anchor)
+    operator_key_fp = key_fingerprint(trusted_operator_public_key)
+    if operator_key_fp == old_key_fp:
+        raise ValueError("Operator and verifier roles must be distinct")
+    if (type(expected_device_id) is not str
+            or DEVICE.fullmatch(expected_device_id) is None
+            or type(now_unix) is not int or now_unix < 0):
+        raise ValueError("Invalid trusted device or clock")
     _begin(db)
     try:
         row = db.execute(
@@ -186,6 +189,9 @@ def consume_operator_review_once(
             raise ValueError("Operator challenge missing or already consumed")
         device, old_epoch, old_fp, new_fp, rotation_fp, operator_fp, issued, expiry, _ = row
         if (device != expected_device_id
+                or new_fp == old_key_fp
+                or new_fp == operator_key_fp
+                or new_fp in trusted_verifier_anchor.revoked_fingerprints
                 or old_epoch != trusted_verifier_anchor.epoch
                 or old_fp != key_fingerprint(trusted_verifier_anchor.public_key)
                 or operator_fp != key_fingerprint(trusted_operator_public_key)
