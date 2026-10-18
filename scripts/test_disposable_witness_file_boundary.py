@@ -96,18 +96,24 @@ def unauthorized_access(private_dir, uid):
     drop(uid)
     final = private_dir / "signed-head.json"
     denied = 0
-    for operation in (
-        lambda: final.read_bytes(),
-        lambda: final.write_bytes(b"FORGED"),
-        lambda: (private_dir / "pending-head").write_bytes(b"FORGED"),
-        lambda: os.replace("/tmp/does-not-exist", final),
-    ):
-        try:
-            operation()
-        except PermissionError:
-            denied += 1
-        else:
-            raise AssertionError("Other UID accessed witness private storage")
+    fd, source_path = tempfile.mkstemp(prefix="myai-witness-attack-", dir="/tmp")
+    os.close(fd)
+    try:
+        for operation in (
+            lambda: final.read_bytes(),
+            lambda: final.write_bytes(b"FORGED"),
+            lambda: (private_dir / "pending-head").write_bytes(b"FORGED"),
+            lambda: os.replace(source_path, final),
+        ):
+            try:
+                operation()
+            except PermissionError:
+                denied += 1
+            else:
+                raise AssertionError("Other UID accessed witness private storage")
+    finally:
+        if Path(source_path).exists():
+            Path(source_path).unlink()
     return {"uid": os.geteuid(), "permission_denials": denied}
 
 
