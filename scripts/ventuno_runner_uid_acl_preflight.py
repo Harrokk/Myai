@@ -19,7 +19,9 @@ import pwd
 import stat
 import subprocess
 
-UNIT = "actions.runner.Harrokk-Myai.ventuno-q.service"
+LEGACY_UNIT = "actions.runner.Harrokk-Myai.ventuno-q.service"
+UNIT = "myai-ci-runner-isolated.service"
+LEGACY_PROPS = ("LoadState", "ActiveState", "UnitFileState")
 PROPS = (
     "User", "Group", "SupplementaryGroups", "DynamicUser", "NoNewPrivileges",
     "PrivateDevices", "ProtectHome", "ProtectSystem", "UMask", "StateDirectory",
@@ -40,7 +42,7 @@ FIXED_PATHS = (
 MAX_SYSTEMD_BYTES = 4096
 
 
-def parse_systemd_properties(raw):
+def parse_systemd_properties(raw, *, expected=PROPS):
     """Strict bounded property map; duplicate or extra keys fail closed."""
     if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_SYSTEMD_BYTES:
         return None
@@ -50,12 +52,12 @@ def parse_systemd_properties(raw):
             if "=" not in line:
                 return None
             key, value = line.split("=", 1)
-            if key not in PROPS or key in result or any(
+            if key not in expected or key in result or any(
                 ord(ch) < 32 or ord(ch) > 126 for ch in value
             ):
                 return None
             result[key] = value
-        return result if set(result) == set(PROPS) else None
+        return result if set(result) == set(expected) else None
     except UnicodeError:
         return None
 
@@ -79,7 +81,7 @@ def collect_readonly(*, executor=subprocess.run, user_lookup=pwd.getpwnam,
                      group_members=os.getgrouplist, group_lookup=grp.getgrnam,
                      stat_fn=os.lstat):
     """Explicit operator-invoked inspection; no arbitrary paths or shell."""
-    snapshot = {"properties": None, "accounts": {}, "sensitive_gids": [],
+    snapshot = {"properties": None, "legacy_properties": None, "accounts": {}, "sensitive_gids": [],
                 "paths": {}}
     try:
         result = executor(
@@ -90,6 +92,19 @@ def collect_readonly(*, executor=subprocess.run, user_lookup=pwd.getpwnam,
         )
         if result.returncode == 0:
             snapshot["properties"] = parse_systemd_properties(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    try:
+        old = executor(
+            ["/usr/bin/systemctl", "show", LEGACY_UNIT, "--no-pager",
+             "--property=" + ",".join(LEGACY_PROPS)],
+            capture_output=True, check=False, timeout=5,
+            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"},
+        )
+        if old.returncode == 0:
+            snapshot["legacy_properties"] = parse_systemd_properties(
+                old.stdout, expected=LEGACY_PROPS
+            )
     except (OSError, subprocess.TimeoutExpired, ValueError):
         pass
     for user in ACCOUNTS:
@@ -146,6 +161,20 @@ def evaluate(snapshot):
     properties_valid = (
         isinstance(properties, dict) and set(properties) == set(PROPS)
         and all(type(v) is str and len(v) <= 128 for v in properties.values())
+    )
+    legacy = snapshot.get("legacy_properties")
+    legacy_valid = (
+        isinstance(legacy, dict) and set(legacy) == set(LEGACY_PROPS)
+        and all(type(v) is str and len(v) <= 128 for v in legacy.values())
+    )
+    legacy_quarantined = bool(
+        legacy_valid and legacy["ActiveState"] == "inactive"
+        and (
+            (legacy["LoadState"] == "loaded"
+             and legacy["UnitFileState"] in {"disabled", "masked"})
+            or (legacy["LoadState"] == "not-found"
+                and legacy["UnitFileState"] in {"", "not-found"})
+        )
     )
     account_map = snapshot.get("accounts")
     valid_accounts = (
@@ -206,10 +235,10 @@ def evaluate(snapshot):
             and state_dir["mode"] == 0o700
         )
     metadata_complete = bool(
-        properties_valid and valid_accounts and valid_sensitive and valid_paths
+        properties_valid and legacy_valid and valid_accounts and valid_sensitive and valid_paths
     )
     candidate_ok = bool(
-        metadata_complete and uid_ok and unit_ok and source_dac_denied
+        metadata_complete and legacy_quarantined and uid_ok and unit_ok and source_dac_denied
         and runner_state_private
     )
     return {
@@ -218,6 +247,7 @@ def evaluate(snapshot):
         "bounded_source_metadata_complete": metadata_complete,
         "distinct_account_and_group_candidate": uid_ok,
         "expected_hardened_unit_properties": bool(unit_ok),
+        "legacy_runner_unit_inactive_disabled_candidate": bool(legacy_quarantined),
         "source_directories_not_dac_writable_by_ci": bool(source_dac_denied),
         "runner_state_private_dac_candidate": bool(runner_state_private),
         "preliminary_posix_dac_checks_passed": candidate_ok,
