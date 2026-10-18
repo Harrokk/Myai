@@ -1,4 +1,4 @@
-name: VENTUNO unattended full static repository audit (no device IO)
+name: MyAI hosted ARM64 full static repository audit (no VENTUNO access)
 on:
   push:
     branches: [dev/unattended-audit-20261014]
@@ -14,16 +14,17 @@ concurrency:
 jobs:
   static-audit:
     name: Syntax, configs, workflow safety and security patterns
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
-      - name: Stage exact commit only in disposable runner temp
+      - name: Stage exact commit on disposable hosted ARM64 runner
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
-          test "$(id -un)" = arduino
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
           test "$(uname -m)" = aarch64
           test -n "${RUNNER_TEMP:-}"
           temp="$(mktemp -d "$RUNNER_TEMP/myai-audit-XXXXXXXX")"
@@ -42,7 +43,7 @@ jobs:
           set -euo pipefail
           cd "$MYAI_AUDIT_TEMP/source"
           python3 -B scripts/static_repository_audit.py
-      - name: Remove only the disposable checkout and verify production service states
+      - name: Remove only the disposable checkout (no production service access)
         if: always()
         shell: bash
         run: |
@@ -50,6 +51,4 @@ jobs:
           if [[ -n "${MYAI_AUDIT_TEMP:-}" && "$MYAI_AUDIT_TEMP" == "$RUNNER_TEMP/myai-audit-"* ]]; then
             rm -rf -- "$MYAI_AUDIT_TEMP"
           fi
-          systemctl is-active --quiet myai-ventuno.service
-          systemctl is-active --quiet myai-geniex.service
-          echo "Audit is source only; original running services not altered."
+          echo "Audit executed on a disposable GitHub-hosted ARM64 runner; no VENTUNO production services accessed."
