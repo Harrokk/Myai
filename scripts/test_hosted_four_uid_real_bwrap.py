@@ -301,7 +301,10 @@ def main():
         os.close(pubwrite)
         key = os.read(pubread, 32)
         os.close(pubread)
-        assert len(key) == 32
+        if len(key) != 32:
+            # Test-only error reporting; never print keys or private paths.
+            join(pid, report_pipe)
+            raise AssertionError("Verifier did not provision a test public key")
         answers = []
         for uid, intent in ATTEMPTS:
             child, data = spawn(probe, listener, address, private, database,
