@@ -8,17 +8,18 @@ permissions:
 
 jobs:
   nonphysical-manual-review-gates:
-    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
-    timeout-minutes: 7
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
     steps:
       - name: Exact commit into scratch, never installed MyAI
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
           test "$(uname -m)" = aarch64
-          test "$(id -un)" = arduino
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
           test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
           root="$(mktemp -d "$RUNNER_TEMP/myai-manual-audit-XXXXXXXX")"
           chmod 700 "$root"
@@ -30,6 +31,16 @@ jobs:
           git -C "$root" remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
           test "$(git -C "$root" rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Create isolated hosted ARM64 audit Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-privacy-audit-venv"
+          "$RUNNER_TEMP/myai-privacy-audit-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "pytest==8.3.5" "cryptography==45.0.7" \
+            -r "$MYAI_MANUAL_AUDIT_SCRATCH/requirements.txt"
+          echo "MYAI_AUDIT_PY=$RUNNER_TEMP/myai-privacy-audit-venv/bin/python" >> "$GITHUB_ENV"
       - name: Two independent source and dependency policy checks
         shell: bash
         env:
@@ -41,13 +52,13 @@ jobs:
           set -euo pipefail
           cd "$MYAI_MANUAL_AUDIT_SCRATCH"
           timeout --signal=TERM --kill-after=3s 120s \
-            /usr/bin/python3 -B -m scripts.ventuno_deep_source_audit
+            "$MYAI_AUDIT_PY" -B -m scripts.ventuno_deep_source_audit
           timeout --signal=TERM --kill-after=3s 60s \
-            /usr/bin/python3 -B -m scripts.ventuno_dependency_source_review
+            "$MYAI_AUDIT_PY" -B -m scripts.ventuno_dependency_source_review
           timeout --signal=TERM --kill-after=3s 30s \
-            /usr/bin/python3 -B -m scripts.ventuno_historical_consent_audit
+            "$MYAI_AUDIT_PY" -B -m scripts.ventuno_historical_consent_audit
           timeout --signal=TERM --kill-after=3s 90s \
-            /usr/bin/python3 -B -m scripts.ventuno_remote_revision_closeout
+            "$MYAI_AUDIT_PY" -B -m scripts.ventuno_remote_revision_closeout
           echo "Source review passed; production dependency lock and physical consent remain NO-GO."
 
       - name: Independent fake-only regression pass
@@ -61,7 +72,7 @@ jobs:
           set -euo pipefail
           cd "$MYAI_MANUAL_AUDIT_SCRATCH"
           timeout --signal=TERM --kill-after=3s 135s \
-            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q \
+            "$MYAI_AUDIT_PY" -B -m pytest -q \
               tests/test_ventuno_historical_consent_audit.py \
               tests/test_ventuno_dependency_source_review.py \
               tests/test_ventuno_remote_revision_closeout.py \
@@ -85,3 +96,4 @@ jobs:
             "") ;;
             *) echo "Unexpected scratch location, refusing cleanup" >&2; exit 2 ;;
           esac
+          rm -rf -- "$RUNNER_TEMP/myai-privacy-audit-venv"
