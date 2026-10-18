@@ -1,0 +1,75 @@
+name: Disposable external witness UID file-boundary test
+on:
+  push:
+    branches: [dev/manual-audit-independent-witness-checkpoint-20261018]
+    paths:
+      - core/selfdev_signed_witness_checkpoint.py
+      - tests/test_selfdev_signed_witness_checkpoint.py
+      - scripts/test_disposable_witness_file_boundary.py
+      - tests/test_disposable_witness_file_boundary_source.py
+      - .github/workflows/disposable-witness-file-boundary.yml
+      - docs/security/independent-witness-signed-checkpoint-audit.md
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-witness:
+    name: Independent witness UID read/write denial and test head replacement
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Require GitHub-hosted environment
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "x86_64"
+
+      - name: Retrieve exact commit into temporary working directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory="$(mktemp -d "$RUNNER_TEMP/myai-witness-XXXXXXXX")"
+          chmod 700 "$directory"
+          echo "MYAI_WITNESS_CHECKOUT=$directory" >> "$GITHUB_ENV"
+          git init -q "$directory"
+          git -C "$directory" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$directory" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$directory" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$directory" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Test separate witness file identity only within disposable Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_WITNESS_CHECKOUT"
+          image="python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
+          docker pull "$image"
+          docker run --rm --network none --read-only \
+            --pids-limit 64 --memory 256m --cpus 1 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --mount "type=bind,src=$PWD/scripts/test_disposable_witness_file_boundary.py,dst=/opt/test-witness.py,readonly" \
+            -e MYAI_DISPOSABLE_WITNESS_TEST=yes \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            "$image" python /opt/test-witness.py
+
+      - name: Remove exact temporary checkout only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_WITNESS_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-witness-*)
+              if [ -d "$MYAI_WITNESS_CHECKOUT" ] && [ ! -L "$MYAI_WITNESS_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_WITNESS_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Refusing to remove unexpected path" >&2; exit 2 ;;
+          esac
