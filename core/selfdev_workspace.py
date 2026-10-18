@@ -912,6 +912,21 @@ class SelfDevWorkspace:
         relative_path,
         content,
     ):
+        # Editing, verifying and promoting a session must all acquire the
+        # same nonblocking project-wide OS lock. Invalidate any old approval
+        # BEFORE changing a staged file, not after the final rename.
+        from core.selfdev_promote import _project_mutation_lock_for_workspace
+
+        with _project_mutation_lock_for_workspace(self):
+            self._candidate_path(relative_path)
+            self.invalidate_verification()
+            return self._write_text_under_project_lock(relative_path, content)
+
+    def _write_text_under_project_lock(
+        self,
+        relative_path,
+        content,
+    ):
         # Keep lexical allowlisting and existing selfdev preflight checks,
         # but do not rely on these path checks for subsequent file I/O.
         target = self._candidate_path(relative_path)
@@ -988,8 +1003,6 @@ class SelfDevWorkspace:
                 raise
         finally:
             os.close(directory_fd)
-
-        self.invalidate_verification()
 
         return target
 
