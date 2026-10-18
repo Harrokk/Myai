@@ -2952,7 +2952,9 @@ def test_promotion_lock_rejects_parent_symlink_swapped_before_open(
 
     assert swaps == [True]
     assert protected.read_text(encoding="utf-8") == "UNTOUCHED"
-    assert not (project / "runtime" / "selfdev-old" / ".promotion.lock").exists()
+    # Workspace writes now acquire and initialize the project lock earlier.
+    # Preserve that original inode rather than asserting it was never made.
+    assert (project / "runtime" / "selfdev-old" / ".promotion.lock").is_file()
 
 
 def test_promotion_lock_fd_stays_on_original_inode_after_parent_alias_swap(
@@ -2994,6 +2996,9 @@ def test_promotion_lock_rejects_existing_final_symlink(tmp_path):
     target = project / "runtime" / "selfdev" / ".promotion.lock"
     external = tmp_path / "private-lock"
     external.write_text("UNCHANGED", encoding="utf-8")
+    # Existing staging setup now creates the project lock; deliberately
+    # replace it to exercise this preexisting-final-symlink negative case.
+    target.unlink()
     target.symlink_to(external)
 
     with pytest.raises(OSError):
