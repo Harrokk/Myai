@@ -22,6 +22,12 @@ def good_systemd_bytes():
     return "".join(f"{key}={value}\n" for key, value in fields.items()).encode()
 
 
+def good_legacy_bytes(*, active="inactive", enabled="disabled", loaded="loaded"):
+    return (
+        f"LoadState={loaded}\\nActiveState={active}\\nUnitFileState={enabled}\\n"
+    ).replace("\\\\n", "\\n").encode()
+
+
 def sample():
     accounts = {
         "arduino": {"uid": 1000, "gid": 1000, "groups": [1000]},
@@ -39,6 +45,8 @@ def sample():
                             uid=1000, gid=1000, mode=0o750)
     return {
         "properties": gate.parse_systemd_properties(good_systemd_bytes()),
+        "legacy_properties": gate.parse_systemd_properties(
+            good_legacy_bytes(), expected=gate.LEGACY_PROPS),
         "accounts": accounts, "sensitive_gids": [4, 27, 29, 44, 999],
         "paths": paths,
     }
@@ -48,6 +56,7 @@ def test_complete_synthetic_fixture_only_approves_posix_preliminary_flags():
     result = gate.evaluate(sample())
     assert result["status"] == "candidate_local_dac_checks_passed_production_blocked"
     assert result["bounded_source_metadata_complete"] is True
+    assert result["legacy_runner_unit_inactive_disabled_candidate"] is True
     assert result["distinct_account_and_group_candidate"] is True
     assert result["source_directories_not_dac_writable_by_ci"] is True
     assert result["runner_state_private_dac_candidate"] is True
@@ -58,6 +67,27 @@ def test_complete_synthetic_fixture_only_approves_posix_preliminary_flags():
     assert result["production_deployment_authorized"] is False
     assert result["main_merge_authorized"] is False
     assert result["runner_service_or_files_modified"] is False
+
+
+@pytest.mark.parametrize("active,enabled,loaded", [
+    ("active", "disabled", "loaded"),
+    ("activating", "disabled", "loaded"),
+    ("inactive", "enabled", "loaded"),
+    ("inactive", "enabled-runtime", "loaded"),
+    ("inactive", "static", "loaded"),
+    ("inactive", "disabled", "bad-value"),
+])
+def test_old_runner_not_quarantined_blocks_even_hardened_new_runner(
+    active, enabled, loaded,
+):
+    snapshot = sample()
+    snapshot["legacy_properties"] = gate.parse_systemd_properties(
+        good_legacy_bytes(active=active, enabled=enabled, loaded=loaded),
+        expected=gate.LEGACY_PROPS)
+    result = gate.evaluate(snapshot)
+    assert result["legacy_runner_unit_inactive_disabled_candidate"] is False
+    assert result["preliminary_posix_dac_checks_passed"] is False
+    assert result["production_deployment_authorized"] is False
 
 
 @pytest.mark.parametrize("property,value", [
@@ -149,7 +179,9 @@ def test_bounded_collector_uses_fixed_readonly_systemctl_and_only_fixed_paths():
     calls = []
     def executor(command, **kwargs):
         calls.append(("command", command, kwargs))
-        return SimpleNamespace(returncode=0, stdout=good_systemd_bytes())
+        output = (good_legacy_bytes() if command[2] == gate.LEGACY_UNIT
+                  else good_systemd_bytes())
+        return SimpleNamespace(returncode=0, stdout=output)
     def passwd(name):
         assert name in gate.ACCOUNTS
         index = {"arduino": 1000, "myai-ci": 23003,
@@ -182,6 +214,10 @@ def test_bounded_collector_uses_fixed_readonly_systemctl_and_only_fixed_paths():
     assert args[2]["timeout"] == 5
     assert args[2]["check"] is False
     assert args[2]["env"] == {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
+    assert calls[1][1] == [
+        "/usr/bin/systemctl", "show", gate.LEGACY_UNIT, "--no-pager",
+        "--property=" + ",".join(gate.LEGACY_PROPS)
+    ]
     assert len([x for x in calls if x[0] == "stat"]) == len(gate.FIXED_PATHS)
     assert result["production_deployment_authorized"] is False
 
