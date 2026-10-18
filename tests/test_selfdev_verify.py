@@ -678,3 +678,80 @@ def test_reverification_replaces_prior_record_with_latest_actual_result(tmp_path
     assert result["stderr"] == "new failure"
     assert workspace.read_verification() == result
     assert "marker" not in result
+
+
+def test_verifier_holds_promotion_project_lock_during_all_sandbox_commands(tmp_path):
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    workspace = make_workspace(tmp_path)
+    promotion = SelfDevPromotionManager(
+        workspace, {"selfdev": {}}, audit_logger=object()
+    )
+    calls = []
+
+    def runner(command, *, timeout):
+        calls.append(command)
+        with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
+            with promotion._project_mutation_lock():
+                pytest.fail("Promotion must not enter while verification runs")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap", command_runner=runner
+    )
+    result = verifier.verify()
+
+    assert calls
+    assert result["passed"] is True
+    with promotion._project_mutation_lock():
+        pass  # Released after all verification commands and record write.
+
+
+def test_promotion_lock_refuses_concurrent_verification_before_invalidation(
+    tmp_path,
+):
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    workspace = make_workspace(tmp_path)
+    old = {"passed": True, "marker": "old approval"}
+    workspace.save_verification(old)
+    manager = SelfDevPromotionManager(
+        workspace, {"selfdev": {}}, audit_logger=object()
+    )
+    calls = []
+
+    def runner(command, *, timeout):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap", command_runner=runner
+    )
+    with manager._project_mutation_lock():
+        with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
+            verifier.verify()
+        assert workspace.read_verification() == old
+    assert calls == []
+
+    assert verifier.verify()["passed"] is True
+    assert calls
+    assert workspace.read_verification().get("marker") is None
+
+
+def test_verification_preflight_failure_releases_shared_promotion_lock(tmp_path):
+    from core.selfdev_promote import SelfDevPromotionManager
+
+    workspace = make_workspace(tmp_path)
+    workspace.save_verification({"passed": True, "marker": "stale"})
+    staged = workspace.workspace_root / "core" / "example.py"
+    staged.unlink()
+    verifier = SelfDevVerifier(workspace, bwrap_path="/usr/bin/bwrap")
+    manager = SelfDevPromotionManager(
+        workspace, {"selfdev": {}}, audit_logger=object()
+    )
+    with pytest.raises(RuntimeError, match="filradering"):
+        verifier.verify()
+    assert not workspace.verification_path.exists()
+
+    with manager._project_mutation_lock():
+        pass  # Exception did not leave the project permanently locked.
