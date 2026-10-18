@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$RUNNER_ENVIRONMENT" = "github-hosted"
-          test "$(uname -m)" = aarch64
+          test "$(uname -m)" = "aarch64"
           test -n "${RUNNER_TEMP:-}"
           temp="$(mktemp -d "$RUNNER_TEMP/myai-audit-XXXXXXXX")"
           echo "MYAI_AUDIT_TEMP=$temp" >> "$GITHUB_ENV"
