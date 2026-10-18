@@ -1,0 +1,73 @@
+name: Disposable three-UID source-only runner boundary test
+on:
+  push:
+    branches: [dev/manual-audit-three-uid-ci-boundary-20261018]
+    paths:
+      - scripts/test_disposable_ci_uid_boundary.py
+      - tests/test_disposable_ci_uid_boundary_source.py
+      - .github/workflows/disposable-three-uid-ci-boundary.yml
+      - docs/security/three-uid-disposable-ci-boundary.md
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-uid-dac:
+    name: Real Linux UID checks inside disposable GitHub-hosted Docker only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Refuse any non-hosted CI environment
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "x86_64"
+
+      - name: Fetch exact Git commit outside all production trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d "$RUNNER_TEMP/myai-three-uid-XXXXXXXX")"
+          chmod 700 "$root"
+          echo "MYAI_THREE_UID_CHECKOUT=$root" >> "$GITHUB_ENV"
+          git init -q "$root"
+          git -C "$root" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$root" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$root" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$root" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Exercise real Linux CI/runtime/updater UIDs in networkless container
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_THREE_UID_CHECKOUT"
+          image="python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
+          docker pull "$image"
+          docker run --rm --network none --read-only \
+            --pids-limit 64 --memory 256m --cpus 1 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --mount "type=bind,src=$PWD/scripts/test_disposable_ci_uid_boundary.py,dst=/opt/myai-three-uid-test.py,readonly" \
+            -e MYAI_DISPOSABLE_UID_TEST=yes \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            "$image" python /opt/myai-three-uid-test.py
+
+      - name: Remove disposable source checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_THREE_UID_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-three-uid-*)
+              if [ -d "$MYAI_THREE_UID_CHECKOUT" ] && [ ! -L "$MYAI_THREE_UID_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_THREE_UID_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected disposable checkout path; refusing cleanup" >&2; exit 2 ;;
+          esac
