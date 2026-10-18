@@ -1,0 +1,94 @@
+name: Disposable independent Ed25519 verifier and nonce ledger integration
+on:
+  push:
+    branches: [dev/manual-audit-independent-ed25519-observer-20261018]
+    paths:
+      - scripts/test_disposable_ed25519_observer.py
+      - tests/test_disposable_ed25519_observer_source.py
+      - .github/workflows/disposable-independent-ed25519-observer.yml
+      - docs/security/disposable-independent-ed25519-observer.md
+      - core/selfdev_signed_evidence.py
+      - core/selfdev_attestation_replay.py
+      - core/selfdev_unix_peercred.py
+
+permissions:
+  contents: read
+
+jobs:
+  signed-disposable-observer:
+    name: Four actual UIDs, own-process observation, Ed25519, SQLite anti-replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Enforce GitHub-hosted x86 sandbox source
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "x86_64"
+
+      - name: Fetch exact Git revision into temporary workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GITHUB_SHA"
+          root="$(mktemp -d "$RUNNER_TEMP/myai-edsign-XXXXXXXX")"
+          chmod 700 "$root"
+          echo "MYAI_EDSIGN_CHECKOUT=$root" >> "$GITHUB_ENV"
+          git init -q "$root"
+          git -C "$root" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$root" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$root" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$root" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Download bounded wheel dependencies on disposable hosted VM
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip download --disable-pip-version-check \
+            --only-binary=:all: --dest "$MYAI_EDSIGN_CHECKOUT/wheels" \
+            "cryptography==45.0.7"
+
+      - name: Run networkless Docker with test-only private Ed25519 key
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_EDSIGN_CHECKOUT"
+          image="python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
+          docker pull "$image"
+          docker run --rm --network none --read-only \
+            --pids-limit 64 --memory 256m --cpus 1 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --mount "type=bind,src=$PWD/wheels,dst=/opt/wheels,readonly" \
+            --mount "type=bind,src=$PWD/scripts/test_disposable_ed25519_observer.py,dst=/opt/demo.py,readonly" \
+            --mount "type=bind,src=$PWD/core/selfdev_unix_peercred.py,dst=/opt/core/selfdev_unix_peercred.py,readonly" \
+            --mount "type=bind,src=$PWD/core/selfdev_signed_evidence.py,dst=/opt/core/selfdev_signed_evidence.py,readonly" \
+            --mount "type=bind,src=$PWD/core/selfdev_attestation_replay.py,dst=/opt/core/selfdev_attestation_replay.py,readonly" \
+            -e MYAI_DISPOSABLE_UID_TEST=yes \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            "$image" /bin/sh -ec '
+              python -m pip install --disable-pip-version-check \
+                --no-index --find-links=/opt/wheels --only-binary=:all: \
+                --no-cache-dir --target=/tmp/eddeps cryptography==45.0.7
+              PYTHONPATH=/tmp/eddeps python /opt/demo.py
+            '
+
+      - name: Remove temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_EDSIGN_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-edsign-*)
+              if [ -d "$MYAI_EDSIGN_CHECKOUT" ] && [ ! -L "$MYAI_EDSIGN_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_EDSIGN_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Refusing unsafe checkout cleanup path" >&2; exit 2 ;;
+          esac
