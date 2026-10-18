@@ -10,14 +10,18 @@ def test_git_blob_oid_matches_standard_git_blob_payload():
 
 
 def test_prior_manual_review_baseline_blocks_intentionally_changed_ci_workflow():
-    # The original 2026-10-16 evidence is immutable. Rehosting tests.yml
-    # must keep the earlier 103-file closeout FAIL-CLOSED until a *new*
-    # manual approval produces separate, dated review evidence.
+    # The original 2026-10-16 evidence remains immutable and FAIL-CLOSED.
+    # Both tests.yml (PR #316) and the two-pass source audit (this PR) now
+    # deliberately differ from that historical, *unapproved* source baseline.
+    # Never modify the frozen manifest to make these changes appear approved.
     report = ident.check()
     assert report["status"] == "blocked-manual-workflow-source-changed"
-    assert report["matched"] == 102
-    assert report["unverified_count"] == 1
-    assert report["unverified_filenames"] == ["tests.yml"]
+    assert report["matched"] == 101
+    assert report["unverified_count"] == 2
+    assert report["unverified_filenames"] == [
+        "tests.yml",
+        "ventuno-full-project-two-pass-audit.yml",
+    ]
     assert report["manifest_valid"] is True
     assert report["third_party_actions_verified"] is False
     assert report["production_release_authorized"] is False
@@ -33,9 +37,11 @@ def test_changed_source_blob_is_blocked(tmp_path):
     result = ident.check(manifest_path=target)
     assert result["status"] == "blocked-manual-workflow-source-changed"
     assert first in result["unverified_filenames"]
-    # tests.yml was already flagged by the frozen earlier baseline.
-    assert result["matched"] == 101
+    # tests.yml and the two-pass source audit were already deliberately
+    # changed; mutating another frozen OID must add one more unverified file.
+    assert result["matched"] == 100
     assert "tests.yml" in result["unverified_filenames"]
+    assert "ventuno-full-project-two-pass-audit.yml" in result["unverified_filenames"]
 
 
 def test_invalid_manifest_symlink_or_permission_claim_is_denied(tmp_path):
