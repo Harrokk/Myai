@@ -143,7 +143,7 @@ def test_hosted_workflow_fails_closed_without_relaxing_namespaces():
     assert 'test "$RUNNER_ENVIRONMENT" = "github-hosted"' in wf
     assert "permissions:\n  contents: read" in wf
     assert "bubblewrap" in wf
-    assert 'test "$(git -C "$MYAI_BWRAP_CHECKOUT" rev-parse HEAD)" = "$GITHUB_SHA"' in wf
+    assert 'test "$(git -C "$temp" rev-parse HEAD)" = "$GITHUB_SHA"' in wf
     assert "MYAI_HOSTED_BWRAP_TEST=yes" in wf
     assert "kernel.apparmor_restrict_unprivileged_userns=0" not in wf
     assert "sysctl -w" not in wf
