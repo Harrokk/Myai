@@ -316,7 +316,7 @@ def test_malformed_candidate_nonce_history_is_not_silently_ignored(laboratory):
     lab = laboratory
     mutate_nonce(lab, consumed=False)
     lab["op_db"].execute(
-        "UPDATE candidate_operator_challenges SET issued_unix=-1"
+        "UPDATE candidate_operator_challenges SET issued_unix=-2, expires_unix=-1"
     )
     lab["op_db"].commit()
     with pytest.raises(ValueError, match="Invalid"):
