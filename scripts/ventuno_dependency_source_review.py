@@ -148,7 +148,7 @@ def inspect(root=ROOT):
     voice = voice_lock.inspect(root)
     complete = valid and secure_http_floor and voice["source_lock_consistent"]
     return {
-        "status": ("source-dependency-policy-checked-release-unlocked" if complete
+        "status": ("source-dependency-policy-checked-production-blocked" if complete
                    else "blocked-source-dependency-policy"),
         "requirements_files_reviewed": len(REQUIREMENTS),
         "direct_requirements": sum(map(len, all_dependencies.values())),
