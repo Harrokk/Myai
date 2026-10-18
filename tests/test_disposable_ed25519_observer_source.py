@@ -132,7 +132,7 @@ def test_workflow_is_disposable_hosted_networkless_and_pin_narrow_sources():
     assert "docker run --rm --network none --read-only" in wf
     assert "--cap-drop ALL" in wf
     assert "--security-opt no-new-privileges" in wf
-    assert "--tmpfs /tmp:rw,nosuid,nodev,size=64m" in wf
+    assert "--tmpfs /tmp:rw,exec,nosuid,nodev,size=64m" in wf
     assert "sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258" in wf
     assert wf.count("type=bind") == 5
     assert "dst=/opt/demo.py,readonly" in wf
