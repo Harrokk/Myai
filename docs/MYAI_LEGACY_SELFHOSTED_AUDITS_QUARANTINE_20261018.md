@@ -3,7 +3,7 @@
 
 ## Pass 1 – inventering och konkret risk
 
-Under granskningen av `.github/workflows/` hittades två jobb med en onödig exekveringsgräns: `ventuno-full-project-two-pass-audit.yml` (andra ARM64-steget) och `ventuno-static-repository-audit.yml`. Båda kunde triggas via `push` på **specifika historiska utvecklingsgrenar** och via `workflow_dispatch`, och hade `runs-on: [self-hosted, Linux, ARM64, ventuno-q]`. De hämtade och körde Python-skript från vald källkodscommit i temporära arbetskataloger, men gjorde det med den verkliga VENTUNO-runnerns `arduino`-konto. Det innebär att en källkodsgren som används för revision kan exekvera kod nära installerade produktionstjänster, även om jobbens avsikt är read-only. Det fanns även kontroll mot faktisk `/home/arduino/MyAI/.venv` respektive `systemctl is-active`.
+Under granskningen av `.github/workflows/` hittades två jobb med en onödig exekveringsgräns: `ventuno-full-project-two-pass-audit.yml` (andra ARM64-steget) och `ventuno-static-repository-audit.yml`. Båda kunde triggas via `push` på **specifika historiska utvecklingsgrenar**; endast tvåpassrevisionen hade dessutom `workflow_dispatch`. Båda hade `runs-on: [self-hosted, Linux, ARM64, ventuno-q]`. De hämtade och körde Python-skript från vald källkodscommit i temporära arbetskataloger, men gjorde det med den verkliga VENTUNO-runnerns `arduino`-konto. Det innebär att en källkodsgren som används för revision kan exekvera kod nära installerade produktionstjänster, även om jobbens avsikt är read-only. Det fanns även kontroll mot faktisk `/home/arduino/MyAI/.venv` respektive `systemctl is-active`.
 
 Detta är **två bekräftade exponeringar**, inte ett påstående att alla cirka 172 workflowfiler har granskats till samma djup. Skillnaden mellan automatiska triggers och read-only shell-kommandon ska inte misstas för en säker OS-processgräns.
 
@@ -14,6 +14,10 @@ Detta är **två bekräftade exponeringar**, inte ett påstående att alla cirka
 - Koden som använde den installerade VENTUNO-miljön, `/home/arduino/MyAI/.venv/bin/python`, och kontrollen av de aktiva systemd-tjänsterna tas bort från dessa source-only-flöden. De ersätts av rent källkodsbaserad AST/statisk granskning.
 - `permissions: contents: read`, exakta SHA-kontroller, publicerad revisionslogg och tillåtna manuella triggers behålls.
 - Sex nya automatiska testfall kontrollerar båda workflowfilerna avseende runneridentitet, ingen självvärdad `runs-on`, ingen installerad VENTUNO-åtkomst, endast read-only tokenbehörighet samt explicit exakt SHA.
+
+## Tidigare fryst revisionsbaslinje förblir avsiktligt röd
+
+Den oförändrade filen `config/ventuno_manual_workflow_git_oids_20261016.json` innehåller 103 historiska Git-blob-identiteter. Den är **inte** en godkännandelista och ska aldrig ändras för att en ny workflowändring ska se redan godkänd ut. Efter de tidigare ändringarna av `tests.yml` och denna PR:s tvåpassworkflow stämmer **101 av 103** historiska filer fortfarande med den frysta baslinjen, och de två ändrade filnamnen måste rapporteras explicit. Två befintliga fail-closed-regressioner uppdateras för det nya, avsiktligt blockerade tillståndet (101 respektive 100 matchningar när testet dessutom manipulerar ett tredje OID). Produktionsrelease och main-merge fortsätter vara **otillåtna**.
 
 ## Fortsatta spärrar / NO-GO
 
