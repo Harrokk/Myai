@@ -50,7 +50,7 @@ MANIFEST_SHA = hashlib.sha256(
     b"fixture.py:" + SOURCE_SHA.encode("ascii")
 ).hexdigest()
 EVIDENCE_SHA = hashlib.sha256(
-    b"MyAI/disposable-real-bwrap-observation/v1\\0"
+    b"MyAI/disposable-real-bwrap-observation/v1\0"
     + bytes.fromhex(SOURCE_SHA) + bytes.fromhex(PLAN_SHA)
 ).hexdigest()
 ATTEMPTS = ((CI, "unauthorized"), (RUNTIME, "unauthorized"),
@@ -58,7 +58,7 @@ ATTEMPTS = ((CI, "unauthorized"), (RUNTIME, "unauthorized"),
 
 def disposable_only():
     if os.name != "posix" or os.geteuid() != 0:
-        raise RuntimeError("Container root required")
+        raise RuntimeError("Disposable hosted root required")
     if Path("/.dockerenv").exists():
         raise RuntimeError("Refusing Docker; real Bubblewrap requires hosted Ubuntu")
     if os.environ.get("MYAI_HOSTED_FOUR_UID_BWRAP") != "yes":
