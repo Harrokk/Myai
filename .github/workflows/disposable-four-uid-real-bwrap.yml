@@ -68,6 +68,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MYAI_FOUR_UID_CHECKOUT"
+          # The disposable checkout contains ONLY publicly readable source
+          # and disposable test venv. Distinct Linux UIDs must be able to
+          # load Python/cryptography after dropping privileges. This does
+          # NOT expose the separately UID-owned private verifier/test ledger.
+          chmod 0755 "$MYAI_FOUR_UID_CHECKOUT"
           # Only temporary hosted VM root may prepare simulated Unix UIDs.
           # The verifier and updater immediately drop to their dedicated IDs.
           sudo env \
