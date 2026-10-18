@@ -169,6 +169,8 @@ def inspect_operator_review(
         independently_approved_payload_sha256=statement["rotation_sha256"],
         now_unix=now_unix,
     )
+    if operator_fp == inspection.proposed_key_sha256:
+        raise ValueError("Operator and proposed verifier key roles must be separate")
     if (inspection.old_key_sha256 != statement["old_key_sha256"]
             or inspection.proposed_key_sha256 != statement["new_key_sha256"]
             or inspection.old_epoch != statement["old_epoch"]
