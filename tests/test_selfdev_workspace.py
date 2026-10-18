@@ -1342,3 +1342,111 @@ def test_private_record_and_directory_modes_preserved_for_normal_session(tmp_pat
     assert stat.S_IMODE(session.verification_path.stat().st_mode) & 0o077 == 0
     assert session.metadata()["session_id"] == session.session_id
     assert session.read_verification() == {"passed": False}
+
+
+def test_session_staging_rejects_external_hardlinked_source_before_copy(tmp_path):
+    import os
+
+    project = make_project(tmp_path)
+    private = tmp_path / "outside-private.py"
+    private.write_text("PRIVATE = True\n", encoding="utf-8")
+    linked_source = project / "core" / "linked.py"
+    os.link(private, linked_source)
+
+    with pytest.raises(PermissionError, match="hårdlänkar"):
+        SelfDevWorkspace.create(project, "staging-hardlink")
+    staged = project / "runtime" / "selfdev" / "staging-hardlink"
+    assert not (staged / "workspace" / "core" / "linked.py").exists()
+    assert not (staged / "session.json").exists()
+    assert private.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_manifest_rejects_hardlinked_workspace_file_before_hash(tmp_path):
+    import os
+    from core.selfdev_workspace import build_manifest
+
+    project = make_project(tmp_path)
+    workspace = SelfDevWorkspace.create(project, "manifest-hardlink")
+    private = tmp_path / "outside-private.py"
+    private.write_text("PRIVATE = True\n", encoding="utf-8")
+    os.link(private, workspace.workspace_root / "core" / "linked.py")
+
+    with pytest.raises(PermissionError, match="hårdlänkar"):
+        build_manifest(workspace.workspace_root)
+    assert private.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_source_drift_reports_new_hardlink_to_active_source(tmp_path):
+    import os
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "source-hardlink-drift")
+    target = project / "core" / "example.py"
+    alias = tmp_path / "extra-hardlink.py"
+    os.link(target, alias)
+
+    assert "core/example.py" in session.source_drift()
+    assert alias.read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_manifest_detects_hardlink_added_during_file_hash(tmp_path, monkeypatch):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    target = project / "core" / "example.py"
+    info = target.stat()
+    alias = tmp_path / "hash-race-hardlink.py"
+    actual_read = os.read
+    changed = []
+
+    def link_source_after_first_read(fd, count):
+        chunk = actual_read(fd, count)
+        opened = os.fstat(fd)
+        if (
+            chunk and not changed
+            and opened.st_ino == info.st_ino
+            and opened.st_dev == info.st_dev
+        ):
+            os.link(target, alias)
+            changed.append(True)
+        return chunk
+
+    monkeypatch.setattr(module.os, "read", link_source_after_first_read)
+    with pytest.raises(RuntimeError, match="ändrades under hashkontrollen"):
+        module.build_manifest(project)
+    assert changed == [True]
+    assert alias.read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_initial_staging_detects_hardlink_added_during_copy(tmp_path, monkeypatch):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    target = project / "core" / "example.py"
+    info = target.stat()
+    alias = tmp_path / "stage-race-hardlink.py"
+    actual_read = os.read
+    changed = []
+
+    def link_source_after_first_copy_read(fd, count):
+        chunk = actual_read(fd, count)
+        opened = os.fstat(fd)
+        if (
+            chunk and not changed
+            and opened.st_ino == info.st_ino
+            and opened.st_dev == info.st_dev
+        ):
+            os.link(target, alias)
+            changed.append(True)
+        return chunk
+
+    monkeypatch.setattr(module.os, "read", link_source_after_first_copy_read)
+    with pytest.raises(RuntimeError, match="ändrades under selfdev-kopieringen"):
+        SelfDevWorkspace.create(project, "copy-race-hardlink")
+    assert changed == [True]
+    assert alias.read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert not (
+        project / "runtime" / "selfdev" / "copy-race-hardlink" / "session.json"
+    ).exists()
