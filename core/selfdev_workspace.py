@@ -188,6 +188,7 @@ def _stage_source_files(project_root, workspace_root, *, target_dir_fd=None):
                     name, directory_flags, dir_fd=source_fd
                 )
                 try:
+                    _require_enumerated_inode(details, source_child)
                     # The session workspace is newly created, so an
                     # unexpected existing destination is not trusted.
                     os.mkdir(name, mode=0o700, dir_fd=target_fd)
@@ -209,7 +210,7 @@ def _stage_source_files(project_root, workspace_root, *, target_dir_fd=None):
 
             source_file = os.open(name, file_flags, dir_fd=source_fd)
             try:
-                before = os.fstat(source_file)
+                before = _require_enumerated_inode(details, source_file)
                 if not stat.S_ISREG(before.st_mode):
                     raise PermissionError(
                         "Källfilen ändrades till en specialfil."
@@ -310,6 +311,24 @@ def _open_directory_nofollow(root):
     except BaseException:
         os.close(directory_fd)
         raise
+
+
+def _require_enumerated_inode(listed, opened_fd):
+    """Require the inode opened by dirfd to be the inode enumerated earlier.
+
+    No-follow prevents symlinks, but cannot detect replacement by a distinct
+    regular file or directory with the same basename between stat and open.
+    """
+    observed = os.fstat(opened_fd)
+    if (
+        listed.st_dev != observed.st_dev
+        or listed.st_ino != observed.st_ino
+        or stat.S_IFMT(listed.st_mode) != stat.S_IFMT(observed.st_mode)
+    ):
+        raise PermissionError(
+            "Selfdev-filen eller katalogen byttes mellan kontroll och öppning."
+        )
+    return observed
 
 
 def _hash_pinned_regular_file(file_fd):
@@ -417,6 +436,7 @@ def build_manifest(root):
 
                 child_fd = os.open(name, directory_flags, dir_fd=directory_fd)
                 try:
+                    _require_enumerated_inode(metadata, child_fd)
                     visit(child_fd, relative_parts)
                 finally:
                     os.close(child_fd)
@@ -429,6 +449,7 @@ def build_manifest(root):
 
             file_fd = os.open(name, file_flags, dir_fd=directory_fd)
             try:
+                _require_enumerated_inode(metadata, file_fd)
                 result[relative.as_posix()] = _hash_pinned_regular_file(file_fd)
             finally:
                 os.close(file_fd)
