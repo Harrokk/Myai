@@ -575,3 +575,106 @@ def test_every_selfdev_validation_command_clears_inherited_environment(tmp_path)
         assert "--unshare-all" in command
         assert "--bind" not in command
         assert "--ro-bind" in command
+
+
+def test_reverification_clears_old_approval_if_bubblewrap_is_missing(tmp_path):
+    workspace = make_workspace(tmp_path)
+    workspace.save_verification({
+        "passed": True,
+        "sandbox": "bubblewrap",
+        "marker": "STALE",
+    })
+    verifier = SelfDevVerifier(workspace, bwrap_path="")
+
+    with pytest.raises(RuntimeError, match="Bubblewrap"):
+        verifier.verify()
+
+    with pytest.raises(FileNotFoundError):
+        workspace.read_verification()
+    assert not workspace.verification_path.exists()
+
+
+def test_reverification_clears_old_approval_when_staged_file_is_deleted(tmp_path):
+    workspace = make_workspace(tmp_path)
+    workspace.save_verification({"passed": True, "marker": "STALE"})
+    (workspace.workspace_root / "core" / "example.py").unlink()
+    calls = []
+
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        command_runner=lambda *args, **kwargs: calls.append(args),
+    )
+    with pytest.raises(RuntimeError, match="filradering"):
+        verifier.verify()
+
+    assert calls == []
+    with pytest.raises(FileNotFoundError):
+        workspace.read_verification()
+
+
+def test_reverification_clears_old_approval_on_command_build_failure(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_verify as module
+
+    workspace = make_workspace(tmp_path)
+    workspace.write_text("scripts/new.sh", "#!/bin/sh\nexit 0\n")
+    workspace.save_verification({"passed": True, "marker": "STALE"})
+    monkeypatch.setattr(module.shutil, "which", lambda executable: None)
+    calls = []
+
+    def never_run(command, *, timeout):
+        calls.append(command)
+        raise AssertionError("Sandbox must not execute after setup failure")
+
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap", command_runner=never_run
+    )
+    with pytest.raises(RuntimeError, match="bash"):
+        verifier.verify()
+
+    assert calls == []
+    assert not workspace.verification_path.exists()
+
+
+def test_reverification_refuses_to_run_when_old_approval_cannot_be_cleared(
+    tmp_path, monkeypatch
+):
+    workspace = make_workspace(tmp_path)
+    workspace.save_verification({"passed": True, "marker": "STALE"})
+    calls = []
+
+    def fail_invalidation():
+        raise PermissionError("synthetic unlink failure")
+
+    monkeypatch.setattr(workspace, "invalidate_verification", fail_invalidation)
+
+    verifier = SelfDevVerifier(
+        workspace,
+        bwrap_path="/usr/bin/bwrap",
+        command_runner=lambda command, timeout: calls.append(command),
+    )
+    with pytest.raises(PermissionError, match="synthetic unlink failure"):
+        verifier.verify()
+
+    assert calls == []
+    assert workspace.read_verification()["marker"] == "STALE"
+
+
+def test_reverification_replaces_prior_record_with_latest_actual_result(tmp_path):
+    workspace = make_workspace(tmp_path)
+    workspace.save_verification({"passed": True, "marker": "OLD APPROVAL"})
+    verifier = SelfDevVerifier(
+        workspace, bwrap_path="/usr/bin/bwrap",
+        command_runner=lambda command, timeout: SimpleNamespace(
+            returncode=1, stdout="", stderr="new failure"
+        )
+    )
+    result = verifier.verify()
+
+    assert result["passed"] is False
+    assert result["returncode"] == 1
+    assert result["stderr"] == "new failure"
+    assert workspace.read_verification() == result
+    assert "marker" not in result
