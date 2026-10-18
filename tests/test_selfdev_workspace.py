@@ -1450,3 +1450,136 @@ def test_initial_staging_detects_hardlink_added_during_copy(tmp_path, monkeypatc
     assert not (
         project / "runtime" / "selfdev" / "copy-race-hardlink" / "session.json"
     ).exists()
+
+
+def test_staging_rejects_regular_source_replaced_between_stat_and_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    target = project / "core" / "example.py"
+    private = tmp_path / "private-source.py"
+    private.write_text("PRIVATE = True\n", encoding="utf-8")
+    actual_open = os.open
+    replaced = []
+
+    def substitute_normal_file(name, flags, *args, **kwargs):
+        if name == "example.py" and kwargs.get("dir_fd") is not None and not replaced:
+            target.rename(target.with_name("example-original.py"))
+            private.rename(target)
+            replaced.append(True)
+        return actual_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", substitute_normal_file)
+    with pytest.raises(PermissionError, match="byttes mellan kontroll och öppning"):
+        SelfDevWorkspace.create(project, "regular-file-substitution")
+    assert replaced == [True]
+    assert target.read_text(encoding="utf-8") == "PRIVATE = True\n"
+    assert not (
+        project / "runtime" / "selfdev" / "regular-file-substitution"
+        / "workspace" / "core" / "example.py"
+    ).exists()
+
+
+def test_manifest_rejects_regular_file_replaced_between_stat_and_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "manifest-regular-file-swap")
+    target = session.workspace_root / "core" / "example.py"
+    private = tmp_path / "private-workspace-file.py"
+    private.write_text("PRIVATE = True\n", encoding="utf-8")
+    actual_open = os.open
+    replaced = []
+
+    def substitute_staged_regular_file(name, flags, *args, **kwargs):
+        if name == "example.py" and kwargs.get("dir_fd") is not None and not replaced:
+            target.rename(target.with_name("example-original.py"))
+            private.rename(target)
+            replaced.append(True)
+        return actual_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", substitute_staged_regular_file)
+    with pytest.raises(PermissionError, match="byttes mellan kontroll och öppning"):
+        module.build_manifest(session.workspace_root)
+    assert replaced == [True]
+    assert target.read_text(encoding="utf-8") == "PRIVATE = True\n"
+
+
+def test_staging_rejects_regular_directory_replaced_between_stat_and_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    original_dir = project / "core"
+    private = tmp_path / "private-source-directory"
+    private.mkdir()
+    (private / "example.py").write_text("PRIVATE = True\n", encoding="utf-8")
+    staging = tmp_path / "staging-target"
+    staging.mkdir()
+    actual_open = os.open
+    replaced = []
+
+    def substitute_directory(name, flags, *args, **kwargs):
+        if (
+            name == "core"
+            and kwargs.get("dir_fd") is not None
+            and flags & os.O_DIRECTORY
+            and not replaced
+        ):
+            original_dir.rename(project / "core-original")
+            private.rename(original_dir)
+            replaced.append(True)
+        return actual_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", substitute_directory)
+    with pytest.raises(PermissionError, match="byttes mellan kontroll och öppning"):
+        module._stage_source_files(project, staging)
+    assert replaced == [True]
+    assert not (staging / "core").exists()
+    assert (original_dir / "example.py").read_text(encoding="utf-8") == (
+        "PRIVATE = True\n"
+    )
+
+
+def test_manifest_rejects_directory_replaced_between_stat_and_open(
+    tmp_path, monkeypatch
+):
+    import os
+    from core import selfdev_workspace as module
+
+    project = make_project(tmp_path)
+    session = SelfDevWorkspace.create(project, "manifest-directory-swap")
+    original_dir = session.workspace_root / "core"
+    private = tmp_path / "private-workspace-directory"
+    private.mkdir()
+    (private / "example.py").write_text("PRIVATE = True\n", encoding="utf-8")
+    actual_open = os.open
+    replaced = []
+
+    def replace_staged_directory(name, flags, *args, **kwargs):
+        if (
+            name == "core"
+            and kwargs.get("dir_fd") is not None
+            and flags & os.O_DIRECTORY
+            and not replaced
+        ):
+            original_dir.rename(session.workspace_root / "core-original")
+            private.rename(original_dir)
+            replaced.append(True)
+        return actual_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", replace_staged_directory)
+    with pytest.raises(PermissionError, match="byttes mellan kontroll och öppning"):
+        module.build_manifest(session.workspace_root)
+    assert replaced == [True]
+    assert (original_dir / "example.py").read_text(encoding="utf-8") == (
+        "PRIVATE = True\n"
+    )
