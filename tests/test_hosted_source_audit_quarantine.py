@@ -48,4 +48,4 @@ def test_source_audit_fetches_exact_sha_and_retains_readonly_permissions(
     assert "contents: read" in workflow
     assert ' "$GITHUB_SHA"' in workflow
     assert "rev-parse HEAD" in workflow
-    assert "workflow_dispatch:" in workflow
+    assert "  push:" in workflow  # Existing branch-scoped triggers run on hosted VM.
