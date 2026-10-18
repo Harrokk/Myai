@@ -1583,3 +1583,60 @@ def test_manifest_rejects_directory_replaced_between_stat_and_open(
     assert (original_dir / "example.py").read_text(encoding="utf-8") == (
         "PRIVATE = True\n"
     )
+
+
+def test_staging_writer_respects_project_verification_promotion_lock(tmp_path):
+    from core.selfdev_promote import _project_mutation_lock_for_workspace
+
+    session = SelfDevWorkspace.create(make_project(tmp_path), "write-lock-conflict")
+    session.save_verification({"passed": True})
+    original = (session.workspace_root / "core/example.py").read_bytes()
+    original_approval = session.verification_path.read_bytes()
+
+    with _project_mutation_lock_for_workspace(session):
+        with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
+            session.write_text("core/example.py", "VALUE = 999\n")
+
+    assert (session.workspace_root / "core/example.py").read_bytes() == original
+    assert session.verification_path.read_bytes() == original_approval
+
+
+def test_staging_writer_fails_before_mutation_on_invalidation_failure(
+    tmp_path, monkeypatch
+):
+    session = SelfDevWorkspace.create(make_project(tmp_path), "write-invalidate-first")
+    session.save_verification({"passed": True})
+    original = (session.workspace_root / "core/example.py").read_bytes()
+    original_approval = session.verification_path.read_bytes()
+
+    def refuse():
+        raise PermissionError("synthetic-invalidation-failed")
+
+    monkeypatch.setattr(session, "invalidate_verification", refuse)
+    with pytest.raises(PermissionError, match="synthetic-invalidation-failed"):
+        session.write_text("core/example.py", "VALUE = 999\n")
+
+    assert (session.workspace_root / "core/example.py").read_bytes() == original
+    assert session.verification_path.read_bytes() == original_approval
+
+
+def test_staging_writer_revokes_approval_before_replacing_candidate(
+    tmp_path, monkeypatch
+):
+    from core import selfdev_workspace as module
+
+    session = SelfDevWorkspace.create(make_project(tmp_path), "write-revoke-first")
+    session.save_verification({"passed": True})
+    original_replace = module.os.replace
+    observations = []
+
+    def checked_replace(*args, **kwargs):
+        observations.append(not session.verification_path.exists())
+        return original_replace(*args, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", checked_replace)
+    session.write_text("core/example.py", "VALUE = 999\n")
+
+    assert observations == [True]
+    assert not session.verification_path.exists()
+    assert (session.workspace_root / "core/example.py").read_text() == "VALUE = 999\n"
