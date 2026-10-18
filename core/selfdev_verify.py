@@ -296,6 +296,12 @@ class SelfDevVerifier:
         return commands
 
     def verify(self):
+        # A previous approval must not survive an unsuccessful *new*
+        # verification attempt. Command construction and initial manifest
+        # checks can raise before the ordinary result is persisted.
+        # Fail closed: if invalidation fails, run no sandbox commands.
+        self.workspace.invalidate_verification()
+
         changes = (
             self.workspace
             .changed_files()
