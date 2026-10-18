@@ -536,8 +536,8 @@ def test_default_runner_preserves_bounded_stdout_stderr():
         timeout=5,
     )
     assert result.returncode == 0
-    assert result.stdout == "OUT\\n"
-    assert result.stderr == "ERR\\n"
+    assert result.stdout == "OUT\n"
+    assert result.stderr == "ERR\n"
 
 
 def test_default_runner_kills_timed_out_process():
