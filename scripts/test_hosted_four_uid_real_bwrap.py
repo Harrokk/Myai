@@ -303,7 +303,7 @@ def main():
         os.close(pubread)
         if len(key) != 32:
             # Test-only error reporting; never print keys or private paths.
-            join(pid, report_pipe)
+            finish(pid, report_pipe)
             raise AssertionError("Verifier did not provision a test public key")
         answers = []
         for uid, intent in ATTEMPTS:
