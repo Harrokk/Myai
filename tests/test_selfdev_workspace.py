@@ -1595,7 +1595,7 @@ def test_staging_writer_respects_project_verification_promotion_lock(tmp_path):
 
     with _project_mutation_lock_for_workspace(session):
         with pytest.raises(RuntimeError, match="annan selfdev-uppdatering"):
-            session.write_text("core/example.py", "VALUE = 999\\n")
+            session.write_text("core/example.py", "VALUE = 999\n")
 
     assert (session.workspace_root / "core/example.py").read_bytes() == original
     assert session.verification_path.read_bytes() == original_approval
@@ -1614,7 +1614,7 @@ def test_staging_writer_fails_before_mutation_on_invalidation_failure(
 
     monkeypatch.setattr(session, "invalidate_verification", refuse)
     with pytest.raises(PermissionError, match="synthetic-invalidation-failed"):
-        session.write_text("core/example.py", "VALUE = 999\\n")
+        session.write_text("core/example.py", "VALUE = 999\n")
 
     assert (session.workspace_root / "core/example.py").read_bytes() == original
     assert session.verification_path.read_bytes() == original_approval
@@ -1635,8 +1635,8 @@ def test_staging_writer_revokes_approval_before_replacing_candidate(
         return original_replace(*args, **kwargs)
 
     monkeypatch.setattr(module.os, "replace", checked_replace)
-    session.write_text("core/example.py", "VALUE = 999\\n")
+    session.write_text("core/example.py", "VALUE = 999\n")
 
     assert observations == [True]
     assert not session.verification_path.exists()
-    assert (session.workspace_root / "core/example.py").read_text() == "VALUE = 999\\n"
+    assert (session.workspace_root / "core/example.py").read_text() == "VALUE = 999\n"
