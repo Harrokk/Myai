@@ -1,0 +1,117 @@
+name: VENTUNO locked smoke-test READ-ONLY board preflight
+on:
+  push:
+    branches: [dev/ventuno-smoke-locked-readonly-preflight-20261019]
+    paths:
+      - .github/workflows/ventuno-locked-smoke-readonly-preflight.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-smoke-locked-readonly-20261019
+  cancel-in-progress: false
+
+jobs:
+  inspect-ventuno-without-audio-or-writes:
+    name: Locked SHA, installed safe profile, USB+resources and bounded runner metadata
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 7
+    steps:
+      - name: Verify fixed physical target and exact instrumentation branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$(id -u)" -ne 0
+          test "$GITHUB_REF_NAME" = "dev/ventuno-smoke-locked-readonly-preflight-20261019"
+          test -n "$RUNNER_TEMP" && test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          echo "VENTUNO read-only metadata check; NO recording, playback, model/NPU, systemd mutation or production install."
+
+      - name: Fetch immutable tested source SHA into disposable scratch only
+        shell: bash
+        env:
+          MYAI_FROZEN_SOURCE_SHA: d28165c1cad81f8b4308ac7355a3fdfd81334986
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-smoke-locked-XXXXXXXX")"
+          chmod 0700 "$scratch"
+          echo "MYAI_LOCKED_SMOKE_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch"
+          git -C "$scratch" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$scratch" fetch -q --depth=1 origin "$MYAI_FROZEN_SOURCE_SHA"
+          git -C "$scratch" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$MYAI_FROZEN_SOURCE_SHA"
+          test -z "$(git -C "$scratch" status --porcelain --untracked-files=no)"
+          test ! -L "$scratch/config/profiles/ventuno_q.json"
+          echo "Exact previously hosted-tested source SHA: $MYAI_FROZEN_SOURCE_SHA"
+
+      - name: Read actual board metadata and active installed profile – NO AUDIO
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          MYAI_FROZEN_SOURCE_SHA: d28165c1cad81f8b4308ac7355a3fdfd81334986
+        run: |
+          set -euo pipefail
+          cd "$MYAI_LOCKED_SMOKE_SCRATCH"
+          py=/home/arduino/MyAI/.venv/bin/python
+          test -x "$py"
+          status=0
+          timeout --signal=TERM --kill-after=3s 55s "$py" -B \
+            -m scripts.ventuno_physical_pilot_gate \
+            --expected-sha "$MYAI_FROZEN_SOURCE_SHA" --source-root . \
+            --board-readonly || status=$?
+          case "$status" in
+            0) echo "PREFLIGHT RESULT: board-readonly metadata accepted, NOT physical-audio consent." ;;
+            2) echo "PREFLIGHT RESULT: NO-GO; source or active production profile or hardware prerequisites blocked." ;;
+            *) echo "PREFLIGHT ERROR: not a hardware GO." >&2; exit "$status" ;;
+          esac
+          echo "No mic or speaker device opened and no model or NPU loaded."
+
+      - name: Check numeric USB/audio inventory without opening devices
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_LOCKED_SMOKE_SCRATCH"
+          timeout --signal=TERM --kill-after=3s 30s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_usb_audio_inventory
+
+      - name: Inspect local UID/systemd/DAC candidate metadata read-only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_LOCKED_SMOKE_SCRATCH"
+          status=0
+          timeout --signal=TERM --kill-after=3s 35s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_runner_uid_acl_preflight --local-readonly || status=$?
+          case "$status" in
+            0) echo "Runner metadata complete; NOT full ACL or GitHub runner permission proof." ;;
+            2) echo "Runner metadata incomplete/unsafe – leave production NO-GO." ;;
+            *) echo "Runner metadata probe failed." >&2; exit "$status" ;;
+          esac
+
+      - name: Delete ONLY this job's temporary checked-out source
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MYAI_LOCKED_SMOKE_SCRATCH" in
+            "$RUNNER_TEMP"/myai-smoke-locked-*)
+              if [ -d "$MYAI_LOCKED_SMOKE_SCRATCH" ] && [ ! -L "$MYAI_LOCKED_SMOKE_SCRATCH" ]; then
+                rm -rf -- "$MYAI_LOCKED_SMOKE_SCRATCH"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unsafe scratch cleanup path; refusing." >&2; exit 2 ;;
+          esac
+          echo "Production MyAI and system services left unchanged."
