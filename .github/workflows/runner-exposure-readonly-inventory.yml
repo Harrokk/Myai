@@ -1,0 +1,80 @@
+name: Read-only current-ref GitHub runner trigger risk inventory
+on:
+  push:
+    branches: [dev/manual-audit-hosted-runner-exposure-inventory-20261019]
+    paths:
+      - scripts/audit_workflow_runner_exposure.py
+      - tests/test_audit_workflow_runner_exposure.py
+      - docs/security/workflow-runner-exposure-readonly-inventory.md
+      - .github/workflows/runner-exposure-readonly-inventory.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-checked-out-workflows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require GitHub-hosted runner
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "x86_64"
+
+      - name: Clone exact source SHA to disposable checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(mktemp -d "$RUNNER_TEMP/myai-runner-inventory-XXXXXXXX")"
+          chmod 0700 "$target"
+          echo "MYAI_RUNNER_INVENTORY_CHECKOUT=$target" >> "$GITHUB_ENV"
+          git init -q "$target"
+          git -C "$target" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$target" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$target" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$target" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Report conservative current-SHA risk leads only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_RUNNER_INVENTORY_CHECKOUT"
+          python3 -B scripts/audit_workflow_runner_exposure.py \
+            --workflows-dir .github/workflows > "$RUNNER_TEMP/myai-runner-risk.json"
+          python3 - "$RUNNER_TEMP/myai-runner-risk.json" <<'PY'
+          import json,sys
+          item=json.load(open(sys.argv[1],encoding="utf-8"))
+          for key in ("status","total_workflows","auto_self_hosted_leads",
+                      "auto_dynamic_runner_leads","manual_self_hosted_leads",
+                      "auto_self_hosted_exact_push_branch_leads",
+                      "auto_self_hosted_unscoped_or_pattern_push_leads",
+                      "write_permissions_declarations",
+                      "historical_branches_checked",
+                      "runner_group_admin_settings_verified",
+                      "physical_ventuno_touched"):
+              print(f"{key}: {item[key]}")
+          for result in item["source_findings"][:35]:
+              print(result["risk"], result["path"], " ".join(result["auto_triggers"]))
+          if len(item["source_findings"]) > 35:
+              print("More source leads require repository-owner review.")
+          PY
+
+      - name: Remove disposable report and checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f -- "$RUNNER_TEMP/myai-runner-risk.json"
+          case "${MYAI_RUNNER_INVENTORY_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-runner-inventory-*)
+              if [ -d "$MYAI_RUNNER_INVENTORY_CHECKOUT" ] && [ ! -L "$MYAI_RUNNER_INVENTORY_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_RUNNER_INVENTORY_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unsafe cleanup path" >&2; exit 2 ;;
+          esac
