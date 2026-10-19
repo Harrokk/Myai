@@ -14,6 +14,7 @@ GitHub-kopplingen som användes för revisionen tillät källkodsträd och workf
 
 För varje workflow rapporterar det:
 - potentiella automatiska triggers: `push`, `pull_request`, `pull_request_target`, `workflow_run`, `schedule` etc.;
+- vid push-trigger försöker skannern känna igen explicit angivna grenar under `on.push.branches` och skiljer dessa från globbar eller otydliga/obegränsade branchfilter. En äldre explicit testgren är **fortfarande en granskningspost**: den blir inte automatiskt säker enbart för att pushen kräver ett visst branch-namn;
 - manuella triggers inklusive `workflow_dispatch` och `workflow_call`;
 - uttryckliga `runs-on`-fält och eventuell `self-hosted`/`ventuno-q`-referens;
 - potentiella uttrycksbaserade runner-val (som **kräver manuell granskning**, inte räknas som säkra);
