@@ -293,7 +293,25 @@ def inspect_candidate_intent_recovery(
             or recovered.witness_verifier_epoch < snapshot.old_epoch
             or recovered.witness_verifier_epoch > snapshot.proposed_epoch):
         raise ValueError("Candidate state outside planned epoch bounds")
+    # Journal milestone flags are untrusted and NOT verified against a live
+    # witness, but contradictory claims must still be surfaced to reviewers.
+    row = db.execute(
+        """SELECT expected_operator_witness_head, expected_final_witness_head
+           FROM candidate_crash_intents WHERE intent_id=?""",
+        (intent_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Missing journal intent")
+    differences = list(recovered.differences)
+    claimed_index = snapshot.recorded_stage_index
+    expected_head = (
+        row[1] if claimed_index == 4 else
+        row[0] if claimed_index in (2, 3) else None
+    )
+    if (expected_head is not None
+            and recovered.witness_head_sha256 != expected_head):
+        differences.append("journal_claimed_witness_milestone_not_observed")
     return IntentRecoveryReview(
         intent_id=intent_id, recorded_stage=snapshot.recorded_stage,
-        observed_recovery_differences=recovered.differences,
+        observed_recovery_differences=tuple(differences),
     )
