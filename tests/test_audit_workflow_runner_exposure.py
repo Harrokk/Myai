@@ -19,6 +19,8 @@ jobs:
     assert r["risk"] == "REVIEW_AUTO_SELF_HOSTED"
     assert r["auto_triggers"] == ["push"]
     assert r["self_hosted_runner_reference"] is True
+    assert r["push_scope"] == "EXPLICIT_BRANCHES"
+    assert r["push_branches"] == ["main"]
     assert r["write_permissions_declared"] is True
 
 
