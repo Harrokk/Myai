@@ -20,6 +20,63 @@ RUNNER = re.compile(r"^[ \t]*runs-on\s*:\s*(.+)$")
 WRITE = re.compile(r"^[ \t]*[a-z_-]+\s*:\s*write\s*(?:#.*)?$")
 
 
+def _push_branch_scope(lines):
+    """Conservative recognition of common branch lists under on.push.
+
+    Unknown YAML syntax stays UNKNOWN, never interpreted as safe.
+    """
+    on_indent = None
+    push_indent = None
+    branch_indent = None
+    found_push = False
+    names = []
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if ON.match(line):
+            on_indent, push_indent, branch_indent = indent, None, None
+            continue
+        if on_indent is None:
+            continue
+        if indent <= on_indent:
+            on_indent, push_indent, branch_indent = None, None, None
+            continue
+        if re.match(r"^push\s*:\s*(?:#.*)?$", stripped) and push_indent is None:
+            found_push, push_indent = True, indent
+            continue
+        if push_indent is None:
+            continue
+        if indent <= push_indent:
+            push_indent, branch_indent = None, None
+            continue
+        if re.match(r"^branches\s*:", stripped) and branch_indent is None:
+            branch_indent = indent
+            rest = stripped.split(":", 1)[1].split("#", 1)[0].strip()
+            if rest.startswith("[") and rest.endswith("]"):
+                names.extend(
+                    value.strip().strip("'\"") for value in
+                    rest[1:-1].split(",") if value.strip()
+                )
+            elif rest:
+                return "UNKNOWN", ()
+            continue
+        if branch_indent is not None and indent > branch_indent:
+            if stripped.startswith("- "):
+                names.append(stripped[2:].split("#", 1)[0].strip().strip("'\""))
+        elif branch_indent is not None and indent <= branch_indent:
+            branch_indent = None
+    if not found_push:
+        return "NO_PUSH_OR_INLINE_TRIGGER", ()
+    if not names:
+        return "UNSCOPED_OR_UNRECOGNIZED", ()
+    if any("*" in name or "?" in name or name.startswith("!") for name in names):
+        return "PATTERN_BRANCHES", tuple(names)
+    return "EXPLICIT_BRANCHES", tuple(names)
+
+
 def summarize_source(path, source):
     """Flags are review leads, NEVER security authorization."""
     lines = source.splitlines()
@@ -49,6 +106,7 @@ def summarize_source(path, source):
         if m:
             runners.append(m.group(1).split("#", 1)[0].strip())
         writing = writing or bool(WRITE.match(clean))
+    push_scope, push_branches = _push_branch_scope(lines)
     joined = " ".join(runners).lower()
     uses_self_hosted = "self-hosted" in joined or "ventuno-q" in joined
     dynamic = (chr(36)+"{{" in joined or "fromjson(" in joined or not runners)
@@ -58,6 +116,8 @@ def summarize_source(path, source):
             else "REVIEW_MANUAL_SELF_HOSTED" if uses_self_hosted
             else "NO_STATIC_SELF_HOSTED_RUNNER_INDICATION")
     return {"path": str(path), "risk": risk,
+            "push_scope": push_scope,
+            "push_branches": list(push_branches),
             "auto_triggers": sorted(events & AUTO),
             "manual_triggers": sorted(events & MANUAL),
             "runner_expressions": runners,
@@ -91,6 +151,13 @@ def inventory(directory):
             x["risk"] == "REVIEW_DYNAMIC_RUNNER" for x in findings),
         "manual_self_hosted_leads": sum(
             x["risk"] == "REVIEW_MANUAL_SELF_HOSTED" for x in findings),
+        "auto_self_hosted_exact_push_branch_leads": sum(
+            x["risk"] == "REVIEW_AUTO_SELF_HOSTED"
+            and x["push_scope"] == "EXPLICIT_BRANCHES" for x in findings),
+        "auto_self_hosted_unscoped_or_pattern_push_leads": sum(
+            x["risk"] == "REVIEW_AUTO_SELF_HOSTED"
+            and x["push_scope"] in ("UNSCOPED_OR_UNRECOGNIZED", "PATTERN_BRANCHES")
+            for x in findings),
         "write_permissions_declarations": sum(
             x["write_permissions_declared"] for x in findings),
         "source_findings": risk,
