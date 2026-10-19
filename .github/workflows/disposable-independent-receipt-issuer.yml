@@ -58,6 +58,7 @@ jobs:
               selfdev_candidate_crash_intent_journal.py \
               selfdev_operator_signed_review.py \
               selfdev_verifier_key_rotation.py \
+              selfdev_signed_evidence.py \
               selfdev_unix_peercred.py; do
             cp "$MYAI_RECEIPT_CHECKOUT/core/$module" "$public/core/$module"
             chmod 0644 "$public/core/$module"
