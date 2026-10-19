@@ -27,6 +27,9 @@ from core.selfdev_candidate_crash_intent_journal import (
     record_candidate_milestone,
 )
 from core.selfdev_receipt_issuer_preview import inspect_candidate_for_receipt
+from core.selfdev_receipt_signer_nonce_ledger import (
+    initialize_signer_candidate_nonce_ledger, claim_receipt_once,
+)
 from core.selfdev_signed_witness_checkpoint import (
     ISSUER as W_ISSUER, PURPOSE as W_PURPOSE, AUDIENCE as W_AUDIENCE,
     canonical_witness_checkpoint,
@@ -162,6 +165,7 @@ def issuer(listener, private_dir, witness_pub, genesis, head, public_pipe):
     os.write(public_pipe, public)
     os.close(public_pipe)
     allowed = denied = malformed = replay = 0
+    os.umask(0o077)  # signer-owned new SQLite nonce state only
     for _ in ATTEMPTS:
         connection, _ = listener.accept()
         with connection:
@@ -178,7 +182,7 @@ def issuer(listener, private_dir, witness_pub, genesis, head, public_pipe):
                 send_frame(connection, b'{"status":"request_denied"}')
                 malformed += 1
                 continue
-            if challenge != NONCE or allowed:
+            if challenge != NONCE:
                 send_frame(connection, b'{"status":"challenge_denied"}')
                 replay += 1
                 continue
@@ -208,6 +212,31 @@ def issuer(listener, private_dir, witness_pub, genesis, head, public_pipe):
                 db.close()
             statement = inspected.statement
             assert statement["operator_nonce"] == challenge
+            nonce_db_path = private_dir / "signer-consumed.sqlite"
+            nonce_db = sqlite3.connect(nonce_db_path, timeout=3)
+            try:
+                initialize_signer_candidate_nonce_ledger(nonce_db)
+                try:
+                    claim_receipt_once(
+                        nonce_db, challenge=challenge,
+                        device_id=statement["device_id"],
+                        intent_id=statement["intent_id"],
+                        signed_witness_head_sha256=statement["witness_head_sha256"],
+                        journal_event_sha256=statement["journal_event_sha256"],
+                        now_unix=statement["verified_unix"],
+                        expires_unix=statement["expires_unix"],
+                    )
+                except ValueError:
+                    send_frame(connection, b'{"status":"challenge_denied"}')
+                    replay += 1
+                    continue
+            finally:
+                nonce_db.close()
+            if (nonce_db_path.stat().st_uid != SIGNER
+                    or nonce_db_path.stat().st_mode & 0o777 != 0o600):
+                raise PermissionError("Signer-owned nonce DB lost private DAC")
+            # Consumed challenge commits BEFORE a signature can be issued.
+            # A crash here permanently denies retry unless DB is rolled back.
             signature = signing_key.sign(canonical_milestone_receipt(statement))
             envelope = json.dumps({
                 "statement": statement, "signature": signature.hex(),
@@ -290,6 +319,16 @@ def main():
                 )
                 responses.append(join(child_pid, child_report))
             outcome = join(pid, report_pipe)
+        nonce_file = private_dir / "signer-consumed.sqlite"
+        assert nonce_file.stat().st_uid == SIGNER
+        assert nonce_file.stat().st_mode & 0o777 == 0o600
+        protected = sqlite3.connect(nonce_file)
+        try:
+            assert protected.execute(
+                "SELECT count(*) FROM candidate_signer_consumed_receipts"
+            ).fetchone()[0] == 1
+        finally:
+            protected.close()
         assert outcome == {
             "signer_uid": SIGNER, "accepted": 1,
             "denied_peers": 2, "denied_extra_request_fields": 1,
@@ -326,6 +365,8 @@ def main():
             "runtime_ci_peers_rejected": 2,
             "forged_passed_flag_rejected": True,
             "replay_within_live_signer_denied": True,
+            "signer_owned_sqlite_replay_state_persisted": True,
+            "synthetic_signer_key_and_nonce_db_are_separate": True,
             "real_disk_write_proven": False,
             "durable_nonce_replay_protection_proven": False,
             "fresh_external_head_proven": False,

@@ -1,0 +1,118 @@
+name: Disposable signer-owned receipt nonce replay across SQLite restarts
+on:
+  push:
+    branches: [dev/manual-audit-signer-owned-receipt-nonce-ledger-20261019]
+    paths:
+      - core/selfdev_receipt_issuer_preview.py
+      - core/selfdev_receipt_signer_nonce_ledger.py
+      - scripts/test_disposable_receipt_issuer.py
+      - tests/test_selfdev_receipt_issuer_preview.py
+      - tests/test_selfdev_receipt_signer_nonce_ledger.py
+      - tests/test_disposable_receipt_issuer_source.py
+      - .github/workflows/disposable-signer-receipt-replay.yml
+      - docs/security/signer-owned-receipt-nonce-state-audit.md
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-receipt-issuer:
+    name: Four real UIDs, signer-private Ed25519 and signed fixed witness review
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Require disposable GitHub-hosted Linux VM
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "x86_64"
+          test "$(id -u)" -ne 0
+
+      - name: Retrieve exact checked revision privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkout="$(mktemp -d "$RUNNER_TEMP/myai-receipt-checkout-XXXXXXXX")"
+          chmod 0700 "$checkout"
+          echo "MYAI_RECEIPT_CHECKOUT=$checkout" >> "$GITHUB_ENV"
+          git init -q "$checkout"
+          git -C "$checkout" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$checkout" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$checkout" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$checkout" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Stage only test-only public Python source in an isolated temp dir
+        shell: bash
+        run: |
+          set -euo pipefail
+          public="$(mktemp -d /tmp/myai-receipt-public-XXXXXXXX)"
+          chmod 0755 "$public"
+          echo "MYAI_RECEIPT_PUBLIC=$public" >> "$GITHUB_ENV"
+          mkdir -p "$public/core" "$public/scripts"
+          chmod 0755 "$public/core" "$public/scripts"
+          for module in \
+              selfdev_receipt_issuer_preview.py \
+              selfdev_receipt_signer_nonce_ledger.py \
+              selfdev_signed_witness_milestone.py \
+              selfdev_signed_witness_checkpoint.py \
+              selfdev_candidate_crash_intent_journal.py \
+              selfdev_operator_signed_review.py \
+              selfdev_verifier_key_rotation.py \
+              selfdev_signed_evidence.py \
+              selfdev_unix_peercred.py; do
+            cp "$MYAI_RECEIPT_CHECKOUT/core/$module" "$public/core/$module"
+            chmod 0644 "$public/core/$module"
+          done
+          if [ -f "$MYAI_RECEIPT_CHECKOUT/core/__init__.py" ]; then
+            cp "$MYAI_RECEIPT_CHECKOUT/core/__init__.py" "$public/core/__init__.py"
+            chmod 0644 "$public/core/__init__.py"
+          fi
+          cp "$MYAI_RECEIPT_CHECKOUT/scripts/test_disposable_receipt_issuer.py" \
+             "$public/scripts/test_disposable_receipt_issuer.py"
+          chmod 0644 "$public/scripts/test_disposable_receipt_issuer.py"
+          python3 -m venv "$public/venv"
+          "$public/venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "cryptography==45.0.7"
+
+      - name: Exercise isolated signer with kernel SO_PEERCRED in temporary hosted VM
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_RECEIPT_PUBLIC"
+          # sudo is allowed ONLY on ephemeral GitHub-hosted VM.
+          # Four UID children permanently drop privilege immediately.
+          sudo env \
+            MYAI_HOSTED_RECEIPT_UID_TEST=yes \
+            MYAI_RUNNER_ENVIRONMENT=github-hosted \
+            PYTHONDONTWRITEBYTECODE=1 \
+            PYTHONPATH="$MYAI_RECEIPT_PUBLIC" \
+            "$MYAI_RECEIPT_PUBLIC/venv/bin/python" -B \
+            scripts/test_disposable_receipt_issuer.py
+
+      - name: Remove only disposable test files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_RECEIPT_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-receipt-checkout-*)
+              if [ -d "$MYAI_RECEIPT_CHECKOUT" ] && [ ! -L "$MYAI_RECEIPT_CHECKOUT" ]; then
+                sudo rm -rf -- "$MYAI_RECEIPT_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unsafe checkout cleanup path" >&2; exit 2 ;;
+          esac
+          case "${MYAI_RECEIPT_PUBLIC:-}" in
+            /tmp/myai-receipt-public-*)
+              if [ -d "$MYAI_RECEIPT_PUBLIC" ] && [ ! -L "$MYAI_RECEIPT_PUBLIC" ]; then
+                sudo rm -rf -- "$MYAI_RECEIPT_PUBLIC"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unsafe public cleanup path" >&2; exit 2 ;;
+          esac

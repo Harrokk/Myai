@@ -18,7 +18,9 @@ def test_signer_key_created_after_uid_drop_and_only_after_fixed_inspection():
     assert body.index("inspect_candidate_for_receipt(") < (
         body.index("signing_key.sign(canonical_milestone_receipt(statement))")
     )
-    assert "if challenge != NONCE or allowed" in body
+    assert "if challenge != NONCE:" in body
+    assert "claim_receipt_once(" in body
+    assert body.index("claim_receipt_once(") < body.index("signing_key.sign(")
     assert '"passed": True' not in body
     assert "private_bytes(" not in src
     assert "SelfDevPromotionManager" not in src
