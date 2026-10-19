@@ -24,6 +24,34 @@ jobs:
     assert r["write_permissions_declared"] is True
 
 
+def test_narrow_old_branch_scope_never_claims_live_runner_safe():
+    source = """on:
+  push:
+    branches:
+      - dev/old-physical-runner-branch
+jobs:
+  t:
+    runs-on: [self-hosted, ventuno-q]
+"""
+    finding = summarize_source("old.yml", source)
+    assert finding["risk"] == "REVIEW_AUTO_SELF_HOSTED"
+    assert finding["push_scope"] == "EXPLICIT_BRANCHES"
+    assert finding["push_branches"] == ["dev/old-physical-runner-branch"]
+
+
+def test_wildcard_runner_trigger_requires_review():
+    text = """on:
+  push:
+    branches: ['dev/**']
+jobs:
+  t:
+    runs-on: [self-hosted, ventuno-q]
+"""
+    result = summarize_source("wildcard.yml", text)
+    assert result["push_scope"] == "PATTERN_BRANCHES"
+    assert result["risk"] == "REVIEW_AUTO_SELF_HOSTED"
+
+
 def test_pure_hosted_and_manual_selfhosted_are_distinguished():
     hosted = """on:
   push:
