@@ -161,7 +161,9 @@ def test_false_or_stale_provenance_is_never_signable(lab, change):
     elif change == "expired_genesis_chain":
         override["pinned_genesis_sha256"] = "f"*64
     elif change == "unauthorized_journal_advance":
-        advance(lab, 3)
+        record_candidate_milestone(
+            lab["db"], intent_id=INTENT, next_stage=STAGES[3],
+        )
     with pytest.raises(ValueError):
         call(lab, **override)
 
