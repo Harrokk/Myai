@@ -1,0 +1,200 @@
+name: MyAI physical one-shot consented voice smoke 2026-10-22
+
+on:
+  push:
+    branches: [dev/ventuno-one-consented-voice-smoke-20261022]
+    paths:
+      - .github/workflows/ventuno-one-consented-voice-smoke-20261022.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-once-consented-voice-2026-10-22
+  cancel-in-progress: false
+
+jobs:
+  dialogue:
+    # One real audio attempt is authorized only by this conversation,
+    # on the SINGLE specifically named commit-message push. Never on rerun.
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'Authorize single 3s USB dialogue on VENTUNO Q 2026-10-22'
+    name: One 3s spoken Swedish question and one capped Swedish response
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact authorized source into isolated runner temporary root
+        shell: bash
+        env:
+          MYAI_FROZEN_SOURCE_SHA: d28165c1cad81f8b4308ac7355a3fdfd81334986
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$(id -u)" -ne 0
+          test "$GITHUB_REF_NAME" = "dev/ventuno-one-consented-voice-smoke-20261022"
+          test -n "${RUNNER_TEMP:-}"
+          work="$(mktemp -d "$RUNNER_TEMP/myai-usb-dialog-XXXXXXXX")"
+          chmod 0700 "$work"
+          echo "MYAI_DIALOG_WORK=$work" >> "$GITHUB_ENV"
+          mkdir -p "$work/source"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin "https://github.com/Harrokk/Myai.git"
+          git -C "$work/source" fetch --quiet --depth=1 origin "$MYAI_FROZEN_SOURCE_SHA"
+          git -C "$work/source" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$MYAI_FROZEN_SOURCE_SHA"
+          test -z "$(git -C "$work/source" status --porcelain --untracked-files=no)"
+          echo "ONE-USE AUDIO CONSENT: one 3s recording, one short capped reply, frozen source $MYAI_FROZEN_SOURCE_SHA"
+
+      - name: Run all one-shot dialog and USB driver regression tests with mocked audio
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_usb_dialogue_once.py \
+            tests/test_ventuno_usb_dialogue_hardware.py \
+            tests/test_ventuno_usb_voice_dialog_readiness.py \
+            tests/test_ventuno_usb_speaker_smoke.py \
+            tests/test_ventuno_usb_audio_inventory.py
+          echo "All safety tests use synthetic samples; no physical audio opened."
+
+      - name: Check actual USB audio identity, active services and 8GiB RAM reserve
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          import os
+          report = inspect(disk_root=Path(os.environ["MYAI_DIALOG_WORK"]))
+          print("Pre-staging local hardware readiness:", report["status"],
+                "memory mib:", report["ram_available_mib"],
+                "disk mib:", report["disk_available_mib"])
+          assert report["status"] == "ready-for-separate-consented-dialogue-test"
+          assert report["microphone_opened"] is False
+          assert report["speaker_opened"] is False
+          PY
+
+      - name: Stage only verified ARM64 Whisper libraries in new temporary environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          PY="$(readlink -f "$(command -v python3)")"
+          test -x "$PY"
+          "$PY" -m venv "$MYAI_DIALOG_WORK/myai-voice-staging"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_DIALOG_WORK"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_DIALOG_WORK"
+
+      - name: Fetch and verify pinned publicly licensed Swedish speech fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python -m scripts.ventuno_swedish_reference_audio \
+            --runner-temp "$MYAI_DIALOG_WORK"
+
+      - name: Verify pinned Whisper Tiny CPU model before user audio is accessed
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          base = Path(os.environ["MYAI_DIALOG_WORK"])
+          result = smoke(base / "myai-voice-staging/bin/python", base)
+          allowed = result.get("status") == "tiny-sv-cpu-word-and-silence-verified"
+          print("Pinned offline Swedish Whisper CPU preflight:", allowed)
+          assert allowed
+          assert result["model_files_verified"] is True
+          assert result["cpu_inference_verified"] is True
+          assert result["microphone_used"] is False
+          PY
+
+      - name: Stage Swedish offline eSpeak and verify WAV without physical audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_tts_temp_stage import stage_sweden_tts
+          root = Path(os.environ["MYAI_DIALOG_WORK"])
+          report = stage_sweden_tts(root / "myai-tts-espeak-stage", root)
+          success = report.get("status") == "isolated-swedish-tts-signal-verified"
+          print("Offline temporary Swedish synthesis verified:", success)
+          assert success
+          assert report["physical_playback_verified"] is False
+          assert report["services_changed"] is False
+          PY
+
+      - name: Final checks before spoken cue - USB, model, RAM and services
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+          from scripts.ventuno_usb_dialogue_hardware import _preflight
+          root = Path(os.environ["MYAI_DIALOG_WORK"])
+          report = inspect(disk_root=root)
+          print("Final live audio safety readiness:", report["status"])
+          assert report["status"] == "ready-for-separate-consented-dialogue-test"
+          _preflight(root)
+          print("Exactly one audible spoken cue then 3s recording allowed.")
+          PY
+
+      - name: ONE consented spoken cue then 3s USB recording and capped reply
+        id: dialogue
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MYAI_DIALOG_WORK/source"
+          /home/arduino/MyAI/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.ventuno_usb_dialogue_hardware import run_one_authorized_hardware_dialog
+          result = run_one_authorized_hardware_dialog(
+              Path(os.environ["MYAI_DIALOG_WORK"]),
+              consent_to_record=True,
+              consent_to_play=True,
+          )
+          print("ONE-TIME USB voice result:", json.dumps(result, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("dialogue_result=" + str(result["status"]) + "\n")
+          if result["status"] != "one-shot-usb-dialogue-alsa-playback-completed":
+              raise SystemExit(2)
+          PY
+
+      - name: Confirm MyAI and GenieX and securely remove only isolated workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          if [ -n "${MYAI_DIALOG_WORK:-}" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+            case "$MYAI_DIALOG_WORK" in
+              "$RUNNER_TEMP"/myai-usb-dialog-*)
+                if [ -d "$MYAI_DIALOG_WORK" ] && [ ! -L "$MYAI_DIALOG_WORK" ]; then
+                  rm -rf -- "$MYAI_DIALOG_WORK"
+                fi
+                ;;
+              *) echo "Refusing unsafe temp cleanup" >&2; exit 1 ;;
+            esac
+          fi
+          echo "No WAV, user transcript, Whisper model or other speech data kept."
+          echo "No active MyAI or GenieX services/configuration changed."
