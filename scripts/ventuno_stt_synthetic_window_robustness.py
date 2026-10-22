@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import array
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -37,7 +38,10 @@ from scripts.ventuno_whisper_tiny_cpu_smoke import (
     MIN_MEM_AVAILABLE_KIB, MIN_DISK_AVAILABLE_BYTES,
 )
 
-FIXTURE_VARIANTS = ("reference", "early_250ms", "late_400ms", "gain_25pct")
+FIXTURE_VARIANTS = (
+    "reference", "early_250ms", "late_400ms", "gain_25pct",
+    "noise_snr_12db", "noise_snr_0db", "echo_180ms", "onset_muted_700ms",
+)
 APPROVED_CATEGORIES = ("approved", "empty", "short-unmatched", "other-unmatched")
 MIN_FREE_DISK = max(MIN_DISK_AVAILABLE_BYTES, 4 * 1024**3)
 
@@ -72,12 +76,62 @@ def perturb_three_second_pcm(raw: bytes, *, shift_ms: int = 0,
     return wire
 
 
+def apply_fixed_acoustic_fault(raw: bytes, *, fault: str) -> bytes:
+    """Deterministic offline-only noise/echo/cutout; never real audio.
+
+    Noise uses a fixed-seed arithmetic sequence, not a microphone noise
+    recording. SNR is relative to the synthetic voice RMS across 3 seconds.
+    The results do NOT model an actual VENTUNO acoustical transfer function.
+    """
+    if type(raw) is not bytes or len(raw) != CAPTURE_BYTES or fault not in (
+        "noise_snr_12db", "noise_snr_0db", "echo_180ms",
+        "onset_muted_700ms",
+    ):
+        raise ValueError("Unknown bounded synthetic acoustic fixture")
+    original = array.array("h")
+    original.frombytes(raw)
+    if sys.byteorder != "little":
+        original.byteswap()
+    if len(original) != CAPTURE_BYTES // 2:
+        raise ValueError("Invalid PCM sample count")
+    if fault == "onset_muted_700ms":
+        original[:11200] = array.array("h", [0]) * 11200
+    elif fault == "echo_180ms":
+        offset = 180 * 16
+        for i in range(len(original) - 1, offset - 1, -1):
+            level = int(original[i]) + round(int(original[i - offset]) * 0.35)
+            original[i] = max(-32768, min(32767, level))
+    else:
+        voice_rms = math.sqrt(sum(int(x)**2 for x in original) / len(original))
+        snr_db = 12 if fault == "noise_snr_12db" else 0
+        target_noise_rms = voice_rms / (10 ** (snr_db / 20))
+        # Uniform synthetic noise with mean ~0 and standard deviation ~1.
+        # LCG seed is intentionally fixed for repeatable *offline* tests.
+        state = 0x13579BDF
+        noise_gain = target_noise_rms * math.sqrt(3)
+        for i in range(len(original)):
+            state = (1664525 * state + 1013904223) & 0xFFFFFFFF
+            noise = ((state / 0xFFFFFFFF) * 2.0 - 1.0) * noise_gain
+            value = round(int(original[i]) + noise)
+            original[i] = max(-32768, min(32767, value))
+    if sys.byteorder != "little":
+        original.byteswap()
+    result = original.tobytes()
+    if len(result) != CAPTURE_BYTES:
+        raise ValueError("Unexpected bounded synthetic audio length")
+    return result
+
+
 def build_variants(piper_pcm: bytes) -> tuple[bytes, ...]:
     return (
         perturb_three_second_pcm(piper_pcm),
         perturb_three_second_pcm(piper_pcm, shift_ms=-250),
         perturb_three_second_pcm(piper_pcm, shift_ms=400),
         perturb_three_second_pcm(piper_pcm, gain_pct=25),
+        apply_fixed_acoustic_fault(piper_pcm, fault="noise_snr_12db"),
+        apply_fixed_acoustic_fault(piper_pcm, fault="noise_snr_0db"),
+        apply_fixed_acoustic_fault(piper_pcm, fault="echo_180ms"),
+        apply_fixed_acoustic_fault(piper_pcm, fault="onset_muted_700ms"),
     )
 
 
@@ -140,7 +194,7 @@ def inspect_synthetic_window_robustness(
         return report
     variants = build_variants(raw)
     del raw
-    for start in (0, 2):
+    for start in range(0, len(variants), 2):
         pair = variants[start] + variants[start+1]
         for v in variants[start:start+2]:
             if classify_pcm_quality(v) in (
