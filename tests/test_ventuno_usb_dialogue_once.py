@@ -374,7 +374,6 @@ def test_short_misrecognized_question_reports_activity_but_never_calls_model():
     assert outcome["unmatched_category"] == "unrelated-short-utterance"
     assert outcome["capture_activity_layout"] == "late-activity"
     assert outcome["capture_signal_class"] == "bounded-audio-level"
-    assert outcome["capture_activity_layout"] == "distributed-activity"
     assert outcome["transcription_verified"] is False
     assert outcome["microphone_audio_saved"] is False
     assert outcome["transcript_logged"] is False
