@@ -1,0 +1,110 @@
+name: MyAI VENTUNO physical smoke stage 1 - no audio/no NPU
+on:
+  push:
+    branches: [dev/ventuno-smoke-stage1-real-readonly-20261022]
+    paths:
+      - .github/workflows/ventuno-smoke-stage1-real-readonly.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-ventuno-stage1-metadata-20261022
+  cancel-in-progress: false
+
+jobs:
+  measured-stage-one-on-ventuno:
+    name: Real board thermal, memory, CPU, USB and NPU metadata baseline
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 7
+    steps:
+      - name: Verify device and refuse root/system modifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test "$(id -u)" -ne 0
+          test "$GITHUB_REF_NAME" = "dev/ventuno-smoke-stage1-real-readonly-20261022"
+          test -n "$RUNNER_TEMP" && test -d "$RUNNER_TEMP" && test ! -L "$RUNNER_TEMP"
+          echo "READ-ONLY real hardware counters only; NO mic, playback, inferencing or service changes"
+
+      - name: Checkout exactly the previously hosted-tested source in private scratch
+        shell: bash
+        env:
+          FROZEN_SOURCE_SHA: d28165c1cad81f8b4308ac7355a3fdfd81334986
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-stage1-XXXXXXXX")"
+          chmod 0700 "$scratch"
+          echo "MYAI_STAGE1_CHECKOUT=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch"
+          git -C "$scratch" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$scratch" fetch -q --depth=1 origin "$FROZEN_SOURCE_SHA"
+          git -C "$scratch" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$FROZEN_SOURCE_SHA"
+          test -z "$(git -C "$scratch" status --porcelain --untracked-files=no)"
+          echo "Locked test source SHA: $FROZEN_SOURCE_SHA"
+
+      - name: Read measured CPU frequency, thermal, memory, disk, service and USB counters
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STAGE1_CHECKOUT"
+          test -x /home/arduino/MyAI/.venv/bin/python
+          timeout --signal=TERM --kill-after=3s 45s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_readonly_probe
+          timeout --signal=TERM --kill-after=3s 35s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_remote_idle_baseline
+
+      - name: Read safe voice readiness and NPU metadata WITHOUT opening devices
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STAGE1_CHECKOUT"
+          timeout --signal=TERM --kill-after=3s 35s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_usb_voice_dialog_readiness
+          timeout --signal=TERM --kill-after=3s 85s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_big_test_readiness --board-metadata-only
+          echo "No NPU operator execution or real audio signal was tested."
+
+      - name: Read-only stop check on production-safe voice profile
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+          FROZEN_SOURCE_SHA: d28165c1cad81f8b4308ac7355a3fdfd81334986
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STAGE1_CHECKOUT"
+          timeout --signal=TERM --kill-after=3s 45s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_physical_pilot_gate \
+            --source-root . --expected-sha "$FROZEN_SOURCE_SHA" --board-readonly
+          echo "SAFE PROFILE STILL OFF; this is not microphone or speaker consent."
+
+      - name: Remove only newly created temporary checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MYAI_STAGE1_CHECKOUT" in
+            "$RUNNER_TEMP"/myai-stage1-*)
+              if [ -d "$MYAI_STAGE1_CHECKOUT" ] && [ ! -L "$MYAI_STAGE1_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_STAGE1_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected stage1 cleanup location; refusing." >&2; exit 2 ;;
+          esac
+          echo "No files in the active MyAI installation were modified by this job."
