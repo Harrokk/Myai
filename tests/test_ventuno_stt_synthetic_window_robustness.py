@@ -1,5 +1,6 @@
 """Synthetic 16kHz frame and authorization regressions: NO microphone or model."""
 import array
+import math
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 from scripts.ventuno_stt_synthetic_window_robustness import (
     CAPTURE_BYTES, FIXTURE_VARIANTS, build_variants,
+    apply_fixed_acoustic_fault,
     inspect_synthetic_window_robustness, perturb_three_second_pcm,
 )
 from scripts.ventuno_usb_dialogue_once import classify_pcm_activity_layout
@@ -65,16 +67,85 @@ def test_gain_25_percent_preserves_positions_and_integer_limits():
 
 def test_all_variants_are_fixed_pcm_and_no_audio_format_change():
     variants=build_variants(signal())
-    assert len(variants)==len(FIXTURE_VARIANTS)==4
+    assert len(variants)==len(FIXTURE_VARIANTS)==8
     assert all(type(v) is bytes and len(v)==CAPTURE_BYTES for v in variants)
     assert variants[0]==signal()
     assert variants[1]!=signal()
     assert variants[2]!=signal()
     assert variants[3]!=signal()
+    assert all(variants[i]!=signal() for i in range(4, 8))
     assert set(classify_pcm_activity_layout(v) for v in variants) <= {
         "no-significant-activity", "early-activity", "middle-activity",
         "late-activity", "distributed-activity", "invalid-pcm",
     }
+
+
+
+def rms(raw):
+    samples=array.array("h")
+    samples.frombytes(raw)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return math.sqrt(sum(v*v for v in samples)/len(samples))
+
+
+@pytest.mark.parametrize("fault", [
+    "noise_snr_12db", "noise_snr_0db", "echo_180ms",
+    "onset_muted_700ms",
+])
+def test_acoustic_faults_deterministic_and_no_format_change(fault):
+    original=signal()
+    first=apply_fixed_acoustic_fault(original,fault=fault)
+    second=apply_fixed_acoustic_fault(original,fault=fault)
+    assert first == second and first != original
+    assert len(first)==CAPTURE_BYTES
+    assert type(first) is bytes
+
+
+def test_noise_levels_are_bounded_and_zero_db_is_more_disruptive():
+    original=signal()
+    moderate=apply_fixed_acoustic_fault(original,fault="noise_snr_12db")
+    strong=apply_fixed_acoustic_fault(original,fault="noise_snr_0db")
+    # The tested noise is not measured microphone noise. Only the relative
+    # synthetic amplitude increase is proven by this fixed input.
+    diff=lambda x: math.sqrt(sum(
+        (a-b)**2 for a,b in zip(decode(original),decode(x))
+    ) / 48000)
+    assert diff(strong) > diff(moderate) * 3
+
+
+def decode(raw):
+    samples=array.array("h")
+    samples.frombytes(raw)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples
+
+
+def test_muting_initial_700ms_cuts_actual_synthetic_onset():
+    muted=decode(apply_fixed_acoustic_fault(signal(),fault="onset_muted_700ms"))
+    assert all(value == 0 for value in muted[:11200])
+    assert muted[11200] == 3000
+    assert muted[-1] == 0
+
+
+def test_echo_changes_signal_at_exact_positive_delay():
+    source=signal()
+    original=decode(source)
+    echo=decode(apply_fixed_acoustic_fault(source,fault="echo_180ms"))
+    assert echo[6000] == original[6000]
+    assert echo[6000 + 180*16] > original[6000 + 180*16]
+
+
+@pytest.mark.parametrize("bad,fault", [
+    (b"", "echo_180ms"), (None, "noise_snr_0db"),
+    (bytes(CAPTURE_BYTES-1), "onset_muted_700ms"),
+    (bytes(CAPTURE_BYTES), "../bad"),
+    (bytes(CAPTURE_BYTES), "microphone"),
+])
+def test_bad_or_untrusted_noise_sources_are_denied(bad,fault):
+    with pytest.raises(ValueError):
+        apply_fixed_acoustic_fault(bad,fault=fault)
 
 
 @pytest.mark.parametrize("raw,shift,gain", [
