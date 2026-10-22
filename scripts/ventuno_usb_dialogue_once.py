@@ -86,8 +86,9 @@ def classify_unapproved_question(text: object) -> str:
     if approved_short_question(text) is not None:
         return "approved"
     words = normalized.split()
-    if (words and words[0] in ("säg", "sag")
-            and "vad heter du" in normalized):
+    if ("vad heter du" in normalized and (
+            (words and words[0] in ("säg", "sag"))
+            or normalized.startswith("vänta en sekund säg sedan "))):
         return "spoken-cue-echo-suspected"
     if any(question in normalized for question in APPROVED_QUESTIONS):
         return "test-question-with-extra-words"
