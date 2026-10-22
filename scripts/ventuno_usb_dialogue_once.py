@@ -133,6 +133,45 @@ def classify_pcm_quality(raw: object) -> str:
     return "bounded-audio-level"
 
 
+def classify_pcm_activity_layout(raw: object) -> str:
+    """Coarse thirds-only energy location; NO speech/timing reconstruction.
+
+    Each fixed three-second, 16kHz sample buffer is divided into three
+    one-second groups. Only one of six fixed labels leaves the function:
+    no waveform, exact start time, text, percentages or samples. An energy
+    peak is NOT proof that the user spoke, or that Whisper heard the words.
+    This is diagnostic metadata for a separately consented FUTURE capture.
+    """
+    if not isinstance(raw, bytes) or len(raw) != CAPTURE_BYTES:
+        return "invalid-pcm"
+    samples = array.array("h")
+    samples.frombytes(raw)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if len(samples) != CAPTURE_BYTES // 2:
+        return "invalid-pcm"
+    window = len(samples) // 3
+    energies = []
+    for i in range(3):
+        segment = samples[i * window:(i + 1) * window]
+        mean_square = sum(int(value) ** 2 for value in segment) / window
+        energies.append(math.sqrt(mean_square) / 32768)
+    maximum = max(energies)
+    if not math.isfinite(maximum) or maximum < MIN_CAPTURE_RMS:
+        return "no-significant-activity"
+    # Relative gate is intentionally tolerant of differing microphone gains.
+    # Background noise can also cross it: report only coarse energy layout.
+    threshold = max(MIN_CAPTURE_RMS, maximum * 0.30)
+    active = tuple(value >= threshold for value in energies)
+    if active == (True, False, False):
+        return "early-activity"
+    if active == (False, True, False):
+        return "middle-activity"
+    if active == (False, False, True):
+        return "late-activity"
+    return "distributed-activity"
+
+
 def clean_reply(reply: object) -> str | None:
     if not isinstance(reply, str):
         return None
@@ -203,6 +242,7 @@ class OneShotUsbDialog:
             result["recording_attempted"] = True
             pcm = self._ports.capture()
             result["capture_signal_class"] = classify_pcm_quality(pcm)
+            result["capture_activity_layout"] = classify_pcm_activity_layout(pcm)
             if not pcm_signal_ok(pcm):
                 result["status"] = "reject-weak-or-invalid-3s-capture"
                 return result
