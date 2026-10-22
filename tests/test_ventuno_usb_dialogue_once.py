@@ -329,6 +329,69 @@ def test_coarse_audio_signal_classifier_never_leaks_pcm():
         assert str(sample) not in classification
 
 
+
+def thirds_pcm(first: int, middle: int, last: int) -> bytes:
+    """Synthetic non-speech constant-amplitude PCM; no microphone access."""
+    return b"".join(
+        array.array("h", [level] * 16000).tobytes()
+        for level in (first, middle, last)
+    )
+
+
+@pytest.mark.parametrize("levels,expected", [
+    ((0, 0, 0), "no-significant-activity"),
+    ((1800, 0, 0), "early-activity"),
+    ((0, 1800, 0), "middle-activity"),
+    ((0, 0, 1800), "late-activity"),
+    ((1800, 0, 1800), "distributed-activity"),
+    ((1800, 1800, 0), "distributed-activity"),
+    ((1800, 1800, 1800), "distributed-activity"),
+    ((1800, 160, 0), "early-activity"),
+])
+def test_activity_layout_uses_only_coarse_thirds_without_content(levels, expected):
+    raw = thirds_pcm(*levels)
+    layout = mod.classify_pcm_activity_layout(raw)
+    assert layout == expected
+    assert len(layout) < 40
+    assert not any(str(level) in layout for level in levels if level != 0)
+
+
+@pytest.mark.parametrize("bad", [
+    b"", b"private", bytes(mod.CAPTURE_BYTES - 1),
+    [0] * mod.CAPTURE_BYTES, None,
+])
+def test_activity_layout_refuses_invalid_pcm_and_never_outputs_bytes(bad):
+    assert mod.classify_pcm_activity_layout(bad) == "invalid-pcm"
+
+
+def test_short_misrecognized_question_reports_activity_but_never_calls_model():
+    p, events = ports(transcript="Hej!")
+    p.capture = lambda: events.append("capture") or thirds_pcm(0, 0, 1800)
+    outcome = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True,
+    )
+    assert outcome["status"] == "reject-unapproved-or-unclear-test-utterance"
+    assert outcome["unmatched_category"] == "unrelated-short-utterance"
+    assert outcome["capture_activity_layout"] == "late-activity"
+    assert outcome["capture_signal_class"] == "bounded-audio-level"
+    assert outcome["transcription_verified"] is False
+    assert outcome["microphone_audio_saved"] is False
+    assert outcome["transcript_logged"] is False
+    assert outcome["repeat_attempt_allowed"] is False
+    assert "geniex" not in events
+    assert "play" not in events
+    assert "Hej!" not in str(outcome)
+
+
+def test_no_activity_layout_or_microphone_actions_without_both_consents():
+    p, events = ports()
+    outcome = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=False,
+    )
+    assert outcome["status"] == "not-authorized"
+    assert "capture_activity_layout" not in outcome
+    assert "capture" not in events
+
 def test_one_shot_synthetic_voice_report_exposes_only_coarse_level():
     p, _ = ports()
     outcome=mod.OneShotUsbDialog(p).run(
