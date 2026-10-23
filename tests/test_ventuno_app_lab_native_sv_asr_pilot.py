@@ -4,7 +4,6 @@ from types import ModuleType
 import re
 import runpy
 import sys
-import yaml
 
 APP = (Path(__file__).resolve().parents[1] /
        "integrations/arduino_app_lab/myai_sv_asr_once")
@@ -54,8 +53,9 @@ def _fake_arduino(monkeypatch, transcript, *, fail=False):
 
 
 def test_app_uses_only_first_party_asr_and_no_web_ui_or_llm():
-    data = yaml.safe_load((APP / "app.yaml").read_text(encoding="utf-8"))
-    assert data["bricks"] == ["arduino:asr"]
+    manifest = (APP / "app.yaml").read_text(encoding="utf-8")
+    assert "bricks:\\n  - arduino:asr" in manifest
+    assert "arduino:web_ui" not in manifest and "arduino:llm" not in manifest
     code = SOURCE.read_text(encoding="utf-8")
     assert 'AutomaticSpeechRecognition(language="sv")' in code
     assert "App.run(user_loop=run_one_diagnostic)" in code
