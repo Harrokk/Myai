@@ -1,0 +1,278 @@
+name: VENTUNO single authorized official Arduino Whisper Small installation
+
+on:
+  push:
+    branches: [dev/ventuno-official-whisper-small-install-20261023]
+    paths:
+      - .github/workflows/ventuno-official-whisper-small-install-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-official-whisper-small-install-exactly-once-20261023
+  cancel-in-progress: false
+
+jobs:
+  model:
+    if: github.run_attempt == 1 && github.event.before == '226fe4fa48f0a6e8becd52dba776ee4d20a25ddc' && github.event.head_commit.message == 'Operator approved exact official Whisper Small install on VENTUNO 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 21
+    steps:
+      - name: Check alternative model root and install only official catalog model if absent
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$(id -u)" = "1000"
+          test "$(uname -m)" = "aarch64"
+          python3 -B - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shlex
+          import shutil
+          import signal
+          import stat
+          import subprocess
+          import sys
+
+          MODEL = "whisper-small-quantized"
+          DEFAULT_ROOT = "/var/lib/arduino-app-cli/models"
+          services = ("myai-ventuno.service", "myai-geniex.service")
+          report = {
+              "status": "not-started",
+              "official_cli_model_status_before": "unknown",
+              "official_cli_model_status_after": "unknown",
+              "effective_models_path_overridden": False,
+              "official_cli_listing_attempted": False,
+              "official_cli_install_attempted": False,
+              "official_cli_install_success": False,
+              "production_services_active_before": False,
+              "production_services_active_after": False,
+              "whisper_model_inference_performed": False,
+              "microphone_opened": False,
+              "speaker_opened": False,
+              "myai_or_geniex_service_restarted": False,
+              "new_llm_started": False,
+              "production_myai_config_modified": False,
+          }
+
+          def active(unit):
+              try:
+                  ret = subprocess.run(
+                      ["systemctl", "is-active", "--quiet", unit],
+                      timeout=5, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, check=False)
+                  return ret.returncode == 0
+              except (OSError, subprocess.TimeoutExpired):
+                  return False
+
+          def show(unit, prop):
+              try:
+                  ret = subprocess.run(
+                      ["systemctl", "show", unit, "--property=" + prop,
+                       "--value"],
+                      timeout=5, stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL, check=False)
+                  if ret.returncode != 0 or len(ret.stdout) > 16384:
+                      return None
+                  return ret.stdout.decode("utf-8", "replace").strip()
+              except (OSError, subprocess.TimeoutExpired):
+                  return None
+
+          def service_models_override():
+              # Read only one named known unit's configuration; no raw env is
+              # printed or sent to GitHub. A different unit is not assumed.
+              unit = "arduino-app-cli.service"
+              state = show(unit, "LoadState")
+              if state not in (None, "loaded", "not-found"):
+                  raise RuntimeError("unexpected-cli-service-state")
+              if state != "loaded":
+                  return None
+              env_raw = show(unit, "Environment")
+              if env_raw is None:
+                  raise RuntimeError("cannot-read-cli-service-environment")
+              tokens = shlex.split(env_raw)
+              candidates = [v.split("=", 1)[1] for v in tokens
+                            if v.startswith("MODELS_PATH=")]
+              if len(set(candidates)) > 1:
+                  raise RuntimeError("conflicting-cli-model-path")
+              return candidates[0] if candidates else None
+
+          def checked_root(path):
+              if not isinstance(path, str) or not path.startswith("/") or len(path) > 220:
+                  raise RuntimeError("unsafe-model-root")
+              if "\x00" in path or path in ("/", "/tmp", "/home", "/var"):
+                  raise RuntimeError("unsafe-model-root")
+              root = Path(path)
+              if not root.is_absolute():
+                  raise RuntimeError("unsafe-model-root")
+              # Deny symlinked parents and unknown filesystem prefixes.
+              if not any(path == prefix or path.startswith(prefix + "/")
+                         for prefix in ("/var/lib/arduino-app-cli",
+                                        "/home/arduino", "/mnt", "/media")):
+                  raise RuntimeError("model-root-outside-approved-prefixes")
+              for parent in reversed((root, *root.parents)):
+                  try:
+                      info = parent.lstat()
+                  except FileNotFoundError:
+                      continue
+                  if stat.S_ISLNK(info.st_mode):
+                      raise RuntimeError("model-root-symlink")
+              if not root.is_dir():
+                  raise RuntimeError("model-root-unavailable")
+              return root
+
+          def free_memory_kib():
+              try:
+                  with open("/proc/meminfo", "r", encoding="ascii") as f:
+                      for line in f:
+                          if line.startswith("MemAvailable:"):
+                              return int(line.split()[1])
+              except (OSError, ValueError, IndexError):
+                  pass
+              return 0
+
+          def run_quiet(argv, seconds, env):
+              # Suppress all raw CLI/model/URL output: status-only logs.
+              # The official CLI receives SIGTERM, with a grace window,
+              # on timeout, allowing the downloader to clean up.
+              p = subprocess.Popen(
+                  argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                  start_new_session=True, env=env)
+              try:
+                  out, err = p.communicate(timeout=seconds)
+              except subprocess.TimeoutExpired:
+                  try:
+                      os.killpg(p.pid, signal.SIGTERM)
+                      p.communicate(timeout=30)
+                  except (ProcessLookupError, subprocess.TimeoutExpired):
+                      try:
+                          os.killpg(p.pid, signal.SIGKILL)
+                      except ProcessLookupError:
+                          pass
+                      p.communicate()
+                  return False, b""
+              return p.returncode == 0 and len(out) < 2 * 1024 * 1024, out
+
+          def model_state(cli, env):
+              report["official_cli_listing_attempted"] = True
+              ok, data = run_quiet([cli, "--format", "json",
+                                    "--log-level", "error",
+                                    "model", "list"], 135, env)
+              if not ok:
+                  raise RuntimeError("official-model-list-unavailable")
+              try:
+                  result = json.loads(data.decode("utf-8"))
+                  if not isinstance(result, dict):
+                      raise ValueError()
+                  models = result.get("models", result.get("Models"))
+                  if not isinstance(models, list):
+                      raise ValueError()
+                  entries = [m for m in models if isinstance(m, dict)
+                             and m.get("ID", m.get("id")) == MODEL]
+                  if len(entries) != 1:
+                      raise ValueError()
+                  state = entries[0].get("Status", entries[0].get("status"))
+                  if state not in ("installed", "not-installed", "downloading"):
+                      raise ValueError()
+                  return state
+              except (UnicodeError, ValueError, TypeError, KeyError):
+                  raise RuntimeError("official-model-list-malformed")
+
+          try:
+              report["production_services_active_before"] = all(
+                  active(x) for x in services)
+              if not report["production_services_active_before"]:
+                  raise RuntimeError("production-not-healthy")
+              cli = shutil.which("arduino-app-cli")
+              if cli is None:
+                  raise RuntimeError("arduino-cli-absent")
+
+              service_override = service_models_override()
+              own_override = os.environ.get("MODELS_PATH")
+              if (service_override and own_override and
+                      service_override != own_override):
+                  raise RuntimeError("alternate-model-path-conflict")
+              selected = service_override or own_override or DEFAULT_ROOT
+              root = checked_root(selected)
+              report["effective_models_path_overridden"] = selected != DEFAULT_ROOT
+              env = os.environ.copy()
+              env["MODELS_PATH"] = str(root)
+
+              # 6 GiB on the destination volume and 5 GiB available RAM;
+              # this does not run ASR or allocate NPU memory.
+              if shutil.disk_usage(root).free < 6 * 1024**3:
+                  raise RuntimeError("insufficient-install-disk-reserve")
+              if free_memory_kib() < 5 * 1024**2:
+                  raise RuntimeError("insufficient-host-memory-reserve")
+
+              before = model_state(cli, env)
+              report["official_cli_model_status_before"] = before
+              if before == "installed":
+                  report["official_cli_model_status_after"] = before
+                  report["status"] = "official-model-already-installed"
+              elif before == "downloading":
+                  raise RuntimeError("preexisting-download-in-progress-or-incomplete")
+              elif before == "not-installed":
+                  # Only one named official Arduino catalog model is allowed;
+                  # no URL, no handwritten image/model downloader, no LLM.
+                  report["official_cli_install_attempted"] = True
+                  ok, _ = run_quiet([cli, "--format", "json",
+                                     "--log-level", "error",
+                                     "model", "install", MODEL], 900, env)
+                  if not ok:
+                      raise RuntimeError("official-model-install-failed")
+                  report["official_cli_install_success"] = True
+                  if not all(active(x) for x in services):
+                      raise RuntimeError("production-health-changed")
+                  after = model_state(cli, env)
+                  report["official_cli_model_status_after"] = after
+                  if after != "installed":
+                      raise RuntimeError("official-model-post-list-not-installed")
+                  report["status"] = "official-model-installed-and-listed"
+              else:
+                  raise RuntimeError("unknown-model-state")
+          except Exception as exc:
+              # Only allowlisted local error categories are exported.
+              approved_errors = frozenset((
+                  "unexpected-cli-service-state",
+                  "cannot-read-cli-service-environment",
+                  "conflicting-cli-model-path",
+                  "unsafe-model-root",
+                  "model-root-outside-approved-prefixes",
+                  "model-root-symlink",
+                  "model-root-unavailable",
+                  "production-not-healthy",
+                  "arduino-cli-absent",
+                  "alternate-model-path-conflict",
+                  "insufficient-install-disk-reserve",
+                  "insufficient-host-memory-reserve",
+                  "official-model-list-unavailable",
+                  "official-model-list-malformed",
+                  "preexisting-download-in-progress-or-incomplete",
+                  "official-model-install-failed",
+                  "production-health-changed",
+                  "official-model-post-list-not-installed",
+                  "unknown-model-state",
+              ))
+              reason = str(exc)
+              report["status"] = ("blocked-" + reason if reason in approved_errors
+                                  else "blocked-unexpected-error")
+          finally:
+              report["production_services_active_after"] = all(
+                  active(x) for x in services)
+              print("MYAI_OFFICIAL_WHISPER_INSTALL_RESULT=" +
+                    json.dumps(report, sort_keys=True))
+
+          if (report["status"] not in
+              ("official-model-installed-and-listed",
+               "official-model-already-installed")
+              or not report["production_services_active_after"]):
+              sys.exit(2)
+          PY
+          echo "Official Arduino model install/list only. No ASR, LLM, audio or production restart."
