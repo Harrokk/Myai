@@ -9,9 +9,14 @@ All logs are fixed, non-content categories. No transcript is ever printed.
 from __future__ import annotations
 
 from arduino.app_bricks.asr import AutomaticSpeechRecognition
+from arduino.app_peripherals.microphone import Microphone
 from arduino.app_utils import App
 
-asr = AutomaticSpeechRecognition(language="sv")
+# Pin the ALSA pair used during the previous VENTUNO hardware smoke.
+# Reconfirm identity inside App Lab before any human-authorized run:
+# container card numbers may differ. Never fall back to another mic.
+mic = Microphone(device="plughw:1,0", shared=False, auto_reconnect=False)
+asr = AutomaticSpeechRecognition(mic=mic, language="sv")
 _used = False
 
 
