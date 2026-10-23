@@ -77,22 +77,24 @@ jobs:
           assert record["system_packages_installed"] is False
           PY
 
-      - name: Extract ONLY missing libpcaudio0 dependency into temporary ARM64 test root
+      - name: Extract ONLY missing libpcaudio0 and libsonic0 into temporary ARM64 test root
         shell: bash
         run: |
           set -euo pipefail
           root="$MYAI_CUE_TEST_ROOT/myai-tts-espeak-stage"
           cd "$root"
-          apt download libpcaudio0
           shopt -s nullglob
-          matches=(libpcaudio0_*_arm64.deb)
-          test "${#matches[@]}" -eq 1
-          pkg="${matches[0]}"
-          test "$(dpkg-deb --field "$pkg" Package)" = libpcaudio0
-          test "$(dpkg-deb --field "$pkg" Architecture)" = arm64
-          test "$(stat -c %s "$pkg")" -lt 15000000
-          dpkg-deb --extract "$pkg" "$root/extracted"
-          echo "Synthetic missing shared library staged in disposable directory only."
+          for dependency in libpcaudio0 libsonic0; do
+            apt download "$dependency"
+            matches=("$dependency"_*_arm64.deb)
+            test "${#matches[@]}" -eq 1
+            pkg="${matches[0]}"
+            test "$(dpkg-deb --field "$pkg" Package)" = "$dependency"
+            test "$(dpkg-deb --field "$pkg" Architecture)" = arm64
+            test "$(stat -c %s "$pkg")" -lt 15000000
+            dpkg-deb --extract "$pkg" "$root/extracted"
+          done
+          echo "All named synthetic shared libraries staged in disposable directory only."
 
       - name: Diagnose synthetic ARM64 eSpeak missing libraries without audio or stderr
         shell: bash
