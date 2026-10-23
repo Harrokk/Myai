@@ -1,0 +1,128 @@
+name: VENTUNO single-pass installed Whisper Small filesystem metadata (read-only)
+
+on:
+  push:
+    branches: [dev/ventuno-app-lab-asr-model-files-readonly-20261023]
+    paths:
+      - .github/workflows/ventuno-whisper-small-model-files-readonly-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-asr-model-files-only-once-20261023
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: github.run_attempt == 1 && github.event.before == 'a8f9411ece483dbd5422d1b126bd60b08aaeda54' && github.event.head_commit.message == 'One time passive Whisper Small model directory check 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Check only exact known model metadata paths without opening or loading weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$(uname -m)" = "aarch64"
+          test "$(id -u)" -ne 0
+          python3 -B - <<'PY'
+          import json
+          import os
+          import stat
+          import subprocess
+          from pathlib import Path
+
+          root = Path("/var/lib/arduino-app-cli/models")
+          repository = root / "audio-analytics" / "asr"
+          model = repository / "whisper_small_quantized-voice_ai-w8a16-qualcomm_qcs8275"
+          bookkeeping = frozenset((".download", ".arduino_metadata.yaml"))
+          def real_directory(p):
+              try:
+                  st = p.lstat()
+                  return stat.S_ISDIR(st.st_mode)
+              except (OSError, ValueError):
+                  return False
+          def real_regular_file(p):
+              try:
+                  return stat.S_ISREG(p.lstat().st_mode)
+              except (OSError, ValueError):
+                  return False
+          def listed_payload(p):
+              if not real_directory(p):
+                  return {"scan_complete":False,"has_payload":False,
+                          "sampled_entries":0}
+              count=0
+              payload=False
+              complete=False
+              try:
+                  with os.scandir(p) as entries:
+                      for item in entries:
+                          count += 1
+                          if count > 256:
+                              break
+                          if item.name in bookkeeping:
+                              continue
+                          if item.is_symlink():
+                              continue
+                          if item.is_file(follow_symlinks=False) or item.is_dir(follow_symlinks=False):
+                              payload=True
+                      else:
+                          complete=True
+              except (OSError, ValueError):
+                  pass
+              return {"scan_complete":complete,"has_payload":payload,
+                      "sampled_entries":min(count,256)}
+          root_exists=real_directory(root)
+          repository_exists=root_exists and real_directory(root / "audio-analytics") and real_directory(repository)
+          model_exists=repository_exists and real_directory(model)
+          record_exists=model_exists and real_regular_file(model / ".arduino_metadata.yaml")
+          marker_exists=model_exists and real_regular_file(model / ".download")
+          payload=listed_payload(model)
+          listing_exists=root_exists and real_regular_file(root/"models.yaml")
+          cache_size_bounded=False
+          if listing_exists:
+              try:
+                  cache_size_bounded=(root/"models.yaml").stat().st_size <= 1024*1024
+              except OSError:
+                  pass
+          def active(name):
+              try:
+                  p=subprocess.run(["systemctl","is-active","--quiet",name],
+                                   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                   timeout=5,check=False)
+                  return p.returncode==0
+              except (OSError,subprocess.TimeoutExpired):
+                  return False
+
+          candidate=bool(model_exists and payload["scan_complete"] and payload["has_payload"] and not marker_exists)
+          result={
+              "status": (
+                  "filesystem-model-candidate-not-inference-proof" if candidate else
+                  "no-complete-model-evidence-at-default-path"
+              ),
+              "default_arduino_model_root_present":root_exists,
+              "whisper_asr_repository_present":repository_exists,
+              "exact_whisper_small_model_directory_present":model_exists,
+              "model_dir_scan_bounded_complete":payload["scan_complete"],
+              "model_dir_non_bookkeeping_payload_observed":payload["has_payload"],
+              "model_dir_download_marker_present":marker_exists,
+              "model_dir_download_metadata_record_present":record_exists,
+              "models_yaml_cache_exists":listing_exists,
+              "models_yaml_cache_size_bounded":cache_size_bounded,
+              "model_path_override_checked":False,
+              "model_integrity_verified":False,
+              "app_lab_container_model_mount_verified":False,
+              "whisper_asr_inference_verified":False,
+              "geniex_asr_npu_coexistence_verified":False,
+              "myai_production_active":active("myai-ventuno.service"),
+              "geniex_production_active":active("myai-geniex.service"),
+              "microphone_opened":False,
+              "model_artifact_contents_read":False,
+              "model_downloaded_or_loaded":False,
+              "docker_command_run":False,
+              "production_modified":False,
+          }
+          print("MYAI_PASSIVE_WHISPER_SMALL_FILES="+json.dumps(result,sort_keys=True))
+          PY
+          echo "Metadata only. No microphone, Docker, models listing API or AI inference."
