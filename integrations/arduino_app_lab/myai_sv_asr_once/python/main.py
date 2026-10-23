@@ -20,7 +20,7 @@ def run_one_diagnostic() -> None:
     if _used:
         raise StopIteration
     _used = True
-    print("MYAI_ASR: capture-begins — say 'Vad heter du?' once now")
+    print("MYAI_ASR: capture-begins")
     try:
         # Official first-party API controls the microphone and ASR model.
         recognized = asr.transcribe(duration=5)
