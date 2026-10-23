@@ -103,7 +103,7 @@ jobs:
           root="$MYAI_CUE_TEST_ROOT/myai-tts-espeak-stage/extracted"
           exe="$root/usr/bin/espeak-ng"
           test -f "$exe"
-          export LD_LIBRARY_PATH="$root/usr/lib/aarch64-linux-gnu"
+          export LD_LIBRARY_PATH="$root/usr/lib/aarch64-linux-gnu:$root/usr/lib/aarch64-linux-gnu/pulseaudio"
           missing="$(ldd "$exe" | awk '/=> not found/ {print $1}')"
           printf 'Missing synthetic test-only eSpeak library names: %s\n' "${missing:-none}"
 
