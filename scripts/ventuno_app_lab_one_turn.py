@@ -28,7 +28,7 @@ class OneTurnReport:
     status: str
     capture_attempted: bool
     final_accepted: bool
-    model_called: bool
+    model_reply_verified: bool  # False can also mean an attempted query failed.
 
 
 class ArduinoBrickOneTurn:
