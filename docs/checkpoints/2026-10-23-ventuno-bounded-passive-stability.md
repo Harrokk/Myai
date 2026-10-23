@@ -36,3 +36,45 @@ unknown, not zero, and should downgrade the result as appropriate.
 The existing runner systemd Restart=no finding remains a known
 unresolved risk; do not apply the already staged systemd drop-in until
 the user is at the board and independent recovery is available.
+
+## Verified real VENTUNO execution
+
+**Run:** https://github.com/Harrokk/Myai/actions/runs/39988701997
+**Frozen source SHA:** `7dfe00f39b8fe8f38830f5de8aef3e29ec52a609`
+**Actions status:** SUCCESS.
+**Regression:** 41 selected fake-fixture/read-only source tests passed.
+
+**Seven real snapshots** completed over **120.1 s**, using
+existing passive systemd, cgroup, proc, thermal and PSI collectors.
+Sanitized measurements:
+
+| Metric | Observed |
+|---|---|
+| MyAI, GenieX and GitHub runner | All active at every sampled point |
+| Process service identity and restart counter | No change in any of the three |
+| OOM kills delta (MyAI, GenieX) | 0, 0 |
+| Maximum thermal sensor value | 38.1 °C |
+| Minimum MemAvailable | 13.61 GiB |
+| Minimum free root storage | 27.95 GiB |
+| Minimum free root inodes | 90.75% |
+| CPU pressure some avg10 maximum | 0.18% |
+| Memory pressure some avg10 maximum | 0.0% |
+| I/O pressure some avg10 maximum | 0.0% |
+
+Status is `no-service-disruption-observed-in-bounded-window`.
+Both MyAI and GenieX still have a configured systemd restart policy.
+Runner still has `Restart=no` (though loaded/active/boot-enabled);
+the prepared drop-in **was not installed**. There was no production
+service change, fault injection or model, audio, camera, Bluetooth or
+network active test.
+
+**Limits:** these seven point samples cannot establish continuous
+uptime between readings. No actual failure, recovery, reboot, power
+interruption, thermal stress, multi-hour duration or NPU inference
+was attempted. No real-world ASR test occurred because the user
+is away from VENTUNO.
+
+Further steps should not repeat passive telemetry indefinitely:
+the remaining meaningful gates are controlled fault/reboot recovery,
+Bluetooth link/voice I/O and QNN/GenieX concurrency. Those require
+specific fresh approval and an operator with out-of-band access.
