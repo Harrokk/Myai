@@ -1,0 +1,132 @@
+name: Hosted ARM64 exact physical Whisper decoder with synthetic Piper speech
+on:
+  push:
+    branches: [dev/ventuno-exact-physical-stt-decoder-synthetic-20261023]
+    paths:
+      - scripts/ventuno_exact_physical_stt_decoder_synthetic.py
+      - tests/test_ventuno_exact_physical_stt_decoder_synthetic.py
+      - .github/workflows/hosted-exact-physical-whisper-synthetic.yml
+      - docs/checkpoints/2026-10-23-ventuno-exact-whisper-worker-diagnostics.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-exact-physical-whisper-synthetic-20261023
+  cancel-in-progress: false
+
+jobs:
+  hosted-synthetic-window:
+    name: Pinned Piper Swedish synthetic speech into pinned Tiny (never physical audio)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Refuse device runner, use hosted ARM64 only
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" -ne 0
+          echo "OFFLINE SOURCE AUDIO only. No microphone, speaker or VENTUNO self-hosted jobs."
+
+      - name: Exact pinned checkout in disposable scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d "$RUNNER_TEMP/myai-stt-window-XXXXXXXX")"
+          chmod 700 "$work"
+          echo "MYAI_STT_WINDOW_WORK=$work" >> "$GITHUB_ENV"
+          mkdir -p "$work/source"
+          git init -q "$work/source"
+          git -C "$work/source" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$work/source" fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$work/source" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Stage isolated Whisper arm64 wheels
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STT_WINDOW_WORK/source"
+          python3 -m venv "$MYAI_STT_WINDOW_WORK/myai-voice-staging"
+          python3 -B -m scripts.ventuno_stt_wheel_preflight \
+            --runner-temp "$MYAI_STT_WINDOW_WORK"
+          python3 -B -m scripts.ventuno_stt_import_staging \
+            --runner-temp "$MYAI_STT_WINDOW_WORK"
+
+      - name: Download checksum verified Tiny to disposable workspace
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STT_WINDOW_WORK/source"
+          python3 -B - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_whisper_tiny_cpu_smoke import smoke
+          root=Path(os.environ["MYAI_STT_WINDOW_WORK"])
+          result=smoke(root/"myai-voice-staging/bin/python",root)
+          print("Pinned CPU Tiny synthetic-silence model check:",result["status"])
+          assert result["status"] in (
+              "tiny-sv-cpu-silence-inference-verified",
+              "tiny-sv-cpu-word-and-silence-verified",
+          )
+          PY
+
+      - name: Install SHA256-pinned Piper 1.8.0 ARM64 wheel only into temp venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$MYAI_STT_WINDOW_WORK"
+          python3 -m venv "$root/myai-piper-venv"
+          mkdir -p "$root/piper-wheels"
+          py="$root/myai-piper-venv/bin/python"
+          "$py" -m pip download --no-cache-dir --no-deps --only-binary=:all: \
+            --dest "$root/piper-wheels" "piper-tts==1.8.0"
+          test "$(find "$root/piper-wheels" -maxdepth 1 -type f | wc -l)" -eq 1
+          wheel="$(find "$root/piper-wheels" -maxdepth 1 -type f -name '*aarch64.whl' -print -quit)"
+          test -f "$wheel"
+          echo "3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484  $wheel" | sha256sum -c -
+          "$py" -m pip install --no-index --no-deps "$wheel"
+          "$py" -m pip install --no-cache-dir --only-binary=:all: \
+            "onnxruntime==1.23.2" "pathvalidate==3.3.1"
+          "$py" - <<'PY'
+          import onnxruntime
+          from piper import PiperVoice, SynthesisConfig
+          assert "CPUExecutionProvider" in onnxruntime.get_available_providers()
+          print("Disposable Piper CPU-only imports OK")
+          PY
+
+      - name: Compare exact physical one-shot decoder on fixed synthetic Piper fixtures
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_STT_WINDOW_WORK/source"
+          python3 -B -m scripts.ventuno_exact_physical_stt_decoder_synthetic \
+            --runner-temp "$MYAI_STT_WINDOW_WORK" \
+            --allow-offline-synthetic-only
+          echo "Synthetic only; no real human voice or physical model inference."
+
+      - name: Remove only disposable files; do not touch device or MyAI
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MYAI_STT_WINDOW_WORK" in
+            "$RUNNER_TEMP"/myai-stt-window-*)
+              if [ -d "$MYAI_STT_WINDOW_WORK" ] && [ ! -L "$MYAI_STT_WINDOW_WORK" ]; then
+                rm -rf -- "$MYAI_STT_WINDOW_WORK"
+              fi
+              ;;
+            "") ;;
+            *) echo "Refusing unsafe workdir cleanup" >&2; exit 2 ;;
+          esac
