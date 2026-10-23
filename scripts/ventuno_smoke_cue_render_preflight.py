@@ -63,6 +63,8 @@ def evaluate_cue_render(*, root: Path, synthetic_only: bool = False) -> dict:
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = (
         str(staged / "extracted/usr/lib/aarch64-linux-gnu")
+        + os.pathsep
+        + str(staged / "extracted/usr/lib/aarch64-linux-gnu/pulseaudio")
         + os.pathsep + env.get("LD_LIBRARY_PATH", "")
     )
     # Exactly the arguments used in build_ports. Never invoke aplay/arecord.
