@@ -79,7 +79,15 @@ def evaluate_cue_render(*, root: Path, synthetic_only: bool = False) -> dict:
         report["status"] = "reject-cue-render-unavailable"
         return report
     if proc.returncode or not 44 <= len(proc.stdout) <= MAX_WAV_BYTES:
+        # Synthetic-only exit metadata, no stdout/stderr, TTS text or waveform.
         report["status"] = "reject-cue-render-size-or-process"
+        report["synthetic_renderer_exit_category"] = (
+            "nonzero" if proc.returncode else "zero"
+        )
+        report["synthetic_wav_size_category"] = (
+            "too-short" if len(proc.stdout) < 44 else
+            "over-cap" if len(proc.stdout) > MAX_WAV_BYTES else "bounded"
+        )
         return report
     safe_wav, info = quiet_wav_from_tts(proc.stdout)
     del proc
