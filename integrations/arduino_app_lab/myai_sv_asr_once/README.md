@@ -1,0 +1,63 @@
+# MyAI: Arduino App Lab native Swedish ASR pilot
+
+**Source staged only; never launched on VENTUNO Q.** This is a minimal
+variation on [Arduino's official ASR streaming example](https://github.com/arduino/app-bricks-examples/blob/main/bricks/arduino/asr/04_stream_mic_transcription/python/main.py)
+but uses the even simpler supported `transcribe(duration=5)` API. It does
+**not** connect to MyAI's LLM or its production services.
+
+## Why this diagnostic
+
+The prior custom Whisper **Tiny CPU** path rejected several real
+recordings, despite microphone energy and operator-confirmed speech.
+This pilot uses the official `whisper-small-quantized` QNN/Hexagon ASR
+model with explicit `language="sv"`. The official Arduino model
+catalogue includes Swedish in the ASR supported-languages list.
+
+This App contains just **one Brick** (`arduino:asr`), so it does
+not start another Qwen/GenieX model, cannot reach MyAI's tools,
+does not launch a web UI/listener and cannot play speaker audio.
+
+## How to run LATER, only with fresh explicit physical approval
+
+1. Open Arduino App Lab with VENTUNO Q attached. Import/copy
+   `myai_sv_asr_once` as an App. Inspect `app.yaml`: it requests only
+   `arduino:asr`.
+2. In the ASR Brick's AI Models view, confirm
+   `Whisper Small (quantized)` is installed; a missing model may
+   require a separately approved download. Do not enable a second LLM.
+3. Ensure mic and power are ready, check that the existing production
+   MyAI voice listener is disabled, and obtain a fresh single-use
+   microphone consent. Click **Run** once to start the diagnostic.
+4. Only when `MYAI_ASR: capture-begins` appears in the local
+   App Lab terminal, say **Vad heter du?** one time within five seconds.
+5. Read only its fixed result code:
+   `reference-recognized`, `other-nonempty-text`,
+   `no-final-text` or `unavailable-or-failed`.
+   No transcript or recognized words will be shown, stored or sent
+   to GitHub. App lifecycle ends after one turn; do **not** click
+   Run a second time without fresh authorization.
+
+The phrase equality test here measures basic Swedish recognition
+performance and **does not** constrain MyAI's conversation vocabulary.
+We can then use the source-only bridge from PRs #361 and #362 to
+accept ordinary questions.
+
+## Integration decision
+
+Arduino's current `arduino:llm` default for VENTUNO Q is
+`genie:qwen3_4b_instruct_2507`, but it is a separate App Lab service.
+Our active MyAI GenieX service remains on host loopback.
+We have **not established** that both Qwen instances may safely run
+together or that App Lab container `127.0.0.1` reaches host loopback.
+Do not bind MyAI's GenieX service to `0.0.0.0` or start App Lab LLM
+until separate resource/security checks are complete.
+
+Arduino's built-in TTS catalog at the reviewed revision lists Piper
+English/Italian/German and Melo English/Spanish/Chinese, but no
+Swedish voice. Keep the previously verified Swedish eSpeak staging
+as an interim fallback; choose a natural Swedish TTS only after
+checking licensing, voice quality and available compute.
+
+**NO-GO**: automatic audio activation, new model download, service
+restart, self-hosted GitHub jobs, settings edits or deployment
+until separately authorized.
