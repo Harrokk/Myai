@@ -1,0 +1,122 @@
+name: One-shot VENTUNO Arduino App Lab installed stack inventory (read only)
+
+on:
+  push:
+    branches: [dev/ventuno-app-lab-installed-stack-inventory-20261023]
+    paths:
+      - .github/workflows/ventuno-app-lab-installed-stack-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-app-lab-stack-inventory-once-20261023
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: github.run_attempt == 1 && github.event.before == '40b00925dd906a92d72392db05ed0fea04254e8a' && github.event.head_commit.message == 'One-time read-only installed Arduino App Lab stack inventory 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Query only local installation metadata; no model, audio, or container execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$(uname -m)" = "aarch64"
+          test "$(id -u)" -ne 0
+          python3 -B - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          def command(argv, limit=65536):
+              try:
+                  run = subprocess.run(
+                      argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                      timeout=6, check=False,
+                  )
+                  if run.returncode != 0 or len(run.stdout) > limit:
+                      return None
+                  return run.stdout.decode("utf-8", errors="replace")
+              except (OSError, subprocess.TimeoutExpired, UnicodeError):
+                  return None
+
+          def directory_exists(path):
+              p = Path(path)
+              try:
+                  return not p.is_symlink() and p.is_dir()
+              except (OSError, ValueError):
+                  return False
+
+          def service_active(name):
+              try:
+                  p = subprocess.run(
+                      ["systemctl", "is-active", "--quiet", name],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                      timeout=5, check=False,
+                  )
+                  return p.returncode == 0
+              except (OSError, subprocess.TimeoutExpired):
+                  return False
+
+          # Only query package status; no installation or software startup.
+          dpkg = command([
+              "dpkg-query", "--show", "--showformat=${Status}",
+              "arduino-app-cli",
+          ], 1000)
+          installed_cli = dpkg is not None and dpkg.strip() == "install ok installed"
+          docker_present = shutil.which("docker") is not None
+          images = command([
+              "docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}",
+          ]) if docker_present else None
+          running = command([
+              "docker", "ps", "--format", "{{.Image}}",
+          ]) if docker_present else None
+          image_list = [line.lower() for line in (images or "").splitlines()]
+          running_list = [line.lower() for line in (running or "").splitlines()]
+
+          def has_reference(lines, fragments):
+              return any(any(k in line for k in fragments) for line in lines)
+
+          report = {
+              "app_cli_binary_visible": shutil.which("arduino-app-cli") is not None,
+              "arduino_app_cli_dpkg_installed": installed_cli,
+              "documented_apps_dir_present":
+                  directory_exists("/home/arduino/ArduinoApps"),
+              "app_cli_data_dir_present":
+                  directory_exists("/var/lib/arduino-app-cli"),
+              "custom_models_dir_present_only_not_official_models":
+                  directory_exists("/home/arduino/.arduino-bricks/models"),
+              "docker_cli_visible": docker_present,
+              "docker_cached_images_listing_readable": images is not None,
+              "docker_running_images_listing_readable": running is not None,
+              "arduino_app_bricks_cached_image_seen": has_reference(
+                  image_list, ("arduino/app-bricks/",)),
+              "arduino_audio_image_cached_seen": has_reference(
+                  image_list, ("audio-analytics", "genie-audio")),
+              "arduino_genie_image_cached_seen": has_reference(
+                  image_list, ("genie-models-runner",)),
+              "arduino_audio_container_running_seen": has_reference(
+                  running_list, ("audio-analytics", "genie-audio")),
+              "arduino_genie_container_running_seen": has_reference(
+                  running_list, ("genie-models-runner",)),
+              "production_myai_service_active": service_active(
+                  "myai-ventuno.service"),
+              "production_geniex_service_active": service_active(
+                  "myai-geniex.service"),
+              "arduino_asr_model_installed_verified": False,
+              "app_lab_container_mic_mapping_verified": False,
+              "geniex_and_asr_concurrent_npu_verified": False,
+              "docker_container_started_or_exec_called": False,
+              "audio_device_opened": False,
+              "model_loaded_or_downloaded": False,
+              "software_installed": False,
+              "production_modified": False,
+          }
+          print("MYAI_ARDUINO_APP_LAB_INSTALLED_STACK=" +
+                json.dumps(report, sort_keys=True))
+          PY
+          echo "Read-only metadata complete: never used docker exec/run/inspect, no audio or model."
