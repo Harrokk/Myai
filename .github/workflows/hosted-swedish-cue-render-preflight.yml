@@ -77,14 +77,14 @@ jobs:
           assert record["system_packages_installed"] is False
           PY
 
-      - name: Extract ONLY missing libpcaudio0 and libsonic0 into temporary ARM64 test root
+      - name: Extract ONLY required host eSpeak shared libraries into temporary ARM64 test root
         shell: bash
         run: |
           set -euo pipefail
           root="$MYAI_CUE_TEST_ROOT/myai-tts-espeak-stage"
           cd "$root"
           shopt -s nullglob
-          for dependency in libpcaudio0 libsonic0; do
+          for dependency in libpcaudio0 libsonic0 libpulse0 libasyncns0; do
             apt download "$dependency"
             matches=("$dependency"_*_arm64.deb)
             test "${#matches[@]}" -eq 1
