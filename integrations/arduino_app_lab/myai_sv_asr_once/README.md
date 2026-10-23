@@ -31,11 +31,16 @@ If the pair is wrong or unavailable, the app must stop; do not silently
 select another microphone.
 
 A second important first-party lifecycle detail: **`App.run()`
-starts the ASR Brick and its microphone *before* the user-loop begins**.
-The ASR `start()` also performs model warmup on the NPU. Therefore
-clicking **Run** is itself the microphone and NPU startup event, not
-the later `capture-begins` status message. Confirm new single-use
-consent and resource coexistence *before* clicking Run.
+starts the ASR Brick and its model warmup before the user-loop**.
+If ASR constructs its own default microphone, it starts that microphone
+at Brick startup. **But when a microphone is injected by the caller,
+the Arduino SDK deliberately does NOT start or stop that microphone**.
+This pilot therefore calls `mic.start()` itself inside its single-use
+user-loop, before `asr.transcribe(duration=5)`, and always attempts
+`mic.stop()` afterward. A failed release cannot be reported as a pass.
+Clicking **Run** can already load the ASR model onto the NPU during
+warmup, even before `capture-begins`. Confirm fresh microphone consent
+and GenieX/NPU resource coexistence before clicking Run.
 
 With `shared=False`, another application attempting to capture from
 the same device will fail rather than share the private audio stream.
