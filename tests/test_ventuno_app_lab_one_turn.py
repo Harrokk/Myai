@@ -79,7 +79,7 @@ def test_one_explicit_asr_turn_ignores_partials_and_releases_before_any_output()
         private_final_handler=lambda text: seen.append(text),
     )
     assert result.status == "final-ready-no-model-call"
-    assert result.final_accepted is True and result.model_called is False
+    assert result.final_accepted is True and result.model_reply_verified is False
     assert seen == ["Hur fungerar solceller?"]
     assert audit == ["capture", "enter", "exit", "stop"]
     assert pilot.run_once(asr, explicit_user_action=True).status == "not-authorized-or-used"
@@ -101,7 +101,7 @@ def test_one_local_geniex_call_occurs_after_asr_close_and_1_5_second_release():
         release_pause=pause,
     )
     assert result.status == "local-readonly-answer-completed"
-    assert result.model_called is True
+    assert result.model_reply_verified is True
     assert audit == ["capture", "enter", "exit", "stop", "pause", "model"]
 
 
@@ -134,7 +134,7 @@ def test_no_approved_final_never_queries_model(events):
         release_pause=lambda _: audit.append("pause"),
     )
     assert res.status == "no-approved-final"
-    assert res.model_called is False
+    assert res.model_reply_verified is False
     assert audit == ["capture", "enter", "exit", "stop"]
 
 
