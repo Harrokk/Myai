@@ -1,0 +1,6 @@
+name: MyAI Swedish ASR one-shot diagnostic
+description: >-
+  Manual, single-use Swedish ASR check using the official Ventuno Q Brick.
+  No voice data, transcription, LLM, TTS or web server is exposed.
+bricks:
+  - arduino:asr
