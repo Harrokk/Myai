@@ -1,7 +1,6 @@
 """Only stdlib/static fake-SDK tests; the ASR pilot is never actually run."""
 from pathlib import Path
 from types import ModuleType
-import re
 import runpy
 import sys
 
@@ -54,7 +53,7 @@ def _fake_arduino(monkeypatch, transcript, *, fail=False):
 
 def test_app_uses_only_first_party_asr_and_no_web_ui_or_llm():
     manifest = (APP / "app.yaml").read_text(encoding="utf-8")
-    assert "bricks:\\n  - arduino:asr" in manifest
+    assert "bricks:\n  - arduino:asr" in manifest
     assert "arduino:web_ui" not in manifest and "arduino:llm" not in manifest
     code = SOURCE.read_text(encoding="utf-8")
     assert 'AutomaticSpeechRecognition(language="sv")' in code
