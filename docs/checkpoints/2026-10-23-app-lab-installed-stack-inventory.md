@@ -35,3 +35,37 @@ Do not launch App Lab, load Whisper, operate microphone/speaker,
 stop any service, install packages, or alter host/container networking
 without separate authorization. Any physical test still needs a new
 single-use explicit approval. Keep DRAFT and NO-GO for main.
+
+## Actual VENTUNO read-only result
+
+One-shot job: https://github.com/Harrokk/Myai/actions/runs/39953928159
+Source HEAD for job: `b80fcb24f3ce4ae0777093f351460b657ec70732`.
+Completed **SUCCESS**, no audio I/O, model loading, Docker exec or
+installation. Sanitized results:
+
+- Arduino App CLI binary: **present**; `arduino-app-cli` Debian
+  package: **installed**.
+- Official Arduino Apps folder and CLI metadata folder: **present**.
+  Custom-model folder also present (this is **not** evidence
+  `whisper-small-quantized` is installed).
+- Docker image listing readable: **yes**; cached
+  `arduino/app-bricks/` image: **present**; cached audio service
+  image matching `audio-analytics` or `genie-audio`: **present**.
+- No currently running Arduino audio-analytics or genie model-runner
+  container observed in the image listing at the time checked.
+  There was no matching cached dedicated `genie-models-runner`
+  image observed. This says nothing about the already active MyAI
+  GenieX systemd service, which **remained active**.
+- Both `myai-ventuno.service` and `myai-geniex.service` remained
+  active.
+
+**Still NOT attested**: installed Whisper Small model, Arduino App Lab
+container audio-device mappings, live ASR backend startup and actual
+concurrent GenieX/NPU inference. No reason to install a second LLM:
+the original voice integration goal is to reuse MyAI's existing Qwen3.
+
+The path to a meaningful live test is a separate **operator-supervised
+App Lab readiness check of its downloaded ASR model and container's
+ALSA mapping**, followed only after explicit new consent by a single
+physical microphone session. The installed stack inventory does not
+justify enabling audio, automatic app startup, or network listeners.
