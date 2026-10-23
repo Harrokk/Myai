@@ -1,0 +1,88 @@
+name: VENTUNO one-time passive systemd recovery health and PSI readout
+
+on:
+  push:
+    branches: [dev/ventuno-service-resilience-passive-20261023]
+    paths:
+      - .github/workflows/ventuno-service-resilience-passive-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-systemd-passive-resilience-one-use-20261023
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: github.run_attempt == 1 && github.event.before == '045d73ec3bd79ecaae7109bf967b7afa84a6dded' && github.event.head_commit.message == 'Run once passive VENTUNO service recovery and memory pressure check 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 7
+    steps:
+      - name: Create disposable read-only reviewed source checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = arduino
+          test "$(id -u)" = 1000
+          test "$(uname -m)" = aarch64
+          test -n "${RUNNER_TEMP:-}"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-resilience-passive-XXXXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_RESILIENCE_SRC=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch"
+          git -C "$scratch" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout --force --quiet --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Mock-only recovery policy and readout tests - NEVER exercise live service
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_RESILIENCE_SRC"
+          timeout --signal=TERM --kill-after=3s 95s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest \
+            -q -p no:cacheprovider \
+            tests/test_ventuno_service_resilience_readonly.py \
+            tests/test_ventuno_runner_boot_policy_readonly.py \
+            tests/test_backend_recovery.py \
+            tests/test_health_aware_llm_recovery.py
+          echo 'Recovery tests used fake state and fixtures only, not live fault injection.'
+      - name: Read current service/systemd, cgroup OOM, PSI and root-disk counters twice
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          cd "$MYAI_RESILIENCE_SRC"
+          timeout --signal=TERM --kill-after=3s 55s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_service_resilience_readonly
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          echo 'No reboot, systemd control, audio stream, model load or test faults.'
+      - name: Remove only isolated checkout and confirm service health
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          case "${MYAI_RESILIENCE_SRC:-}" in
+            "$RUNNER_TEMP"/myai-resilience-passive-*)
+              if [ -d "$MYAI_RESILIENCE_SRC" ] && [ ! -L "$MYAI_RESILIENCE_SRC" ]; then
+                rm -rf -- "$MYAI_RESILIENCE_SRC"
+              fi
+              ;;
+            "") ;;
+            *) echo 'Unsafe scratch path: leaving unchanged'; exit 2 ;;
+          esac
