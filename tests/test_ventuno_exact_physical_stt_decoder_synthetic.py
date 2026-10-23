@@ -65,6 +65,22 @@ def test_invalid_decoder_response_does_not_escape(out):
         )
 
 
+def test_mid_window_synthetic_shift_keeps_exact_pcm_and_loses_only_tail():
+    original=pcm()
+    delayed=d.shift_piper_to_middle(original)
+    shift=800*16*2
+    assert len(delayed)==96000
+    assert delayed[:shift]==bytes(shift)
+    assert delayed[shift:]==original[:-shift]
+    assert d.classify_pcm_activity_layout(delayed)=="middle-activity"
+
+
+@pytest.mark.parametrize("bad",[b"",bytes(96001),None])
+def test_mid_window_shift_rejects_invalid_synthetic_audio(bad):
+    with pytest.raises(ValueError):
+        d.shift_piper_to_middle(bad)
+
+
 def test_missing_explicit_synthetic_flag_does_not_load_models(tmp_path):
     result=d.inspect_exact_live_decoder(tmp_path)
     assert result["status"]=="not-authorized"
