@@ -117,3 +117,36 @@ This additional single-use read-only test is separate from the
 earlier two-snapshot result, and does not benchmark disks,
 write flash, or use an untrusted sudo command. No production
 changes. All outputs are bounded and anonymized.
+
+## eMMC wear, CPU throttle counters, Bluetooth rfkill: real device result
+
+**One-use real VENTUNO job:** https://github.com/Harrokk/Myai/actions/runs/39973707827
+**Execution SHA:** `b2e11d9ed427c1c4afd21216034ce746ed5d01b7`
+**Conclusion:** SUCCESS. Only read from fixed `/sys` paths.
+No media/filesystem writes or audio/NPU/BT operations.
+
+- One `MMC`-type block device (eMMC) enumerated.
+- Its reported `life_time` Type A and B estimate codes were both **0x01**.
+  Per JEDEC eMMC lifetime estimate format this describes an
+  approximate **0–10% of rated lifetime used** in each class, not
+  an exact wear or failure prediction. Independent readable background:
+  https://developer.toradex.com/software/linux-resources/linux-features/emmc-linux/
+- eMMC `pre_eol_info=0x01`: manufacturer-reported **normal**,
+  not a substitute for backups.
+- A Bluetooth `rfkill` controller was enumerated. Its soft and hard
+  block flags were both **false**; this does not test pairing, RF
+  quality, Bluetooth profile, audio or reconnect behavior.
+- **Zero CPU thermal-throttling counters exposed** by the checked
+  kernel sysfs paths. Thus the presence or absence of thermal
+  throttling **cannot** be determined by these counters. Neither
+  frequency scaling nor absence of a hot sensor is throttling proof.
+- Both MyAI and GenieX services active; no changes.
+
+Both real-board workflows are one-time, first-attempt gated and cannot
+be replayed on future doc commits, and no manual-dispatch entry exists.
+
+Potential future supervised physical tests: USB microphone + ASR,
+speaker/TTS, Bluetooth pairing and reconnect, and optional CPU/flash
+performance stress (requires clear new approval and recovery readiness).
+Avoid concurrent independent HTP with active GenieX until vendor
+runtime coexistence is established.
