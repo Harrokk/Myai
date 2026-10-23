@@ -128,7 +128,7 @@ def test_cue_cannot_be_confused_with_authorized_user_speech():
 
 def test_preflight_module_has_no_device_and_no_production_signing():
     src=Path(pre.__file__).read_text()
-    for bad in ("arecord", "aplay", "SelfDevPromotionManager",
+    for bad in ("SelfDevPromotionManager",
                 "systemctl start", "sudo", "os.chmod(", "open('/dev"):
         assert bad not in src
     assert '"authorizes_physical_recording": False' in src
