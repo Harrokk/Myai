@@ -95,3 +95,25 @@ attributes if exposed by the board, CPU thermal throttle counters
 if supported by the kernel, Bluetooth rfkill state; no camera/audio
 activation, network scan or model run. Physical ASR remains deferred
 until user returns.
+
+## Additional passive component counters (separate one-time job)
+
+After the main hardware matrix, three optional purely passive counters
+can add reliability information without opening devices:
+
+1. eMMC `/sys/block/mmcblk*/device/{type,life_time,pre_eol_info}`:
+   read **only** when `type=MMC`, emit bounded standardized
+   lifetime *codes* (not invented exact remaining life) and pre-EOL
+   severity, never CID, serial, manufacturer or model name. Unsupported
+   kernel attributes remain `null`.
+2. CPU `thermal_throttle` exposed counters where the kernel supports
+   them. A missing counter is **not** evidence of no throttling.
+   Cumulative counter counts alone are not present-state diagnosis.
+3. Bluetooth rfkill `type`, `soft`, `hard`: no HCI open,
+   device discovery, MAC address, pairing or radio changes. Unknown
+   remains unknown.
+
+This additional single-use read-only test is separate from the
+earlier two-snapshot result, and does not benchmark disks,
+write flash, or use an untrusted sudo command. No production
+changes. All outputs are bounded and anonymized.
