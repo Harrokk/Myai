@@ -1,0 +1,96 @@
+name: One-use VENTUNO unattended passive hardware matrix October 2026
+
+on:
+  push:
+    branches: [dev/ventuno-remote-hardware-matrix-20261023]
+    paths:
+      - .github/workflows/ventuno-unattended-hardware-matrix-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-ventuno-remote-hardware-no-audio-20261023
+  cancel-in-progress: false
+
+jobs:
+  hardware:
+    if: github.run_attempt == 1 && github.event.before == 'ffeebe874949e04d0441722a383b527cd5afea7b' && github.event.head_commit.message == 'Run one unattended passive VENTUNO CPU thermal USB wireless NPU audit 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact reviewed source into disposable private runner directory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = arduino
+          test "$(id -u)" -eq 1000
+          test "$(uname -m)" = aarch64
+          test -n "${RUNNER_TEMP:-}"
+          tmp="$(mktemp -d "$RUNNER_TEMP/myai-hardware-inventory-XXXXXXXX")"
+          chmod 700 "$tmp"
+          echo "MYAI_HW_TMP=$tmp" >> "$GITHUB_ENV"
+          git init -q "$tmp"
+          git -C "$tmp" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$tmp" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$tmp" -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git -C "$tmp" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$tmp" rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Validate mock-only hardware summary and existing passive readings
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_HW_TMP"
+          timeout --signal=TERM --kill-after=2s 85s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_remote_hardware_matrix_readonly.py \
+            tests/test_ventuno_readonly_probe.py \
+            tests/test_ventuno_remote_idle_baseline.py \
+            tests/test_ventuno_v75_npu_readiness_readonly.py
+          echo 'Only synthetic hardware summary tests executed.'
+      - name: Confirm production services, then read two real hardware snapshots
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          cd "$MYAI_HW_TMP"
+          timeout --signal=TERM --kill-after=2s 50s \
+            /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_remote_hardware_matrix_readonly
+          echo 'Two real CPU/RAM/disk/temp/USB/WiFi/Bluetooth/GPU/FastRPC metadata snapshots; no streams.'
+      - name: Query previously audited NPU compatibility NO-GO evidence only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_HW_TMP"
+          timeout --signal=TERM --kill-after=3s 75s \
+            /home/arduino/MyAI/.venv/bin/python -B -m scripts.ventuno_v75_npu_readiness_readonly
+          echo 'NPU device metadata ONLY. No FastRPC open, QNN command or HTP inference.'
+      - name: Verify services still active and clean only disposable source
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          case "${MYAI_HW_TMP:-}" in
+            "$RUNNER_TEMP"/myai-hardware-inventory-*)
+              if [ -d "$MYAI_HW_TMP" ] && [ ! -L "$MYAI_HW_TMP" ]; then
+                rm -rf -- "$MYAI_HW_TMP"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected temp path; refusing deletion"; exit 2 ;;
+          esac
+          echo 'No USB device opened, no Bluetooth scan or pairing, no microphone, camera, speaker, CPU stress, model inference, or production changes.'

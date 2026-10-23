@@ -1,0 +1,146 @@
+name: VENTUNO eMMC wear CPU throttle Bluetooth rfkill passive inventory
+
+on:
+  push:
+    branches: [dev/ventuno-remote-hardware-matrix-20261023]
+    paths:
+      - .github/workflows/ventuno-emmc-throttle-rfkill-readonly-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-emmc-throttle-rfkill-one-shot-20261023
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.run_attempt == 1 && github.event.before == '68452ae151e4897a5f23f012a927e9b8a1df3db0' && github.event.head_commit.message == 'One time VENTUNO eMMC wear and rfkill metadata only 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Read eMMC SMART-like attributes, CPU counters and Bluetooth block flags only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(id -un)" = arduino
+          test "$(id -u)" -eq 1000
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          python3 -B - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          def small_ascii(path, limit=100):
+              try:
+                  with open(path, "rb") as f:
+                      raw=f.read(limit+1)
+                  if len(raw)>limit:
+                      return None
+                  return raw.decode("ascii").strip()
+              except (OSError, ValueError, UnicodeError):
+                  return None
+
+          def hex_lifetime(value):
+              if value is None:
+                  return None
+              items=value.split()
+              if len(items)!=2 or any(not re.fullmatch(r"0x[0-9a-fA-F]{1,2}", v) for v in items):
+                  return None
+              parsed=[int(x,16) for x in items]
+              return parsed if all(0<=v<=11 for v in parsed) else None
+
+          def eol_level(value):
+              if not isinstance(value,str) or not re.fullmatch(r"0x[0-9a-fA-F]{1,2}",value):
+                  return "unavailable"
+              return {1:"normal",2:"warning",3:"urgent"}.get(int(value,16),"unknown")
+
+          found_emmc=0
+          lifetime=None
+          eol="unavailable"
+          # Do not inspect eMMC IDs, block data, serials, host attributes or file contents.
+          for n in range(8):
+              base=Path("/sys/block")/("mmcblk"+str(n))/"device"
+              kind=small_ascii(base/"type",32)
+              if kind!="MMC":
+                  continue
+              found_emmc+=1
+              if lifetime is None:
+                  lifetime=hex_lifetime(small_ascii(base/"life_time",64))
+              if eol=="unavailable":
+                  eol=eol_level(small_ascii(base/"pre_eol_info",64))
+
+          throttle_observed=0
+          throttle_counters=0
+          for n in range(16):
+              base=Path("/sys/devices/system/cpu")/("cpu"+str(n))/"thermal_throttle"
+              for field in ("core_throttle_count","package_throttle_count"):
+                  text=small_ascii(base/field,50)
+                  if text is not None and re.fullmatch(r"[0-9]{1,12}",text):
+                      count=int(text)
+                      throttle_counters+=1
+                      if count>0:
+                          throttle_observed+=1
+
+          bt_rfkill_count=0
+          bluetooth_soft_blocked=False
+          bluetooth_hard_blocked=False
+          bt_status_complete=True
+          for n in range(32):
+              base=Path("/sys/class/rfkill")/("rfkill"+str(n))
+              kind=small_ascii(base/"type",32)
+              if kind!="bluetooth":
+                  continue
+              bt_rfkill_count+=1
+              soft=small_ascii(base/"soft",8)
+              hard=small_ascii(base/"hard",8)
+              if soft not in ("0","1") or hard not in ("0","1"):
+                  bt_status_complete=False
+                  continue
+              bluetooth_soft_blocked|=(soft=="1")
+              bluetooth_hard_blocked|=(hard=="1")
+
+          def active(name):
+              try:
+                  ret=subprocess.run(["systemctl","is-active","--quiet",name],
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL,
+                                     check=False,timeout=5)
+                  return ret.returncode==0
+              except (OSError,subprocess.TimeoutExpired):
+                  return False
+          status={
+              "inspection":"real-board-passive-device-metadata-only",
+              "emmc_block_devices_with_mmc_type":found_emmc,
+              "emmc_lifetime_estimate_a_code":lifetime[0] if lifetime else None,
+              "emmc_lifetime_estimate_b_code":lifetime[1] if lifetime else None,
+              "emmc_pre_eol_severity":eol,
+              "cpu_throttle_counters_exposed":throttle_counters,
+              "cpu_throttle_counters_nonzero":throttle_observed,
+              "thermal_throttling_now_verified":False,
+              "bluetooth_rfkill_devices":bt_rfkill_count,
+              "bluetooth_rfkill_values_complete":bt_status_complete and bt_rfkill_count>0,
+              "bluetooth_soft_blocked_observed":bluetooth_soft_blocked if bt_rfkill_count and bt_status_complete else None,
+              "bluetooth_hard_blocked_observed":bluetooth_hard_blocked if bt_rfkill_count and bt_status_complete else None,
+              "production_myai_active":active("myai-ventuno.service"),
+              "production_geniex_active":active("myai-geniex.service"),
+              "storage_written":False,
+              "bluetooth_adapter_opened_or_scanned":False,
+              "cpu_stressed":False,
+              "microphone_camera_or_speaker_opened":False,
+              "npu_inference_executed":False,
+              "services_modified":False,
+          }
+          print("MYAI_PASSIVE_STORAGE_RADIO_THROTTLE_JSON="+json.dumps(status,sort_keys=True))
+          if not status["production_myai_active"] or not status["production_geniex_active"]:
+              raise SystemExit(2)
+          PY
+          systemctl is-active --quiet myai-geniex.service
+          systemctl is-active --quiet myai-ventuno.service
+          echo 'Only read sysfs counters; no storage writes, Bluetooth scan, CPU load, audio or NPU work.'
