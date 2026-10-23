@@ -195,7 +195,7 @@ def test_audible_swedish_cue_low_peak_and_only_on_speaker(
     def process(argv, **kw):
         calls.append((argv, kw))
         if argv[0].endswith("espeak-ng"):
-            assert argv[-1] == "Vänta en sekund. Säg sedan: Vad heter du."
+            assert argv[-1] == "Vänta en sekund. Säg: Vad heter du."
             assert "--stdout" in argv
             return SimpleNamespace(returncode=0, stdout=wav_source, stderr=b"")
         assert argv == ["/usr/bin/aplay", "--quiet", "--device=plughw:1,0",
