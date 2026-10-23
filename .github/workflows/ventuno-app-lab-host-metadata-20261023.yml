@@ -1,0 +1,117 @@
+name: VENTUNO App Lab first-party ASR host preflight (read-only, one use)
+
+on:
+  push:
+    branches: [dev/ventuno-app-lab-host-readiness-metadata-20261023]
+    paths:
+      - .github/workflows/ventuno-app-lab-host-metadata-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventuno-app-lab-host-metadata-one-shot-2026-10-23
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    if: github.run_attempt == 1 && github.event.before == '21c6ebbc24aef764ca5fc2422be2018474590e00' && github.event.head_commit.message == 'Run exactly one read-only VENTUNO App Lab host-metadata pass 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 4
+    steps:
+      - name: Inspect bounded ALSA metadata and system status only; NO device opens
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = "arduino"
+          test "$(uname -m)" = "aarch64"
+          test "$(id -u)" -ne 0
+          python3 -B - <<'PY'
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          from pathlib import Path
+
+          def small_file(path, cap=16384):
+              p = Path(path)
+              try:
+                  if p.is_symlink() or not p.is_file():
+                      return None
+                  with p.open("rb") as f:
+                      b = f.read(cap + 1)
+                  if len(b) > cap:
+                      return None
+                  return b.decode("ascii", "replace")
+              except (OSError, ValueError):
+                  return None
+
+          def active(service):
+              try:
+                  result = subprocess.run(
+                      ["systemctl", "is-active", "--quiet", service],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                      check=False, timeout=4,
+                  )
+                  return result.returncode == 0
+              except (OSError, subprocess.TimeoutExpired):
+                  return False
+
+          pcm = small_file("/proc/asound/pcm")
+          usb = small_file("/proc/asound/card1/usbid", 64)
+          pair = bool(pcm and any(
+              re.match(r"^\s*0?1-0?0:", line) and
+              re.search(r"\bcapture\s+[1-9][0-9]*\b", line)
+              for line in pcm.splitlines()
+          ))
+          usb_card1 = bool(usb and re.fullmatch(
+              r"[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}\s*", usb
+          ))
+          capture_node = False
+          node_access = False
+          try:
+              node = Path("/dev/snd/pcmC1D0c")
+              info = node.lstat()
+              capture_node = stat.S_ISCHR(info.st_mode)
+              node_access = capture_node and os.access(
+                  node, os.R_OK | os.W_OK, follow_symlinks=False
+              )
+          except (OSError, ValueError):
+              pass
+          mem = small_file("/proc/meminfo", 16384) or ""
+          m = re.search(r"^MemAvailable:\s*(\d+)\s+kB", mem, re.MULTILINE)
+          mib = int(m[1]) // 1024 if m else None
+          mem_band = (
+              "unknown" if mib is None else
+              "below-6144-MiB" if mib < 6144 else
+              "6144-to-10240-MiB" if mib < 10240 else
+              "at-least-10240-MiB"
+          )
+          genie = active("myai-geniex.service")
+          myai = active("myai-ventuno.service")
+          report = {
+              "status": (
+                  "host-metadata-candidate-container-unverified"
+                  if pair and usb_card1 and capture_node and
+                     node_access and genie and myai else
+                  "host-metadata-blocked-or-inconclusive"
+              ),
+              "expected_alsa_capture_1_0_present": pair,
+              "alsa_card_1_is_usb": usb_card1,
+              "capture_node_is_character_device": capture_node,
+              "capture_node_current_user_rw": node_access,
+              "myai_service_active": myai,
+              "geniex_service_active": genie,
+              "available_memory_band": mem_band,
+              "app_lab_container_device_identity_verified": False,
+              "app_lab_installed_model_verified": False,
+              "geniex_asr_npu_coexistence_verified": False,
+              "microphone_stream_opened": False,
+              "speaker_stream_opened": False,
+              "npu_model_loaded": False,
+              "production_modified": False,
+          }
+          print("MYAI_APP_LAB_HOST_METADATA=" + json.dumps(report, sort_keys=True))
+          PY
+          echo "Metadata only: no audio, no model, no docker, no service changes."
