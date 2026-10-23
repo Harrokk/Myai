@@ -35,6 +35,8 @@ TTS_FOLDER = "myai-tts-espeak-stage"
 STT_PYTHON = "myai-voice-staging/bin/python"
 MAX_RAW_RESPONSE = 512
 STT_TIMEOUT = 175
+# Short safe cue: leave margin below 3.5s capped eSpeak WAV playback.
+SPOKEN_START_CUE = "Vänta en sekund. Säg: Vad heter du."
 
 # Child stdin contains ONLY 96,000 bytes of mono 16 kHz S16_LE capture.
 # Child stdout contains at most one short private JSON transcript, which
@@ -251,7 +253,7 @@ def build_ports(root: Path, *, response_backend: str = "geniex") -> DialogPorts:
         try:
             prepared = subprocess.run(
                 [str(executable), "--path=" + str(data.parent),
-                 "-v", "sv", "--stdout", "Vänta en sekund. Säg sedan: Vad heter du."],
+                 "-v", "sv", "--stdout", SPOKEN_START_CUE],
                 cwd=root / TTS_FOLDER,
                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 check=False, timeout=9,

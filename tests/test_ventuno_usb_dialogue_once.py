@@ -242,7 +242,7 @@ def test_failed_audible_cue_does_not_record_or_repeat():
 @pytest.mark.parametrize("words,expected", [
     ("", "empty-or-silence"),
     ("Säg: Vad heter du.", "spoken-cue-echo-suspected"),
-    ("Vänta en sekund. Säg sedan: Vad heter du.", "spoken-cue-echo-suspected"),
+    ("Vänta en sekund. Säg: Vad heter du.", "spoken-cue-echo-suspected"),
     ("Vad heter du, MyAI?", "approved"),
     ("Vad heter du, snälla?", "test-question-with-extra-words"),
     ("hej!", "unrelated-short-utterance"),
@@ -260,7 +260,7 @@ def test_unapproved_question_reports_only_safe_category(words, expected):
 
 
 def test_new_delayed_cue_is_never_approved_or_sent_to_local_model():
-    cue = "Vänta en sekund. Säg sedan: Vad heter du."
+    cue = "Vänta en sekund. Säg: Vad heter du."
     assert mod.approved_short_question(cue) is None
     p, events = ports(transcript=cue)
     outcome = mod.OneShotUsbDialog(p).run(
