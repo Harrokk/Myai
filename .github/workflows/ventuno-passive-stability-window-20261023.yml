@@ -1,0 +1,91 @@
+name: One-use VENTUNO bounded passive stability window October 2026
+
+on:
+  push:
+    branches: [dev/ventuno-passive-two-minute-stability-20261023]
+    paths:
+      - .github/workflows/ventuno-passive-stability-window-20261023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-ventuno-bounded-passive-stability-one-use-20261023
+  cancel-in-progress: false
+
+jobs:
+  passive-window:
+    if: github.run_attempt == 1 && github.event.before == 'fd5395bdc4adb1bf66da7ba96a8fdd98f957f591' && github.event.head_commit.message == 'Execute one seven-snapshot passive VENTUNO stability window 2026-10-23'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 6
+    steps:
+      - name: Fetch exact reviewed commit into disposable private source tree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = arduino
+          test "$(id -u)" = 1000
+          test "$(uname -m)" = aarch64
+          test -n "${RUNNER_TEMP:-}"
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-passive-window-XXXXXXXX")"
+          chmod 700 "$scratch"
+          echo "MYAI_PASSIVE_SRC=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch"
+          git -C "$scratch" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout --force --quiet --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify mock-only metric failure handling, existing read-only collectors and recovery
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_PASSIVE_SRC"
+          timeout --signal=TERM --kill-after=2s 95s \
+            /home/arduino/MyAI/.venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/test_ventuno_passive_stability_window.py \
+            tests/test_ventuno_service_resilience_readonly.py \
+            tests/test_ventuno_readonly_probe.py \
+            tests/test_ventuno_runner_boot_policy_readonly.py \
+            tests/test_backend_recovery.py \
+            tests/test_health_aware_llm_recovery.py
+
+      - name: Collect seven passive snapshots over a bounded interval
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          cd "$MYAI_PASSIVE_SRC"
+          timeout --signal=TERM --kill-after=3s 175s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ventuno_passive_stability_window
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          echo 'Read-only seven snapshots complete. No audio, Bluetooth scan, GPU/NPU load, write benchmark or service changes.'
+
+      - name: Verify existing services, clean only disposable checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet myai-ventuno.service
+          systemctl is-active --quiet myai-geniex.service
+          case "${MYAI_PASSIVE_SRC:-}" in
+            "$RUNNER_TEMP"/myai-passive-window-*)
+              if [ -d "$MYAI_PASSIVE_SRC" ] && [ ! -L "$MYAI_PASSIVE_SRC" ]; then
+                rm -rf -- "$MYAI_PASSIVE_SRC"
+              fi
+              ;;
+            "") ;;
+            *) echo 'Unrecognized checkout: no deletion'; exit 2 ;;
+          esac
