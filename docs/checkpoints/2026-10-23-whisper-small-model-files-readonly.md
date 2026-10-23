@@ -38,3 +38,30 @@ If absent, it only establishes absence from the *default* model path;
 `MODELS_PATH` can change it. The App Lab process itself remains untouched.
 
 Keep PR DRAFT, no microphone or App Lab/Genie startup.
+
+## Actual host result (single pass)
+
+Run: https://github.com/Harrokk/Myai/actions/runs/39955460757
+Executed source SHA: `794e7ce1b5a3961f00b07b43055a852b94a016ae`
+Completed **SUCCESS** with zero audio, model, Docker or service changes.
+
+- Default Arduino model root **exists**.
+- Subrepository `audio-analytics/asr` **not present** at default root.
+- Exact quantized Whisper Small directory **not present** at default root.
+- Default-root `models.yaml` materialized listing **not present**.
+- Both production MyAI and GenieX systemd services remained **active**.
+- Status: `no-complete-model-evidence-at-default-path`.
+
+This is evidence of **absence at the documented default model path**,
+not proof of universal absence or failure to support Swedish. The
+Arduino CLI's `MODELS_PATH` environment override has **not** been
+inspected. Also note the cached Docker image containing the ASR service
+is distinct from its 343MB model artifact; a cached audio image does
+not contain or attest the model.
+
+**Next action requiring explicit user approval**: inspect App Lab's
+own configured model location without exposing environment secrets or
+install/load the official model using supported Arduino tooling, then
+verify the correct USB microphone mapping in App Lab and run one
+separately approved physical ASR test. No unofficial downloads, no
+second Qwen LLM instance and no production config changes.
