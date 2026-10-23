@@ -66,7 +66,9 @@ def test_invalid_decoder_response_does_not_escape(out):
 
 
 def test_mid_window_synthetic_shift_keeps_exact_pcm_and_loses_only_tail():
-    original=pcm()
+    samples=array.array("h",[0]*48000)
+    samples[6000:8000]=array.array("h",[2500]*2000)
+    original=samples.tobytes()
     delayed=d.shift_piper_to_middle(original)
     shift=800*16*2
     assert len(delayed)==96000
