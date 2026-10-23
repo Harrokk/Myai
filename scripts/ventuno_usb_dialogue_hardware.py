@@ -251,7 +251,7 @@ def build_ports(root: Path, *, response_backend: str = "geniex") -> DialogPorts:
         try:
             prepared = subprocess.run(
                 [str(executable), "--path=" + str(data.parent),
-                 "-v", "sv", "--stdout", "Vänta en sekund. Säg sedan: Vad heter du."],
+                 "-v", "sv", "--stdout", "Vänta en sekund. Säg: Vad heter du."],
                 cwd=root / TTS_FOLDER,
                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 check=False, timeout=9,
