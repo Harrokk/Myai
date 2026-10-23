@@ -17,6 +17,33 @@ This App contains just **one Brick** (`arduino:asr`), so it does
 not start another Qwen/GenieX model, cannot reach MyAI's tools,
 does not launch a web UI/listener and cannot play speaker audio.
 
+## Critical operator checks found in upstream App Lab SDK
+
+Arduino's default ASR microphone is the first plugged microphone, not a
+persistent identity. This source pins the previously used USB ALSA capture
+pair with `Microphone(device="plughw:1,0", shared=False,
+auto_reconnect=False)` and passes that device explicitly to
+`AutomaticSpeechRecognition(mic=mic, language="sv")`. This source
+identity was verified on the *previous* MyAI physical smoke, but App
+Lab's container device map can differ. **Re-check the USB microphone
+identity and the ALSA card index in the actual App Lab container first.**
+If the pair is wrong or unavailable, the app must stop; do not silently
+select another microphone.
+
+A second important first-party lifecycle detail: **`App.run()`
+starts the ASR Brick and its microphone *before* the user-loop begins**.
+The ASR `start()` also performs model warmup on the NPU. Therefore
+clicking **Run** is itself the microphone and NPU startup event, not
+the later `capture-begins` status message. Confirm new single-use
+consent and resource coexistence *before* clicking Run.
+
+With `shared=False`, another application attempting to capture from
+the same device will fail rather than share the private audio stream.
+`auto_reconnect=False` prevents automatic device reconnection. The
+actual exclusivity and device identity remain unverified until a
+separately approved App Lab installation inspection. Upstream Arduino
+SDK log behavior must also be reviewed before sharing any error output.
+
 ## How to run LATER, only with fresh explicit physical approval
 
 1. Open Arduino App Lab with VENTUNO Q attached. Import/copy
