@@ -84,7 +84,7 @@ jobs:
           root="$MYAI_CUE_TEST_ROOT/myai-tts-espeak-stage"
           cd "$root"
           shopt -s nullglob
-          for dependency in libpcaudio0 libsonic0 libpulse0 libasyncns0 libsndfile1; do
+          for dependency in libpcaudio0 libsonic0 libpulse0 libasyncns0 libsndfile1 libflac12t64; do
             apt download "$dependency"
             matches=("$dependency"_*_arm64.deb)
             test "${#matches[@]}" -eq 1
