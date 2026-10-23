@@ -77,6 +77,17 @@ jobs:
           assert record["system_packages_installed"] is False
           PY
 
+      - name: Diagnose synthetic ARM64 eSpeak missing libraries without audio or stderr
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$MYAI_CUE_TEST_ROOT/myai-tts-espeak-stage/extracted"
+          exe="$root/usr/bin/espeak-ng"
+          test -f "$exe"
+          export LD_LIBRARY_PATH="$root/usr/lib/aarch64-linux-gnu"
+          missing="$(ldd "$exe" | awk '/=> not found/ {print $1}')"
+          printf 'Missing synthetic test-only eSpeak library names: %s\n' "${missing:-none}"
+
       - name: Validate EXACT future spoken cue against production 3.5s and 4pct caps
         shell: bash
         env:
