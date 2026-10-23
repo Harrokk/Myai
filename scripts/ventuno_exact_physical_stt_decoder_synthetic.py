@@ -40,10 +40,19 @@ from scripts.ventuno_whisper_tiny_cpu_smoke import (
 
 VARIANTS = (
     "clean_piper",
+    "middle_window_800ms",
     "noise_12db",
     "noise_0db",
     "first_700ms_muted",
 )
+
+
+def shift_piper_to_middle(raw: bytes) -> bytes:
+    """800ms silent prefix with tail truncation, fixed 3s sample count."""
+    if type(raw) is not bytes or len(raw) != CAPTURE_BYTES:
+        raise ValueError("Expected one bounded synthetic 3s PCM clip")
+    shift = 800 * 16 * 2  # milliseconds -> 16kHz, signed 16-bit mono
+    return bytes(shift) + raw[:CAPTURE_BYTES - shift]
 MIN_FREE_DISK = max(4 * 1024 ** 3, MIN_DISK_AVAILABLE_BYTES)
 
 
@@ -141,6 +150,7 @@ def inspect_exact_live_decoder(
         return report
     cases = (
         ("clean_piper", raw),
+        ("middle_window_800ms", shift_piper_to_middle(raw)),
         ("noise_12db", apply_fixed_acoustic_fault(
             raw, fault="noise_snr_12db")),
         ("noise_0db", apply_fixed_acoustic_fault(
