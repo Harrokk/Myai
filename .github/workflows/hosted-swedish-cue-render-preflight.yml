@@ -1,0 +1,99 @@
+name: Hosted ARM64 Swedish voice cue actual WAV duration preflight
+on:
+  push:
+    branches: [dev/ventuno-smoke-cue-render-boundary-20261023]
+    paths:
+      - scripts/ventuno_usb_dialogue_hardware.py
+      - scripts/ventuno_usb_dialogue_once.py
+      - scripts/ventuno_smoke_cue_render_preflight.py
+      - tests/test_ventuno_smoke_cue_render_preflight.py
+      - .github/workflows/hosted-swedish-cue-render-preflight.yml
+      - docs/checkpoints/2026-10-23-smoke-cue-wav-boundary.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-myai-swedish-cue-wav-check
+  cancel-in-progress: false
+
+jobs:
+  hosted-synthetic-cue-render:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - name: Require GitHub-hosted ARM64 - NEVER VENTUNO runner
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" -ne 0
+          echo "Synthetic TTS only, no microphone, speaker, NPU or MyAI service access."
+
+      - name: Exact checked commit in private disposable directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d "$RUNNER_TEMP/myai-cue-render-XXXXXXXX")"
+          chmod 0700 "$root"
+          echo "MYAI_CUE_TEST_ROOT=$root" >> "$GITHUB_ENV"
+          mkdir -p "$root/source"
+          git init -q "$root/source"
+          git -C "$root/source" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$root/source" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$root/source" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$root/source" rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C "$root/source" status --porcelain --untracked-files=no)"
+
+      - name: Stage authentic ARM64 Swedish eSpeak into disposable scratch only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_CUE_TEST_ROOT/source"
+          python3 -B - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.ventuno_tts_temp_stage import stage_sweden_tts
+          root=Path(os.environ["MYAI_CUE_TEST_ROOT"])
+          record=stage_sweden_tts(
+              root/"myai-tts-espeak-stage", root, arm=True,
+          )
+          print("Offline Swedish TTS stage:",record["status"])
+          assert record["status"]=="isolated-swedish-tts-signal-verified"
+          assert record["physical_playback_verified"] is False
+          assert record["microphone_used"] is False
+          assert record["system_packages_installed"] is False
+          PY
+
+      - name: Validate EXACT future spoken cue against production 3.5s and 4pct caps
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONNOUSERSITE: "1"
+        run: |
+          set -euo pipefail
+          cd "$MYAI_CUE_TEST_ROOT/source"
+          python3 -B -m scripts.ventuno_smoke_cue_render_preflight \
+            --scratch "$MYAI_CUE_TEST_ROOT" --synthetic-cue-only
+          echo "Only synthetic generated WAV evaluated; none played or saved."
+
+      - name: Clean only the ephemeral exact-SHA scratch
+        if: always()
+        shell: bash
+        run: |
+          set -eo pipefail
+          case "$MYAI_CUE_TEST_ROOT" in
+            "$RUNNER_TEMP"/myai-cue-render-*)
+              if [ -d "$MYAI_CUE_TEST_ROOT" ] && [ ! -L "$MYAI_CUE_TEST_ROOT" ]; then
+                rm -rf -- "$MYAI_CUE_TEST_ROOT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Refusing unsafe cleanup path" >&2; exit 2 ;;
+          esac
