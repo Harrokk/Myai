@@ -15,9 +15,19 @@ def _fake_arduino(monkeypatch, transcript, *, fail=False):
     pkg = ModuleType("arduino.app_bricks")
     asr_pkg = ModuleType("arduino.app_bricks.asr")
     utils = ModuleType("arduino.app_utils")
+    peripheral = ModuleType("arduino.app_peripherals")
+    microphones = ModuleType("arduino.app_peripherals.microphone")
+
+    class Microphone:
+        def __init__(self, *, device, shared, auto_reconnect):
+            assert device == "plughw:1,0"
+            assert shared is False
+            assert auto_reconnect is False
+            counts["device"] = device
 
     class ASR:
-        def __init__(self, *, language):
+        def __init__(self, *, mic, language):
+            assert isinstance(mic, Microphone)
             counts["created"] += 1
             assert language == "sv"
 
@@ -42,10 +52,13 @@ def _fake_arduino(monkeypatch, transcript, *, fail=False):
                 pass
 
     asr_pkg.AutomaticSpeechRecognition = ASR
+    microphones.Microphone = Microphone
     utils.App = App
     for name, value in {
         "arduino": top, "arduino.app_bricks": pkg,
         "arduino.app_bricks.asr": asr_pkg, "arduino.app_utils": utils,
+        "arduino.app_peripherals": peripheral,
+        "arduino.app_peripherals.microphone": microphones,
     }.items():
         monkeypatch.setitem(sys.modules, name, value)
     return counts
@@ -56,7 +69,8 @@ def test_app_uses_only_first_party_asr_and_no_web_ui_or_llm():
     assert "bricks:\n  - arduino:asr" in manifest
     assert "arduino:web_ui" not in manifest and "arduino:llm" not in manifest
     code = SOURCE.read_text(encoding="utf-8")
-    assert 'AutomaticSpeechRecognition(language="sv")' in code
+    assert 'Microphone(device="plughw:1,0", shared=False, auto_reconnect=False)' in code
+    assert 'AutomaticSpeechRecognition(mic=mic, language="sv")' in code
     assert "App.run(user_loop=run_one_diagnostic)" in code
     assert "chat(" not in code and "speak(" not in code
     assert "web_ui" not in code and "requests" not in code
@@ -66,7 +80,7 @@ def test_once_for_expected_swedish_words(monkeypatch, capsys):
     counts = _fake_arduino(monkeypatch, "Vad heter du?")
     runpy.run_path(str(SOURCE), run_name="__main__")
     out = capsys.readouterr().out
-    assert counts == {"created": 1, "transcribe": [5], "registered": 1}
+    assert counts == {"created": 1, "transcribe": [5], "registered": 1, "device": "plughw:1,0"}
     assert "reference-recognized" in out
     assert "Vad heter du?" not in out
 
