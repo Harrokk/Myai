@@ -25,9 +25,12 @@ def run_one_diagnostic() -> None:
     if _used:
         raise StopIteration
     _used = True
-    print("MYAI_ASR: capture-begins")
+    status = "unavailable-or-failed"
     try:
-        # Official first-party API controls the microphone and ASR model.
+        # With a caller-provided microphone, the official ASR Brick does
+        # NOT start or stop it; the caller owns the peripheral lifecycle.
+        mic.start()
+        print("MYAI_ASR: capture-begins")
         recognized = asr.transcribe(duration=5)
         if not isinstance(recognized, str) or not recognized.strip():
             status = "no-final-text"
@@ -40,13 +43,18 @@ def run_one_diagnostic() -> None:
                              recognized.casefold()).strip()
             status = ("reference-recognized" if cleaned == "vad heter du"
                       else "other-nonempty-text")
-        print("MYAI_ASR: " + status)
     except Exception:
         # Do not publish exception messages; SDK errors may contain speech.
-        print("MYAI_ASR: unavailable-or-failed")
+        status = "unavailable-or-failed"
     finally:
-        # The App.run lifecycle owns ASR startup/shutdown. Explicitly
-        # end this user_loop after exactly one transcription attempt.
+        try:
+            mic.stop()
+        except Exception:
+            # An unsuccessful release must never be reported as a pass.
+            status = "microphone-release-failed"
+        print("MYAI_ASR: " + status)
+        # The App.run lifecycle manages the ASR service; this caller
+        # must release its injected microphone in all paths.
         raise StopIteration
 
 
