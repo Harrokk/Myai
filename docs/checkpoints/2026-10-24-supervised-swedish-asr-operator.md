@@ -84,3 +84,74 @@ are created by this PR.
 
 Keep DRAFT and do not merge to main until physical result,
 no regression and post-test GenieX state are verified.
+
+## STOP — dependency failure found in first real operator attempt, and correction
+
+Operator supplied real host metadata on 2026-10-24:
+
+```text
+systemctl is-active myai-ventuno.service myai-geniex.service
+active
+active
+
+myai-ventuno.service:
+Result=success
+Requires=... myai-geniex.service ...
+After=... myai-geniex.service ...
+ActiveState=active
+SubState=running
+
+myai-geniex.service:
+Result=success
+ActiveState=active
+SubState=running
+```
+
+Under documented systemd semantics, an explicit stop of a service
+listed in `Requires=` also stops the requiring service. Therefore
+the original guard's promise of stopping **only** GenieX while
+leaving MyAI running was incorrect. Actual first local guard attempt:
+- SHA-256 validated; initial checks passed.
+- User entered confirmation, stopped GenieX.
+- MyAI also became inactive, correctly detected by the guard.
+- The **old guard restored only GenieX**, leaving MyAI inactive;
+  a second invocation was blocked as designed at preflight.
+- User explicitly started MyAI again via systemctl and supplied
+  statuses for **both services: active/running, Result=success**.
+- **NO App Lab ASR capture was made**. This incident provides no
+  evidence of native Whisper correctness or incorrectness.
+
+**Corrected draft guard** (same file path on this feature branch,
+different Git blob; prior SHA-256 checksum is OBSOLETE):
+
+- One more explicit local opt-in text `JA STOPPA BADDA` is required
+  before any service stop. Earlier consent to stopping GenieX
+  does not automatically approve intentional MyAI downtime.
+- After preflight and sudo validation, the script arms an EXIT/HUP/TERM
+  /INT restoration trap **before** its first action.
+- Stops **MyAI first**, verifies inactive; stops **GenieX second**,
+  verifies inactive. Keeps GitHub runner running.
+- Human operator, not the script, launches the five-second App Lab ASR
+  diagnostic once, with their awareness and no transcript export.
+- Local test window reduced to **180 seconds**. When it ends or aborts,
+  restores **GenieX first**, **MyAI second**, independently attempts both
+  and checks both active. On sudo timestamp expiration, the trap may
+  prompt in the local TTY. Hard kill/power loss and sudo failure still
+  cannot guarantee recovery; manual commands remain:
+  `sudo systemctl start myai-geniex.service` then
+  `sudo systemctl start myai-ventuno.service`.
+- New isolated tests replace systemd and sudo with **fake shell functions
+  in a temporary COPY** of the guard, never executing any live stop.
+  Cases include successful handoff, failure during second stop,
+  declined consent and inactive startup preflight.
+
+**NO-GO:** The corrected guard is prepared and tested in CI, but is
+**not to be run** until the user explicitly approves pausing *both*
+MyAI and GenieX in chat and the operator has the App Lab app imported
+and ready. Do not change persistent `Requires=` or `After=`
+configuration as part of a test. Prior downloaded ZIP kit and
+its guard checksum must no longer be used. Document this as a
+superseding correction, not evidence of an audio test pass.
+
+Official systemd Requires semantics:
+https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html
