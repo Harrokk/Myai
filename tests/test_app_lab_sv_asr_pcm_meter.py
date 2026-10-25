@@ -1,15 +1,49 @@
-"""Fully synthetic App Lab pilot tests. Never open a hardware microphone."""
+"""Fully synthetic App Lab pilot tests. No numpy or hardware required in CI."""
 from pathlib import Path
+import builtins
 import runpy
 import sys
 import types
 
-import numpy as np
 import pytest
 
 
 MAIN = (Path(__file__).resolve().parents[1]
         / 'integrations/arduino_app_lab/myai_sv_asr_once/python/main.py')
+
+
+class FakePcm:
+    """A plain Python array stand-in for a read-only signed PCM NumPy chunk."""
+    def __init__(self, samples):
+        self.samples = list(samples)
+        self.size = len(self.samples)
+
+
+class FakeArray(list):
+    @property
+    def size(self):
+        return len(self)
+
+
+class FakeNumpy(types.ModuleType):
+    float64 = float
+
+    @staticmethod
+    def asarray(chunk, dtype):
+        assert dtype is float
+        return FakeArray(float(value) for value in chunk.samples)
+
+    @staticmethod
+    def dot(left, right):
+        return sum(a * b for a, b in zip(left, right))
+
+    @staticmethod
+    def abs(values):
+        return [abs(value) for value in values]
+
+    @staticmethod
+    def max(values):
+        return builtins.max(values)
 
 
 def run_pilot(monkeypatch, chunks, recognized="", fail_asr=False, fail_stop=False):
@@ -68,6 +102,7 @@ def run_pilot(monkeypatch, chunks, recognized="", fail_asr=False, fail_stop=Fals
         monkeypatch.setitem(sys.modules, name, p)
         return p
 
+    monkeypatch.setitem(sys.modules, 'numpy', FakeNumpy('numpy'))
     package('arduino')
     package('arduino.app_bricks')
     asr = package('arduino.app_bricks.asr')
@@ -82,7 +117,7 @@ def run_pilot(monkeypatch, chunks, recognized="", fail_asr=False, fail_stop=Fals
 
 
 def test_clear_pcm_and_correct_phrase(monkeypatch, capsys):
-    samples = np.full(1024, 12000, dtype=np.int16)
+    samples = FakePcm([12000] * 1024)
     mic, calls, ns = run_pilot(monkeypatch, [samples, samples], 'Vad heter du?')
     out = capsys.readouterr().out
     assert mic.stopped
@@ -95,10 +130,10 @@ def test_clear_pcm_and_correct_phrase(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize('chunks,expected', [
-    ([np.zeros(1024, dtype=np.int16)], 'near-silent'),
-    ([np.full(512, 35, dtype=np.int16)], 'low'),
+    ([FakePcm([0] * 1024)], 'near-silent'),
+    ([FakePcm([35] * 512)], 'low'),
     ([], 'no-pcm'),
-    ([None, np.full(512, 9000, dtype=np.int16)], 'present'),
+    ([None, FakePcm([9000] * 512)], 'present'),
 ])
 def test_signal_level_categories(monkeypatch, capsys, chunks, expected):
     _, _, _ = run_pilot(monkeypatch, chunks)
@@ -108,7 +143,7 @@ def test_signal_level_categories(monkeypatch, capsys, chunks, expected):
 
 
 def test_unknown_nonempty_speech_never_leaked(monkeypatch, capsys):
-    run_pilot(monkeypatch, [np.full(1024, 3000, dtype=np.int16)], 'Min adress är 1234')
+    run_pilot(monkeypatch, [FakePcm([3000] * 1024)], 'Min adress är 1234')
     out = capsys.readouterr().out
     assert 'MYAI_ASR: other-nonempty-text' in out
     assert 'adress' not in out
