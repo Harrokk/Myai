@@ -98,7 +98,7 @@ if systemctl is-active --quiet "$MODEL_UNIT"; then
 fi
 
 printf '\nTESTFÖNSTER ÖPPET: Klicka Run EXAKT EN GÅNG i App Lab.\n'
-printf 'När du ser MYAI_ASR: capture-begins, säg "Vad heter du?" under femsekundersfönstret.\n'
+printf 'När du ser MYAI_ASR: pcm-first-chunk-speak-now, säg "Vad heter du?" under femsekundersfönstret.\n'
 printf 'Notera bara MYAI_ASR:s resultatkod. Klicka Stop om appen inte avslutas själv.\n'
 printf 'Återgå hit och tryck Enter när testet är avslutat.\n'
 printf 'Säkerhet: efter högst 3 minuter stängs testfönstret och både GenieX och MyAI återställs.\n'
