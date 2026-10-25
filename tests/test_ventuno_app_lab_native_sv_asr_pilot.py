@@ -73,7 +73,10 @@ def _fake_arduino(monkeypatch, transcript, *, fail=False,
                     pass
 
     asr_pkg.AutomaticSpeechRecognition = ASR
-    microphones.Microphone = Microphone
+    microphones.ALSAMicrophone = Microphone
+    # The real source uses NumPy, but this synthetic test never reads PCM.
+    # Other tests exercise capture() under an explicit pure-Python NumPy fake.
+    monkeypatch.setitem(sys.modules, "numpy", ModuleType("numpy"))
     utils.App = App
     for name, value in {
         "arduino": top, "arduino.app_bricks": pkg,
@@ -90,7 +93,10 @@ def test_only_first_party_asr_and_explicit_already_verified_usb_mic():
     assert "bricks:\n  - arduino:asr" in manifest
     assert "arduino:web_ui" not in manifest and "arduino:llm" not in manifest
     code = SOURCE.read_text(encoding="utf-8")
-    assert 'Microphone(device="plughw:1,0", shared=False, auto_reconnect=False)' in code
+    assert 'class MeteredMicrophone(ALSAMicrophone)' in code
+    assert 'super().__init__(device="plughw:1,0", shared=False, auto_reconnect=False)' in code
+    assert 'mic = MeteredMicrophone()' in code
+    assert 'pcm-first-chunk-speak-now' in code
     assert 'AutomaticSpeechRecognition(mic=mic, language="sv")' in code
     assert "mic.start()" in code and "mic.stop()" in code
     assert "App.run(user_loop=run_one_diagnostic)" in code
