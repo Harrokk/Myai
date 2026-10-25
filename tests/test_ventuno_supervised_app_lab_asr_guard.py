@@ -59,6 +59,8 @@ def test_guard_never_executes_audio_or_ai_or_mutates_other_services():
     ):
         assert forbidden not in s
     assert "GitHub-runnern lämnas orörd" in s
+    assert "MYAI_ASR: pcm-first-chunk-speak-now" in s
+    assert "MYAI_ASR: capture-begins" not in s
     assert "! -c /dev/snd/pcmC1D0c" in s
     assert "! -t 0" in s
 
