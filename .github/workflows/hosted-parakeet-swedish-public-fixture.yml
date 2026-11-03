@@ -87,6 +87,20 @@ jobs:
             "$archive" | sha256sum --check --status
           echo "Parakeet release SHA256 verified; no model stored in repository."
 
+      - name: Fetch exact pinned Silero ONNX model for public speech segmentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          model="$RUNNER_TEMP/silero-public-vad.onnx"
+          test ! -e "$model"
+          curl -fL --connect-timeout 20 --max-time 90 \
+            -o "$model" \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+          test "$(stat -c %s "$model")" -eq 643854
+          printf '%s  %s\n' \
+            '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6' \
+            "$model" | sha256sum --check --status
+
       - name: Transcribe checksum-pinned public Swedish word on hosted ARM64 CPU
         shell: bash
         env:
@@ -99,4 +113,5 @@ jobs:
           "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B \
             -m scripts.hosted_parakeet_swedish_fixture \
             --archive "$RUNNER_TEMP/parakeet-v3-int8-pinned.tar.bz2" \
-            --runner-temp "$RUNNER_TEMP"
+            --runner-temp "$RUNNER_TEMP" \
+            --silero-model "$RUNNER_TEMP/silero-public-vad.onnx"
