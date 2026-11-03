@@ -46,6 +46,10 @@ def _tier_for_phrase(text):
     if not isinstance(text, str) or not text.strip() or len(text) > 4096:
         return "blocked"
     text = text.casefold()
+    # Hardware identifiers frequently put digits directly after the noun,
+    # e.g. GPIO17 and relä2; a normal word-boundary test misses those.
+    if re.search(r"(?<!\\w)(?:gpio|relä|relay|motor)\\s*\\d+\\b", text):
+        return "critical"
     if any(_mentions(text, term) for term in _CRITICAL_PHRASES):
         return "critical"
     if any(_mentions(text, term) for term in _MEDIUM_PHRASES):
