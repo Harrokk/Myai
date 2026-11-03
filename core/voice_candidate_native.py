@@ -196,7 +196,16 @@ class IsolatedPinnedNativeCandidateSTT:
                 raise RuntimeError("Native candidate reply revoked")
             # Exact child exit=0 and owned group cleanup are prerequisites.
             if native_returncode != 0 or raw is None:
-                raise RuntimeError("Native candidate failed or returned no data")
+                # Public numeric POSIX status only, but limit to audited
+                # constant categories. No stderr, PCM, transcript or paths.
+                status_names = {
+                    1: "exit_1", 2: "exit_2", 3: "exit_3",
+                    4: "exit_4", 10: "exit_10", 11: "exit_11",
+                    -6: "signal_abort", -9: "signal_kill",
+                    -11: "signal_segv",
+                }
+                reason = status_names.get(native_returncode, "other")
+                raise RuntimeError("Native candidate failed (" + reason + ")")
             try:
                 return parse_candidate_stdout(self._profile.profile, raw)
             except ValueError as exc:
