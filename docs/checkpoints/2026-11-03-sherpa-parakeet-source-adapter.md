@@ -52,6 +52,12 @@ and `tokens.txt`. The model is NOT shipped in Git or installed automatically.
     "enabled": false,
     "tts_enabled": false,
     "handsfree_enabled": false,
+    "vad_provider": "sherpa_silero_segments",
+    "silero_model_path": "/approved/local/path/silero_vad.onnx",
+    "silero_context_padding_ms": 300,
+    "tts_provider": "piper_alma",
+    "tts_voice_id": "/approved/local/path/sv_SE-alma-medium.onnx",
+    "tts_output_device": "explicit-approved-output-device",
     "stt_provider": "sherpa_onnx_parakeet",
     "stt_model": "/approved/local/path/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
     "stt_device": "cpu",
@@ -72,13 +78,17 @@ the configured expected language as a recognized language confidence.
 
 ## Explicit limitations / no-go
 
-- Existing MyAI VoiceActivityGate + WebRTC VAD remain unchanged.
-  A separate opt-in `SherpaSileroSegments` class now supports bounded
-  20-ms-to-512-sample buffering and final speech segments. It is **NOT**
-  wired into VoiceSession or production VAD until end-to-end timing, onset
-  and streaming interruption behavior are verified.
-- Piper Swedish TTS is a separate future opt-in component; **no Piper
-  provider was installed or connected in this commit**.
+- MyAI's default VoiceActivityGate + WebRTC VAD remain unchanged.
+  Explicit `voice.vad_provider='sherpa_silero_segments'` opts into a
+  dedicated `SileroVoiceStreamController` wired to VoiceSession.
+  Complete segments, speech-start interruption, resource handoff,
+  timeout/stop reset and bounded one-utterance semantics have synthetic
+  tests. This is **not** proof of safe always-on handsfree behavior.
+- An opt-in `PiperAlmaTTS` provider renders the exact pinned Swedish Alma
+  voice in RAM and requires an explicit sound output device before speaking.
+  The physical speaker has **not** been opened or verified. The Piper
+  runtime's GPL-3.0-or-later terms are separate from the Alma voice's
+  CC-BY-4.0 model license; review before distribution.
 - The Parakeet INT8 model is approximately 640 MB extracted. Its RAM peak,
   CPU-only latency on QCS8275, concurrent GenieX behavior, and actual
   Swedish recognition quality on VENTUNO are **unverified**.
@@ -105,15 +115,19 @@ the configured expected language as a recognized language confidence.
 2. **Hosted real Swedish test completed:** public Wikimedia Swedish
    one-word speech `Sv-svenska.ogg` by Peter Isotalo (CC BY-SA 3.0 /
    GFDL), SHA-1 verified. No user audio or microphone.
-3. **Source-only complete:** optional Silero segment adapter and native
-   VAD model verified using GitHub-hosted synthetic silence. **Remaining**
-   is vetted VoiceSession integration, onset/pre-roll, interruption,
-   and real (public) Swedish speech segmentation performance.
-4. **Remaining:** add Piper Swedish TTS after verifying selected voice
-   licensing, ARM64 inference and non-playing synthetic audio contracts.
-5. **Remaining:** wider Swedish speech benchmark, realistic/noisy speech,
-   concurrency and CPU peak memory with GenieX. The 1.88-second reference
-   is one isolated word, not a representative WER or hands-free evaluation.
+3. **Hosted confirmed:** Silero segmenter is integrated opt-in
+   with VoiceSession. Its default 300-ms synthetic silence context padding
+   was selected after a successful real public Swedish word test, not by
+   relaxing VAD sensitivity. Further onset/echo/noise and continuous
+   microphone testing is still required.
+4. **Hosted confirmed:** Swedish Piper Alma model and local synthesis
+   provider verified; speaker stays closed. Actual ALSA/PipeWire audio
+   routing, echo control and immediate stop are not physically verified.
+5. **Wider hosted synthetic test:** 2/3 exact Parakeet+Silero recognition
+   on three fixed Piper-generated Swedish questions; one phrase still
+   fails. This is not a natural human speech WER or reliability estimate.
+   Real-world noise, concurrent GenieX memory budget, all safety-oriented
+   three-STT votes and child-process isolation remain pending.
 6. **Physical consent gate:** only with separately approved operator
    supervision, measure VENTUNO resource reserve, validate ALSA capture
    and run one controlled voice session with service restoration safeguards.
@@ -166,3 +180,80 @@ unchanged. This is **not** proof of live Swedish conversation on VENTUNO.
 - This is **not** evidence for speech-onset sensitivity, echo handling,
   word endpoint detection or a working Ventuno microphone. No user audio,
   microphone, GenieX, output speaker or VENTUNO runner touched.
+
+
+## Follow-on 2026-11-03 hosted, microphone-free full speech chain
+
+### Silero segmentation and Parakeet recognition
+
+The first true Silero+Parakeet public Swedish fixture surfaced a
+**frame-padding error**: the last 20-ms PCM frame contained literal
+backslash characters instead of zero bytes, and the VAD rejected its
+length. This was corrected and protected by a 640-byte frame regression.
+
+Using the same licensed `Sv-svenska.ogg` fixture:
+- [Silero + Parakeet unpadded run 41624851486](https://github.com/Harrokk/Myai/actions/runs/41624851486):
+  one 1.062-s speech segment, not recognized by Parakeet in isolation,
+  while unsegmented audio was recognized.
+- [Context comparison run 41625244863](https://github.com/Harrokk/Myai/actions/runs/41625244863):
+  adding 300 ms silence to either side of the completed segment restored
+  successful word recognition.
+- [Opt-in 300-ms Silero adapter run 41625803739](https://github.com/Harrokk/Myai/actions/runs/41625803739):
+  **SUCCESS**; 1 segment, 1.662-s padded duration, Swedish word recognized.
+  CPU model load 1.961 s, end-to-end VAD+STT on extracted speech 0.303 s,
+  peak process RSS 1,234.4 MiB. Hosted ARM64 only, not VENTUNO.
+
+### Native Swedish Piper Alma and full mocked MyAI bridge
+
+[Hosted Piper Alma run 41624660526](https://github.com/Harrokk/Myai/actions/runs/41624660526)
+**SUCCESS** using fixed public text in RAM only:
+- Piper 1.8.0 pinned ARM64 wheel SHA256
+  `3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484`.
+- Alma voice SHA256
+  `f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc`
+  plus Swedish audio/config metadata checked.
+- Generated 2.009-s mono 22,050-Hz 16-bit WAV from the fixed sentence
+  `Hej. Jag heter MyAI.` with **1.266-s render time**,
+  **162.6-MiB process peak RSS**.
+- No speaker opened; no WAV file, user audio, or production changes.
+- The new `PiperAlmaTTS` integrates with the existing TTS provider
+  factory but requires an **explicitly chosen output device**, and
+  does not open it during construction. Isolated native output tests
+  used mock streams; physical audio playback remains unverified.
+
+MyAI's test-only VoiceSession path now covers a complete
+`Silero segment → STT → assistant response → Piper synthetic WAV
+→ fake speaker sink` chain; never invokes a real microphone,
+GenieX or speaker.
+
+### Broader synthesized Swedish question test
+
+[Hosted 3-phrase test 41626329179](https://github.com/Harrokk/Myai/actions/runs/41626329179)
+**SUCCESS** (disposable hosted ARM64, same pinned three models).
+
+| Fixed, public-text Piper synthesis | Exact recognition (whole) | Exact recognition (Silero segments) |
+|---|---|---|
+| Vad heter du? | yes | yes |
+| Hur mycket minne använder datorn? | no | yes |
+| Vad är temperaturen? | no | no |
+
+Result: **1/3 unsegmented** and **2/3 after Silero segmentation**.
+This does not imply a population accuracy rate; the phrases are
+synthetic, and the remaining mismatch warrants further analysis.
+Aggregate peak process RSS in the run: **1,085.5 MiB**; Parakeet
+model loaded in **1.986 s**, and no user audio or speaker hardware
+was used. No recognized transcripts are exported in CI logs.
+
+### Next physical gate (not authorized yet)
+
+1. Verify VENTUNO free RAM, disk, required Python/ALSA ABI and explicit
+   microphone/speaker routing in a strictly read-only check.
+2. Confirm a safe, reversible staging plan with no production service
+   downtime and no unreviewed `stt_process_isolation_enabled` settings.
+3. Require **new explicit consent** for any short, supervised microphone
+   capture or physical speech playback; one approved test cannot
+   authorize retries or handsfree mode.
+4. Measure speech-start/end on real USB audio, dropouts, CPU latency,
+   resource handoff to GenieX and an end-to-end Swedish reply.
+5. Never auto-merge PR #374 or enable `voice.enabled`/TTS/handsfree
+   on production without review and explicit approval.
