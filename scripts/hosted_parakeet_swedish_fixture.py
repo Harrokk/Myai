@@ -131,7 +131,7 @@ def public_pcm_vad_segments(audio: bytes, model_path: Path) -> list[bytes]:
     out = []
     for offset in range(0, len(audio), 640):
         frame = audio[offset:offset + 640]
-        frame += b"\\x00" * (640 - len(frame))
+        frame += bytes(640 - len(frame))
         out.extend(detector.feed(frame))
     out.extend(detector.flush())
     return out
