@@ -201,7 +201,11 @@ def test_cannot_resume_while_child_active(tmp_path, monkeypatch):
              "print('run: ok');print('text: Hej')"], **kwargs,
         )
     monkeypatch.setattr(native, "_launch_native_candidate_worker", launch)
-    assert engine.transcribe(b"\x00\x00")["text"] == "Hej"
+    # release_for_inference() intentionally invokes Stop while busy;
+    # even a plausible fake child transcript must be rejected.
+    with pytest.raises(RuntimeError, match="cancelled"):
+        engine.transcribe(b"\x00\x00")
+    engine.resume()
 
 
 def test_different_model_digest_cannot_be_reused(tmp_path):
