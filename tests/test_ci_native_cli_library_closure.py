@@ -118,3 +118,74 @@ def test_too_many_dependency_nodes_are_rejected():
             cases, entrypoints=("transcribe-cli",),
             trusted_loader="ld-linux-aarch64.so.1",
         )
+
+
+def test_readelf_parser_rejects_transitive_rpath_and_wrong_isa(monkeypatch):
+    import scripts.ci_native_cli_library_closure as module
+    header = "Class: ELF64\\nData: 2's complement, little endian\\nMachine: AArch64"
+    dynamic = " 0x1 (NEEDED) Shared library: [libc.so.6]\\n"
+    monkeypatch.setattr(
+        module, "_readelf",
+        lambda _path, section: header if section == "-h" else dynamic,
+    )
+    assert module.inspect_system_library("/synthetic", "libstdc++.so.6") == [
+        "libc.so.6",
+    ]
+    monkeypatch.setattr(
+        module, "_readelf",
+        lambda _path, section:
+            header.replace("AArch64", "X86-64") if section == "-h" else dynamic,
+    )
+    with pytest.raises(ValueError, match="untrusted-system-isa"):
+        module.inspect_system_library("/synthetic", "libstdc++.so.6")
+    monkeypatch.setattr(
+        module, "_readelf",
+        lambda _path, section:
+            header if section == "-h" else dynamic +
+            " 0x1 (RUNPATH) Library runpath: [/tmp/evil]\\n",
+    )
+    with pytest.raises(ValueError, match="untrusted-system-dynamic-search"):
+        module.inspect_system_library("/synthetic", "libstdc++.so.6")
+
+
+def test_transitive_native_unknown_dependency_rejected(monkeypatch):
+    import scripts.ci_native_cli_library_closure as module
+    header = "Class: ELF64\\nData: 2's complement, little endian\\nMachine: AArch64"
+    dynamic = " 0x1 (NEEDED) Shared library: [libevil.so.42]\\n"
+    monkeypatch.setattr(
+        module, "_readelf",
+        lambda _path, section: header if section == "-h" else dynamic,
+    )
+    with pytest.raises(ValueError, match="unreviewed-transitive-library"):
+        module.inspect_system_library("/synthetic", "libstdc++.so.6")
+
+
+def test_transitive_system_library_soname_spoof_blocks(monkeypatch):
+    import scripts.ci_native_cli_library_closure as module
+    header = "Class: ELF64\\nData: 2's complement, little endian\\nMachine: AArch64"
+    dynamic = (
+        " 0x1 (SONAME) Library soname: [libevil.so]\\n"
+        " 0x1 (NEEDED) Shared library: [libc.so.6]\\n"
+    )
+    monkeypatch.setattr(
+        module, "_readelf",
+        lambda _path, section: header if section == "-h" else dynamic,
+    )
+    with pytest.raises(ValueError, match="system-soname-mismatch"):
+        module.inspect_system_library("/synthetic", "libstdc++.so.6")
+
+
+def test_loader_soname_resolver_rejects_unknown_without_fs_access():
+    import scripts.ci_native_cli_library_closure as module
+    with pytest.raises(ValueError, match="unreviewed-system-soname"):
+        module._system_library("libmyai-custom.so")
+
+
+def test_one_library_cannot_skip_its_transitive_closure():
+    cases = graph()
+    del cases["libm.so.6"]
+    with pytest.raises(ValueError, match="unresolved-library"):
+        dependency_closure(
+            cases, entrypoints=("transcribe-cli", "whisper-cli"),
+            trusted_loader="ld-linux-aarch64.so.1",
+        )
