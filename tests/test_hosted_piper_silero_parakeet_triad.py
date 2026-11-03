@@ -67,10 +67,12 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
         tmp_path / "fake-parakeet", tmp_path / "fake-vad.onnx",
         tmp_path / "fake-alma.onnx",
     )
-    assert out["status"] == "hosted-piper-silero-parakeet-rate-matrix-complete"
+    assert out["status"] == "hosted-synthetic-rate-matrix-quality-inconclusive"
     assert out["phrase_count"] == 3
     assert out["rate_count"] == 3
     assert out["scenario_count"] == 27
+    assert out["functional_smoke_passed"] is True
+    assert out["deployment_quality_certified"] is False
     assert out["seed_repeat_identical_count"] == 9
     assert all(row["seed_repeat_identical"] for row in out["results"])
     assert out["silero_exact_count"] == 27
