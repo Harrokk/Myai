@@ -46,7 +46,13 @@ def inspect_readelf(header, program, dynamic):
     needed = _NEEDED.findall(dynamic)
     if not needed or len(needed) != len(set(needed)):
         return {"safe": False, "reason": "invalid_or_missing_library_dependencies"}
-    unexpected = sorted(set(needed) - _ALLOWED_NEEDED)
+    # ARM64 glibc may list its own verified ELF loader as DT_NEEDED.
+    # Credit ONLY the SONAME of the *already allowlisted PT_INTERP path*,
+    # never any unrelated loader or user-supplied system-library path.
+    trusted_loader_soname = Path(matches[0]).name
+    unexpected = sorted(
+        set(needed) - (_ALLOWED_NEEDED | {trusted_loader_soname})
+    )
     if unexpected:
         return {
             "safe": False,
