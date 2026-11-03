@@ -25,6 +25,8 @@ EXPECTED_FILES = {
     "tokens.txt": 1_000_000,
 }
 MAX_PCM_BYTES = 16_000 * 2 * 12
+SILERO_BYTES = 643_854
+SILERO_SHA256 = '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'
 
 
 def verify_archive(path: Path) -> bool:
@@ -103,7 +105,33 @@ def public_ogg_to_pcm(source: Path) -> bytes:
     return audio
 
 
-def run(archive: Path, scratch: Path) -> dict[str, object]:
+def verified_silero_model(path: Path) -> bool:
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != SILERO_BYTES:
+            return False
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest() == SILERO_SHA256
+    except OSError:
+        return False
+
+
+def public_pcm_vad_segments(audio: bytes, model_path: Path) -> list[bytes]:
+    """Return Silero-completed segments from public 20-ms PCM16 frames."""
+    from modules.voice.sherpa_silero_segments import SherpaSileroSegments
+
+    if not verified_silero_model(model_path):
+        raise RuntimeError("Public Silero model hash mismatch")
+    detector = SherpaSileroSegments(model_path=str(model_path))
+    out = []
+    for offset in range(0, len(audio), 640):
+        frame = audio[offset:offset + 640]
+        frame += b"\\x00" * (640 - len(frame))
+        out.extend(detector.feed(frame))
+    out.extend(detector.flush())
+    return out
+
+
+def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[str, object]:
     from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
     from scripts.ventuno_swedish_reference_audio import download_fixture
 
@@ -127,8 +155,24 @@ def run(archive: Path, scratch: Path) -> dict[str, object]:
     begin = time.monotonic()
     stt._load_model()
     loaded = time.monotonic()
+    silero_report = {"silero_tested": False, "silero_speech_segments": None,
+                     "silero_swedish_word_recognized": None,
+                     "silero_decode_seconds": None}
     try:
         result = stt.transcribe(audio)
+        if silero_model is not None:
+            vad_start = time.monotonic()
+            segments = public_pcm_vad_segments(audio, silero_model)
+            silero_report["silero_tested"] = True
+            silero_report["silero_speech_segments"] = len(segments)
+            if segments:
+                # Source fixture only, no new model or microphone.
+                recognized = stt.transcribe(segments[0])
+                tokens = set(re.findall(r"[a-zåäö]+", recognized["text"].casefold()))
+                silero_report["silero_swedish_word_recognized"] = "svenska" in tokens
+            silero_report["silero_decode_seconds"] = round(
+                time.monotonic() - vad_start, 3
+            )
     finally:
         stt.release_for_inference()
     ended = time.monotonic()
@@ -136,6 +180,7 @@ def run(archive: Path, scratch: Path) -> dict[str, object]:
     # The only fixture is public; still output only classification/metrics.
     words = set(re.findall(r"[a-zåäö]+", result["text"].casefold()))
     return {
+        **silero_report,
         "status": "public-swedish-word-recognized" if "svenska" in words
                   else "public-swedish-word-not-recognized",
         "swedish_word_recognized": "svenska" in words,
@@ -155,9 +200,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--runner-temp", required=True, type=Path)
+    parser.add_argument("--silero-model", type=Path)
     args = parser.parse_args()
     try:
-        report = run(args.archive, args.runner_temp)
+        report = run(args.archive, args.runner_temp, args.silero_model)
     except Exception as error:
         # Avoid native error strings, which may disclose paths or input content.
         print(json.dumps({"status": "no-go-public-parakeet-inference",
