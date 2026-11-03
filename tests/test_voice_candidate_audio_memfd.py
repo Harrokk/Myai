@@ -65,9 +65,9 @@ def test_explicit_single_fd_handoff_to_disposable_child_is_possible():
             "p=sys.argv[1];"
             "h=wave.open(p,'rb');"
             "data=h.readframes(h.getnframes());"
-            "sys.stdout.write('OK' if data==bytes.fromhex(sys.argv[2]) else 'BAD');"
+            "sys.stdout.write('OK' if data==bytes([2,0])*16 else 'BAD');"
             "h.close()",
-            path, pcm.hex(),
+            path,
         ]
         completed = subprocess.run(
             child, capture_output=True, check=False,
