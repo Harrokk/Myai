@@ -5,7 +5,7 @@ import tarfile
 import pytest
 
 from scripts.hosted_parakeet_swedish_fixture import (
-    MODEL_DIR_NAME, EXPECTED_FILES, extract_required_files, verify_archive,
+    MODEL_DIR_NAME, EXPECTED_FILES, extract_required_files, verify_archive, public_pcm_vad_segments,
 )
 
 
@@ -70,3 +70,27 @@ def test_wrong_size_and_symlink_archive_rejected(tmp_path):
     link = tmp_path / "link.tar.bz2"
     link.symlink_to(fake)
     assert not verify_archive(link)
+
+
+def test_public_swedish_vad_last_frame_zero_padding_is_exact(tmp_path, monkeypatch):
+    from modules.voice import sherpa_silero_segments as sm
+    monkeypatch.setattr(
+        "scripts.hosted_parakeet_swedish_fixture.verified_silero_model",
+        lambda _: True,
+    )
+    observed = []
+    class FakeSegmenter:
+        def __init__(self, model_path):
+            assert model_path
+        def feed(self, frame):
+            observed.append(frame)
+            return []
+        def flush(self):
+            return []
+    monkeypatch.setattr(sm, "SherpaSileroSegments", FakeSegmenter)
+    input_pcm = bytes([1, 0]) * 328  # 656 bytes; one full frame + 16-byte tail
+    assert public_pcm_vad_segments(input_pcm, tmp_path / "fake.onnx") == []
+    assert [len(x) for x in observed] == [640, 640]
+    assert observed[0] == input_pcm[:640]
+    assert observed[1][:16] == input_pcm[640:]
+    assert observed[1][16:] == bytes(624)
