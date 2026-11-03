@@ -1,0 +1,128 @@
+name: Hosted ARM64 source-only sherpa Parakeet contracts
+
+on:
+  push:
+    branches: [dev/ventuno-sherpa-parakeet-source-adapter-20261103]
+    paths:
+      - modules/voice/sherpa_onnx_provider.py
+      - core/voice_factory.py
+      - modules/voice/sherpa_silero_segments.py
+      - core/voice_silero_controller.py
+      - core/voice_session.py
+      - tests/test_voice_silero_controller.py
+      - modules/voice/piper_alma_provider.py
+      - tests/test_piper_alma_provider.py
+      - tests/test_sherpa_silero_segments.py
+      - tests/test_sherpa_onnx_provider.py
+      - .github/workflows/hosted-sherpa-parakeet-source-contract.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-parakeet-source-only-20261103
+  cancel-in-progress: false
+
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
+    steps:
+      - name: Refuse device runner or any physical recording
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+          echo "Synthetic PCM only. Optional pinned Silero VAD ONNX model; no Parakeet weights, mic, NPU or VENTUNO."
+
+      - name: Fetch exact source commit into disposable scratch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/myai-parakeet-src"
+          cd "$RUNNER_TEMP/myai-parakeet-src"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Create disposable Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-parakeet-test-venv"
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "pytest==8.3.5" "numpy==2.2.4" \
+            -r "$RUNNER_TEMP/myai-parakeet-src/requirements.txt"
+
+      - name: Verify published ARM64 CPU wheels and Python API without model files
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-parakeet-src"
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            -r requirements-sherpa-voice.txt
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -B - <<'PY'
+          import sherpa_onnx
+          assert callable(sherpa_onnx.OfflineRecognizer.from_transducer)
+          print("sherpa-onnx ARM64 CPU Python API import verified; no model loaded")
+          PY
+
+      - name: Check source-only contracts
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-parakeet-src"
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -m compileall -q \
+            modules/voice/sherpa_onnx_provider.py \
+            modules/voice/sherpa_silero_segments.py core/voice_factory.py \
+            core/voice_silero_controller.py core/voice_session.py \
+            modules/voice/piper_alma_provider.py tests/test_piper_alma_provider.py \
+            tests/test_sherpa_onnx_provider.py tests/test_sherpa_silero_segments.py \
+            tests/test_voice_silero_controller.py tests/test_piper_alma_provider.py
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -B -m pytest -q \
+            tests/test_sherpa_onnx_provider.py tests/test_sherpa_silero_segments.py \
+            tests/test_voice_silero_controller.py
+
+      - name: Validate official pinned Silero VAD on synthetic silence only
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OMP_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-parakeet-src"
+          model="$RUNNER_TEMP/silero-vad-checksum-pinned.onnx"
+          test ! -e "$model"
+          curl -fL --connect-timeout 20 --max-time 90 \
+            -o "$model" \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+          test "$(stat -c %s "$model")" -eq 643854
+          printf '%s  %s\n' \
+            '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6' \
+            "$model" | sha256sum --check --status
+          MYAI_PINNED_SILERO_MODEL="$model" \
+            "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -B - <<'PY'
+          import os
+          from modules.voice.sherpa_silero_segments import SherpaSileroSegments
+          vad = SherpaSileroSegments(os.environ["MYAI_PINNED_SILERO_MODEL"])
+          segments = []
+          for _ in range(30):
+              segments.extend(vad.feed(bytes(640)))
+          segments.extend(vad.flush())
+          assert segments == []
+          print("Silero native ONNX VAD: 16-kHz 20-ms synthetic-silence smoke PASS")
+          PY

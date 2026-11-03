@@ -1,7 +1,11 @@
+from pathlib import Path
 from core.config import load_settings
 from core.voice_output import InterruptibleTTS
 from core.voice_stt_process import IsolatedFasterWhisperSTT
 from core.voice_stt_persistent import PersistentFasterWhisperSTT
+from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
+from modules.voice.sherpa_silero_segments import SherpaSileroSegments
+from modules.voice.piper_alma_provider import PiperAlmaTTS
 from modules.voice.providers import (
     FasterWhisperSTT,
     Pyttsx3TTS,
@@ -16,12 +20,15 @@ DEFAULT_CLASSES = {
     },
     "vad": {
         "webrtcvad": WebRTCVADProvider,
+        "sherpa_silero_segments": SherpaSileroSegments,
     },
     "stt": {
         "faster_whisper": FasterWhisperSTT,
+        "sherpa_onnx_parakeet": SherpaOnnxParakeetSTT,
     },
     "tts": {
         "pyttsx3": Pyttsx3TTS,
+        "piper_alma": PiperAlmaTTS,
     },
 }
 
@@ -121,16 +128,34 @@ def build_voice_components(
             "input_device"
         ),
     )
-    vad = vad_class(
-        aggressiveness=config.get(
-            "vad_aggressiveness",
-            2,
-        ),
-        sample_rate=config.get(
-            "sample_rate",
-            16000,
-        ),
-    )
+    if vad_name == "sherpa_silero_segments":
+        # Silero emits *segments*; it is not a WebRTC per-frame provider.
+        # Prevent accidental use with old STT worker/confirmation semantics.
+        if stt_name != "sherpa_onnx_parakeet":
+            raise ValueError("Silero segment VAD requires Parakeet pilot")
+        if (config.get("sample_rate", 16000) != 16000
+                or config.get("channels", 1) != 1
+                or config.get("frame_ms", 20) != 20
+                or config.get("sample_width", 2) != 2):
+            raise ValueError("Silero requires 16-kHz mono PCM16 with 20-ms frames")
+        model_path = config.get("silero_model_path", "")
+        if not isinstance(model_path, str) or not model_path:
+            raise ValueError("Silero requires explicit local model path")
+        vad = vad_class(
+            model_path=model_path,
+            context_padding_ms=config.get("silero_context_padding_ms", 300),
+        )
+    else:
+        vad = vad_class(
+            aggressiveness=config.get(
+                "vad_aggressiveness",
+                2,
+            ),
+            sample_rate=config.get(
+                "sample_rate",
+                16000,
+            ),
+        )
 
     common_stt = {
         "device": config.get(
@@ -211,20 +236,22 @@ def build_voice_components(
             tts_name,
             classes,
         )
-        raw_tts = tts_class(
-            rate=config.get(
-                "tts_rate",
-                180,
-            ),
-            volume=config.get(
-                "tts_volume",
-                1.0,
-            ),
-            voice_id=(
-                config.get("tts_voice_id")
-                or None
-            ),
-        )
+        tts_kwargs = {
+            "rate": config.get("tts_rate", 180),
+            "volume": config.get("tts_volume", 1.0),
+            "voice_id": config.get("tts_voice_id") or None,
+        }
+        if tts_name == "piper_alma":
+            model = tts_kwargs["voice_id"]
+            output = config.get("tts_output_device")
+            if (not isinstance(model, str) or not Path(model).is_absolute()
+                    or Path(model).name != "sv_SE-alma-medium.onnx"):
+                raise ValueError("Piper requires an explicit absolute local Swedish voice")
+            if not ((type(output) is int and output >= 0)
+                    or (isinstance(output, str) and 0 < len(output) <= 120)):
+                raise ValueError("Piper requires an explicitly selected sound output device")
+            tts_kwargs["output_device"] = output
+        raw_tts = tts_class(**tts_kwargs)
 
         if config.get(
             "tts_async",

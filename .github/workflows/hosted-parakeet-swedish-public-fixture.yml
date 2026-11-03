@@ -1,0 +1,175 @@
+name: Hosted ARM64 Parakeet v3 on verified public Swedish word
+
+on:
+  push:
+    branches: [dev/ventuno-sherpa-parakeet-source-adapter-20261103]
+    paths:
+      - scripts/hosted_parakeet_swedish_fixture.py
+      - scripts/hosted_piper_silero_parakeet_triad.py
+      - tests/test_hosted_piper_silero_parakeet_triad.py
+      - modules/voice/sherpa_silero_segments.py
+      - modules/voice/sherpa_onnx_provider.py
+      - tests/test_hosted_parakeet_swedish_fixture.py
+      - .github/workflows/hosted-parakeet-swedish-public-fixture.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-public-parakeet-arm64
+  cancel-in-progress: false
+
+jobs:
+  public-fixture-cpu:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Ensure no VENTUNO/self-hosted runner or physical audio
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" -ne 0
+          command -v curl
+          command -v sha256sum
+          awk '/MemAvailable:/ { if ($2 < 5*1024*1024) exit 1 }' /proc/meminfo
+          test "$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')" -ge 3145728
+          echo "Host: only licensed public word audio; no mic, speaker, VENTUNO or GenieX."
+
+      - name: Read exact commit in disposable GitHub-hosted workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/parakeet-source"
+          cd "$RUNNER_TEMP/parakeet-source"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install CPU wheels in disposable venv, never on VENTUNO
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          python3 -m venv "$RUNNER_TEMP/parakeet-cpu-venv"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "pytest==8.3.5" "numpy==2.2.4" "av==18.1.0" \
+            -r requirements-sherpa-voice.txt
+
+      - name: Run small synthetic integrity tests before any model download
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B -m pytest -q \
+            tests/test_hosted_parakeet_swedish_fixture.py \
+            tests/test_hosted_piper_silero_parakeet_triad.py \
+            tests/test_sherpa_onnx_provider.py
+
+      - name: Fetch exactly one allowlisted release archive with SHA256 pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          archive="$RUNNER_TEMP/parakeet-v3-int8-pinned.tar.bz2"
+          test ! -e "$archive"
+          curl -fL --retry 2 --retry-delay 5 --connect-timeout 20 \
+            --max-time 620 -o "$archive" \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+          test "$(stat -c %s "$archive")" -eq 487170055
+          printf '%s  %s\n' \
+            '5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf' \
+            "$archive" | sha256sum --check --status
+          echo "Parakeet release SHA256 verified; no model stored in repository."
+
+      - name: Fetch exact pinned Silero ONNX model for public speech segmentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          model="$RUNNER_TEMP/silero-public-vad.onnx"
+          test ! -e "$model"
+          curl -fL --connect-timeout 20 --max-time 90 \
+            -o "$model" \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+          test "$(stat -c %s "$model")" -eq 643854
+          printf '%s  %s\n' \
+            '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6' \
+            "$model" | sha256sum --check --status
+
+      - name: Transcribe checksum-pinned public Swedish word on hosted ARM64 CPU
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B \
+            -m scripts.hosted_parakeet_swedish_fixture \
+            --archive "$RUNNER_TEMP/parakeet-v3-int8-pinned.tar.bz2" \
+            --runner-temp "$RUNNER_TEMP" \
+            --silero-model "$RUNNER_TEMP/silero-public-vad.onnx"
+
+      - name: Stage pinned Piper aarch64 speech engine in same disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="$RUNNER_TEMP/parakeet-cpu-venv/bin/python"
+          mkdir -p "$RUNNER_TEMP/piper-triad-wheel"
+          "$py" -m pip download --no-cache-dir --no-deps --only-binary=:all: \
+            -d "$RUNNER_TEMP/piper-triad-wheel" "piper-tts==1.8.0"
+          test "$(find "$RUNNER_TEMP/piper-triad-wheel" -type f | wc -l)" -eq 1
+          wheel="$(find "$RUNNER_TEMP/piper-triad-wheel" -maxdepth 1 -name '*aarch64.whl' -type f -print -quit)"
+          test -f "$wheel"
+          printf '%s  %s\n' \
+            '3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484' \
+            "$wheel" | sha256sum --check --status
+          "$py" -m pip install --no-index --no-deps "$wheel"
+          "$py" -m pip install --disable-pip-version-check --only-binary=:all: \
+            "onnxruntime==1.23.2" "pathvalidate==3.3.1"
+
+      - name: Fetch pinned public Swedish Piper Alma voice for synthetic ASR test
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/piper-triad-alma"
+          mkdir -p "$root"
+          base="https://huggingface.co/rhasspy/piper-voices/resolve/834f232/sv/sv_SE/alma/medium"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 360 \
+            -o "$root/sv_SE-alma-medium.onnx" "$base/sv_SE-alma-medium.onnx"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 45 \
+            -o "$root/sv_SE-alma-medium.onnx.json" "$base/sv_SE-alma-medium.onnx.json"
+          test "$(stat -c %s "$root/sv_SE-alma-medium.onnx")" -ge 55000000
+          test "$(stat -c %s "$root/sv_SE-alma-medium.onnx")" -le 70000000
+          printf '%s  %s\n' \
+            'f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc' \
+            "$root/sv_SE-alma-medium.onnx" | sha256sum --check --status
+
+      - name: Evaluate three synthetic Swedish voice phrases through Silero and Parakeet
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B \
+            -m scripts.hosted_piper_silero_parakeet_triad \
+            --parakeet "$RUNNER_TEMP/parakeet-local-verified" \
+            --silero "$RUNNER_TEMP/silero-public-vad.onnx" \
+            --alma "$RUNNER_TEMP/piper-triad-alma/sv_SE-alma-medium.onnx"

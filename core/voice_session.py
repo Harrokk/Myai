@@ -2,6 +2,7 @@ import time
 
 from core.config import load_settings
 from core.voice_activity import VoiceActivityGate, VoiceStreamController
+from core.voice_silero_controller import SileroVoiceStreamController
 from core.voice_factory import build_voice_components
 from core.voice_pipeline import VoicePipeline
 from core.voice_semantic import SemanticConsensusResolver
@@ -83,13 +84,21 @@ class VoiceSession:
                 semantic_resolver=semantic_resolver,
                 before_assistant=self._before_model_inference,
             )
-            self.controller = VoiceStreamController(
-                vad=self.components["vad"],
-                gate=self.gate,
-                pipeline=self.pipeline,
-                before_process=self._before_inference,
-                after_process=self._after_inference,
-            )
+            if self.voice.get("vad_provider", "webrtcvad") == "sherpa_silero_segments":
+                self.controller = SileroVoiceStreamController(
+                    vad=self.components["vad"],
+                    pipeline=self.pipeline,
+                    before_process=self._before_inference,
+                    after_process=self._after_inference,
+                )
+            else:
+                self.controller = VoiceStreamController(
+                    vad=self.components["vad"],
+                    gate=self.gate,
+                    pipeline=self.pipeline,
+                    before_process=self._before_inference,
+                    after_process=self._after_inference,
+                )
         else:
             self.pipeline = None
             self.controller = None
@@ -255,6 +264,10 @@ class VoiceSession:
                 if callable(resume):
                     resume()
 
+        # Drop any buffered Silero audio from a prior session BEFORE
+        # re-opening the microphone. Legacy WebRTC gate remains unchanged.
+        if isinstance(self.controller, SileroVoiceStreamController):
+            self.controller.reset()
         started = self.components["microphone"].start()
         if started is False:
             raise RuntimeError(
@@ -336,6 +349,8 @@ class VoiceSession:
                         ) from None
 
         self.gate.reset()
+        if isinstance(self.controller, SileroVoiceStreamController):
+            self.controller.reset()
         return changed
 
     def run_once(
@@ -366,18 +381,33 @@ class VoiceSession:
         read_count = 0
 
         while read_count < limit:
-            item = self.components[
-                "microphone"
-            ].read_frame()
-            read_count += 1
-            self.frame_count += 1
+            try:
+                item = self.components[
+                    "microphone"
+                ].read_frame()
+                read_count += 1
+                self.frame_count += 1
 
-            if item.get("overflowed"):
-                self.overflow_count += 1
+                if item.get("overflowed"):
+                    self.overflow_count += 1
 
-            event = self.controller.feed_frame(
-                item["frame"]
-            )
+                event = self.controller.feed_frame(
+                    item["frame"]
+                )
+            except Exception:
+                if isinstance(self.controller, SileroVoiceStreamController):
+                    # Fail closed on native VAD/STT, microphone read,
+                    # or synthetic segment boundary exceptions.
+                    try:
+                        self.stop()
+                    except Exception:
+                        raise RuntimeError(
+                            "Silero voice cleanup failed; verify microphone state."
+                        ) from None
+                    raise RuntimeError(
+                        "Silero voice processing failed; session stopped."
+                    ) from None
+                raise
 
             if (
                 event is not None
@@ -397,6 +427,8 @@ class VoiceSession:
                 }
 
         self.gate.reset()
+        if isinstance(self.controller, SileroVoiceStreamController):
+            self.controller.reset()
         return {
             "status": "timeout",
             "frames_read": read_count,

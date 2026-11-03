@@ -1,0 +1,109 @@
+name: Hosted ARM64 Piper Alma Swedish memory-only synthesis
+
+on:
+  push:
+    branches: [dev/ventuno-sherpa-parakeet-source-adapter-20261103]
+    paths:
+      - modules/voice/piper_alma_provider.py
+      - scripts/hosted_piper_alma_speech.py
+      - tests/test_piper_alma_provider.py
+      - .github/workflows/hosted-piper-alma-memory-only.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-piper-alma-memory-only-20261103
+  cancel-in-progress: false
+
+jobs:
+  native-render:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 18
+    steps:
+      - name: Verify disposable ARM64 host, never VENTUNO
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" -ne 0
+          command -v curl
+          command -v sha256sum
+          awk '/MemAvailable:/ { if ($2 < 4*1024*1024) exit 1 }' /proc/meminfo
+          echo "Private speaker, microphone, services and NPU unavailable in this hosted test."
+
+      - name: Fetch exact source commit using pinned Git revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/myai-piper-source"
+          cd "$RUNNER_TEMP/myai-piper-source"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout -q --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Stage pinned ARM64 Piper binary only in disposable environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 -m venv "$RUNNER_TEMP/myai-piper-cpu-venv"
+          py="$RUNNER_TEMP/myai-piper-cpu-venv/bin/python"
+          mkdir -p "$RUNNER_TEMP/myai-piper-wheels"
+          "$py" -m pip download --no-cache-dir --no-deps --only-binary=:all: \
+            -d "$RUNNER_TEMP/myai-piper-wheels" "piper-tts==1.8.0"
+          test "$(find "$RUNNER_TEMP/myai-piper-wheels" -maxdepth 1 -type f | wc -l)" -eq 1
+          wheel="$(find "$RUNNER_TEMP/myai-piper-wheels" -maxdepth 1 -type f -name '*aarch64.whl' -print -quit)"
+          test -f "$wheel"
+          printf '%s  %s\n' \
+            '3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484' \
+            "$wheel" | sha256sum --check --status
+          "$py" -m pip install --no-index --no-deps "$wheel"
+          "$py" -m pip install --disable-pip-version-check --only-binary=:all: \
+            "onnxruntime==1.23.2" "pathvalidate==3.3.1" "numpy==2.2.4"
+          "$py" - <<'PY'
+          from piper import PiperVoice, SynthesisConfig
+          import onnxruntime
+          assert "CPUExecutionProvider" in onnxruntime.get_available_providers()
+          print("Official pinned Piper aarch64 wheel and ONNX CPU API import OK")
+          PY
+
+      - name: Fetch only fixed Swedish Alma model and sidecar metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/myai-piper-alma"
+          mkdir -p "$root"
+          base="https://huggingface.co/rhasspy/piper-voices/resolve/834f232/sv/sv_SE/alma/medium"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 360 \
+            -o "$root/sv_SE-alma-medium.onnx" "$base/sv_SE-alma-medium.onnx"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 45 \
+            -o "$root/sv_SE-alma-medium.onnx.json" "$base/sv_SE-alma-medium.onnx.json"
+          test "$(stat -c %s "$root/sv_SE-alma-medium.onnx")" -ge 55000000
+          test "$(stat -c %s "$root/sv_SE-alma-medium.onnx")" -le 70000000
+          printf '%s  %s\n' \
+            'f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc' \
+            "$root/sv_SE-alma-medium.onnx" | sha256sum --check --status
+
+      - name: Verify native Swedish neural speech synthesis without speaker
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OMP_NUM_THREADS: "2"
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-piper-source"
+          "$RUNNER_TEMP/myai-piper-cpu-venv/bin/python" -B \
+            -m scripts.hosted_piper_alma_speech \
+            --model "$RUNNER_TEMP/myai-piper-alma/sv_SE-alma-medium.onnx"
