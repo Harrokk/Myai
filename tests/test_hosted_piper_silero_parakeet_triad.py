@@ -48,7 +48,7 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
             return True
         def transcribe(self, pcm):
             assert len(pcm) <= matrix.MAX_CAPTURE_BYTES + 32_000
-            idx = self.transcribes // 2
+            idx = self.transcribes // (1 + len(matrix.CONTEXTS_MS))
             self.transcribes += 1
             phrase = matrix.PHRASES[idx % len(matrix.PHRASES)]
             return {"text": phrase}
@@ -60,7 +60,7 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
     monkeypatch.setattr(matrix, "SherpaOnnxParakeetSTT", FakeParakeet)
     monkeypatch.setattr(matrix, "_wav_to_16k_pcm", lambda _: bytes(640))
     monkeypatch.setattr(matrix, "public_pcm_vad_segments",
-                        lambda pcm, path: [bytes(640)])
+                        lambda pcm, path, **kwargs: [bytes(640)])
     out = matrix.benchmark(
         tmp_path / "fake-parakeet", tmp_path / "fake-vad.onnx",
         tmp_path / "fake-alma.onnx",
@@ -68,10 +68,11 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
     assert out["status"] == "hosted-piper-silero-parakeet-rate-matrix-complete"
     assert out["phrase_count"] == 3
     assert out["rate_count"] == 3
-    assert out["scenario_count"] == 9
-    assert out["silero_exact_count"] == 9
+    assert out["scenario_count"] == 27
+    assert out["silero_exact_count"] == 27
     assert out["baseline_180_silero_exact_count"] == 3
     assert {r["rate"] for r in out["results"]} == {150, 180, 210}
+    assert {r["context_padding_ms"] for r in out["results"]} == {0, 300, 500}
     assert all(r["silero_distance_band"] == "0" for r in out["results"])
     assert out["speaker_opened"] is False
     assert out["microphone_opened"] is False
