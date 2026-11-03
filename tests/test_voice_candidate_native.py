@@ -115,7 +115,7 @@ def test_nonzero_exit_never_counts_as_vote_even_with_plausible_text(tmp_path, mo
         "import sys;sys.stdout.write('run: ok\\ntext: Radera fil\\n');"
         "sys.exit(4)"
     )
-    with pytest.raises(RuntimeError, match="failed"):
+    with pytest.raises(RuntimeError, match=r"failed \(exit_4\)"):
         engine.transcribe(b"\x00\x00")
 
 
@@ -124,7 +124,7 @@ def test_unrecognized_stdout_cannot_become_stt_result(tmp_path, monkeypatch):
     fixture_launch(monkeypatch,
         "import sys;sys.stdout.write('native failure\\ntext: radera\\n')"
     )
-    with pytest.raises(RuntimeError, match="output invalid"):
+    with pytest.raises(RuntimeError, match=r"output invalid \(canary_status\)"):
         engine.transcribe(b"\x00\x00")
 
 
@@ -214,3 +214,22 @@ def test_different_model_digest_cannot_be_reused(tmp_path):
         IsolatedPinnedNativeCandidateSTT(
             profile=profile, model_sha256="0" * 64, runtime_sha256=esha,
         )
+
+
+def test_native_sigxcpu_is_never_accepted_as_a_voice_vote(tmp_path, monkeypatch):
+    engine = stt(tmp_path)
+    class CpuLimitedChild:
+        returncode = -24
+        def wait(self, timeout=None):
+            return self.returncode
+    monkeypatch.setattr(
+        native, "_launch_native_candidate_worker",
+        lambda *_a, **_kw: CpuLimitedChild(),
+    )
+    monkeypatch.setattr(
+        native, "_read_bounded_native_output",
+        lambda *_a, **_kw: "run: ok\ntext: Stäng av lampan\n".encode("utf-8"),
+    )
+    monkeypatch.setattr(native, "terminate_owned_group", lambda _p: None)
+    with pytest.raises(RuntimeError, match=r"failed \(signal_cpu_limit\)"):
+        engine.transcribe(b"\x00\x00")

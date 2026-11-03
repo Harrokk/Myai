@@ -5,6 +5,7 @@ on:
     branches:
       - "dev/voice-native-full-cli-build-20261103"
       - "dev/voice-native-transitive-elf-audit-20261103"
+      - "dev/voice-native-model-backed-hosted-20261103"
 
 permissions:
   contents: read
@@ -17,7 +18,7 @@ jobs:
   fullcli-build:
     name: Build and audit complete pinned ARM64 STT CLIs without models
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 85
     env:
       CANARY_SHA: "5700f127e38dd53c4735ea23ef743b4b538eacd4"
       WHISPER_SHA: "4da27c41cebadb3cbbcd2563e9c7cbc8d84bdcad"
@@ -165,6 +166,59 @@ jobs:
             "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
             "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
           echo "COMPLETE ARM64 CLI STARTUP AND MODEL-FREE WAV: PASS"
+
+      - name: Prepare synthetic Swedish speech utilities (hosted model trial only)
+        if: github.ref == 'refs/heads/dev/voice-native-model-backed-hosted-20261103'
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install \
+            --yes --no-install-recommends --quiet espeak-ng ffmpeg
+          command -v espeak-ng
+          command -v ffmpeg
+
+      - name: Acquire only SHA256-pinned public Canary and Whisper models
+        if: github.ref == 'refs/heads/dev/voice-native-model-backed-hosted-20261103'
+        shell: bash
+        timeout-minutes: 51
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_download_pinned_stt_models
+          echo "BOTH PUBLIC STT MODEL WEIGHTS VERIFIED BY SHA256"
+
+      - name: Run both native candidate STT adapters on synthetic Swedish speech
+        if: github.ref == 'refs/heads/dev/voice-native-model-backed-hosted-20261103'
+        shell: bash
+        timeout-minutes: 20
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          chmod 0555 "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli"
+          chmod 0555 "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          chmod 0555 "$RUNNER_TEMP/myai-native-fullcli-bin"
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_native_model_backed_swedish_smoke
+          echo "NATIVE MODEL-BACKED SYNTHETIC SWEDISH SPEECH: PASS"
+
+      - name: Clean hosted public model files and synthetic audio
+        if: always() && github.ref == 'refs/heads/dev/voice-native-model-backed-hosted-20261103'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -d "$RUNNER_TEMP/myai-native-model-files"; then
+            chmod -R u+w "$RUNNER_TEMP/myai-native-model-files" || true
+            rm -rf -- "$RUNNER_TEMP/myai-native-model-files"
+          fi
+          rm -f -- "$RUNNER_TEMP"/synthetic-sv-*.wav
+          echo "Disposable hosted model/audio test data cleaned"
 
       - name: Record exact pinned source and limited test scope
         if: always()

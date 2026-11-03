@@ -196,11 +196,38 @@ class IsolatedPinnedNativeCandidateSTT:
                 raise RuntimeError("Native candidate reply revoked")
             # Exact child exit=0 and owned group cleanup are prerequisites.
             if native_returncode != 0 or raw is None:
-                raise RuntimeError("Native candidate failed or returned no data")
+                # Public numeric POSIX status only, but limit to audited
+                # constant categories. No stderr, PCM, transcript or paths.
+                status_names = {
+                    1: "exit_1", 2: "exit_2", 3: "exit_3",
+                    4: "exit_4", 10: "exit_10", 11: "exit_11",
+                    -6: "signal_abort", -9: "signal_kill",
+                    -11: "signal_segv", -24: "signal_cpu_limit",
+                }
+                reason = status_names.get(native_returncode, "other")
+                raise RuntimeError("Native candidate failed (" + reason + ")")
             try:
                 return parse_candidate_stdout(self._profile.profile, raw)
-            except ValueError:
-                raise RuntimeError("Native candidate output invalid") from None
+            except ValueError as exc:
+                # Constant, allowlisted parser categories only. Never reveal
+                # the native stdout, transcript bytes, model paths or audio.
+                safe_parse_codes = {
+                    "Unverified native Canary response": "canary_status",
+                    "No native Canary transcription": "canary_empty",
+                    "Incomplete native Canary transcript": "canary_incomplete",
+                    "Native Canary language disagreement": "canary_language",
+                    "Invalid native Whisper JSON": "whisper_json",
+                    "Unverified native Whisper language or structure": "whisper_schema",
+                    "Unverified native Whisper segment": "whisper_segment",
+                    "Duplicate native Whisper JSON key": "whisper_duplicate",
+                    "Unsafe native STT transcript": "unsafe_transcript",
+                    "Unsafe native STT output": "unsafe_stdout",
+                    "Invalid native STT UTF-8": "utf8",
+                    "Invalid native STT result": "invalid_result",
+                }
+                code = safe_parse_codes.get(str(exc), "other")
+                raise RuntimeError("Native candidate output invalid (" +
+                                   code + ")") from None
         except TimeoutError:
             raise TimeoutError("Native candidate deadline exceeded") from None
         except (ValueError, RuntimeError):
