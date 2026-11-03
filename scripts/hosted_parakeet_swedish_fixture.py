@@ -139,6 +139,24 @@ def public_pcm_vad_segments(audio: bytes, model_path: Path, *, context_padding_m
     return out
 
 
+def manifest_extracted_model_files(model_dir: Path) -> dict:
+    """Enumerate the four trusted names in a *directory*, never path.items()."""
+    if model_dir.is_symlink() or not model_dir.is_dir():
+        raise ValueError("Model manifest directory unavailable")
+    report = {}
+    for filename in EXPECTED_FILES:
+        file = model_dir / filename
+        if file.is_symlink() or not file.is_file():
+            raise ValueError("Model manifest member missing")
+        length = file.stat().st_size
+        if not 0 < length <= EXPECTED_FILES[filename]:
+            raise ValueError("Model manifest member invalid")
+        with file.open("rb") as handle:
+            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        report[filename] = {"bytes": length, "sha256": digest}
+    return report
+
+
 def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[str, object]:
     from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
     from scripts.ventuno_swedish_reference_audio import download_fixture
@@ -151,19 +169,8 @@ def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[
     local = scratch / "parakeet-local-verified"
     files = extract_required_files(archive, local)
 
-    # The official release archive is already SHA256-verified. Record
-    # extracted model file identities to pin the future *local* load
-    # boundary as well. These hashes describe public model weights,
-    # never speech or user data.
-    extracted_manifest = {}
-    for filename, absolute_path in files.items():
-        local_file = Path(absolute_path)
-        with local_file.open("rb") as handle:
-            digest = hashlib.file_digest(handle, "sha256").hexdigest()
-        extracted_manifest[filename] = {
-            "bytes": local_file.stat().st_size,
-            "sha256": digest,
-        }
+    # This is public model provenance, not an audio/transcript digest.
+    extracted_manifest = manifest_extracted_model_files(files)
 
     fixture = download_fixture(scratch)
     if not fixture["sample_verified"]:
