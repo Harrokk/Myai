@@ -76,8 +76,10 @@ def test_symlinked_model_file_is_rejected(tmp_path):
     root, path, pinned = fixture_model(tmp_path)
     alt = tmp_path / "other.onnx"
     alt.write_bytes(path.read_bytes())
+    root.chmod(0o755)
     path.unlink()
     path.symlink_to(alt)
+    root.chmod(0o555)
     with pytest.raises(ValueError, match="stt-model-integrity-failed"):
         verify_stt_model_files(root, family="parakeet", expected_sha256=pinned)
 
