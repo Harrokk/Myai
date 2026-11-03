@@ -1,8 +1,9 @@
 """Pure synthetic Silero segmentation tests: no microphone or real ONNX model."""
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
+
+np = pytest.importorskip('numpy')
 
 from modules.voice.sherpa_silero_segments import SherpaSileroSegments
 
