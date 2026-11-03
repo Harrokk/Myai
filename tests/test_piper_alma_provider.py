@@ -5,6 +5,7 @@ No voice weights downloaded, no sounddevice imports or real speaker opened.
 import io
 import wave
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -290,3 +291,47 @@ def test_disabled_voice_does_not_construct_piper():
                             "tts_enabled": True,
                             "tts_provider": "piper_alma"}})
     assert output["enabled"] is False and output["tts"] is None
+
+
+def test_stop_during_piper_render_never_plays_stale_speech():
+    """A stopped old response must not open a speaker after synthesis ends."""
+    class BlockedVoice(FakeVoice):
+        def __init__(self):
+            super().__init__()
+            self.entered = threading.Event()
+            self.finish = threading.Event()
+
+        def synthesize_wav(self, text, writer, *, syn_config):
+            self.entered.set()
+            if not self.finish.wait(3):
+                raise RuntimeError("unit-test render did not resume")
+            return super().synthesize_wav(text, writer, syn_config=syn_config)
+
+    voice, sink = BlockedVoice(), Sink()
+    provider = PiperAlmaTTS(voice=voice, module=FakeModule, sink=sink)
+    outcomes = []
+    worker = threading.Thread(target=lambda: outcomes.append(provider.speak("Hej")))
+    worker.start()
+    try:
+        assert voice.entered.wait(3), "synthetic voice never began rendering"
+        provider.stop()
+    finally:
+        voice.finish.set()
+        worker.join(3)
+    assert not worker.is_alive()
+    assert outcomes == [False]
+    assert sink.audio == []
+    # A genuinely new request after stop is allowed, with a fresh token.
+    assert provider.speak("Nytt säkert svar") is True
+    assert len(sink.audio) == 1
+
+
+def test_stale_generation_refused_before_audio_sink_reset():
+    """A pre-stop generation cannot resurrect its playback permission."""
+    provider = PiperAlmaTTS(voice=FakeVoice(), module=FakeModule, sink=Sink())
+    before = provider._generation
+    provider.stop()
+    assert provider._generation == before + 1
+    assert provider._cancel.is_set()
+    assert provider.speak("Ny separat begäran") is True
+    assert provider._generation == before + 1
