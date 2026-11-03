@@ -70,6 +70,10 @@ def _tier_for_tool(name, metadata):
             or declared not in (None, *TIERS)):
         return "blocked"
     effect = effect.strip().casefold()
+    if confirmation:
+        # An explicit confirmation requirement cannot be lowered by a
+        # reversible-effect or read-only label.
+        return "critical"
     if effect in _CRITICAL_EFFECTS:
         return "critical"
     if effect == "read_only":
