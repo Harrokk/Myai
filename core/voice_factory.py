@@ -3,6 +3,7 @@ from core.voice_output import InterruptibleTTS
 from core.voice_stt_process import IsolatedFasterWhisperSTT
 from core.voice_stt_persistent import PersistentFasterWhisperSTT
 from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
+from modules.voice.sherpa_silero_segments import SherpaSileroSegments
 from modules.voice.providers import (
     FasterWhisperSTT,
     Pyttsx3TTS,
@@ -17,6 +18,7 @@ DEFAULT_CLASSES = {
     },
     "vad": {
         "webrtcvad": WebRTCVADProvider,
+        "sherpa_silero_segments": SherpaSileroSegments,
     },
     "stt": {
         "faster_whisper": FasterWhisperSTT,
@@ -123,16 +125,31 @@ def build_voice_components(
             "input_device"
         ),
     )
-    vad = vad_class(
-        aggressiveness=config.get(
-            "vad_aggressiveness",
-            2,
-        ),
-        sample_rate=config.get(
-            "sample_rate",
-            16000,
-        ),
-    )
+    if vad_name == "sherpa_silero_segments":
+        # Silero emits *segments*; it is not a WebRTC per-frame provider.
+        # Prevent accidental use with old STT worker/confirmation semantics.
+        if stt_name != "sherpa_onnx_parakeet":
+            raise ValueError("Silero segment VAD requires Parakeet pilot")
+        if (config.get("sample_rate", 16000) != 16000
+                or config.get("channels", 1) != 1
+                or config.get("frame_ms", 20) != 20
+                or config.get("sample_width", 2) != 2):
+            raise ValueError("Silero requires 16-kHz mono PCM16 with 20-ms frames")
+        model_path = config.get("silero_model_path", "")
+        if not isinstance(model_path, str) or not model_path:
+            raise ValueError("Silero requires explicit local model path")
+        vad = vad_class(model_path=model_path)
+    else:
+        vad = vad_class(
+            aggressiveness=config.get(
+                "vad_aggressiveness",
+                2,
+            ),
+            sample_rate=config.get(
+                "sample_rate",
+                16000,
+            ),
+        )
 
     common_stt = {
         "device": config.get(
