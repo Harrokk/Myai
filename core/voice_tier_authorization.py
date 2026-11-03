@@ -45,6 +45,8 @@ class TieredVoicePermit:
         self._digest = digest
         self._secret = secret
         self._stop_requested = stop_requested
+        self._trusted_bindings = model_bindings
+        self._evidence_providers = tuple(p for p, _ in observations)
         self._clock = clock or time.monotonic
         self._created_at = self._clock()
         if not isinstance(self._created_at, (int, float)) or not math.isfinite(self._created_at):
@@ -76,6 +78,11 @@ class TieredVoicePermit:
                 if (not isinstance(now, (int, float))
                         or not math.isfinite(now)
                         or not 0 <= now - self._created_at <= self._ttl):
+                    return False
+                if not all(
+                    self._trusted_bindings.is_trusted_provider(p)
+                    for p in self._evidence_providers
+                ):
                     return False
                 if self._tier == "critical":
                     # Separate user identity/approval has NOT been wired.
