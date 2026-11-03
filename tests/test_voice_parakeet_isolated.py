@@ -71,6 +71,7 @@ def test_synthetic_decode_uses_bounded_child_and_returns_result(tmp_path, monkey
         trusted_model_file_hashes=config["trusted_model_file_hashes"],
         timeout_seconds=17, cpu_seconds=20, virtual_memory_mib=2048,
     )
+    isolated.prepare_verified_model()
     assert isolated.transcribe(b"\x00\x00"*16)["text"] == "Hej från Parakeet"
     assert observed["timeout"] == 17.0
     assert observed["cpu_seconds"] == 20
@@ -106,6 +107,7 @@ def test_cancel_during_decode_cannot_authorize_finished_reply(tmp_path, monkeypa
     def fake_run(*_args, **_kwargs):
         isolated.request_cancel()
         return {"text": "Anslut", "language": "sv", "confidence": None}
+    isolated.prepare_verified_model()
     monkeypatch.setattr(module, "run_deadlined", fake_run)
     with pytest.raises(RuntimeError, match="invalidated"):
         isolated.transcribe(b"\x00\x00")
@@ -118,6 +120,7 @@ def test_mutated_model_file_cannot_spawn_worker(tmp_path, monkeypatch):
         model_name=config["model_name"],
         trusted_model_file_hashes=config["trusted_model_file_hashes"],
     )
+    isolated.prepare_verified_model()
     file = tmp_path / "stt" / "tokens.txt"
     file.chmod(0o644)
     file.write_bytes(b"replaced")
@@ -126,7 +129,7 @@ def test_mutated_model_file_cannot_spawn_worker(tmp_path, monkeypatch):
         module, "run_deadlined",
         lambda *_args, **_kwargs: pytest.fail("untrusted model launched"),
     )
-    with pytest.raises(ValueError, match="integrity"):
+    with pytest.raises(RuntimeError, match="preflight required"):
         isolated.transcribe(b"\x00\x00")
 
 
@@ -137,6 +140,7 @@ def test_busy_worker_cannot_resume_or_start_parallel_decode(tmp_path, monkeypatc
         model_name=config["model_name"],
         trusted_model_file_hashes=config["trusted_model_file_hashes"],
     )
+    isolated.prepare_verified_model()
     def fake_run(*_args, **_kwargs):
         with pytest.raises(RuntimeError, match="already running"):
             isolated.transcribe(b"\x00\x00")
@@ -184,3 +188,33 @@ def test_invalid_pcm_does_not_hash_or_spawn(tmp_path, monkeypatch, audio):
     )
     with pytest.raises(ValueError, match="PCM"):
         isolated.transcribe(audio)
+
+
+def test_unprepared_model_cannot_start_native_child(tmp_path, monkeypatch):
+    import core.voice_parakeet_isolated as module
+    config = fixture_config(tmp_path)
+    isolated = IsolatedPinnedParakeetSTT(
+        model_name=config["model_name"],
+        trusted_model_file_hashes=config["trusted_model_file_hashes"],
+    )
+    monkeypatch.setattr(
+        module, "run_deadlined",
+        lambda *_args, **_kwargs: pytest.fail("preflight skipped"),
+    )
+    with pytest.raises(RuntimeError, match="preflight required"):
+        isolated.transcribe(b"\x00\x00")
+
+
+def test_stale_preflight_cannot_silently_repin_model(tmp_path):
+    config = fixture_config(tmp_path)
+    isolated = IsolatedPinnedParakeetSTT(
+        model_name=config["model_name"],
+        trusted_model_file_hashes=config["trusted_model_file_hashes"],
+    )
+    isolated.prepare_verified_model()
+    path = tmp_path / "stt" / "tokens.txt"
+    path.chmod(0o644)
+    path.write_bytes(b"tampered")
+    path.chmod(0o444)
+    with pytest.raises(RuntimeError, match="invalidated"):
+        isolated.prepare_verified_model()
