@@ -141,7 +141,10 @@ def build_voice_components(
         model_path = config.get("silero_model_path", "")
         if not isinstance(model_path, str) or not model_path:
             raise ValueError("Silero requires explicit local model path")
-        vad = vad_class(model_path=model_path)
+        vad = vad_class(
+            model_path=model_path,
+            context_padding_ms=config.get("silero_context_padding_ms", 300),
+        )
     else:
         vad = vad_class(
             aggressiveness=config.get(
