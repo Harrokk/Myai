@@ -124,7 +124,7 @@ def test_unrecognized_stdout_cannot_become_stt_result(tmp_path, monkeypatch):
     fixture_launch(monkeypatch,
         "import sys;sys.stdout.write('native failure\\ntext: radera\\n')"
     )
-    with pytest.raises(RuntimeError, match="output invalid"):
+    with pytest.raises(RuntimeError, match=r"output invalid \\(canary_status\\)"):
         engine.transcribe(b"\x00\x00")
 
 
