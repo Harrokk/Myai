@@ -114,6 +114,8 @@ class PiperAlmaTTS:
         )
         self._cancel = threading.Event()
         self._render_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._generation = 0
 
     def _verified_voice_path(self):
         name = self.voice_id
@@ -203,16 +205,27 @@ class PiperAlmaTTS:
             return False
         if self._sink is None:
             raise RuntimeError("Piper needs explicit audio output before speaking")
+        # Take the generation BEFORE waiting for the render lock.
+        # An old queued worker must not restart audio after stop().
+        with self._state_lock:
+            generation = self._generation
         with self._render_lock:
-            self._cancel.clear()
-            self._sink.reset()
+            with self._state_lock:
+                if generation != self._generation:
+                    return False
+                self._cancel.clear()
+                self._sink.reset()
             data = self.render_wav(text)
-            if self._cancel.is_set():
-                return False
+            with self._state_lock:
+                if generation != self._generation or self._cancel.is_set():
+                    return False
             return bool(self._sink.play_wav(data))
 
     def stop(self):
-        self._cancel.set()
+        # Revoke all queued and currently rendering generations first.
+        with self._state_lock:
+            self._generation += 1
+            self._cancel.set()
         if self._sink is not None:
             return self._sink.stop()
         return False
