@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import re
 import resource
-import subprocess
 import tarfile
 import time
 from pathlib import Path
@@ -78,15 +76,28 @@ def extract_required_files(archive: Path, target: Path) -> Path:
 def public_ogg_to_pcm(source: Path) -> bytes:
     """Decode a *verified public* OGG fixture, never user audio."""
     try:
-        result = subprocess.run(
-            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-             "-i", str(source), "-ac", "1", "-ar", "16000",
-             "-f", "s16le", "-acodec", "pcm_s16le", "pipe:1"],
-            capture_output=True, timeout=35, check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
+        import av
+        chunks = []
+        length = 0
+        with av.open(str(source), mode="r") as container:
+            if len(container.streams.audio) != 1:
+                raise ValueError("Unexpected public reference audio streams")
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            def collect(frame):
+                nonlocal length
+                raw = frame.to_ndarray().tobytes()
+                length += len(raw)
+                if length > MAX_PCM_BYTES:
+                    raise ValueError("Public reference audio too long")
+                chunks.append(raw)
+            for frame in container.decode(container.streams.audio[0]):
+                for converted in resampler.resample(frame):
+                    collect(converted)
+            for converted in resampler.resample(None):
+                collect(converted)
+        audio = b"".join(chunks)
+    except Exception:
         raise RuntimeError("Public Swedish fixture decoder unavailable") from None
-    audio = result.stdout
     if not 2_000 <= len(audio) <= MAX_PCM_BYTES or len(audio) % 2:
         raise ValueError("Public Swedish fixture PCM length invalid")
     return audio
