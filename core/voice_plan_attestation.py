@@ -120,6 +120,18 @@ def allow_voice_dispatch(plan, tools, tool_name, tool, effective_input,
     if type(tiered) is not bool:
         return False
     if tiered:
+        # A registry entry can be replaced between preview and dispatch.
+        # Never trust a detached/unregistered tool object or implicit safety
+        # defaults when enforcing the new policy.
+        if tool is not tools.get(tool_name):
+            return False
+        tier_safety = tool.get("safety")
+        if (not isinstance(tier_safety, dict)
+                or not isinstance(tier_safety.get("effect"), str)
+                or type(tier_safety.get(
+                    "voice_confirmation_required", False
+                )) is not bool):
+            return False
         tier_authorize = getattr(plan_verifier, "voice_tier_authorize", None)
         if not callable(tier_authorize):
             return False
