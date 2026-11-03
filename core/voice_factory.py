@@ -2,6 +2,7 @@ from core.config import load_settings
 from core.voice_output import InterruptibleTTS
 from core.voice_stt_process import IsolatedFasterWhisperSTT
 from core.voice_stt_persistent import PersistentFasterWhisperSTT
+from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
 from modules.voice.providers import (
     FasterWhisperSTT,
     Pyttsx3TTS,
@@ -19,6 +20,7 @@ DEFAULT_CLASSES = {
     },
     "stt": {
         "faster_whisper": FasterWhisperSTT,
+        "sherpa_onnx_parakeet": SherpaOnnxParakeetSTT,
     },
     "tts": {
         "pyttsx3": Pyttsx3TTS,
