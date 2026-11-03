@@ -298,3 +298,40 @@ these hosted tests.** The remaining significant boundary is a
 supervised, reversible VENTUNO hardware stage, including genuine
 USB capture and output routing, CPU/memory and GenieX model handoff,
 and live Swedish question/reply behavior.
+
+
+## Latest 2026-11-03 3×3×3 context-quality check — NO-GO release quality
+
+Exact HEAD `6879b0630e061b70434523e0f4c38cd10bd4e308`:
+- [MyAI complete hosted ARM64 CI run 41627931152](https://github.com/Harrokk/Myai/actions/runs/41627931152):
+  **SUCCESS, 4,487 passed / 10 skipped**; source and privacy audit
+  passed. These source and mock unit tests do not establish speech accuracy.
+- [Native public-fixture and 27-scenario matrix run 41627931310](https://github.com/Harrokk/Myai/actions/runs/41627931310):
+  **FAILURE** in the quality gate; **not** a library, audio or model loading crash.
+  Public human Swedish word recognized with Silero+Parakeet; then
+  the 3 synthetic Swedish phrases × 3 Piper rates (150,180,210) ×
+  3 Silero tail/head padding lengths (0,300,500ms) yielded
+  **12/27 exact segmented transcriptions**, with
+  **baseline 180/300ms only 1/3 exact**, below the configured
+  acceptance threshold of **2/3**; the runner intentionally exited 3.
+  All three padding settings produced 1 Silero segment per case.
+- Preceding rate-only matrices independently varied from 5/9 to 6/9
+  exact, even with identical nominal model settings. More silence is
+  not a consistent fix for every phrase. Treat this as a substantive
+  recognition-quality and reproducibility blocker for **automatic
+  voice-tool dispatch**, not something to conceal by relaxing a
+  failing CI assertion.
+- The failure is safely confined to a disposable GitHub-hosted
+  CPU-only sandbox. No VENTUNO microphone, GenieX, speaker, NPU, OS
+  service, deployed configuration or user audio was touched.
+
+**Decision: KEEP DRAFT / DO NOT DEPLOY.** The voice stack is
+functional with public speech and several synthetic sentences, but
+is not reliable enough for unattended commands. Before any physical
+pilot, obtain more independently licensed natural Swedish
+multiword utterances, run phrase-level quality and noise
+comparisons with explicit confidence/no-guess rejection, and
+verify the existing three-independent-STT high-risk voting rule
+in the Parakeet configuration. Do not lower the quality threshold
+solely to make CI green. The proposed 300ms padding remains
+tunable but is not asserted to be optimal.
