@@ -147,7 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/myai-native-source"
-          python3 -B scripts/ci_native_cli_hosted_probe.py \
+          python3 -B -m scripts.ci_native_cli_hosted_probe \
             "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
             "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
           echo "COMPLETE ARM64 CLI STARTUP AND MODEL-FREE WAV: PASS"
