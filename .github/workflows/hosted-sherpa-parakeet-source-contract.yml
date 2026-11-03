@@ -31,8 +31,20 @@ jobs:
           test "$(uname -m)" = "aarch64"
           echo "Only mocked recognizers and synthetic PCM. No NPU/microphone or downloads of model weights."
 
-      - name: Checkout source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Fetch exact source commit into disposable scratch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/myai-parakeet-src"
+          cd "$RUNNER_TEMP/myai-parakeet-src"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Create disposable Python environment
         shell: bash
@@ -42,7 +54,7 @@ jobs:
           "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -m pip install \
             --disable-pip-version-check --only-binary=:all: \
             "pytest==8.3.5" "numpy==2.2.4" \
-            -r requirements.txt
+            -r "$RUNNER_TEMP/myai-parakeet-src/requirements.txt"
 
       - name: Check source-only contracts
         shell: bash
@@ -50,6 +62,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -euo pipefail
+          cd "$RUNNER_TEMP/myai-parakeet-src"
           "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -m compileall -q \
             modules/voice/sherpa_onnx_provider.py core/voice_factory.py \
             tests/test_sherpa_onnx_provider.py
