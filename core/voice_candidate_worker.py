@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import stat
 import sys
+import struct
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -60,6 +61,15 @@ def require_sealed_audio(fd):
             or (info.st_size - 44) % 2
             or fcntl.fcntl(fd, fcntl.F_GET_SEALS) & seals != seals):
         raise ValueError("Invalid sealed private speech audio")
+    wav = os.pread(fd, 44, 0)
+    if len(wav) != 44:
+        raise ValueError("Invalid private WAV header")
+    fields = struct.unpack("<4sI4s4sIHHIIHH4sI", wav)
+    if fields != (
+        b"RIFF", info.st_size - 8, b"WAVE", b"fmt ", 16,
+        1, 1, 16000, 32000, 2, 16, b"data", info.st_size - 44,
+    ):
+        raise ValueError("Invalid private WAV header")
     return "/proc/self/fd/" + str(fd)
 
 
