@@ -17,9 +17,14 @@ class SherpaSileroSegments:
     MAX_INPUT_SECONDS = 30
     MAX_SEGMENT_SECONDS = 12
 
-    def __init__(self, model_path="", *, vad=None, module=None, num_threads=2):
+    def __init__(self, model_path="", *, vad=None, module=None, num_threads=2,
+                 context_padding_ms=300):
         if type(num_threads) is not int or not 1 <= num_threads <= 4:
             raise ValueError("Silero VAD threads must be 1-4")
+        if (type(context_padding_ms) is not int or
+                not 0 <= context_padding_ms <= 500):
+            raise ValueError("Silero STT context padding must be 0-500ms")
+        self.context_padding_ms = context_padding_ms
         self.model_path = model_path
         self.num_threads = num_threads
         self._vad = vad
@@ -74,7 +79,13 @@ class SherpaSileroSegments:
                 raise ValueError("Silero returned invalid audio")
             if samples.size:
                 output = np.rint(np.clip(samples * 32768.0, -32768, 32767))
-                results.append(output.astype("<i2").tobytes())
+                # The published Parakeet v3 model rejected a 1.06-s
+                # native Silero segment from a real public Swedish word,
+                # but recognized it with 300 ms digital silence on each
+                # side. Add configurable context without retaining
+                # previous private PCM or opening a microphone.
+                pad = bytes(self.context_padding_ms * 16 * 2)
+                results.append(pad + output.astype("<i2").tobytes() + pad)
         return results
 
     def feed(self, frame):
