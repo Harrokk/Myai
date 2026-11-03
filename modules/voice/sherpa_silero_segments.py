@@ -7,6 +7,7 @@ all PCM bytes until the 512-sample window is complete. No microphone or
 file access occurs until the first explicit feed() call.
 """
 
+import hashlib
 from pathlib import Path
 
 
@@ -16,6 +17,9 @@ class SherpaSileroSegments:
     WINDOW_SAMPLES = 512
     MAX_INPUT_SECONDS = 30
     MAX_SEGMENT_SECONDS = 12
+    PINNED_MODEL_SHA256 = (
+        '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'
+    )
 
     def __init__(self, model_path="", *, vad=None, module=None, num_threads=2,
                  context_padding_ms=300):
@@ -33,6 +37,15 @@ class SherpaSileroSegments:
         self._total_bytes = 0
         self._finalized = False
 
+    @classmethod
+    def _verified_model_digest(cls, path):
+        try:
+            with path.open("rb") as handle:
+                actual = hashlib.file_digest(handle, "sha256").hexdigest()
+            return actual == cls.PINNED_MODEL_SHA256
+        except OSError:
+            return False
+
     def _load(self):
         if self._vad is not None:
             return self._vad
@@ -44,6 +57,8 @@ class SherpaSileroSegments:
             raise RuntimeError("Silero model is not available locally")
         if not 0 < file.stat().st_size <= 10_000_000:
             raise RuntimeError("Silero model size is invalid")
+        if not self._verified_model_digest(file):
+            raise RuntimeError("Silero model integrity mismatch")
         try:
             api = self._module
             if api is None:
