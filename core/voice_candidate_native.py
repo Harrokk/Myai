@@ -135,8 +135,8 @@ class IsolatedPinnedNativeCandidateSTT:
         if not self._active.acquire(blocking=False):
             raise RuntimeError("Native candidate is already running")
         proc = None
-        failure = None
         raw = None
+        native_returncode = None
         try:
             deadline = time.monotonic() + self.timeout_seconds
             if not self._profile.is_current() or self._cancel.is_set():
@@ -183,6 +183,7 @@ class IsolatedPinnedNativeCandidateSTT:
                             raise TimeoutError("Native candidate deadline exceeded")
                         try:
                             proc.wait(timeout=min(0.1, remaining))
+                            native_returncode = proc.returncode
                             break
                         except subprocess.TimeoutExpired:
                             continue
@@ -193,12 +194,13 @@ class IsolatedPinnedNativeCandidateSTT:
                     proc = None
             if self._cancel.is_set() or not self._profile.is_current():
                 raise RuntimeError("Native candidate reply revoked")
-            # All stdout is untrusted until exit=0 and strict parsing.
-            if raw is None:
-                raise RuntimeError("Native candidate returned no data")
-            # proc was reaped and cleared in finally, so status is captured
-            # separately in a later version; never accept an unchecked exit.
-            raise RuntimeError("Native candidate exit status not yet attested")
+            # Exact child exit=0 and owned group cleanup are prerequisites.
+            if native_returncode != 0 or raw is None:
+                raise RuntimeError("Native candidate failed or returned no data")
+            try:
+                return parse_candidate_stdout(self._profile.profile, raw)
+            except ValueError:
+                raise RuntimeError("Native candidate output invalid") from None
         except TimeoutError:
             raise TimeoutError("Native candidate deadline exceeded") from None
         except (ValueError, RuntimeError):
