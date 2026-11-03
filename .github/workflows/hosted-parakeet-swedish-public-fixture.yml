@@ -5,6 +5,8 @@ on:
     branches: [dev/ventuno-sherpa-parakeet-source-adapter-20261103]
     paths:
       - scripts/hosted_parakeet_swedish_fixture.py
+      - modules/voice/sherpa_silero_segments.py
+      - modules/voice/sherpa_onnx_provider.py
       - tests/test_hosted_parakeet_swedish_fixture.py
       - .github/workflows/hosted-parakeet-swedish-public-fixture.yml
 
