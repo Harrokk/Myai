@@ -165,7 +165,21 @@ def test_factory_constructs_opted_in_parakeet_without_model_or_audio():
 
 def test_existing_isolated_worker_rejects_unreviewed_sherpa_process_use():
     from core.voice_factory import build_voice_components
+    from modules.voice.providers import FasterWhisperSTT
 
+    class NoHardware:
+        def __init__(self, **kwargs):
+            pass
+
+    mocks = {
+        "microphone": {"sounddevice": NoHardware},
+        "vad": {"webrtcvad": NoHardware},
+        "stt": {
+            "sherpa_onnx_parakeet": SherpaOnnxParakeetSTT,
+            "faster_whisper": FasterWhisperSTT,
+        },
+        "tts": {"pyttsx3": NoHardware},
+    }
     cfg = {
         "voice": {
             "enabled": True,
@@ -174,4 +188,4 @@ def test_existing_isolated_worker_rejects_unreviewed_sherpa_process_use():
         }
     }
     with pytest.raises(ValueError, match="built-in FasterWhisper only"):
-        build_voice_components(settings=cfg)
+        build_voice_components(settings=cfg, provider_classes=mocks)
