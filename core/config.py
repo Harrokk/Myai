@@ -168,6 +168,7 @@ DEFAULT_SETTINGS = {
         "semantic_consensus_enabled": False,
         "semantic_consensus_for_high_risk": False,
         "semantic_consensus_min_confidence": 0.85,
+        "risk_tiered_verification_enabled": False,
         "redundancy_enabled": True,
         "redundancy_when_confidence_missing": False,
         "primary_confidence_threshold": 0.72,
