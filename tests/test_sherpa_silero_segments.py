@@ -75,7 +75,7 @@ def test_flush_zero_pads_only_pending_tail_and_prevents_more_feed():
 def test_speech_segment_copied_and_returned_as_pcm16():
     fake = FakeVad()
     fake.segments.append(np.array([0.0, 0.5, -0.5, -1.0], dtype=np.float32))
-    s = SherpaSileroSegments(vad=fake)
+    s = SherpaSileroSegments(vad=fake, context_padding_ms=0)
     received = s.feed(bytes(640))
     assert received == [np.array([0, 16384, -16384, -32768], dtype="<i2").tobytes()]
     assert fake.empty()
@@ -167,3 +167,21 @@ def test_no_model_loaded_for_empty_finalization():
     detector = SherpaSileroSegments("/missing/optional/model.onnx")
     assert detector.flush() == []
     assert detector._vad is None
+
+
+def test_default_context_padding_safely_surrounds_stt_segment():
+    fake = FakeVad()
+    fake.segments.append(np.array([0.5, -0.5], dtype=np.float32))
+    detector = SherpaSileroSegments(vad=fake)
+    segments = detector.feed(bytes(640))
+    assert len(segments) == 1
+    context = bytes(300 * 16 * 2)
+    assert segments[0] == (
+        context + np.array([16384, -16384], dtype="<i2").tobytes() + context
+    )
+
+
+@pytest.mark.parametrize("bad", [-1, 501, 0.5, True, "300"])
+def test_invalid_context_padding_is_rejected(bad):
+    with pytest.raises(ValueError, match="context padding"):
+        SherpaSileroSegments(context_padding_ms=bad)
