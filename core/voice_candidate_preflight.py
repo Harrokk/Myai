@@ -9,7 +9,6 @@ A pinned digest must come from a reviewed release manifest OUTSIDE the
 downloaded model/binary tree. No hard-coded fictitious public SHA values.
 """
 from pathlib import Path
-import os
 import re
 import stat
 
@@ -111,7 +110,7 @@ def verify_candidate_profile(profile, *, model_root, model_sha256,
             or type(runtime_sha256) is not str
             or not _DIGEST.fullmatch(runtime_sha256)):
         raise ValueError("Invalid candidate SHA256 manifest")
-    if type(model_root) not in (str, Path) or type(runtime_root) not in (str, Path):
+    if not isinstance(model_root, (str, Path)) or not isinstance(runtime_root, (str, Path)):
         raise ValueError("Invalid candidate model/runtime roots")
     family, engine, model_name, binary_name = _PROFILES[profile]
     model_bundle = verify_stt_model_files(
