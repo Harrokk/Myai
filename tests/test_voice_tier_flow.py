@@ -200,3 +200,38 @@ def test_no_preview_or_tool_registry_cannot_authorize_tiered_action():
     result = pipe.process_utterance(b"synthetic")
     assert result["verification_reason"] == "guarded_planner_required"
     assert first.calls == 0
+
+
+def test_critical_two_matching_and_one_true_abstention_are_verified_not_executed():
+    pipe, core, first, reserve = make_pipeline(
+        "Radera filen", effect="destructive",
+        backups=("Radera filen", ""),
+    )
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "critical_external_approval_unavailable"
+    assert first.calls == 1
+    assert all(v.calls == 1 for v in reserve)
+    assert "respond_voice" not in core.calls
+
+
+def test_critical_third_conflicting_target_is_denied():
+    pipe, core, _, _ = make_pipeline(
+        "Radera rapport.txt", effect="destructive",
+        backups=("Radera rapport.txt", "Radera backup.txt"),
+    )
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "independent_votes_disagree"
+    assert "respond_voice" not in core.calls
+
+
+def test_critical_failed_third_is_not_treated_as_abstention():
+    def fail():
+        raise RuntimeError("private model failure")
+    pipe, core, first, reserve = make_pipeline(
+        "Radera filen", effect="destructive",
+        backups=("Radera filen", "Radera filen"),
+    )
+    reserve[1].on_transcribe = fail
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "backup_stt_failed"
+    assert "respond_voice" not in core.calls
