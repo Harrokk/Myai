@@ -80,7 +80,18 @@ def main(argv):
                 if result.returncode != 0 or len(result.stdout) > 100000:
                     return 4
                 sections.append(result.stdout)
-            if not inspect_readelf(*sections)["safe"]:
+            result = inspect_readelf(*sections)
+            if not result["safe"]:
+                # Only bounded ELF reason and sanitized dependency SONAMEs;
+                # never include binary paths, environment or model/audio data.
+                names = result.get("unexpected", [])
+                safe_names = [
+                    re.sub(r"[^A-Za-z0-9_.+-]", "?", name)[:64]
+                    for name in names[:8]
+                ]
+                print("NATIVE_ELF_GATE_DENIED: " + name + " "
+                      + result["reason"] + " "
+                      + ",".join(safe_names), file=sys.stderr)
                 return 5
         return 0
     except (OSError, KeyError, ValueError, subprocess.SubprocessError):
