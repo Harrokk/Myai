@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "dev/voice-native-full-cli-build-20261103"
+      - "dev/voice-native-transitive-elf-audit-20261103"
 
 permissions:
   contents: read
@@ -138,6 +139,19 @@ jobs:
             "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
             "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
           echo "FULL ARM64 ELF DIRECT DEPENDENCY GATE: PASS"
+
+      - name: Audit transitive system library closure and hash every native dependency
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_native_cli_library_closure \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          echo "TRANSITIVE ARM64 SYSTEM LIBRARY CLOSURE: PASS"
 
       - name: Exercise whole native CLI help and model-free sealed WAV
         shell: bash
