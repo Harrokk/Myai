@@ -325,3 +325,65 @@ def test_one_shot_child_resource_env_is_child_only_and_default_off():
     assert captured["env"][AS_ENV] == "1024"
     assert "HF_HUB_TOKEN" not in captured["env"]
     assert CPU_ENV not in os.environ and AS_ENV not in os.environ
+
+
+def test_cancel_before_start_never_spawns_child():
+    import threading
+    event = threading.Event()
+    event.set()
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("process spawned after cancelled request")
+    with pytest.raises(RuntimeError, match="cancelled"):
+        run_deadlined(cmd("print('not executed')"), b"pcm", 2,
+                      popen=forbidden, cancel_event=event)
+
+
+def test_cancel_during_hung_worker_reaps_owned_process_group():
+    import threading
+    cancel = threading.Event()
+    def cancel_soon():
+        time.sleep(0.25)
+        cancel.set()
+    thread = threading.Thread(target=cancel_soon)
+    thread.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="cancelled"):
+            run_deadlined(cmd("import time;time.sleep(60)"), b"pcm", 30,
+                          cancel_event=cancel)
+    finally:
+        thread.join(timeout=3)
+    assert time.monotonic() - started < 7
+
+
+def test_cancel_during_reply_process_exit_wait():
+    import threading
+    cancel = threading.Event()
+    source = (
+        "import sys,time;"
+        "sys.stdin.buffer.read();"
+        f"sys.stdout.write({VALID_JSON!r});"
+        "sys.stdout.flush();"
+        "sys.stdout.close();"
+        "time.sleep(60)"
+    )
+    def cancel_soon():
+        time.sleep(0.4)
+        cancel.set()
+    t = threading.Thread(target=cancel_soon)
+    t.start()
+    began = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="cancelled"):
+            run_deadlined(cmd(source), b"pcm", 30, cancel_event=cancel)
+    finally:
+        t.join(timeout=3)
+    assert time.monotonic() - began < 7
+
+
+def test_invalid_cancel_event_does_not_spawn_child():
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("child spawned despite invalid cancel event")
+    with pytest.raises(ValueError, match="cancellation"):
+        run_deadlined(cmd("pass"), b"pcm", 3, popen=forbidden,
+                      cancel_event=object())
