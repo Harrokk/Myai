@@ -72,9 +72,11 @@ the configured expected language as a recognized language confidence.
 
 ## Explicit limitations / no-go
 
-- Existing MyAI VoiceActivityGate + WebRTC VAD remain unchanged; **Silero VAD
-  has not been integrated**. A Silero adapter requires frame-size,
-  endpoint and buffering tests before replacing the 20-ms frame provider.
+- Existing MyAI VoiceActivityGate + WebRTC VAD remain unchanged.
+  A separate opt-in `SherpaSileroSegments` class now supports bounded
+  20-ms-to-512-sample buffering and final speech segments. It is **NOT**
+  wired into VoiceSession or production VAD until end-to-end timing, onset
+  and streaming interruption behavior are verified.
 - Piper Swedish TTS is a separate future opt-in component; **no Piper
   provider was installed or connected in this commit**.
 - The Parakeet INT8 model is approximately 640 MB extracted. Its RAM peak,
@@ -103,8 +105,10 @@ the configured expected language as a recognized language confidence.
 2. **Hosted real Swedish test completed:** public Wikimedia Swedish
    one-word speech `Sv-svenska.ogg` by Peter Isotalo (CC BY-SA 3.0 /
    GFDL), SHA-1 verified. No user audio or microphone.
-3. **Remaining:** design and test a separate Silero VAD adapter on
-   synthetic audio, with 20-ms to model-frame buffering and timing limits.
+3. **Source-only complete:** optional Silero segment adapter and native
+   VAD model verified using GitHub-hosted synthetic silence. **Remaining**
+   is vetted VoiceSession integration, onset/pre-roll, interruption,
+   and real (public) Swedish speech segmentation performance.
 4. **Remaining:** add Piper Swedish TTS after verifying selected voice
    licensing, ARM64 inference and non-playing synthetic audio contracts.
 5. **Remaining:** wider Swedish speech benchmark, realistic/noisy speech,
@@ -139,3 +143,26 @@ GitHub Actions [run 41620611031](https://github.com/Harrokk/Myai/actions/runs/41
 **Current status:** real offline Swedish word recognition now verified
 on a disposable hosted ARM64 CPU; production MyAI and VENTUNO remain
 unchanged. This is **not** proof of live Swedish conversation on VENTUNO.
+
+
+## Verified 2026-11-03 hosted ARM64 Silero VAD smoke
+
+[Hosted synthetic Silero/Parakeet run 41621485505](https://github.com/Harrokk/Myai/actions/runs/41621485505)
+**SUCCESS** on disposable ARM64, exact source
+`1a21283365d497ebec84e86f1f192669275c5459`.
+
+- `modules/voice/sherpa_silero_segments.py`: opt-in **segment** API
+  (not a drop-in boolean `WebRTCVADProvider`). Buffers 20-ms PCM16
+  input (320 samples) into 512-sample (32 ms) Silero windows.
+- Native `sherpa_onnx.VoiceActivityDetector` receives 16 kHz
+  float32 normalized samples; completed speech segments copied before
+  native `pop()` and converted back to bounded PCM16, with tail
+  padding and explicit reset.
+- Exact public ONNX asset `silero_vad.onnx` is 643,854 bytes,
+  SHA-256 `9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6`,
+  verified before a short CPU native load and synthetic-silence test.
+- **40 synthetic tests PASS**, native Silero CPU runtime loads and
+  produces **no speech segments for 0.6 s digital silence**.
+- This is **not** evidence for speech-onset sensitivity, echo handling,
+  word endpoint detection or a working Ventuno microphone. No user audio,
+  microphone, GenieX, output speaker or VENTUNO runner touched.
