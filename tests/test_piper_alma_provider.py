@@ -110,7 +110,7 @@ def test_invalid_synthesis_settings_fail_closed(kwargs):
 
 
 @pytest.mark.parametrize("bad", [
-    "audio" * 100, "bad\x00text", " " * 225, None,
+    "audio" * 100, "bad\x00text", "x" * 225, None,
 ])
 def test_invalid_text_does_not_call_native_voice(bad):
     voice = FakeVoice()
