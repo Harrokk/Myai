@@ -56,6 +56,13 @@ def _wav_to_16k_pcm(wav: bytes) -> bytes:
     return bytes(collected)
 
 
+def _set_synthesis_seed(seed):
+    # Only the disposable benchmark is seeded. Production TTS uses its
+    # normal synthesis settings; this does NOT force a preferred transcript.
+    import onnxruntime
+    onnxruntime.set_seed(seed)
+
+
 def _normalize(text):
     return " ".join(re.findall(r"[a-zåäö]+", text.casefold()))
 
@@ -97,8 +104,16 @@ def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
         for rate in RATES:
             piper.rate = rate
             for phrase_id, phrase in enumerate(PHRASES):
+                # Same source phrase and ONNX seed twice. Never log the PCM
+                # or its digest. A reproducibility miss stays visible in CI.
+                seed = 42600 + rate * 10 + phrase_id
+                _set_synthesis_seed(seed)
                 synthetic = piper.render_wav(phrase)
                 pcm = _wav_to_16k_pcm(synthetic)
+                _set_synthesis_seed(seed)
+                repeated = _wav_to_16k_pcm(piper.render_wav(phrase))
+                seed_repeat_identical = pcm == repeated
+                del repeated
                 # 400 ms pre-roll / 600 ms tail emulate turn-taking
                 # without user microphones or production audio.
                 captured = bytes(12800) + pcm + bytes(19200)
@@ -116,6 +131,7 @@ def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
                         "phrase_case": phrase_id + 1,
                         "rate": rate,
                         "context_padding_ms": context_ms,
+                        "seed_repeat_identical": seed_repeat_identical,
                         "whole_exact": _normalize(whole) == _normalize(phrase),
                         "silero_exact": _normalize(segment_text) == _normalize(phrase),
                         "whole_distance_band": _distance_band(phrase, whole),
@@ -135,6 +151,10 @@ def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
         "status": "hosted-piper-silero-parakeet-rate-matrix-complete",
         "phrase_count": len(PHRASES),
         "rate_count": len(RATES),
+        "seed_repeat_identical_count": sum(
+            x["seed_repeat_identical"] for x in outcomes
+            if x["context_padding_ms"] == 300
+        ),
         "context_count": len(CONTEXTS_MS),
         "scenario_count": len(outcomes),
         "baseline_180_silero_exact_count": baseline_count,
