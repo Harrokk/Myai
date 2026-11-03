@@ -216,6 +216,16 @@ def main():
             "Native candidate model changed": "model_changed",
         }
         reason = allow.get(str(exc), "other")
+        prefix = "Native candidate output invalid ("
+        if (str(exc).startswith(prefix) and str(exc).endswith(")")):
+            detail = str(exc)[len(prefix):-1]
+            if detail in {
+                "canary_status", "canary_empty", "canary_incomplete",
+                "canary_language", "whisper_json", "whisper_schema",
+                "whisper_segment", "whisper_duplicate", "unsafe_transcript",
+                "unsafe_stdout", "utf8", "invalid_result", "other",
+            }:
+                reason = "native_stdout_" + detail
         print("HOSTED_SYNTHETIC_SWEDISH_STT_SMOKE: DENIED code=" +
               reason + " class=" + type(exc).__name__, file=sys.stderr)
         return 2
