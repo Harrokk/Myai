@@ -55,6 +55,8 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
         def release_for_inference(self):
             return True
 
+    seeds = []
+    monkeypatch.setattr(matrix, "_set_synthesis_seed", seeds.append)
     monkeypatch.setattr(matrix, "verified_silero_model", lambda _: True)
     monkeypatch.setattr(matrix, "PiperAlmaTTS", FakePiper)
     monkeypatch.setattr(matrix, "SherpaOnnxParakeetSTT", FakeParakeet)
@@ -69,6 +71,8 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
     assert out["phrase_count"] == 3
     assert out["rate_count"] == 3
     assert out["scenario_count"] == 27
+    assert out["seed_repeat_identical_count"] == 9
+    assert all(row["seed_repeat_identical"] for row in out["results"])
     assert out["silero_exact_count"] == 27
     assert out["baseline_180_silero_exact_count"] == 3
     assert {r["rate"] for r in out["results"]} == {150, 180, 210}
@@ -77,7 +81,9 @@ def test_mocked_rate_matrix_is_source_only_and_sanitized(monkeypatch, tmp_path):
     assert out["speaker_opened"] is False
     assert out["microphone_opened"] is False
     assert out["audio_saved"] is False
-    assert len(calls) == 9
+    assert len(calls) == 18
+    assert len(seeds) == 18
+    assert all(seeds[i] == seeds[i + 1] for i in range(0, len(seeds), 2))
     exposed = json.dumps(out, ensure_ascii=False)
     for phrase in matrix.PHRASES:
         assert phrase not in exposed
