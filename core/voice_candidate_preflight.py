@@ -24,7 +24,12 @@ _PROFILES = {
     "whisper-large-v3-turbo": (
         "whisper", "whisper_cpp", "ggml-large-v3-turbo.bin", "whisper-cli",
     ),
+    "whisper-large-v3-turbo-q5": (
+        "whisper", "whisper_cpp", "ggml-large-v3-turbo-q5_0.bin", "whisper-cli",
+    ),
 }
+# Canonical 2-family readiness must never silently gain a third voter.
+_REQUIRED_PAIR = frozenset({"canary-1b-v2-q8", "whisper-large-v3-turbo"})
 _ARM64_MACHINE = 183
 _MAX_RUNTIME_BYTES = 256 * 1024 * 1024
 _ISSUER = object()
@@ -133,7 +138,7 @@ def verify_candidate_profile(profile, *, model_root, model_sha256,
 def verify_independent_candidates(manifests):
     """All-or-nothing readiness: one Canary and one Whisper; no partial set."""
     if (type(manifests) is not dict
-            or set(manifests) != set(_PROFILES)):
+            or set(manifests) != _REQUIRED_PAIR):
         raise ValueError("Two distinct reviewed model families are required")
     verified = []
     for profile in _PROFILES:
