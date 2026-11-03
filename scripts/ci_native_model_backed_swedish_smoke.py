@@ -153,7 +153,10 @@ def run_hosted_bench(root):
             profile=profile,
             model_sha256=artifact.sha256,
             runtime_sha256=native_sha,
-            timeout_seconds=150, cpu_seconds=175,
+            # RLIMIT_CPU counts cumulative process CPU across all threads.
+            # Two busy threads can consume ~300 CPU seconds in 150s wall.
+            # Keep both hard limits, but do not spuriously kill at ~88s.
+            timeout_seconds=150, cpu_seconds=300,
             virtual_memory_mib=0, threads=2,
         )
         preflight_ms = int((time.monotonic() - began) * 1000)
