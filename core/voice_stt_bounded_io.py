@@ -22,8 +22,12 @@ class PrematureSTTStreamClose(RuntimeError):
     """No transcript may succeed before all PCM bytes were transferred."""
 
 
+class CancelledSTT(RuntimeError):
+    """The owning voice session revoked the outstanding STT request."""
+
+
 def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
-                     clock=time.monotonic):
+                     clock=time.monotonic, cancel_event=None):
     """Send fixed bounded PCM, receive raw EOF-terminated answer.
 
     No subprocess is started here. A single absolute deadline covers
@@ -37,6 +41,14 @@ def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
     if (getattr(proc, "stdin", None) is None
             or getattr(proc, "stdout", None) is None):
         raise RuntimeError("Invalid isolated STT pipe handles")
+    if cancel_event is not None and not callable(
+        getattr(cancel_event, "is_set", None)
+    ):
+        raise ValueError("Invalid STT cancellation event")
+    def cancelled():
+        return cancel_event is not None and cancel_event.is_set() is True
+    if cancelled():
+        raise CancelledSTT("Isolated STT worker cancelled")
 
     try:
         stdin_fd = proc.stdin.fileno()
@@ -51,12 +63,19 @@ def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
             selector.register(stdout_fd, selectors.EVENT_READ)
             selector.register(stdin_fd, selectors.EVENT_WRITE)
             while selector.get_map():
+                if cancelled():
+                    raise CancelledSTT("Isolated STT worker cancelled")
                 remaining = deadline - clock()
                 if remaining <= 0:
                     raise TimeoutError("Isolated STT process deadline exceeded")
-                events = selector.select(remaining)
+                # A cancel signal must not wait for a native worker deadline.
+                # Keep the normal select path unchanged for legacy callers.
+                events = selector.select(
+                    min(remaining, 0.10) if cancel_event is not None
+                    else remaining
+                )
                 if not events:
-                    raise TimeoutError("Isolated STT process deadline exceeded")
+                    continue
                 for key, _ in events:
                     if key.fd == stdout_fd:
                         # At most MAX+1 raw bytes, never an unbounded read.
@@ -90,8 +109,10 @@ def exchange_bounded(proc, audio, *, deadline, max_reply_bytes,
                             if sent == len(audio):
                                 selector.unregister(stdin_fd)
                                 proc.stdin.close()
+        if cancelled():
+            raise CancelledSTT("Isolated STT worker cancelled")
         return bytes(output)
-    except TimeoutError:
+    except (CancelledSTT, TimeoutError):
         raise
     except (OSError, ValueError) as exc:
         # Do not surface pipe numbers or native OS messages to voice UI.
