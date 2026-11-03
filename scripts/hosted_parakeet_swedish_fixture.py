@@ -29,6 +29,12 @@ SILERO_BYTES = 643_854
 SILERO_SHA256 = '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'
 
 
+class PublicVadIntegrationError(RuntimeError):
+    def __init__(self, stage):
+        self.stage = stage
+        super().__init__(stage)
+
+
 def verify_archive(path: Path) -> bool:
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size != ARCHIVE_BYTES:
@@ -162,12 +168,18 @@ def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[
         result = stt.transcribe(audio)
         if silero_model is not None:
             vad_start = time.monotonic()
-            segments = public_pcm_vad_segments(audio, silero_model)
+            try:
+                segments = public_pcm_vad_segments(audio, silero_model)
+            except Exception as error:
+                raise PublicVadIntegrationError('silero-segment-' + type(error).__name__) from None
             silero_report["silero_tested"] = True
             silero_report["silero_speech_segments"] = len(segments)
             if segments:
                 # Source fixture only, no new model or microphone.
-                recognized = stt.transcribe(segments[0])
+                try:
+                    recognized = stt.transcribe(segments[0])
+                except Exception as error:
+                    raise PublicVadIntegrationError('silero-stt-' + type(error).__name__) from None
                 tokens = set(re.findall(r"[a-zåäö]+", recognized["text"].casefold()))
                 silero_report["silero_swedish_word_recognized"] = "svenska" in tokens
             silero_report["silero_decode_seconds"] = round(
@@ -207,7 +219,9 @@ def main() -> int:
     except Exception as error:
         # Avoid native error strings, which may disclose paths or input content.
         print(json.dumps({"status": "no-go-public-parakeet-inference",
-                          "error_type": type(error).__name__, "microphone_used": False}))
+                          "error_type": type(error).__name__,
+                          "error_stage": error.stage if isinstance(error, PublicVadIntegrationError) else "other",
+                          "microphone_used": False}))
         return 2
     print(json.dumps(report, sort_keys=True))
     return 0 if report["swedish_word_recognized"] else 3
