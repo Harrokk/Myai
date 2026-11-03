@@ -22,6 +22,7 @@ from scripts.hosted_parakeet_swedish_fixture import (
 )
 
 RATES = (150, 180, 210)
+CONTEXTS_MS = (0, 300, 500)
 PHRASES = (
     "Vad heter du?",
     "Hur mycket minne använder datorn?",
@@ -96,41 +97,49 @@ def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
         for rate in RATES:
             piper.rate = rate
             for phrase_id, phrase in enumerate(PHRASES):
-                start = time.monotonic()
                 synthetic = piper.render_wav(phrase)
                 pcm = _wav_to_16k_pcm(synthetic)
                 # 400 ms pre-roll / 600 ms tail emulate turn-taking
                 # without user microphones or production audio.
                 captured = bytes(12800) + pcm + bytes(19200)
-                segments = public_pcm_vad_segments(captured, silero)
                 whole = recognizer.transcribe(captured)["text"]
-                segment_text = (
-                    recognizer.transcribe(segments[0])["text"] if segments else ""
-                )
-                outcomes.append({
-                    "phrase_case": phrase_id + 1,
-                    "rate": rate,
-                    "whole_exact": _normalize(whole) == _normalize(phrase),
-                    "silero_exact": _normalize(segment_text) == _normalize(phrase),
-                    "whole_distance_band": _distance_band(phrase, whole),
-                    "silero_distance_band": _distance_band(phrase, segment_text),
-                    "silero_segments": len(segments),
-                    "synthetic_seconds": round(len(captured) / 32000, 3),
-                    "elapsed_seconds": round(time.monotonic() - start, 3),
-                })
+                for context_ms in CONTEXTS_MS:
+                    start = time.monotonic()
+                    segments = public_pcm_vad_segments(
+                        captured, silero, context_padding_ms=context_ms
+                    )
+                    segment_text = (
+                        recognizer.transcribe(segments[0])["text"]
+                        if segments else ""
+                    )
+                    outcomes.append({
+                        "phrase_case": phrase_id + 1,
+                        "rate": rate,
+                        "context_padding_ms": context_ms,
+                        "whole_exact": _normalize(whole) == _normalize(phrase),
+                        "silero_exact": _normalize(segment_text) == _normalize(phrase),
+                        "whole_distance_band": _distance_band(phrase, whole),
+                        "silero_distance_band": _distance_band(phrase, segment_text),
+                        "silero_segments": len(segments),
+                        "synthetic_seconds": round(len(captured) / 32000, 3),
+                        "elapsed_seconds": round(time.monotonic() - start, 3),
+                    })
     finally:
         recognizer.release_for_inference()
         piper.release_for_inference()
 
-    baseline = [row for row in outcomes if row["rate"] == 180]
+    baseline = [row for row in outcomes
+                if row["rate"] == 180 and row["context_padding_ms"] == 300]
     baseline_count = sum(row["silero_exact"] for row in baseline)
     return {
         "status": "hosted-piper-silero-parakeet-rate-matrix-complete",
         "phrase_count": len(PHRASES),
         "rate_count": len(RATES),
+        "context_count": len(CONTEXTS_MS),
         "scenario_count": len(outcomes),
         "baseline_180_silero_exact_count": baseline_count,
-        "whole_exact_count": sum(x["whole_exact"] for x in outcomes),
+        "whole_exact_count_by_rate": sum(x["whole_exact"] for x in outcomes
+                                         if x["context_padding_ms"] == 300),
         "silero_exact_count": sum(x["silero_exact"] for x in outcomes),
         "results": outcomes,
         "parakeet_model_load_seconds": stt_loaded,
