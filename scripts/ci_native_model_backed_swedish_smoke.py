@@ -235,7 +235,7 @@ def main():
             if detail in {
                 "exit_1", "exit_2", "exit_3", "exit_4", "exit_10",
                 "exit_11", "signal_abort", "signal_kill", "signal_segv",
-                "other",
+                "signal_cpu_limit", "other",
             }:
                 reason = "native_" + detail
         print("HOSTED_SYNTHETIC_SWEDISH_STT_SMOKE: DENIED code=" +
