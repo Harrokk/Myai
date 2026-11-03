@@ -6,6 +6,7 @@ on:
     paths:
       - scripts/hosted_parakeet_swedish_fixture.py
       - scripts/hosted_piper_silero_parakeet_triad.py
+      - tests/test_hosted_piper_silero_parakeet_triad.py
       - modules/voice/sherpa_silero_segments.py
       - modules/voice/sherpa_onnx_provider.py
       - tests/test_hosted_parakeet_swedish_fixture.py
@@ -73,7 +74,9 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/parakeet-source"
           "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B -m pytest -q \
-            tests/test_hosted_parakeet_swedish_fixture.py tests/test_sherpa_onnx_provider.py
+            tests/test_hosted_parakeet_swedish_fixture.py \
+            tests/test_hosted_piper_silero_parakeet_triad.py \
+            tests/test_sherpa_onnx_provider.py
 
       - name: Fetch exactly one allowlisted release archive with SHA256 pin
         shell: bash
