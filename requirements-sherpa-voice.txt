@@ -1,0 +1,7 @@
+# Optional CPU-only, source-reviewed Parakeet STT staging.
+# NOT included in production requirements and NEVER installed automatically.
+# Verify distribution hashes, runtime ABI, CPU performance, model provenance
+# and effective model licensing before a separately approved VENTUNO staging.
+sherpa-onnx==1.13.8
+sherpa-onnx-bin==1.13.8
+numpy>=1.26,<3
