@@ -80,8 +80,8 @@ def test_public_swedish_vad_last_frame_zero_padding_is_exact(tmp_path, monkeypat
     )
     observed = []
     class FakeSegmenter:
-        def __init__(self, model_path):
-            assert model_path
+        def __init__(self, model_path, context_padding_ms=300):
+            assert model_path and context_padding_ms == 300
         def feed(self, frame):
             observed.append(frame)
             return []
