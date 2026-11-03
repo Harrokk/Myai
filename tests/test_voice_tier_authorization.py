@@ -239,3 +239,26 @@ def test_unknown_plan_metadata_blocks_receipt_issue(tmp_path):
             secret=b"x" * 32,
             stop_requested=lambda: False,
         )
+
+
+def test_model_path_swap_after_receipt_blocks_at_dispatch(tmp_path):
+    _, plan, registry, verifier, _, _ = build(tmp_path)
+    permit = verifier.voice_tier_authorize.__self__
+    primary = permit._evidence_providers[0]
+    primary.model_name = "/tmp/different-model"
+    assert invoke(plan, registry, verifier) is False
+
+
+def test_model_file_changed_after_receipt_blocks_at_dispatch(tmp_path):
+    _, plan, registry, verifier, _, _ = build(tmp_path)
+    model_path = tmp_path / "parakeet" / "weights.bin"
+    model_path.chmod(0o644)
+    model_path.write_bytes(b"new-model-file-same-untrusted-source")
+    model_path.chmod(0o444)
+    assert invoke(plan, registry, verifier) is False
+
+
+def test_model_file_permission_change_after_receipt_blocks(tmp_path):
+    _, plan, registry, verifier, _, _ = build(tmp_path)
+    (tmp_path / "parakeet" / "weights.bin").chmod(0o644)
+    assert invoke(plan, registry, verifier) is False
