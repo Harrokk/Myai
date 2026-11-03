@@ -119,7 +119,7 @@ def verify_stt_model_files(root, *, family, expected_sha256):
             if not hasattr(os, "O_NOFOLLOW"):
                 raise ValueError
             fd = os.open(
-                model_path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+                model_path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
             )
             try:
                 before = os.fstat(fd)
