@@ -112,6 +112,23 @@ def allow_voice_dispatch(plan, tools, tool_name, tool, effective_input,
     elif effective_input is not None:
         return False
 
+    # Opt-in tiered mode has an ADDITIONAL mandatory authorization boundary.
+    # This callback must be installed by the trusted voice orchestrator after
+    # the required independent STT votes and plan binding have completed.
+    # An absent/broken receipt never falls back to the legacy allowlist.
+    tiered = getattr(plan_verifier, "voice_tiered_enabled", False)
+    if type(tiered) is not bool:
+        return False
+    if tiered:
+        tier_authorize = getattr(plan_verifier, "voice_tier_authorize", None)
+        if not callable(tier_authorize):
+            return False
+        try:
+            if tier_authorize(plan, tools, tool_name, effective_input) is not True:
+                return False
+        except BaseException:
+            return False
+
     metadata = tool.get("safety", {})
     if not isinstance(metadata, dict):
         return False
