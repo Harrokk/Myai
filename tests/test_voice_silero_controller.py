@@ -101,7 +101,7 @@ def test_after_process_and_vad_reset_even_if_inference_raises():
 
 @pytest.mark.parametrize("invalid", [
     [(True, [b""])], [(True, [b"\x00"])],
-    [(True, [b"\x00" * (12 * 16000 * 2 + 2)])],
+    [(True, [b"\x00" * (13 * 16000 * 2 + 2)])],
     [(True, ["not-bytes"])],
     [(True, [bytes(640), bytes(640)])],
 ])
