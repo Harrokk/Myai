@@ -136,3 +136,26 @@ def test_risk_comparison_cannot_lower_or_accept_invalid_tier():
     assert tier_at_least("medium", "critical") is False
     assert tier_at_least("blocked", "low") is False
     assert tier_at_least("garbage", "low") is False
+
+
+def test_unsafe_tool_plan_escalates_harmless_sounding_transcript():
+    d = decision(
+        "Vad är klockan?", ["workspace_write"],
+        {"workspace_write": tool("write")},
+    )
+    assert d["tier"] == "critical"
+    assert d["requires_confirmation"] is True
+
+
+def test_critical_tool_cannot_be_hidden_behind_medium_phrase():
+    d = decision(
+        "Anslut till mina hörlurar", ["delete_all"],
+        {"delete_all": tool("destructive", tier="medium")},
+    )
+    assert d["tier"] == "critical"
+
+
+def test_numbered_gpio_and_relay_identifiers_are_critical():
+    assert decision("Aktivera GPIO17")["tier"] == "critical"
+    assert decision("Slå på relä2")["tier"] == "critical"
+    assert decision("Motor 5 start")["tier"] == "critical"
