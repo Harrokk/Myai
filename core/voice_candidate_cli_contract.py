@@ -91,6 +91,18 @@ def parse_candidate_stdout(profile_name, stdout):
                 raise ValueError("Incomplete native Canary transcript")
         if len(status) != 1 or status[0] != "ok" or len(texts) != 1:
             raise ValueError("Unverified native Canary response")
+        if texts[0].strip() == "(empty)":
+            raise ValueError("No native Canary transcription")
+        language_lines = [
+            line[len("detected-language: "):]
+            for line in output.splitlines()
+            if line.startswith("detected-language: ")
+        ]
+        if language_lines and (
+            len(language_lines) != 1
+            or language_lines[0].strip().casefold() not in ("sv", "swedish")
+        ):
+            raise ValueError("Native Canary language disagreement")
         text = _clean_text(texts[0])
     else:
         def reject_duplicate(keys):
