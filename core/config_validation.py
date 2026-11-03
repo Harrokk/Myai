@@ -833,6 +833,7 @@ def validate_settings(
         ("voice", "enabled", False),
         ("voice", "tts_enabled", False),
         ("voice", "handsfree_enabled", False),
+        ("voice", "risk_tiered_verification_enabled", False),
         ("location", "enabled", False),
         ("hardware_watch", "enabled", True),
         ("trusted_terminals", "enabled", False),
@@ -864,6 +865,21 @@ def validate_settings(
                     ),
                 )
             )
+
+    # The tiered risk catalogue and vote verifier are staged, but not yet
+    # integrated with production STT provenance, consent and dispatch.
+    # Explicit activation must fail at configuration validation rather than
+    # silently falling back to the old 1/3-vote implementation.
+    if settings.get("voice", {}).get(
+        "risk_tiered_verification_enabled", False
+    ) is True:
+        issues.append(
+            _issue(
+                "error",
+                "risk_tiered_verification_not_integrated",
+                "Riskbaserad STT är förberedd men inte säker att aktivera ännu.",
+            )
+        )
 
     camera = settings.get(
         "camera",
