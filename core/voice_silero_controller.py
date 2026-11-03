@@ -7,7 +7,7 @@ Neither provider nor audio devices are constructed by this class.
 
 
 class SileroVoiceStreamController:
-    MAX_PCM_BYTES = 12 * 16000 * 2
+    MAX_PCM_BYTES = 13 * 16000 * 2
 
     def __init__(self, *, vad, pipeline, before_process=None, after_process=None):
         if not all(callable(getattr(vad, name, None))
