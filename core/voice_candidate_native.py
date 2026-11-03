@@ -202,7 +202,7 @@ class IsolatedPinnedNativeCandidateSTT:
                     1: "exit_1", 2: "exit_2", 3: "exit_3",
                     4: "exit_4", 10: "exit_10", 11: "exit_11",
                     -6: "signal_abort", -9: "signal_kill",
-                    -11: "signal_segv",
+                    -11: "signal_segv", -24: "signal_cpu_limit",
                 }
                 reason = status_names.get(native_returncode, "other")
                 raise RuntimeError("Native candidate failed (" + reason + ")")
