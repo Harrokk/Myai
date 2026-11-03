@@ -226,6 +226,15 @@ def main():
                 "unsafe_stdout", "utf8", "invalid_result", "other",
             }:
                 reason = "native_stdout_" + detail
+        exit_prefix = "Native candidate failed ("
+        if str(exc).startswith(exit_prefix) and str(exc).endswith(")"):
+            detail = str(exc)[len(exit_prefix):-1]
+            if detail in {
+                "exit_1", "exit_2", "exit_3", "exit_4", "exit_10",
+                "exit_11", "signal_abort", "signal_kill", "signal_segv",
+                "other",
+            }:
+                reason = "native_" + detail
         print("HOSTED_SYNTHETIC_SWEDISH_STT_SMOKE: DENIED code=" +
               reason + " class=" + type(exc).__name__, file=sys.stderr)
         return 2
