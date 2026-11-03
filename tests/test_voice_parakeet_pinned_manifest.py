@@ -112,8 +112,10 @@ def test_symlinked_tokens_file_refused_by_pinned_preflight(tmp_path):
     alt = tmp_path / "target"
     alt.write_bytes((root / "tokens.txt").read_bytes())
     path = root / "tokens.txt"
+    root.chmod(0o755)
     path.unlink()
     path.symlink_to(alt)
+    root.chmod(0o555)
     stt = SherpaOnnxParakeetSTT(
         model_name=str(root), trusted_model_file_hashes=manifest,
     )
