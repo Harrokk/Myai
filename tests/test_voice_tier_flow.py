@@ -1,4 +1,7 @@
 """End-to-end synthetic VoicePipeline tiered routing; never opens audio or tools."""
+import hashlib
+
+from core.voice_model_provenance import verify_stt_model_files
 from core.voice_pipeline import VoicePipeline
 from core.voice_plan_attestation import allow_voice_dispatch
 from core.voice_tier_identity import TrustedSTTBindings
@@ -58,7 +61,7 @@ class FakeCore:
 
 
 def make_pipeline(
-    utterance="Visa RAM", *,
+    tmp_path, utterance="Visa RAM", *,
     effect="read_only", tier=None, backups=(),
     primary=None, assistant=None, binder=True,
 ):
@@ -76,11 +79,22 @@ def make_pipeline(
     if len(reserve) >= 2:
         entries.append(("w", reserve[1], "whisper", "c"))
     if binder:
-        bindings = TrustedSTTBindings([
-            {"key": key, "provider": model, "family": family,
-             "sha256": ch * 64}
-            for key, model, family, ch in entries
-        ])
+        records = []
+        for key, model, family, ch in entries:
+            root = tmp_path / family
+            root.mkdir()
+            data = ("synthetic " + family).encode("utf-8")
+            model_path = root / "weights.bin"
+            model_path.write_bytes(data)
+            model_path.chmod(0o444)
+            root.chmod(0o555)
+            bundle = verify_stt_model_files(
+                root, family=family,
+                expected_sha256={"weights.bin": hashlib.sha256(data).hexdigest()},
+            )
+            model.model_name = bundle.root
+            records.append({"key": key, "provider": model, "bundle": bundle})
+        bindings = TrustedSTTBindings(records)
     else:
         bindings = None
     pipe = VoicePipeline(
@@ -96,8 +110,8 @@ def make_pipeline(
     return pipe, core, first, reserve
 
 
-def test_simple_read_uses_only_primary_and_authorizes_allowlist():
-    pipe, core, first, reserve = make_pipeline()
+def test_simple_read_uses_only_primary_and_authorizes_allowlist(tmp_path):
+    pipe, core, first, reserve = make_pipeline(tmp_path,)
     result = pipe.process_utterance(b"synthetic")
     assert result["status"] == "completed"
     assert result["verification"]["tier"] == "low"
@@ -105,8 +119,8 @@ def test_simple_read_uses_only_primary_and_authorizes_allowlist():
     assert "allowed" in core.calls
 
 
-def test_medium_reversible_change_uses_two_independent_models():
-    pipe, core, first, reserve = make_pipeline(
+def test_medium_reversible_change_uses_two_independent_models(tmp_path):
+    pipe, core, first, reserve = make_pipeline(tmp_path,
         "Ändra ljudvolym", effect="reversible", tier="medium",
         backups=("Ändra ljudvolym",),
     )
@@ -117,8 +131,8 @@ def test_medium_reversible_change_uses_two_independent_models():
     assert "allowed" in core.calls
 
 
-def test_medium_disagreement_blocks_without_calling_assistant():
-    pipe, core, _, reserve = make_pipeline(
+def test_medium_disagreement_blocks_without_calling_assistant(tmp_path):
+    pipe, core, _, reserve = make_pipeline(tmp_path,
         "Ändra ljudvolym", effect="reversible", tier="medium",
         backups=("Sänk mikrofonvolym",),
     )
@@ -130,8 +144,8 @@ def test_medium_disagreement_blocks_without_calling_assistant():
     assert "respond_voice" not in core.calls
 
 
-def test_missing_medium_backup_cannot_downgrade_to_low():
-    pipe, core, _, _ = make_pipeline(
+def test_missing_medium_backup_cannot_downgrade_to_low(tmp_path):
+    pipe, core, _, _ = make_pipeline(tmp_path,
         "Ändra ljudvolym", effect="reversible", tier="medium",
     )
     result = pipe.process_utterance(b"synthetic")
@@ -139,8 +153,8 @@ def test_missing_medium_backup_cannot_downgrade_to_low():
     assert "respond_voice" not in core.calls
 
 
-def test_critical_unanimity_without_separate_approval_still_blocks():
-    pipe, core, first, reserve = make_pipeline(
+def test_critical_unanimity_without_separate_approval_still_blocks(tmp_path):
+    pipe, core, first, reserve = make_pipeline(tmp_path,
         "Radera filen", effect="destructive",
         backups=("Radera filen", "Radera filen"),
     )
@@ -151,8 +165,8 @@ def test_critical_unanimity_without_separate_approval_still_blocks():
     assert "respond_voice" not in core.calls
 
 
-def test_harmless_first_transcript_cannot_authorize_dangerous_plan():
-    pipe, core, first, reserve = make_pipeline(
+def test_harmless_first_transcript_cannot_authorize_dangerous_plan(tmp_path):
+    pipe, core, first, reserve = make_pipeline(tmp_path,
         "Vad är klockan", effect="destructive",
     )
     result = pipe.process_utterance(b"synthetic")
@@ -160,50 +174,50 @@ def test_harmless_first_transcript_cannot_authorize_dangerous_plan():
     assert "respond_voice" not in core.calls
 
 
-def test_planned_tool_drift_is_blocked_at_dispatch_boundary():
+def test_planned_tool_drift_is_blocked_at_dispatch_boundary(tmp_path):
     core = FakeCore()
     core.drift = True
-    pipe, core, _, _ = make_pipeline(assistant=core)
+    pipe, core, _, _ = make_pipeline(tmp_path,assistant=core)
     result = pipe.process_utterance(b"synthetic")
     assert result["status"] == "clarify"
     assert core.calls[-1] == "blocked"
 
 
-def test_missing_trusted_binding_does_not_touch_microphone_or_stt():
-    pipe, core, first, _ = make_pipeline(binder=False)
+def test_missing_trusted_binding_does_not_touch_microphone_or_stt(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path,binder=False)
     result = pipe.process_utterance(b"synthetic")
     assert result["verification_reason"] == "model_provenance_unavailable"
     assert first.calls == 0
     assert core.calls == []
 
 
-def test_stop_during_primary_stt_revokes_followup():
+def test_stop_during_primary_stt_revokes_followup(tmp_path):
     first = STT("Visa RAM")
-    pipe, core, _, _ = make_pipeline(primary=first)
+    pipe, core, _, _ = make_pipeline(tmp_path,primary=first)
     first.on_transcribe = pipe.cancel_pending
     result = pipe.process_utterance(b"synthetic")
     assert result["verification_reason"] == "stt_cancelled_or_stale"
     assert "respond_voice" not in core.calls
 
 
-def test_bad_toggle_never_uses_legacy_path():
-    pipe, core, first, _ = make_pipeline()
+def test_bad_toggle_never_uses_legacy_path(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path,)
     pipe.settings["voice"]["risk_tiered_verification_enabled"] = "yes"
     result = pipe.process_utterance(b"synthetic")
     assert result["status"] == "clarify"
     assert first.calls == 0
 
 
-def test_no_preview_or_tool_registry_cannot_authorize_tiered_action():
-    pipe, core, first, _ = make_pipeline()
+def test_no_preview_or_tool_registry_cannot_authorize_tiered_action(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path,)
     core.preview_tool_plan = None
     result = pipe.process_utterance(b"synthetic")
     assert result["verification_reason"] == "guarded_planner_required"
     assert first.calls == 0
 
 
-def test_critical_two_matching_and_one_true_abstention_are_verified_not_executed():
-    pipe, core, first, reserve = make_pipeline(
+def test_critical_two_matching_and_one_true_abstention_are_verified_not_executed(tmp_path):
+    pipe, core, first, reserve = make_pipeline(tmp_path,
         "Radera filen", effect="destructive",
         backups=("Radera filen", ""),
     )
@@ -214,8 +228,8 @@ def test_critical_two_matching_and_one_true_abstention_are_verified_not_executed
     assert "respond_voice" not in core.calls
 
 
-def test_critical_third_conflicting_target_is_denied():
-    pipe, core, _, _ = make_pipeline(
+def test_critical_third_conflicting_target_is_denied(tmp_path):
+    pipe, core, _, _ = make_pipeline(tmp_path,
         "Radera rapport.txt", effect="destructive",
         backups=("Radera rapport.txt", "Radera backup.txt"),
     )
@@ -224,14 +238,57 @@ def test_critical_third_conflicting_target_is_denied():
     assert "respond_voice" not in core.calls
 
 
-def test_critical_failed_third_is_not_treated_as_abstention():
+def test_critical_failed_third_is_not_treated_as_abstention(tmp_path):
     def fail():
         raise RuntimeError("private model failure")
-    pipe, core, first, reserve = make_pipeline(
+    pipe, core, first, reserve = make_pipeline(tmp_path,
         "Radera filen", effect="destructive",
         backups=("Radera filen", "Radera filen"),
     )
     reserve[1].on_transcribe = fail
     result = pipe.process_utterance(b"synthetic")
     assert result["verification_reason"] == "backup_stt_failed"
+    assert "respond_voice" not in core.calls
+
+
+def test_swapped_primary_model_path_blocks_before_stt(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path)
+    first.model_name = "/tmp/unverified-model"
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "primary_model_identity_changed"
+    assert first.calls == 0
+    assert "respond_voice" not in core.calls
+
+
+def test_swapped_backup_model_path_blocks_before_backup_stt(tmp_path):
+    pipe, core, first, reserve = make_pipeline(
+        tmp_path, "Ändra ljudvolym", effect="reversible", tier="medium",
+        backups=("Ändra ljudvolym",),
+    )
+    reserve[0].model_name = "/tmp/unknown-canary"
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "backup_model_identity_changed"
+    assert first.calls == 1
+    assert reserve[0].calls == 0
+    assert "respond_voice" not in core.calls
+
+
+def test_model_permission_change_before_stt_blocks(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path)
+    (tmp_path / "parakeet" / "weights.bin").chmod(0o644)
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "primary_model_identity_changed"
+    assert first.calls == 0
+
+
+def test_model_mutation_during_stt_blocks_after_decode(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path)
+    model_path = tmp_path / "parakeet" / "weights.bin"
+    def modify_weights():
+        model_path.chmod(0o644)
+        model_path.write_bytes(b"tampered-synthetic-only")
+        model_path.chmod(0o444)
+    first.on_transcribe = modify_weights
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "independent_votes_disagree"
     assert "respond_voice" not in core.calls

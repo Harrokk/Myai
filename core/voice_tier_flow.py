@@ -38,6 +38,8 @@ def process_tiered_utterance(pipeline, audio):
     if not callable(preview) or not isinstance(registry, dict):
         return _clarify("guarded_planner_required")
 
+    if not binder.is_trusted_provider(pipeline.primary_stt):
+        return _clarify("primary_model_identity_changed")
     started_at = pipeline.clock()
     try:
         first = pipeline._transcribe(pipeline.primary_stt, audio)
@@ -77,6 +79,8 @@ def process_tiered_utterance(pipeline, audio):
     for provider in backups[:desired - 1]:
         if token.is_set():
             return _clarify("session_stopped")
+        if not binder.is_trusted_provider(provider):
+            return _clarify("backup_model_identity_changed")
         try:
             result = pipeline._transcribe(provider, audio)
         except Exception:

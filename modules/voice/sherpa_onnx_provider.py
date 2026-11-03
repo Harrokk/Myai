@@ -36,6 +36,7 @@ class SherpaOnnxParakeetSTT:
         num_threads=2,
         model=None,
         module=None,
+        trusted_model_file_hashes=None,
     ):
         if language != "sv":
             raise ValueError("Parakeet pilot expects Swedish input")
@@ -53,6 +54,20 @@ class SherpaOnnxParakeetSTT:
         self.channels = channels
         self.sample_width = sample_width
         self.num_threads = num_threads
+        if trusted_model_file_hashes is not None:
+            if (not isinstance(trusted_model_file_hashes, dict)
+                    or set(trusted_model_file_hashes) != set(self.MODEL_FILES)
+                    or any(
+                        not isinstance(value, str) or len(value) != 64
+                        or not all(ch in "0123456789abcdef" for ch in value)
+                        for value in trusted_model_file_hashes.values()
+                    )
+                    or model is not None):
+                raise ValueError("Invalid trusted Parakeet model file manifest")
+            self._trusted_model_file_hashes = dict(trusted_model_file_hashes)
+        else:
+            self._trusted_model_file_hashes = None
+        self._verified_model_bundle = None
         self._model = model
         self._module = module
 
@@ -69,7 +84,28 @@ class SherpaOnnxParakeetSTT:
             if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
                 raise RuntimeError("Parakeet model files are missing or incomplete")
             result[filename] = str(path)
+        if self._trusted_model_file_hashes is not None:
+            from core.voice_model_provenance import verify_stt_model_files
+            try:
+                self._verified_model_bundle = verify_stt_model_files(
+                    str(root), family="parakeet",
+                    expected_sha256=self._trusted_model_file_hashes,
+                )
+            except ValueError:
+                self._verified_model_bundle = None
+                raise RuntimeError("Parakeet model integrity check failed") from None
         return result
+
+    def prepare_verified_model(self):
+        """Pin local files before constructing trusted STT vote bindings.
+
+        Does not load a native model, import sherpa, or use the microphone.
+        Native load re-verifies the same pinned manifest before inference.
+        """
+        if self._trusted_model_file_hashes is None:
+            raise RuntimeError("Parakeet trusted model manifest is required")
+        self._verified_model_files()
+        return self._verified_model_bundle
 
     def _load_model(self):
         if self._model is not None:
