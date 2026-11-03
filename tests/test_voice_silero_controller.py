@@ -160,7 +160,7 @@ class Assistant:
         return {"answer": "Jag heter MyAI.", "tools": [], "tool_results": {}}
 
 
-def voice_session(vad, mic=None, stt=None, *, overrides=None):
+def voice_session(vad, mic=None, stt=None, tts=None, *, overrides=None):
     mic = mic or Mic()
     stt = stt or STT()
     cfg = {"enabled": True, "tts_enabled": False,
@@ -173,7 +173,7 @@ def voice_session(vad, mic=None, stt=None, *, overrides=None):
         settings={"voice": cfg},
         components={
             "enabled": True, "microphone": mic,
-            "vad": vad, "primary_stt": stt, "backup_stt": [], "tts": None,
+            "vad": vad, "primary_stt": stt, "backup_stt": [], "tts": tts,
         },
     ), assistant, mic, stt
 
@@ -276,3 +276,49 @@ def test_voice_session_disabled_still_does_not_load_silero():
                   "stt_provider": "sherpa_onnx_parakeet"}
     })
     assert built["enabled"] is False and built["vad"] is None
+
+
+def test_full_synthetic_silero_stt_assistant_piper_speaker_chain_without_hardware():
+    """Exercise existing pipeline with fake native VAD/STT/TTS and an in-memory WAV."""
+    import io
+    import wave
+    from modules.voice.piper_alma_provider import PiperAlmaTTS
+
+    class FakeVoice:
+        def synthesize_wav(self, text, output, *, syn_config):
+            assert text == "Jag heter MyAI."
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(22050)
+            output.writeframes(bytes(22050 * 2))
+
+    class SynthModule:
+        @staticmethod
+        def SynthesisConfig(**kw):
+            return SimpleNamespace(**kw)
+
+    class FakeSink:
+        def __init__(self):
+            self.audio = []
+        def reset(self):
+            pass
+        def play_wav(self, payload):
+            with wave.open(io.BytesIO(payload), "rb") as reader:
+                assert reader.getframerate() == 22050
+            self.audio.append(payload)
+            return True
+        def stop(self):
+            return True
+
+    sink = FakeSink()
+    piper = PiperAlmaTTS(voice=FakeVoice(), module=SynthModule, sink=sink)
+    vad = FakeSegmenter([(True, []), (False, [bytes(640)])])
+    session, assistant, mic, stt = voice_session(
+        vad, tts=piper, overrides={"tts_enabled": True}
+    )
+    outcome = session.run_once()
+    assert outcome["status"] == "utterance_complete"
+    assert assistant.messages == ["Vad heter du?"]
+    assert len(stt.calls) == 1
+    assert len(sink.audio) == 1
+    assert outcome["voice_result"]["status"] == "completed"
