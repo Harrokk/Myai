@@ -13,11 +13,11 @@ import scripts.hosted_piper_silero_parakeet_triad as matrix
 @pytest.mark.parametrize("expected,observed,band", [
     ("Vad heter du?", "VAD HETER DU!", "0"),
     ("Vad är temperaturen?", "Vad ar temperaturen?", "1-2"),
-    ("Hej", "hej"), 
+    ("Hej", "hej", "0"),
 ])
-def test_distance_bands_are_bounded(expected, observed, band=None):
+def test_distance_bands_are_bounded(expected, observed, band):
     got = matrix._distance_band(expected, observed)
-    assert got == (band if band is not None else "0")
+    assert got == band
 
 
 def test_distance_band_with_long_untrusted_output_is_not_emitted():
