@@ -431,6 +431,7 @@ class VoicePipeline:
         semantic_resolver=None,
         clock=None,
         before_assistant=None,
+        trusted_stt_bindings=None,
     ):
         self.assistant = assistant
         self.primary_stt = primary_stt
@@ -446,6 +447,8 @@ class VoicePipeline:
         self.pending_confirmation = None
         self.streaming_tts = None
         self.before_assistant = before_assistant
+        # Factory-owned identity bindings; never inferred from STT output.
+        self.trusted_stt_bindings = trusted_stt_bindings
         # Replacing (never clearing) an Event at explicit restart prevents
         # late work from the prior stopped session from being revived.
         self._stop_token = threading.Event()
@@ -836,7 +839,7 @@ class VoicePipeline:
         }
 
     def _respond_and_speak(self, transcript, approved_digest=None, *,
-                           risk=None, stop_token=None):
+                           risk=None, stop_token=None, tier_authorizer=None):
         token = stop_token if stop_token is not None else self._stop_token
         if token.is_set():
             return self._cancelled_response()
@@ -854,6 +857,11 @@ class VoicePipeline:
         # It is part of the callable itself so MyAICore's existing
         # voice responder signature remains backward compatible.
         verify_dispatch_plan.voice_stop_requested = token.is_set
+        verify_dispatch_plan.voice_tiered_enabled = self.voice_settings.get(
+            "risk_tiered_verification_enabled", False
+        )
+        if callable(tier_authorizer):
+            verify_dispatch_plan.voice_tier_authorize = tier_authorizer
 
         if self.before_assistant is not None:
             self.before_assistant()
@@ -1288,6 +1296,14 @@ class VoicePipeline:
         return confidence < threshold
 
     def process_utterance(self, audio):
+        # Entirely separate staged path. Default and VENTUNO flag remain OFF;
+        # config validation denies activation until all approval/model gates exist.
+        tiered = self.voice_settings.get("risk_tiered_verification_enabled", False)
+        if tiered is not False:
+            if tiered is not True:
+                return {"status": "clarify", "message": "Ogiltig röstpolicy."}
+            from core.voice_tier_flow import process_tiered_utterance
+            return process_tiered_utterance(self, audio)
         token = self._stop_token
         if token.is_set():
             return {"status": "clarify", "message": "Röstsessionen avbröts."}
