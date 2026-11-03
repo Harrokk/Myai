@@ -129,6 +129,9 @@ def run_hosted_bench(root):
         "utterances": len(speech),
     }
     for artifact in artifacts:
+        # Public, fixed model identifier only; no audio or transcript data.
+        print("HOSTED_SV_MODEL_STAGE " + artifact.profile + " preflight",
+              flush=True)
         directory = weights / artifact.profile
         model_file = directory / artifact.filename
         verify_downloaded_artifact(artifact, model_file)
@@ -156,6 +159,8 @@ def run_hosted_bench(root):
         preflight_ms = int((time.monotonic() - began) * 1000)
         samples = []
         for (phrase, label), pcm in zip(PHRASES, speech):
+            print("HOSTED_SV_MODEL_STAGE " + artifact.profile +
+                  " decoding_" + label, flush=True)
             began = time.monotonic()
             before_rss_kib = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
             result = engine.transcribe(pcm)
@@ -177,6 +182,8 @@ def run_hosted_bench(root):
             # A cumulative max RSS is not an exact per-model observation.
             # Do not report a misleading sample delta or Ventuno reading.
         engine.close()
+        print("HOSTED_SV_MODEL_STAGE " + artifact.profile +
+              " completed", flush=True)
         report["models"].append({
             "profile": artifact.profile,
             "preflight_ms": preflight_ms,
@@ -194,10 +201,23 @@ def main():
         print(json.dumps(report, sort_keys=True, ensure_ascii=False))
         return 0
     except Exception as exc:
-        # Disclose only one bounded exception class, never raw private
-        # paths, model metadata, audio or transcript data.
-        print("HOSTED_SYNTHETIC_SWEDISH_STT_SMOKE: DENIED (" +
-              type(exc).__name__ + ")", file=sys.stderr)
+        # Only messages chosen from source-controlled safe error literals.
+        # Do not print exception tracebacks, actual native output or paths.
+        allow = {
+            "Native candidate failed or returned no data": "native_nonzero_exit",
+            "Native candidate output invalid": "native_stdout_schema",
+            "Native candidate stdout exceeded limit": "stdout_bound",
+            "Native candidate startup failed": "child_start_failure",
+            "Native candidate failed": "child_runtime_failure",
+            "Native candidate deadline exceeded": "native_deadline",
+            "Native candidate reply revoked": "post_decode_revocation",
+            "Native candidate identity changed or stopped": "identity_revoked",
+            "Native candidate stopped": "stopped",
+            "Native candidate model changed": "model_changed",
+        }
+        reason = allow.get(str(exc), "other")
+        print("HOSTED_SYNTHETIC_SWEDISH_STT_SMOKE: DENIED code=" +
+              reason + " class=" + type(exc).__name__, file=sys.stderr)
         return 2
 
 
