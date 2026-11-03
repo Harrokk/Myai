@@ -31,16 +31,16 @@ def _snapshot(info):
 
 class VerifiedSTTModel:
     """Immutable record issued only after hashing exact local model bytes."""
-    __slots__ = ("root", "family", "revision", "_states", "_sealed")
+    __slots__ = ("root", "family", "revision", "_states", "_issuer_tag")
 
     def __init__(self, *, token, root, family, revision, states):
-        if token is not _ISSUER:
+        if token is not _ISSUER or not states:
             raise ValueError("untrusted-model-identity")
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "family", family)
         object.__setattr__(self, "revision", revision)
         object.__setattr__(self, "_states", tuple(states))
-        object.__setattr__(self, "_sealed", True)
+        object.__setattr__(self, "_issuer_tag", _ISSUER)
 
     def __setattr__(self, key, value):
         raise AttributeError("verified-model-identity-is-immutable")
@@ -48,8 +48,11 @@ class VerifiedSTTModel:
     def is_current(self):
         """Cheap post-load metadata check; not a replacement for file hash."""
         try:
+            if self._issuer_tag is not _ISSUER or not self._states:
+                return False
             root = Path(self.root)
-            if root.is_symlink() or not root.is_dir():
+            if (str(root.resolve(strict=True)) != self.root
+                    or root.is_symlink() or not root.is_dir()):
                 return False
             root_stat = os.stat(root, follow_symlinks=False)
             if root_stat.st_mode & 0o222:
