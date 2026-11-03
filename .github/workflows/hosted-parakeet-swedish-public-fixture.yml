@@ -1,0 +1,105 @@
+name: Hosted ARM64 Parakeet v3 on verified public Swedish word
+
+on:
+  push:
+    branches: [dev/ventuno-sherpa-parakeet-source-adapter-20261103]
+    paths:
+      - scripts/hosted_parakeet_swedish_fixture.py
+      - tests/test_hosted_parakeet_swedish_fixture.py
+      - .github/workflows/hosted-parakeet-swedish-public-fixture.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-public-parakeet-arm64
+  cancel-in-progress: false
+
+jobs:
+  public-fixture-cpu:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Ensure no VENTUNO/self-hosted runner or physical audio
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" -ne 0
+          command -v ffmpeg
+          command -v curl
+          command -v sha256sum
+          awk '/MemAvailable:/ { if ($2 < 5*1024*1024) exit 1 }' /proc/meminfo
+          test "$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')" -ge 3145728
+          echo "Host: only licensed public word audio; no mic, speaker, VENTUNO or GenieX."
+
+      - name: Read exact commit in disposable GitHub-hosted workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/parakeet-source"
+          cd "$RUNNER_TEMP/parakeet-source"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install CPU wheels in disposable venv, never on VENTUNO
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          python3 -m venv "$RUNNER_TEMP/parakeet-cpu-venv"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "pytest==8.3.5" "numpy==2.2.4" \
+            -r requirements-sherpa-voice.txt
+
+      - name: Run small synthetic integrity tests before any model download
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B -m pytest -q \
+            tests/test_hosted_parakeet_swedish_fixture.py tests/test_sherpa_onnx_provider.py
+
+      - name: Fetch exactly one allowlisted release archive with SHA256 pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          archive="$RUNNER_TEMP/parakeet-v3-int8-pinned.tar.bz2"
+          test ! -e "$archive"
+          curl -fL --retry 2 --retry-delay 5 --connect-timeout 20 \
+            --max-time 620 -o "$archive" \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+          test "$(stat -c %s "$archive")" -eq 487170055
+          printf '%s  %s\n' \
+            '5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf' \
+            "$archive" | sha256sum --check --status
+          echo "Parakeet release SHA256 verified; no model stored in repository."
+
+      - name: Transcribe checksum-pinned public Swedish word on hosted ARM64 CPU
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B \
+            -m scripts.hosted_parakeet_swedish_fixture \
+            --archive "$RUNNER_TEMP/parakeet-v3-int8-pinned.tar.bz2" \
+            --runner-temp "$RUNNER_TEMP"
