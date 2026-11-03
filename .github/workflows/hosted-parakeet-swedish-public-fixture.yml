@@ -6,6 +6,7 @@ on:
     paths:
       - scripts/hosted_parakeet_swedish_fixture.py
       - tests/test_hosted_parakeet_swedish_fixture.py
+      - .github/workflows/hosted-parakeet-swedish-public-fixture.yml
 
 permissions:
   contents: read
