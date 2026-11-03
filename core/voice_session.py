@@ -381,18 +381,33 @@ class VoiceSession:
         read_count = 0
 
         while read_count < limit:
-            item = self.components[
-                "microphone"
-            ].read_frame()
-            read_count += 1
-            self.frame_count += 1
+            try:
+                item = self.components[
+                    "microphone"
+                ].read_frame()
+                read_count += 1
+                self.frame_count += 1
 
-            if item.get("overflowed"):
-                self.overflow_count += 1
+                if item.get("overflowed"):
+                    self.overflow_count += 1
 
-            event = self.controller.feed_frame(
-                item["frame"]
-            )
+                event = self.controller.feed_frame(
+                    item["frame"]
+                )
+            except Exception:
+                if isinstance(self.controller, SileroVoiceStreamController):
+                    # Fail closed on native VAD/STT, microphone read,
+                    # or synthetic segment boundary exceptions.
+                    try:
+                        self.stop()
+                    except Exception:
+                        raise RuntimeError(
+                            "Silero voice cleanup failed; verify microphone state."
+                        ) from None
+                    raise RuntimeError(
+                        "Silero voice processing failed; session stopped."
+                    ) from None
+                raise
 
             if (
                 event is not None
