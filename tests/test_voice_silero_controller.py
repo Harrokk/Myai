@@ -322,3 +322,34 @@ def test_full_synthetic_silero_stt_assistant_piper_speaker_chain_without_hardwar
     assert len(stt.calls) == 1
     assert len(sink.audio) == 1
     assert outcome["voice_result"]["status"] == "completed"
+
+
+def test_native_silero_failure_closes_mic_and_never_invokes_llm_or_tools():
+    class Broken(FakeSegmenter):
+        def feed(self, frame):
+            raise RuntimeError("PRIVATE_USER_AUDIO_DO_NOT_LOG")
+    vad, mic = Broken(), Mic()
+    session, assistant, _, stt = voice_session(vad, mic=mic)
+    with pytest.raises(RuntimeError, match="session stopped") as e:
+        session.run_once()
+    assert session.running is False
+    assert mic.stops == 1
+    assert stt.calls == [] and assistant.messages == []
+    assert "PRIVATE_USER_AUDIO" not in str(e.value)
+
+
+def test_native_silero_failure_and_mic_close_failure_report_safety_state():
+    class Broken(FakeSegmenter):
+        def feed(self, frame):
+            raise ValueError("PRIVATE_NATIVE_AUDIO")
+    class CannotStop(Mic):
+        def stop(self):
+            self.stops += 1
+            return False
+    mic = CannotStop()
+    session, assistant, _, stt = voice_session(Broken(), mic=mic)
+    with pytest.raises(RuntimeError, match="cleanup failed") as e:
+        session.run_once()
+    assert mic.stops == 1
+    assert "PRIVATE_NATIVE_AUDIO" not in str(e.value)
+    assert assistant.messages == [] and stt.calls == []
