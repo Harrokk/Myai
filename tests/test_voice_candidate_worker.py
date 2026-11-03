@@ -88,7 +88,7 @@ def test_actual_child_main_rechecks_whisper_cpu_only_argv(
         )
         assert worker.main() == 2
         assert seen[0][0].endswith("/whisper-cli")
-        assert seen[0][1][-4:] == ["-oj", "-of", "-"][-4:] if False else True
+        assert seen[0][1][-3:] == ["-oj", "-of", "-"]
         assert "-ng" in seen[0][1]
         assert seen[0][1][seen[0][1].index("-f") + 1] == path
 
