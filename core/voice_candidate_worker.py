@@ -40,6 +40,7 @@ def parse_worker_config(raw, fd_arg):
         raise ValueError("Invalid native candidate threads")
     if data.get("profile") not in (
         "canary-1b-v2-q8", "whisper-large-v3-turbo",
+        "whisper-large-v3-turbo-q5",
     ):
         raise ValueError("Invalid native candidate profile")
     for name in ("model_root", "runtime_root", "model_sha256",
