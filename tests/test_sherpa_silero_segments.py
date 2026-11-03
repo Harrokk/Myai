@@ -96,9 +96,15 @@ def test_missing_model_fails_without_native_import(tmp_path):
         s.feed(bytes(640))
 
 
-def test_model_config_matches_real_sherpa_python_api(tmp_path):
+def test_model_config_matches_real_sherpa_python_api(tmp_path, monkeypatch):
     model = tmp_path / "silero_vad.onnx"
     model.write_bytes(b"synthetic-model-data")
+    # Only the fake native API unit test bypasses the authentic checksum.
+    # Hosted CPU smoke still verifies the real pinned ONNX bytes.
+    monkeypatch.setattr(
+        SherpaSileroSegments, "_verified_model_digest",
+        classmethod(lambda cls, path: True),
+    )
     detected = FakeVad()
     record = []
 
@@ -185,3 +191,17 @@ def test_default_context_padding_safely_surrounds_stt_segment():
 def test_invalid_context_padding_is_rejected(bad):
     with pytest.raises(ValueError, match="context padding"):
         SherpaSileroSegments(context_padding_ms=bad)
+
+
+def test_modified_silero_model_bytes_are_rejected(tmp_path):
+    model = tmp_path / "silero_vad.onnx"
+    model.write_bytes(b"synthetic but not the released Silero model")
+    detector = SherpaSileroSegments(str(model))
+    with pytest.raises(RuntimeError, match="integrity mismatch"):
+        detector.feed(bytes(640))
+    assert detector._vad is None
+
+
+def test_missing_file_has_no_native_model_digest(tmp_path):
+    missing = tmp_path / "missing-model.onnx"
+    assert SherpaSileroSegments._verified_model_digest(missing) is False
