@@ -5,7 +5,6 @@ with python -I. No shell, arbitrary executable, network, microphone, or
 model operation occurs when importing or constructing this adapter.
 """
 import json
-import os
 from pathlib import Path
 import re
 import sys
@@ -92,13 +91,25 @@ class IsolatedPinnedParakeetSTT:
         )
         self._cancel = threading.Event()
         self._active = threading.Lock()
+        self._verified_bundle = None
 
     def prepare_verified_model(self):
-        # Hash local file bytes before minting any trusted vote identity.
-        return verify_stt_model_files(
+        """Explicit offline preflight BEFORE opening the voice session.
+
+        Pin once; later file changes invalidate this object instead of
+        silently approving a new model. The child separately SHA-checks
+        the bytes inside its hard subprocess deadline on each invocation.
+        """
+        if self._verified_bundle is not None:
+            if not self._verified_bundle.is_current():
+                raise RuntimeError("Isolated Parakeet pinned model invalidated")
+            return self._verified_bundle
+        bundle = verify_stt_model_files(
             self.model_name, family="parakeet",
             expected_sha256=self._config["trusted_model_file_hashes"],
         )
+        self._verified_bundle = bundle
+        return bundle
 
     def transcribe(self, audio):
         if (type(audio) is not bytes or not 0 < len(audio) <= MAX_PCM_BYTES
@@ -109,8 +120,12 @@ class IsolatedPinnedParakeetSTT:
         if not self._active.acquire(blocking=False):
             raise RuntimeError("Isolated Parakeet already running")
         try:
-            # Both parent and child independently check the same pinned files.
-            bundle = self.prepare_verified_model()
+            # Never hash large model weights on the synchronous voice path.
+            # A trusted factory must have explicitly prepared the bundle
+            # before speech starts. The worker re-hashes inside its deadline.
+            bundle = self._verified_bundle
+            if bundle is None or not bundle.is_current():
+                raise RuntimeError("Isolated Parakeet model preflight required")
             if self._cancel.is_set():
                 raise RuntimeError("Isolated Parakeet session stopped")
             output = run_deadlined(
