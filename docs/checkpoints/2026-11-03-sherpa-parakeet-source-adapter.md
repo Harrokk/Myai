@@ -335,3 +335,81 @@ verify the existing three-independent-STT high-risk voting rule
 in the Parakeet configuration. Do not lower the quality threshold
 solely to make CI green. The proposed 300ms padding remains
 tunable but is not asserted to be optimal.
+
+
+## 2026-11-03 continued: multi-rate/context Swedish benchmark and quality boundary
+
+### Hosted experiment and readout
+
+The fully pinned GitHub-hosted ARM64 experiment used three fixed
+Piper Alma phrases, synthesis rates **150/180/210**, and Silero
+context padding **0/300/500 ms**. It operates on in-memory generated
+PCM, never a VENTUNO or personal recording, and reports only bounded
+edit-distance bands and yes/no quality flags.
+
+- [First 3-rate experiment, run 41627394052](https://github.com/Harrokk/Myai/actions/runs/41627394052):
+  **6/9 exact** synthetically transcribed phrases after Silero.
+- [First 27-case context matrix, run 41627931310](https://github.com/Harrokk/Myai/actions/runs/41627931310):
+  **12/27 exact**, including **1/3 at the default 180-rate,
+  300-ms context**. This exploratory run FAILED the earlier
+  overly strict exact-match gate. Context expansion alone did
+  not establish better reliability.
+- [ONNX seed replay, run 41628619111](https://github.com/Harrokk/Myai/actions/runs/41628619111):
+  exact audio repetition failed in **9/9 paired Piper renders**
+  even after calling `onnxruntime.set_seed` with identical seeds.
+  Recognition was **16/27** in that run, with **2/3** at the
+  original 180-rate/300-ms reference point.
+- [Repeat of source HEAD, run 41629183726](https://github.com/Harrokk/Myai/actions/runs/41629183726):
+  end-to-end native ASR/VAD/TTS **functional smoke PASS**;
+  **16/27 exact synthetic cases** and repeat-identity **0/9**,
+  explicitly **`deployment_quality_certified=false`**.
+  No microphone, speaker or service change.
+- [Full source-only ARM64 run 41629183435](https://github.com/Harrokk/Myai/actions/runs/41629183435):
+  **4,487 passed; 10 skipped**, static audit **PASS** with zero
+  blocking findings and 617 Python source files syntax-checked.
+
+### Engineering interpretation and explicit no-go
+
+Piper Alma has synthesis noise parameters; repeated ONNX-seeded
+renders on the hosted runtime were NOT bit-identical. Therefore
+synthetic exact-phrase success on this tiny three-phrase set is
+**not a stable accuracy benchmark**, and 300-ms vs 500-ms silence
+cannot be confidently ranked from it. Do not claim a precise
+Swedish WER, a reliable phrase accuracy percentage, or physical
+response times from these results.
+
+The public **human** Swedish Wikimedia word remains an independent
+real-voice functional gate and **does pass** with the Silero+Parakeet
+pipeline. That success is limited to one short word.
+
+The exploratory synthetic rate matrix now gates on proper native
+model operation, bounded segmentation and at least one recognized
+phrase; it **always** returns
+`deployment_quality_certified=false`. A green smoke run does
+NOT authorize deployment, changing sensitive voice-tool rules or
+enabling handsfree.
+
+Silero's actual optional model-load boundary now verifies exact
+SHA-256 of the published official ONNX artifact, in addition to
+local path/size checks. Mutated fake ONNX files fail closed;
+hosted native Silero smoke remains separately required.
+
+### Next validation required before physical voice go/no-go
+
+1. Gather multiple short, independently licensed **human-spoken
+   Swedish sentences**, from at least two speakers, with verified
+   transcript metadata, stable URLs and pinned audio SHA-256.
+   Evaluate the exact same fixed clips on clean and mild-noise
+   variants, and report bounded word error statistics.
+2. Exercise single-utterance and repeat-turn resource handoff
+   with fake microphone, mock GenieX, mock speaker, timeouts and
+   failure injection on GitHub-hosted ARM64.
+3. Review process isolation, CPU memory peaks and voice model
+   unloading before ever running simultaneous local ASR and GenieX.
+4. Only after an explicit renewed physical authorization, perform
+   a one-shot VENTUNO Q test under operator supervision. Do not
+   change production voice profile, download models or touch its
+   USB microphone until that approval.
+
+The previously working MyAI/GenieX production installation and
+its disabled voice defaults remain unchanged. PR #374 stays DRAFT.
