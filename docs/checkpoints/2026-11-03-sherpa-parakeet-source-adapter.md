@@ -1,6 +1,6 @@
 # MyAI: isolated sherpa-onnx / Parakeet Swedish STT adapter
 
-**Status 2026-11-03: SOURCE-ONLY DRAFT. NOT INSTALLED OR RUN ON VENTUNO.**
+**Status 2026-11-03: DRAFT; PUBLIC SWEDISH CPU INFERENCE VERIFIED ON HOSTED ARM64. NOT INSTALLED OR RUN ON VENTUNO.**
 Stacks on MyAI DRAFT PR #373 at `e691e57a9f9fa059cf656a5603828472ef0b4c9e`.
 The original Arduino App Lab pilot is left in place, unchanged.
 
@@ -86,30 +86,56 @@ the configured expected language as a recognized language confidence.
   guarantee native allocator memory return.
 - The existing three-STT/vote/command-confirmation rules have not been
   changed or independently revalidated with this model.
-- GitHub-hosted synthetic CI must use **only** fake recognizers; no
-  self-hosted VENTUNO runner, recording, model loading or external model
-  downloads. No continuous listener, new ports, background monitoring
-  or service changes.
+- Standard MyAI CI and unit contract tests use **only** fake recognizers.
+  A separate pinned, CPU-only GitHub-hosted workflow may run the genuine
+  model with a strictly licensed public fixture. No self-hosted VENTUNO
+  runner, recording, persistent model installation, external user audio,
+  ports, background monitoring, or service changes.
 - No changes to `config/profiles/ventuno_q.json`, production
   `requirements.txt`, systemd or Arduino App Lab; no merges to main.
 
 ## Remaining gates, before any hardware use
 
-1. Review model artifact SHA-256, licensing, local cache ownership and
-   suitable CPU-only aarch64 wheels (including CPython ABI) in a disposable
-   hosted or local staging environment. Do not run a model downloader
-   inside production MyAI.
-2. Run **actual** sherpa-onnx inference using a licensed, public Swedish
-   audio fixture in a disposable hosted ARM64 environment; measure
-   accuracy, memory peak and elapsed time. No user microphone audio.
-3. Separately design and test the Silero VAD frame adapter using only
-   synthetic audio and upstream documented APIs.
-4. Add an opt-in Piper TTS adapter after its Swedish voice/model license
-   and ARM64 performance are verified. No automatic audio playback.
-5. Only with a new explicit, physically supervised authorization:
-   check VENTUNO CPU memory reserve, ALSA permissions and single-use
-   voice capture; preserve GenieX/MyAI service restoration safeguards.
+1. **Hosted gates completed:** sherpa-onnx 1.13.8 import and CPU API
+   verified on hosted ARM64. The exact upstream model archive was verified
+   against the GitHub-release asset's SHA-256 before selective extraction.
+   Model license reviewed: NVIDIA Parakeet TDT 0.6B v3, CC-BY-4.0.
+2. **Hosted real Swedish test completed:** public Wikimedia Swedish
+   one-word speech `Sv-svenska.ogg` by Peter Isotalo (CC BY-SA 3.0 /
+   GFDL), SHA-1 verified. No user audio or microphone.
+3. **Remaining:** design and test a separate Silero VAD adapter on
+   synthetic audio, with 20-ms to model-frame buffering and timing limits.
+4. **Remaining:** add Piper Swedish TTS after verifying selected voice
+   licensing, ARM64 inference and non-playing synthetic audio contracts.
+5. **Remaining:** wider Swedish speech benchmark, realistic/noisy speech,
+   concurrency and CPU peak memory with GenieX. The 1.88-second reference
+   is one isolated word, not a representative WER or hands-free evaluation.
+6. **Physical consent gate:** only with separately approved operator
+   supervision, measure VENTUNO resource reserve, validate ALSA capture
+   and run one controlled voice session with service restoration safeguards.
 
-**Current status:** first source-only swappable provider is prepared;
-no claim of complete spoken-dialogue operation or successful hardware
-integration is made.
+## Verified 2026-11-03 hosted ARM64 genuine Parakeet inference
+
+GitHub Actions [run 41620611031](https://github.com/Harrokk/Myai/actions/runs/41620611031)
+**SUCCESS** using exact source HEAD `ae3455a68c3d08ad6e6e3b7ae9b83762cb763c92`
+(disposable `ubuntu-24.04-arm`; never VENTUNO).
+
+- Official sherpa-onnx GitHub release archive:
+  `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2`.
+- Exact size **487,170,055 bytes**, GitHub Release asset SHA-256
+  `5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf`.
+- Only the four allowlisted model files were extracted to hosted scratch.
+- PyAV `18.1.0` decoded the checksum-verified public Swedish OGG;
+  sherpa-onnx `1.13.8` loaded and decoded it on CPU with 2 threads.
+- **Actual word `svenska` recognized**, measured **model load 1.918 s**,
+  **inference 0.182 s**, **public audio duration 1.881 s**,
+  **peak process RSS 1,196.8 MiB**. Not VENTUNO performance.
+- Prior synthetic archive/provider regressions: **29 passed**.
+- No microphone, user audio, NPU, system service change or deployment.
+- Project's manual-dispatch gate flagged the new test workflow's
+  optional `workflow_dispatch`. This was removed (push-only) without
+  weakening the gate, in commit `d45e7b26fdff96588ff82d6e47d65122c0f8e29a`.
+
+**Current status:** real offline Swedish word recognition now verified
+on a disposable hosted ARM64 CPU; production MyAI and VENTUNO remain
+unchanged. This is **not** proof of live Swedish conversation on VENTUNO.
