@@ -1,4 +1,4 @@
-"""Three fixed synthetic Swedish phrases: Piper→Silero→Parakeet on hosted ARM64.
+"""Three fixed Swedish phrases × three synthesis rates on hosted ARM64.
 
 The voice is a separately checksum-verified Swedish Piper Alma model.
 The Parakeet and Silero files are SHA-pinned by the invoking workflow.
@@ -21,6 +21,7 @@ from scripts.hosted_parakeet_swedish_fixture import (
     public_pcm_vad_segments, public_ogg_to_pcm, verified_silero_model,
 )
 
+RATES = (150, 180, 210)
 PHRASES = (
     "Vad heter du?",
     "Hur mycket minne använder datorn?",
@@ -58,6 +59,29 @@ def _normalize(text):
     return " ".join(re.findall(r"[a-zåäö]+", text.casefold()))
 
 
+def _distance_band(expected, observed):
+    """Bounded, source-independent quality metric; never leak decoded text."""
+    left, right = _normalize(expected), _normalize(observed)
+    if len(right) > 220 or len(left) > 220:
+        return "invalid"
+    prev = list(range(len(right) + 1))
+    for i, a in enumerate(left, 1):
+        now = [i]
+        for j, b in enumerate(right, 1):
+            now.append(min(now[-1] + 1, prev[j] + 1, prev[j - 1] + (a != b)))
+        prev = now
+    score = prev[-1]
+    if score == 0:
+        return "0"
+    if score <= 2:
+        return "1-2"
+    if score <= 5:
+        return "3-5"
+    if score <= 10:
+        return "6-10"
+    return "11+"
+
+
 def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
     if not verified_silero_model(silero):
         raise RuntimeError("Silero checksum rejected")
@@ -69,32 +93,43 @@ def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
     stt_loaded = round(time.monotonic() - now, 3)
     outcomes = []
     try:
-        for phrase in PHRASES:
-            start = time.monotonic()
-            synthetic = piper.render_wav(phrase)
-            pcm = _wav_to_16k_pcm(synthetic)
-            # 400 ms pre-roll / 600 ms tail emulate a bounded continuous
-            # audio stream including turn-taking silence.
-            captured = bytes(12800) + pcm + bytes(19200)
-            segments = public_pcm_vad_segments(captured, silero)
-            whole = recognizer.transcribe(captured)["text"]
-            segment_text = (
-                recognizer.transcribe(segments[0])["text"] if segments else ""
-            )
-            outcomes.append({
-                "whole_exact": _normalize(whole) == _normalize(phrase),
-                "silero_exact": _normalize(segment_text) == _normalize(phrase),
-                "silero_segments": len(segments),
-                "synthetic_seconds": round(len(captured) / 32000, 3),
-                "elapsed_seconds": round(time.monotonic() - start, 3),
-            })
+        for rate in RATES:
+            piper.rate = rate
+            for phrase_id, phrase in enumerate(PHRASES):
+                start = time.monotonic()
+                synthetic = piper.render_wav(phrase)
+                pcm = _wav_to_16k_pcm(synthetic)
+                # 400 ms pre-roll / 600 ms tail emulate turn-taking
+                # without user microphones or production audio.
+                captured = bytes(12800) + pcm + bytes(19200)
+                segments = public_pcm_vad_segments(captured, silero)
+                whole = recognizer.transcribe(captured)["text"]
+                segment_text = (
+                    recognizer.transcribe(segments[0])["text"] if segments else ""
+                )
+                outcomes.append({
+                    "phrase_case": phrase_id + 1,
+                    "rate": rate,
+                    "whole_exact": _normalize(whole) == _normalize(phrase),
+                    "silero_exact": _normalize(segment_text) == _normalize(phrase),
+                    "whole_distance_band": _distance_band(phrase, whole),
+                    "silero_distance_band": _distance_band(phrase, segment_text),
+                    "silero_segments": len(segments),
+                    "synthetic_seconds": round(len(captured) / 32000, 3),
+                    "elapsed_seconds": round(time.monotonic() - start, 3),
+                })
     finally:
         recognizer.release_for_inference()
         piper.release_for_inference()
 
+    baseline = [row for row in outcomes if row["rate"] == 180]
+    baseline_count = sum(row["silero_exact"] for row in baseline)
     return {
-        "status": "hosted-piper-silero-parakeet-triad-complete",
-        "phrase_count": len(outcomes),
+        "status": "hosted-piper-silero-parakeet-rate-matrix-complete",
+        "phrase_count": len(PHRASES),
+        "rate_count": len(RATES),
+        "scenario_count": len(outcomes),
+        "baseline_180_silero_exact_count": baseline_count,
         "whole_exact_count": sum(x["whole_exact"] for x in outcomes),
         "silero_exact_count": sum(x["silero_exact"] for x in outcomes),
         "results": outcomes,
@@ -104,7 +139,6 @@ def benchmark(parakeet: Path, silero: Path, alma: Path) -> dict:
         "audio_saved": False, "user_content_used": False,
         "production_services_changed": False,
     }
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -122,7 +156,7 @@ def main() -> int:
         }))
         return 2
     print(json.dumps(report, sort_keys=True))
-    return 0 if report["silero_exact_count"] >= 1 else 3
+    return 0 if report["baseline_180_silero_exact_count"] >= 2 else 3
 
 
 if __name__ == "__main__":
