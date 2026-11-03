@@ -18,7 +18,9 @@ import subprocess
 import sys
 import time
 
-from core.voice_stt_bounded_io import exchange_bounded, OversizedSTTOutput
+from core.voice_stt_bounded_io import (
+    exchange_bounded, OversizedSTTOutput, CancelledSTT,
+)
 from core.voice_stt_process_group import terminate_owned_group
 from core.voice_stt_reply import decode_stt_reply
 from core.voice_stt_child_limits import add_limit_environment, validated_limits
@@ -64,7 +66,7 @@ def worker_argv(config):
 
 
 def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen,
-                 cpu_seconds=0, virtual_memory_mib=0):
+                 cpu_seconds=0, virtual_memory_mib=0, cancel_event=None):
     """Kill full owned process group on deadline, not merely Python thread.
 
     This only runs our trusted, fixed worker from worker_argv. Suppresses
@@ -74,6 +76,14 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen,
     if (type(audio) not in (bytes, bytearray)
             or not 0 < len(audio) <= MAX_PCM_BYTES):
         raise ValueError("Invalid or oversized isolated STT PCM")
+    if cancel_event is not None and not callable(
+        getattr(cancel_event, "is_set", None)
+    ):
+        raise ValueError("Invalid STT cancellation event")
+    def cancelled():
+        return cancel_event is not None and cancel_event.is_set() is True
+    if cancelled():
+        raise RuntimeError("Isolated STT worker cancelled")
     environment = add_limit_environment(
         {
             "PATH": "/usr/bin:/bin",
@@ -102,11 +112,25 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen,
         output = exchange_bounded(
             proc, bytes(audio), deadline=deadline,
             max_reply_bytes=MAX_REPLY_BYTES,
+            cancel_event=cancel_event,
         )
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("Isolated STT process deadline exceeded")
-        proc.wait(timeout=remaining)
+        while True:
+            if cancelled():
+                raise CancelledSTT("Isolated STT worker cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Isolated STT process deadline exceeded")
+            try:
+                proc.wait(timeout=min(remaining, 0.10) if
+                          cancel_event is not None else remaining)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Isolated STT process deadline exceeded") from None
+                continue
+    except CancelledSTT:
+        terminate_owned_group(proc)
+        raise RuntimeError("Isolated STT worker cancelled") from None
     except (TimeoutError, subprocess.TimeoutExpired):
         # A helper may keep stdout open after its leader exits. Always
         # verify the FULL group is stopped before surfacing a timeout.
@@ -126,6 +150,8 @@ def run_deadlined(argv, audio, seconds, *, popen=subprocess.Popen,
     # Successful pipe EOF/leader exit are not sufficient: native helper
     # descendants could still retain RAM inside the same group.
     terminate_owned_group(proc)
+    if cancelled():
+        raise RuntimeError("Isolated STT worker cancelled")
     if proc.returncode != 0:
         raise RuntimeError("Isolated STT worker failed")
     try:

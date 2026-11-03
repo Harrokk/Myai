@@ -249,7 +249,10 @@ class VoiceSession:
         if self.running:
             return False
 
-        if self.voice.get("stt_persistent_worker_enabled", False) is True:
+        if (
+            self.voice.get("stt_persistent_worker_enabled", False) is True
+            or self.voice.get("risk_tiered_verification_enabled", False) is True
+        ):
             # Stop cancellation is sticky across sessions. Only an
             # explicit fresh start can re-arm an isolated STT provider.
             seen = set()
@@ -287,7 +290,10 @@ class VoiceSession:
         if self.pipeline is not None:
             self.pipeline.cancel_pending()
 
-        if self.voice.get("stt_persistent_worker_enabled", False) is True:
+        if (
+            self.voice.get("stt_persistent_worker_enabled", False) is True
+            or self.voice.get("risk_tiered_verification_enabled", False) is True
+        ):
             # Send cancellation BEFORE waiting for any control path or
             # cached-worker lock. A blocked STT read polls for this
             # event, drops its late result and reaps its own child.
@@ -329,7 +335,10 @@ class VoiceSession:
         # Persistent STT caches native memory in another process. Close
         # owned cached model workers when the voice session ends, even
         # if the microphone had already been released for inference.
-        if self.voice.get("stt_persistent_worker_enabled", False) is True:
+        if (
+            self.voice.get("stt_persistent_worker_enabled", False) is True
+            or self.voice.get("risk_tiered_verification_enabled", False) is True
+        ):
             providers = [
                 self.components.get("primary_stt"),
                 *self.components.get("backup_stt", []),

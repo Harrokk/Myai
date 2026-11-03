@@ -806,3 +806,82 @@ def test_barge_in_tts_interrupt_does_not_cancel_new_voice_command():
     assert not token.is_set()
     assert session.stop() is True
     assert token.is_set()
+
+
+class TieredCancellableSTT(FakeSTT):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+        self.block_close = False
+
+    def resume(self):
+        self.events.append("resume")
+
+    def request_cancel(self):
+        self.events.append("cancel")
+        return True
+
+    def close(self):
+        self.events.append("close")
+        if self.block_close:
+            raise RuntimeError("synthetic worker still running")
+
+
+def test_tiered_session_stops_both_one_shot_stt_workers_without_device_access():
+    primary = TieredCancellableSTT()
+    backup = TieredCancellableSTT()
+    fake = components(FakeMicrophone([]), FakeVAD([]), stt=primary)
+    fake["backup_stt"] = [backup]
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(risk_tiered_verification_enabled=True),
+        components=fake,
+    )
+    assert session.start() is True
+    assert primary.events == ["resume"]
+    assert backup.events == ["resume"]
+    assert session.stop() is True
+    assert primary.events == ["resume", "cancel", "close"]
+    assert backup.events == ["resume", "cancel", "close"]
+    assert session.running is False
+
+
+def test_tiered_stop_deduplicates_same_provider_object():
+    stt = TieredCancellableSTT()
+    fake = components(FakeMicrophone([]), FakeVAD([]), stt=stt)
+    fake["backup_stt"] = [stt]
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(risk_tiered_verification_enabled=True),
+        components=fake,
+    )
+    session.start()
+    session.stop()
+    assert stt.events == ["resume", "cancel", "close"]
+
+
+def test_tiered_child_cleanup_failure_is_not_misreported_as_stop_success():
+    stt = TieredCancellableSTT()
+    stt.block_close = True
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(risk_tiered_verification_enabled=True),
+        components=components(FakeMicrophone([]), FakeVAD([]), stt=stt),
+    )
+    session.start()
+    with pytest.raises(RuntimeError, match="kunde inte frigöras"):
+        session.stop()
+    assert stt.events == ["resume", "cancel", "close"]
+    assert session.running is False
+
+
+def test_legacy_mode_does_not_gain_new_stop_side_effects():
+    stt = TieredCancellableSTT()
+    session = VoiceSession(
+        FakeAssistant(),
+        settings=settings(risk_tiered_verification_enabled=False),
+        components=components(FakeMicrophone([]), FakeVAD([]), stt=stt),
+    )
+    session.start()
+    session.stop()
+    assert stt.events == []
