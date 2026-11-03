@@ -5,6 +5,7 @@ on:
     branches: [dev/ventuno-sherpa-parakeet-source-adapter-20261103]
     paths:
       - scripts/hosted_parakeet_swedish_fixture.py
+      - scripts/hosted_piper_silero_parakeet_triad.py
       - modules/voice/sherpa_silero_segments.py
       - modules/voice/sherpa_onnx_provider.py
       - tests/test_hosted_parakeet_swedish_fixture.py
@@ -118,3 +119,54 @@ jobs:
             --archive "$RUNNER_TEMP/parakeet-v3-int8-pinned.tar.bz2" \
             --runner-temp "$RUNNER_TEMP" \
             --silero-model "$RUNNER_TEMP/silero-public-vad.onnx"
+
+      - name: Stage pinned Piper aarch64 speech engine in same disposable venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="$RUNNER_TEMP/parakeet-cpu-venv/bin/python"
+          mkdir -p "$RUNNER_TEMP/piper-triad-wheel"
+          "$py" -m pip download --no-cache-dir --no-deps --only-binary=:all: \
+            -d "$RUNNER_TEMP/piper-triad-wheel" "piper-tts==1.8.0"
+          test "$(find "$RUNNER_TEMP/piper-triad-wheel" -type f | wc -l)" -eq 1
+          wheel="$(find "$RUNNER_TEMP/piper-triad-wheel" -maxdepth 1 -name '*aarch64.whl' -type f -print -quit)"
+          test -f "$wheel"
+          printf '%s  %s\n' \
+            '3f60c1917de6d8e8033f395878ad3f88f6dfee88a8b05f98971a275f76a38484' \
+            "$wheel" | sha256sum --check --status
+          "$py" -m pip install --no-index --no-deps "$wheel"
+          "$py" -m pip install --disable-pip-version-check --only-binary=:all: \
+            "onnxruntime==1.23.2" "pathvalidate==3.3.1"
+
+      - name: Fetch pinned public Swedish Piper Alma voice for synthetic ASR test
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/piper-triad-alma"
+          mkdir -p "$root"
+          base="https://huggingface.co/rhasspy/piper-voices/resolve/834f232/sv/sv_SE/alma/medium"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 360 \
+            -o "$root/sv_SE-alma-medium.onnx" "$base/sv_SE-alma-medium.onnx"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 45 \
+            -o "$root/sv_SE-alma-medium.onnx.json" "$base/sv_SE-alma-medium.onnx.json"
+          test "$(stat -c %s "$root/sv_SE-alma-medium.onnx")" -ge 55000000
+          test "$(stat -c %s "$root/sv_SE-alma-medium.onnx")" -le 70000000
+          printf '%s  %s\n' \
+            'f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc' \
+            "$root/sv_SE-alma-medium.onnx" | sha256sum --check --status
+
+      - name: Evaluate three synthetic Swedish voice phrases through Silero and Parakeet
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/parakeet-source"
+          "$RUNNER_TEMP/parakeet-cpu-venv/bin/python" -B \
+            -m scripts.hosted_piper_silero_parakeet_triad \
+            --parakeet "$RUNNER_TEMP/parakeet-local-verified" \
+            --silero "$RUNNER_TEMP/silero-public-vad.onnx" \
+            --alma "$RUNNER_TEMP/piper-triad-alma/sv_SE-alma-medium.onnx"
