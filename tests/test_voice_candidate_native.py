@@ -214,3 +214,22 @@ def test_different_model_digest_cannot_be_reused(tmp_path):
         IsolatedPinnedNativeCandidateSTT(
             profile=profile, model_sha256="0" * 64, runtime_sha256=esha,
         )
+
+
+def test_native_sigxcpu_is_never_accepted_as_a_voice_vote(tmp_path, monkeypatch):
+    engine = stt(tmp_path)
+    class CpuLimitedChild:
+        returncode = -24
+        def wait(self, timeout=None):
+            return self.returncode
+    monkeypatch.setattr(
+        native, "_launch_native_candidate_worker",
+        lambda *_a, **_kw: CpuLimitedChild(),
+    )
+    monkeypatch.setattr(
+        native, "_read_bounded_native_output",
+        lambda *_a, **_kw: b"run: ok\\ntext: Stäng av lampan\\n",
+    )
+    monkeypatch.setattr(native, "terminate_owned_group", lambda _p: None)
+    with pytest.raises(RuntimeError, match=r"failed \(signal_cpu_limit\)"):
+        engine.transcribe(b"\\x00\\x00")
