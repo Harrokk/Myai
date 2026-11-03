@@ -56,6 +56,22 @@ jobs:
             "pytest==8.3.5" "numpy==2.2.4" \
             -r "$RUNNER_TEMP/myai-parakeet-src/requirements.txt"
 
+      - name: Verify published ARM64 CPU wheels and Python API without model files
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-parakeet-src"
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            -r requirements-sherpa-voice.txt
+          "$RUNNER_TEMP/myai-parakeet-test-venv/bin/python" -B - <<'PY'
+          import sherpa_onnx
+          assert callable(sherpa_onnx.OfflineRecognizer.from_transducer)
+          print("sherpa-onnx ARM64 CPU Python API import verified; no model loaded")
+          PY
+
       - name: Check source-only contracts
         shell: bash
         env:
