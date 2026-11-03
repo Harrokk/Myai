@@ -121,13 +121,15 @@ def verified_silero_model(path: Path) -> bool:
         return False
 
 
-def public_pcm_vad_segments(audio: bytes, model_path: Path) -> list[bytes]:
+def public_pcm_vad_segments(audio: bytes, model_path: Path, *, context_padding_ms=300) -> list[bytes]:
     """Return Silero-completed segments from public 20-ms PCM16 frames."""
     from modules.voice.sherpa_silero_segments import SherpaSileroSegments
 
     if not verified_silero_model(model_path):
         raise RuntimeError("Public Silero model hash mismatch")
-    detector = SherpaSileroSegments(model_path=str(model_path))
+    detector = SherpaSileroSegments(
+        model_path=str(model_path), context_padding_ms=context_padding_ms
+    )
     out = []
     for offset in range(0, len(audio), 640):
         frame = audio[offset:offset + 640]
