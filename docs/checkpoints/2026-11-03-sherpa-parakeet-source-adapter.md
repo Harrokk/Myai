@@ -257,3 +257,44 @@ was used. No recognized transcripts are exported in CI logs.
    resource handoff to GenieX and an end-to-end Swedish reply.
 5. Never auto-merge PR #374 or enable `voice.enabled`/TTS/handsfree
    on production without review and explicit approval.
+
+
+## Additional 2026-11-03 Swedish speech-rate matrix and regression status
+
+The public-text-only hosted benchmark now covers 3 fixed Swedish
+sentences × 3 Piper Alma speaking rates (150/180/210), and reports
+only strict-match booleans, clipped edit-distance bands and
+synthetic-audio timing. It does **not** log transcripts or waveforms.
+
+- [Rate matrix run 41627244601](https://github.com/Harrokk/Myai/actions/runs/41627244601):
+  **SUCCESS**, 5/9 Silero-segment exact, 5/9 whole-waveform exact;
+  baseline 180 had 2/3 segmented exact.
+- [Rate matrix run 41627394052](https://github.com/Harrokk/Myai/actions/runs/41627394052):
+  **SUCCESS**, 6/9 Silero-segment exact, 4/9 whole-waveform exact;
+  baseline 180 had 2/3 segmented exact.
+- Results vary across separate runs despite the same fixed phrases and
+  pinned model versions. Do not select a supposedly optimal speed or
+  claim a population WER from a small, synthesized, variable set.
+  Natural human speech and noise testing remain necessary.
+- [Full hosted ARM64 CI 41627394082](https://github.com/Harrokk/Myai/actions/runs/41627394082):
+  **SUCCESS** with **4,487 passed / 10 skipped**;
+  repository source/privacy audit PASS, no blocking findings.
+- Native Silero/Parakeet integration failure now invokes opt-in
+  VoiceSession shutdown and attempts to close its microphone. New
+  synthetic regression cases confirm that no STT/LLM/tool action
+  continues on a failed audio read and that source error messages
+  are redacted. If microphone cleanup also fails, a distinct error
+  is reported instead of claiming successful closure.
+
+Important command safety: existing VoicePipeline enforces
+three independent STT instances for high-risk voice commands,
+regardless of the performance-oriented redundancy setting.
+The Parakeet prototype does not install or certify two alternate
+recognizers. A high-risk command must therefore fail closed
+until a separately validated multi-model configuration exists.
+
+**No further microphone or speaker permission has been granted by
+these hosted tests.** The remaining significant boundary is a
+supervised, reversible VENTUNO hardware stage, including genuine
+USB capture and output routing, CPU/memory and GenieX model handoff,
+and live Swedish question/reply behavior.
