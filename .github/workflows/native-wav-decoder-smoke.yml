@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - "dev/voice-native-wav-decoder-smoke-20261103"
-  workflow_dispatch:
 
 permissions:
   contents: read
