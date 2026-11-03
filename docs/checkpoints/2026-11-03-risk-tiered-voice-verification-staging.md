@@ -67,3 +67,53 @@ Denna gren är *inte* en ersättning för #374 och ska inte mergas ännu.
 
 Detta är avsiktligt en säker grundläggning, inte en driftsatt ersättning
 för de befintliga röstkommandona.
+
+## Continued source-only integration (same DRAFT branch)
+
+The following extra components have now been staged; none of this enables
+production voice:
+
+- `core/voice_tier_identity.py`: binds exact provider objects to distinct
+  model families and pinned 64-character SHA256 weight identities supplied
+  by a *trusted future model factory*, not by a model response.
+- `core/voice_tier_authorization.py`: short-lived (at most 30 seconds),
+  per-plan HMAC-bound, stop-revocable, single-use-per-tool authorization
+  receipt; recomputes tool risk and rejects changed plans, callbacks,
+  inputs, registry metadata, stale timestamps and replay.
+- `core/voice_tier_flow.py`: staged synthetic route from primary STT,
+  risk preview, optional independent backups, verification, receipt and
+  per-invocation callback into existing `VoicePipeline._respond_and_speak`.
+- `core/voice_pipeline.py`: switches to this route only when explicitly
+  `risk_tiered_verification_enabled is True`; default legacy flow unchanged.
+  A malformed flag is denied. The guarded callback now carries optional
+  `voice_tier_authorize` so authorization is checked at actual dispatch.
+- `tests/test_voice_tier_identity.py`,
+  `tests/test_voice_tier_authorization.py` and
+  `tests/test_voice_tier_flow.py`: synthetic identity, approval, risk
+  escalation, plan drift, replay, stop, model disagreement and integration
+  checks. No real models or hardware.
+
+### Remaining security gates, deliberately NOT bypassed
+
+1. Config validation **still rejects** enabling tiered mode, even if the
+   runtime code now exposes a source-only path.
+2. The production factory and VoiceSession do **not** supply
+   `trusted_stt_bindings`. Thus there is no live trusted mapping from pinned
+   model hashes to instantiated Parakeet/Canary/Whisper workers.
+3. Actual three-model STT is not present on VENTUNO. The source-only
+   integration tests substitute fake providers with intentionally synthetic
+   bound identities; this is not a proof of real ASR provenance.
+4. All **critical** commands remain unconditionally blocked by
+   `TieredVoicePermit` even if 3 independent STT models agree. Physical
+   consent/user identity must be separately designed, validated and
+   implemented before any critical permissions are issued.
+5. For medium risk, only allowlisted and explicitly reviewed reversible
+   effects may be considered. Any tool whose metadata requires confirmation
+   is escalated to critical regardless of effect label.
+6. Real interruptions, performance and audio quality have not been tested
+   on VENTUNO. The current STT deadline is observed after a provider call;
+   native hard timeouts still need isolated worker support.
+
+Do not remove the configuration hard-deny or merge this staging PR based only
+on green unit tests. Production work needs a second security review,
+hosted pinned-model tests and a separately approved physical-device pilot.
