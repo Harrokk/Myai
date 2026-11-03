@@ -2,8 +2,9 @@
 
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
+
+np = pytest.importorskip('numpy')
 
 from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
 
