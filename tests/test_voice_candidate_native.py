@@ -228,8 +228,8 @@ def test_native_sigxcpu_is_never_accepted_as_a_voice_vote(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(
         native, "_read_bounded_native_output",
-        lambda *_a, **_kw: b"run: ok\\ntext: Stäng av lampan\\n",
+        lambda *_a, **_kw: b"run: ok\ntext: Stäng av lampan\n",
     )
     monkeypatch.setattr(native, "terminate_owned_group", lambda _p: None)
     with pytest.raises(RuntimeError, match=r"failed \(signal_cpu_limit\)"):
-        engine.transcribe(b"\\x00\\x00")
+        engine.transcribe(b"\x00\x00")
