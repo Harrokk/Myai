@@ -76,3 +76,23 @@ def test_none_and_nontext_sections_fail_closed():
         assert inspect_readelf(value, PROGRAM, DYNAMIC)["safe"] is False
         assert inspect_readelf(HEADER, value, DYNAMIC)["safe"] is False
         assert inspect_readelf(HEADER, PROGRAM, value)["safe"] is False
+
+
+def test_only_the_verified_arm64_glibc_loader_can_be_a_needed_soname():
+    # Generated native AArch64 executables may reference the glibc loader
+    # as DT_NEEDED in addition to PT_INTERP. They must match precisely.
+    dynamic = DYNAMIC + """
+ 0x1 (NEEDED) Shared library: [ld-linux-aarch64.so.1]
+"""
+    result = inspect_readelf(HEADER, PROGRAM, dynamic)
+    assert result["safe"] is True
+    assert "ld-linux-aarch64.so.1" in result["needed"]
+
+
+def test_wrong_loader_dependency_still_fails_even_with_good_interpreter():
+    dynamic = DYNAMIC + """
+ 0x1 (NEEDED) Shared library: [ld-linux-x86-64.so.2]
+"""
+    result = inspect_readelf(HEADER, PROGRAM, dynamic)
+    assert result["safe"] is False
+    assert "ld-linux-x86-64.so.2" in result["unexpected"]
