@@ -83,6 +83,11 @@ def process_tiered_utterance(pipeline, audio):
             return _clarify("backup_stt_failed")
         if token.is_set() or pipeline._stt_deadline_expired(started_at):
             return _clarify("stt_cancelled_or_stale")
+        if tier == "critical" and not result["text"]:
+            # A successfully invoked third model may abstain. Errors and
+            # missing models cannot masquerade as an abstention.
+            observed.append((provider, ""))
+            continue
         if classify_voice_tier(result["text"], plan, registry)["tier"] != tier:
             # A second recognizer may have heard a MORE dangerous action.
             # Never silently keep the primary's lower authorization level.
