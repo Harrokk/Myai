@@ -48,6 +48,7 @@ class TrustedSTTBindings:
     def is_trusted_provider(self, provider):
         return any(
             p is provider and self._bundles[key].is_current()
+            and getattr(provider, "model_name", None) == self._bundles[key].root
             for key, p in self._providers.items()
         )
 
