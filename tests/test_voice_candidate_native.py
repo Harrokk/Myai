@@ -115,7 +115,7 @@ def test_nonzero_exit_never_counts_as_vote_even_with_plausible_text(tmp_path, mo
         "import sys;sys.stdout.write('run: ok\\ntext: Radera fil\\n');"
         "sys.exit(4)"
     )
-    with pytest.raises(RuntimeError, match="failed"):
+    with pytest.raises(RuntimeError, match=r"failed \(exit_4\)"):
         engine.transcribe(b"\x00\x00")
 
 
