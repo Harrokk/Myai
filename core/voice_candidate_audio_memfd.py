@@ -56,9 +56,10 @@ def sealed_pcm16_wav_memfd(audio):
         raise ValueError("Invalid or oversized in-memory STT audio")
     if (not hasattr(os, "memfd_create")
             or not hasattr(os, "MFD_ALLOW_SEALING")
+            or not hasattr(os, "MFD_CLOEXEC")
             or not all(hasattr(fcntl, name) for name in (
-                "F_ADD_SEALS", "F_SEAL_WRITE", "F_SEAL_GROW",
-                "F_SEAL_SHRINK", "F_SEAL_SEAL",
+                "F_ADD_SEALS", "F_GET_SEALS", "F_SEAL_WRITE",
+                "F_SEAL_GROW", "F_SEAL_SHRINK", "F_SEAL_SEAL",
             ))):
         raise RuntimeError("RAM-only STT audio delivery is unavailable")
 
