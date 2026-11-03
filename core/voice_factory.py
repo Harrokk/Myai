@@ -1,9 +1,11 @@
+from pathlib import Path
 from core.config import load_settings
 from core.voice_output import InterruptibleTTS
 from core.voice_stt_process import IsolatedFasterWhisperSTT
 from core.voice_stt_persistent import PersistentFasterWhisperSTT
 from modules.voice.sherpa_onnx_provider import SherpaOnnxParakeetSTT
 from modules.voice.sherpa_silero_segments import SherpaSileroSegments
+from modules.voice.piper_alma_provider import PiperAlmaTTS
 from modules.voice.providers import (
     FasterWhisperSTT,
     Pyttsx3TTS,
@@ -26,6 +28,7 @@ DEFAULT_CLASSES = {
     },
     "tts": {
         "pyttsx3": Pyttsx3TTS,
+        "piper_alma": PiperAlmaTTS,
     },
 }
 
@@ -230,20 +233,22 @@ def build_voice_components(
             tts_name,
             classes,
         )
-        raw_tts = tts_class(
-            rate=config.get(
-                "tts_rate",
-                180,
-            ),
-            volume=config.get(
-                "tts_volume",
-                1.0,
-            ),
-            voice_id=(
-                config.get("tts_voice_id")
-                or None
-            ),
-        )
+        tts_kwargs = {
+            "rate": config.get("tts_rate", 180),
+            "volume": config.get("tts_volume", 1.0),
+            "voice_id": config.get("tts_voice_id") or None,
+        }
+        if tts_name == "piper_alma":
+            model = tts_kwargs["voice_id"]
+            output = config.get("tts_output_device")
+            if (not isinstance(model, str) or not Path(model).is_absolute()
+                    or Path(model).name != "sv_SE-alma-medium.onnx"):
+                raise ValueError("Piper requires an explicit absolute local Swedish voice")
+            if not ((type(output) is int and output >= 0)
+                    or (isinstance(output, str) and 0 < len(output) <= 120)):
+                raise ValueError("Piper requires an explicitly selected sound output device")
+            tts_kwargs["output_device"] = output
+        raw_tts = tts_class(**tts_kwargs)
 
         if config.get(
             "tts_async",
