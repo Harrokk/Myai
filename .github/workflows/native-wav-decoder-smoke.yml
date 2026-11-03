@@ -1,0 +1,102 @@
+name: MyAI native WAV decoder smoke (hosted ARM64, no model)
+
+on:
+  push:
+    branches:
+      - "dev/voice-native-wav-decoder-smoke-20261103"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-native-wav-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decoder-smoke:
+    name: Verify pinned C++ decoders read sealed RAM WAV on ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    env:
+      CANARY_SHA: "5700f127e38dd53c4735ea23ef743b4b538eacd4"
+      WHISPER_SHA: "4da27c41cebadb3cbbcd2563e9c7cbc8d84bdcad"
+    steps:
+      - name: Enforce disposable GitHub-hosted ARM64 runner
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+
+      - name: Fetch exact MyAI source into disposable workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/myai-native-source"
+          cd "$RUNNER_TEMP/myai-native-source"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout -q --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Fetch exact public upstream source commits, never floating branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            "canary https://github.com/handy-computer/transcribe.cpp.git $CANARY_SHA" \
+            "whisper https://github.com/ggml-org/whisper.cpp.git $WHISPER_SHA"; do
+            read -r label url sha <<< "$spec"
+            dest="$RUNNER_TEMP/myai-native-$label"
+            mkdir -p "$dest"
+            git -C "$dest" init -q
+            git -C "$dest" remote add origin "$url"
+            git -C "$dest" -c credential.helper= fetch --quiet --depth=1 origin "$sha"
+            git -C "$dest" -c credential.helper= checkout -q --force --detach FETCH_HEAD
+            test "$(git -C "$dest" rev-parse HEAD)" = "$sha"
+          done
+
+      - name: Compile pinned upstream audio-decoder code (no AI inference)
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/myai-native-source/tests/native/candidate_wav_reader_smoke.cpp"
+          canary="$RUNNER_TEMP/myai-native-canary/examples/common"
+          whisper="$RUNNER_TEMP/myai-native-whisper/examples"
+          mkdir -p "$RUNNER_TEMP/myai-native-build"
+          g++ -std=c++17 -O0 -DMYAI_CANARY_WAV \
+            -I "$canary" "$src" "$canary/wav.cpp" \
+            -o "$RUNNER_TEMP/myai-native-build/canary-wav"
+          g++ -std=c++17 -O0 -DMYAI_WHISPER_MINIAUDIO \
+            -I "$whisper" "$src" -pthread -ldl -lm \
+            -o "$RUNNER_TEMP/myai-native-build/whisper-wav"
+
+      - name: Verify sealed memfd private WAV in actual C++ decoders
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          PYTHONPATH="$RUNNER_TEMP/myai-native-source" \
+            python3 -B scripts/ci_native_wav_probe.py \
+            "$RUNNER_TEMP/myai-native-build/canary-wav" \
+            "$RUNNER_TEMP/myai-native-build/whisper-wav"
+          echo "PINNED C++ WAV DECODERS: PASS (synthetic 16 kHz RAM audio only)"
+
+      - name: Report tested scope
+        if: always()
+        shell: bash
+        run: |
+          echo "## Pinned upstream WAV decoder smoke, GitHub-hosted ARM64 only" >> "$GITHUB_STEP_SUMMARY"
+          echo "MyAI commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Canary source: $CANARY_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Whisper source: $WHISPER_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "No model weights, microphone, real transcript, native STT CLI or VENTUNO hardware." >> "$GITHUB_STEP_SUMMARY"
