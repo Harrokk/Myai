@@ -163,7 +163,9 @@ def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[
     loaded = time.monotonic()
     silero_report = {"silero_tested": False, "silero_speech_segments": None,
                      "silero_swedish_word_recognized": None,
-                     "silero_decode_seconds": None}
+                     "silero_decode_seconds": None,
+                     "silero_audio_seconds": None,
+                     "silero_word_with_300ms_padding": None}
     try:
         result = stt.transcribe(audio)
         if silero_model is not None:
@@ -176,12 +178,17 @@ def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[
             silero_report["silero_speech_segments"] = len(segments)
             if segments:
                 # Source fixture only, no new model or microphone.
+                silero_report["silero_audio_seconds"] = round(len(segments[0]) / 32000, 3)
                 try:
                     recognized = stt.transcribe(segments[0])
+                    padded = bytes(9600) + segments[0] + bytes(9600)
+                    contextual = stt.transcribe(padded)
                 except Exception as error:
                     raise PublicVadIntegrationError('silero-stt-' + type(error).__name__) from None
                 tokens = set(re.findall(r"[a-zåäö]+", recognized["text"].casefold()))
+                padded_tokens = set(re.findall(r"[a-zåäö]+", contextual["text"].casefold()))
                 silero_report["silero_swedish_word_recognized"] = "svenska" in tokens
+                silero_report["silero_word_with_300ms_padding"] = "svenska" in padded_tokens
             silero_report["silero_decode_seconds"] = round(
                 time.monotonic() - vad_start, 3
             )
