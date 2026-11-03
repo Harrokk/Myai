@@ -151,6 +151,20 @@ def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[
     local = scratch / "parakeet-local-verified"
     files = extract_required_files(archive, local)
 
+    # The official release archive is already SHA256-verified. Record
+    # extracted model file identities to pin the future *local* load
+    # boundary as well. These hashes describe public model weights,
+    # never speech or user data.
+    extracted_manifest = {}
+    for filename, absolute_path in files.items():
+        local_file = Path(absolute_path)
+        with local_file.open("rb") as handle:
+            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        extracted_manifest[filename] = {
+            "bytes": local_file.stat().st_size,
+            "sha256": digest,
+        }
+
     fixture = download_fixture(scratch)
     if not fixture["sample_verified"]:
         raise RuntimeError("Public Swedish reference integrity verification failed")
@@ -206,6 +220,7 @@ def run(archive: Path, scratch: Path, silero_model: Path | None = None) -> dict[
                   else "public-swedish-word-not-recognized",
         "swedish_word_recognized": "svenska" in words,
         "model_archive_sha256_verified": True,
+        "verified_extracted_public_model_files": extracted_manifest,
         "model_load_seconds": round(loaded - begin, 3),
         "decode_seconds": round(ended - loaded, 3),
         "public_audio_seconds": round(len(audio) / 32000, 3),
