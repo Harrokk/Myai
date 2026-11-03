@@ -4,8 +4,6 @@ All inputs must be measured on the actual target and include native helpers.
 This does NOT query the machine or open/run STT. Passing is only a planning
 screen, not permission to enable voice, deploy models or dispatch tools.
 """
-from math import isfinite
-
 
 _FAMILIES = frozenset({"parakeet", "canary", "whisper"})
 
@@ -36,7 +34,7 @@ def evaluate_tiered_ram_budget(*, available_mib, stt_peak_rss_mib,
             or any(type(n) is not int or not 0 < n <= 65536
                    for n in stt_peak_rss_mib.values())):
         return unavailable("missing_or_invalid_stt_measurements")
-    if mode not in ("sequential", "parallel") or type(mode) is not str:
+    if type(mode) is not str or mode not in ("sequential", "parallel"):
         return unavailable("unsupported_loading_mode")
     if type(cleanup_verified) is not bool:
         return unavailable("invalid_cleanup_status")
