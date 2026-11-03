@@ -249,3 +249,46 @@ def test_critical_failed_third_is_not_treated_as_abstention(tmp_path):
     result = pipe.process_utterance(b"synthetic")
     assert result["verification_reason"] == "backup_stt_failed"
     assert "respond_voice" not in core.calls
+
+
+def test_swapped_primary_model_path_blocks_before_stt(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path)
+    first.model_name = "/tmp/unverified-model"
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "primary_model_identity_changed"
+    assert first.calls == 0
+    assert "respond_voice" not in core.calls
+
+
+def test_swapped_backup_model_path_blocks_before_backup_stt(tmp_path):
+    pipe, core, first, reserve = make_pipeline(
+        tmp_path, "Ändra ljudvolym", effect="reversible", tier="medium",
+        backups=("Ändra ljudvolym",),
+    )
+    reserve[0].model_name = "/tmp/unknown-canary"
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "backup_model_identity_changed"
+    assert first.calls == 1
+    assert reserve[0].calls == 0
+    assert "respond_voice" not in core.calls
+
+
+def test_model_permission_change_before_stt_blocks(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path)
+    (tmp_path / "parakeet" / "weights.bin").chmod(0o644)
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "primary_model_identity_changed"
+    assert first.calls == 0
+
+
+def test_model_mutation_during_stt_blocks_after_decode(tmp_path):
+    pipe, core, first, _ = make_pipeline(tmp_path)
+    model_path = tmp_path / "parakeet" / "weights.bin"
+    def modify_weights():
+        model_path.chmod(0o644)
+        model_path.write_bytes(b"tampered-synthetic-only")
+        model_path.chmod(0o444)
+    first.on_transcribe = modify_weights
+    result = pipe.process_utterance(b"synthetic")
+    assert result["verification_reason"] == "independent_votes_disagree"
+    assert "respond_voice" not in core.calls
