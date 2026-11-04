@@ -1,0 +1,169 @@
+name: ONE VENTUNO USB audio sysfs metadata — no recording or driver changes
+
+on:
+  push:
+    branches:
+      - "dev/ventuno-usb-audio-sysfs-readonly-20261104"
+    paths:
+      - ".github/workflows/ventuno-usb-audio-sysfs-readonly-once-20261104.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-ventuno-usb-audio-kernel-metadata-20261104
+  cancel-in-progress: false
+
+jobs:
+  hosted-source-audit:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Enforce hosted runner, exact repository and branch
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-usb-audio-sysfs-readonly-20261104"
+
+      - name: Audit exact clean commit OFF the physical board
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-usb-sysfs-hosted.XXXXXXXX")"
+          test -n "$scratch" && test -d "$scratch"
+          trap 'rm -rf -- "$scratch"' EXIT
+          git -C "$scratch" init -q
+          git -C "$scratch" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          cd "$scratch"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          python3 -B scripts/static_repository_audit.py
+          python3 -B -m scripts.ventuno_deep_source_audit
+          python3 -B -m scripts.ventuno_eight_sensitive_calls_review
+          echo "GITHUB-HOSTED SOURCE SAFETY PASS; no device touched."
+
+  ventuno-sysfs-only:
+    needs: hosted-source-audit
+    if: github.repository == 'Harrokk/Myai' && github.ref == 'refs/heads/dev/ventuno-usb-audio-sysfs-readonly-20261104'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - name: Read numerical USB audio class and driver binding flags only
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$(id -u)" -ne 0
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-usb-audio-sysfs-readonly-20261104"
+          test -n "${RUNNER_TEMP:-}" && test -d "$RUNNER_TEMP"
+          test ! -L "$RUNNER_TEMP"
+          test -x /home/arduino/MyAI/.venv/bin/python
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-usb-sysfs-only.XXXXXXXX")"
+          test -n "$scratch" && test -d "$scratch" && test ! -L "$scratch"
+          trap 'rm -rf -- "$scratch"' EXIT
+          git -C "$scratch" init -q
+          git -C "$scratch" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout --quiet --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          unset GH_TOKEN
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C "$scratch" status --porcelain --untracked-files=no)"
+          cd "$scratch"
+          timeout --signal=TERM --kill-after=3s 60s \
+            /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.ventuno_usb_audio_inventory import inventory_usb_audio
+
+          result = {
+              "status": "sysfs-metadata-inconclusive",
+              "usb_interface_count": 0,
+              "usb_audio_class_interface_count": 0,
+              "usb_audio_driver_bound_interface_count": 0,
+              "snd_usb_audio_module_present": False,
+              "alsa_usb_audio_card_count": 0,
+              "microphone_opened": False,
+              "audio_stream_opened": False,
+              "drivers_modified": False,
+              "services_modified": False,
+              "production_modified": False,
+              "physical_audio_authorized": False,
+          }
+          try:
+              sys_usb = Path("/sys/bus/usb/devices")
+              if not sys_usb.is_dir():
+                  raise ValueError("USB sysfs not available")
+              entries = list(sys_usb.iterdir())
+              if len(entries) > 256:
+                  raise ValueError("Excessive sysfs entries")
+              interfaces = 0
+              audio = 0
+              bound = 0
+              for path in entries:
+                  klass = path / "bInterfaceClass"
+                  if not klass.is_file():
+                      continue
+                  value = klass.read_text(encoding="ascii").strip().lower()
+                  if len(value) != 2 or any(c not in "0123456789abcdef" for c in value):
+                      raise ValueError("Unknown interface class")
+                  interfaces += 1
+                  if value == "01":
+                      audio += 1
+                      drv = path / "driver"
+                      if drv.is_symlink() and drv.resolve().name == "snd-usb-audio":
+                          bound += 1
+              cards = inventory_usb_audio()
+              indices = cards.get("usb_audio_cards", [])
+              if type(indices) is not list or not all(
+                  type(x) is int and 0 <= x < 32 for x in indices
+              ):
+                  raise ValueError("Invalid audio card report")
+              result.update({
+                  "usb_interface_count": interfaces,
+                  "usb_audio_class_interface_count": audio,
+                  "usb_audio_driver_bound_interface_count": bound,
+                  "snd_usb_audio_module_present": Path("/sys/module/snd_usb_audio").exists(),
+                  "alsa_usb_audio_card_count": len(indices),
+              })
+              if audio == 0:
+                  result["status"] = "no-usb-audio-interface-enumerated"
+              elif bound == 0:
+                  result["status"] = "usb-audio-interface-unbound"
+              elif not indices:
+                  result["status"] = "usb-audio-driver-bound-without-alsa-card"
+              else:
+                  result["status"] = "usb-audio-sysfs-and-alsa-present"
+          except Exception:
+              result["status"] = "sysfs-metadata-inconclusive"
+          print("MYAI_USB_AUDIO_SYSFS_READONLY_JSON=" +
+                json.dumps(result, sort_keys=True, separators=(",", ":")))
+          raise SystemExit(0 if result["status"] != "sysfs-metadata-inconclusive" else 2)
+          PY
+
+      - name: Guarantee no implicit permission to open audio
+        if: always()
+        shell: bash
+        run: |
+          echo "## Numeric USB interface class and kernel driver metadata ONLY" >> "$GITHUB_STEP_SUMMARY"
+          echo "No microphone, speakers, model, NPU inference, driver reload or systemd mutation." >> "$GITHUB_STEP_SUMMARY"
+          echo "Physical USB reconnection, if needed, is the operator's action." >> "$GITHUB_STEP_SUMMARY"
