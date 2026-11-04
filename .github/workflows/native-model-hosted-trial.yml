@@ -1,0 +1,236 @@
+name: MyAI pinned real-model Swedish smoke (hosted ARM64)
+
+on:
+  push:
+    branches:
+      - "dev/voice-real-model-arm64-trial-20261104"
+    paths:
+      - ".github/workflows/native-model-hosted-trial.yml"
+      - "core/voice_candidate_hosted_releases.py"
+      - "scripts/ci_fetch_pinned_stt_model.py"
+      - "scripts/ci_native_model_swedish_trial.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-native-modeltrial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinned-model-smoke:
+    name: Model-backed Swedish TTS trial, source pinned and isolated
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        model_profile:
+          - "canary-1b-v2-q8"
+          - "whisper-large-v3-turbo"
+    env:
+      CANARY_SHA: "5700f127e38dd53c4735ea23ef743b4b538eacd4"
+      WHISPER_SHA: "4da27c41cebadb3cbbcd2563e9c7cbc8d84bdcad"
+    steps:
+      - name: Enforce disposable GitHub-hosted ARM64 runner
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+
+      - name: Fetch exact MyAI source into disposable workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/myai-native-source"
+          cd "$RUNNER_TEMP/myai-native-source"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout -q --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Fetch exact public upstream source commits, never floating branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            "canary https://github.com/handy-computer/transcribe.cpp.git $CANARY_SHA" \
+            "whisper https://github.com/ggml-org/whisper.cpp.git $WHISPER_SHA"; do
+            read -r label url sha <<< "$spec"
+            dest="$RUNNER_TEMP/myai-native-$label"
+            mkdir -p "$dest"
+            git -C "$dest" init -q
+            git -C "$dest" remote add origin "$url"
+            git -C "$dest" -c credential.helper= fetch --quiet --depth=1 origin "$sha"
+            git -C "$dest" -c credential.helper= checkout -q --force --detach FETCH_HEAD
+            test "$(git -C "$dest" rev-parse HEAD)" = "$sha"
+          done
+
+      - name: Configure exact CPU-only static native builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "$RUNNER_TEMP/myai-native-canary" \
+            -B "$RUNNER_TEMP/myai-native-canary-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTRANSCRIBE_BUILD_SHARED=OFF \
+            -DTRANSCRIBE_BUILD_EXAMPLES=ON \
+            -DTRANSCRIBE_BUILD_TESTS=OFF \
+            -DTRANSCRIBE_BUILD_TOOLS=OFF \
+            -DTRANSCRIBE_USE_OPENMP=OFF \
+            -DTRANSCRIBE_USE_SYSTEM_BLAS=OFF \
+            -DTRANSCRIBE_VULKAN=OFF \
+            -DTRANSCRIBE_CUDA=OFF \
+            -DTRANSCRIBE_HIP=OFF \
+            -DTRANSCRIBE_GGML_BACKEND_DL=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DGGML_BLAS=OFF \
+            -DGGML_VULKAN=OFF
+          cmake -S "$RUNNER_TEMP/myai-native-whisper" \
+            -B "$RUNNER_TEMP/myai-native-whisper-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DWHISPER_BUILD_EXAMPLES=ON \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_SERVER=OFF \
+            -DWHISPER_USE_SYSTEM_GGML=OFF \
+            -DWHISPER_USE_SYSTEM_LLAMA=OFF \
+            -DWHISPER_CURL=OFF \
+            -DWHISPER_COMMON_FFMPEG=OFF \
+            -DWHISPER_SDL2=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DGGML_BLAS=OFF \
+            -DGGML_VULKAN=OFF \
+            -DGGML_CUDA=OFF \
+            -DGGML_BACKEND_DL=OFF
+
+      - name: Compile full pinned native Canary and Whisper CLI targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/myai-native-canary-build" \
+            --target transcribe-cli --parallel 2
+          cmake --build "$RUNNER_TEMP/myai-native-whisper-build" \
+            --target whisper-cli --parallel 2
+          mkdir -p "$RUNNER_TEMP/myai-native-fullcli-bin"
+          mapfile -t canary_bins < <(
+            find "$RUNNER_TEMP/myai-native-canary-build" \
+              -type f -name transcribe-cli -perm /111
+          )
+          mapfile -t whisper_bins < <(
+            find "$RUNNER_TEMP/myai-native-whisper-build" \
+              -type f -name whisper-cli -perm /111
+          )
+          test "${#canary_bins[@]}" -eq 1
+          test "${#whisper_bins[@]}" -eq 1
+          cp -- "${canary_bins[0]}" "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli"
+          cp -- "${whisper_bins[0]}" "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          test -x "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli"
+          test -x "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+
+      - name: Fail closed on ELF loader and direct shared-library dependencies
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B scripts/ci_native_cli_elf_audit.py \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          echo "FULL ARM64 ELF DIRECT DEPENDENCY GATE: PASS"
+
+      - name: Audit transitive system library closure and hash every native dependency
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_native_cli_library_closure \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          echo "TRANSITIVE ARM64 SYSTEM LIBRARY CLOSURE: PASS"
+
+      - name: Exercise whole native CLI help and model-free sealed WAV
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_native_cli_hosted_probe \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          echo "COMPLETE ARM64 CLI STARTUP AND MODEL-FREE WAV: PASS"
+
+
+      - name: Install disposable public-domain-style Swedish speech synthesis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            --no-install-recommends espeak-ng sox
+          command -v espeak-ng
+          command -v sox
+
+      - name: Download and verify exactly pinned public model bytes
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PROFILE: ${{ matrix.model_profile }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_fetch_pinned_stt_model "$PROFILE"
+          echo "MODEL WEIGHTS SHA256 AND SIZE: PASS $PROFILE"
+
+      - name: Decode generated Swedish TTS using real pinned model (isolated)
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          PROFILE: ${{ matrix.model_profile }}
+          PYTHONDONTWRITEBYTECODE: "1"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-native-source"
+          python3 -B -m scripts.ci_native_model_swedish_trial "$PROFILE"
+          echo "REAL MODEL SWEDISH SYNTHETIC AUDIO: PASS $PROFILE"
+
+      - name: Scrub verified public model binaries from disposable runner
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "$RUNNER_TEMP/myai-pinned-model-files" ]; then
+            chmod -R u+w "$RUNNER_TEMP/myai-pinned-model-files" || true
+            rm -rf -- "$RUNNER_TEMP/myai-pinned-model-files"
+          fi
+          echo "No model weights or generated audio are uploaded as CI artifacts."
+
+      - name: Document strict evidence limitations
+        if: always()
+        shell: bash
+        run: |
+          echo "## Hosted pinned public STT model trial" >> "$GITHUB_STEP_SUMMARY"
+          echo "MyAI source revision: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Canary source revision: $CANARY_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Whisper source revision: $WHISPER_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Only generated Swedish synthetic TTS; not unbiased WER, not VENTUNO benchmarks." >> "$GITHUB_STEP_SUMMARY"
+          echo "No production deployment, microphone recordings, GenieX or voice-tool calls." >> "$GITHUB_STEP_SUMMARY"
