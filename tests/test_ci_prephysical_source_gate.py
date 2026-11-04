@@ -30,13 +30,13 @@ def safe_fixture(tmp_path):
         file = root / name
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(
-            "name: Synthetic inert job\\n"
-            "on:\\n  push:\\n    branches: [dev/synthetic]\\n"
-            "jobs:\\n"
-            f"  {job}:\\n"
-            "    if: false\\n"
-            "    runs-on: [self-hosted, Linux, ARM64, ventuno-q]\\n"
-            "    steps:\\n      - run: echo inert\\n"
+            "name: Synthetic inert job\n"
+            "on:\n  push:\n    branches: [dev/synthetic]\n"
+            "jobs:\n"
+            f"  {job}:\n"
+            "    if: false\n"
+            "    runs-on: [self-hosted, Linux, ARM64, ventuno-q]\n"
+            "    steps:\n      - run: echo inert\n"
         )
     return root, profile
 
