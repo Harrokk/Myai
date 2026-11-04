@@ -10,13 +10,37 @@ from pathlib import Path
 import stat
 import sys
 import time
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.parse import urlsplit
 
 from core.voice_candidate_hosted_releases import hosted_model_release
 
 
 _DOWNLOAD_DEADLINE = 720.0
 _BLOCK = 1024 * 1024
+
+
+def _trusted_model_url(url):
+    """Deny non-HTTPS, user-info, custom ports and unknown redirect hosts."""
+    try:
+        u = urlsplit(url)
+        host = u.hostname
+        return (
+            u.scheme == "https" and u.username is None and u.password is None
+            and u.port in (None, 443) and host is not None
+            and (host == "huggingface.co" or host.endswith(".huggingface.co")
+                 or host == "hf.co" or host.endswith(".hf.co"))
+            and not u.fragment
+        )
+    except ValueError:
+        return False
+
+
+class _PinnedModelRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _trusted_model_url(newurl):
+            raise ValueError("Untrusted pinned model redirect")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def download_hosted_model(profile, runner_temp):
@@ -33,6 +57,8 @@ def download_hosted_model(profile, runner_temp):
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(path, flags, 0o600)
+        if not _trusted_model_url(model.url):
+            raise ValueError("Untrusted published model URL")
         request = Request(
             model.url,
             headers={
@@ -43,7 +69,7 @@ def download_hosted_model(profile, runner_temp):
         digest = hashlib.sha256()
         received = 0
         start = time.monotonic()
-        with urlopen(request, timeout=70) as response:
+        with build_opener(_PinnedModelRedirect()).open(request, timeout=70) as response:
             # 200 only; an unreviewed redirect cannot appoint a new hash.
             if response.status != 200:
                 raise ValueError("Hosted model response was not successful")
