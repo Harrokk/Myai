@@ -4,7 +4,6 @@ No microphone, subprocess, network, disk, or tool execution occurs here.
 Model identities MUST be supplied by a trusted factory registry, never by
 the text/model response being verified. Unknown identities fail closed.
 """
-import re
 import unicodedata
 
 from core.voice_risk_policy import TIERS
@@ -18,8 +17,10 @@ _MAX_TEXT = 4096
 def _canonical(text):
     if not isinstance(text, str) or len(text) > _MAX_TEXT:
         return None
-    value = unicodedata.normalize("NFKC", text).casefold().strip()
-    value = re.sub(r"[^\wåäö-]+", " ", value, flags=re.UNICODE)
+    # Punctuation can be part of a filename, decimal, path or device ID.
+    # Until a typed target-aware parser exists, only whitespace and casing
+    # may be normalized; disagreement must deny authorization.
+    value = unicodedata.normalize("NFKC", text).casefold()
     return " ".join(value.split())
 
 

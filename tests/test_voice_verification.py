@@ -151,12 +151,39 @@ def test_invalid_non_string_transcript_fails():
     )["reason"] == "invalid_transcript"
 
 
-def test_punctuation_and_case_do_not_create_false_conflict():
+def test_case_and_whitespace_do_not_create_false_conflict():
     result = check(
-        "medium", vote("p", "Anslut till Hörlurarna!"),
+        "medium", vote("p", "  Anslut   till Hörlurarna "),
         vote("c", "anslut till hörlurarna"),
     )
     assert result["accepted"] is True
+
+
+@pytest.mark.parametrize("first,second", [
+    ("Anslut till enhet AA:BB", "Anslut till enhet AA BB"),
+    ("Anslut till enhet AA-BB", "Anslut till enhet AA BB"),
+    ("Öppna filen rapport.txt", "Öppna filen rapport txt"),
+    ("Sätt volymen 1.5", "Sätt volymen 1 5"),
+    ("Sätt volymen 1,5", "Sätt volymen 1 5"),
+    ("Öppna /tmp/rapport", "Öppna tmp/rapport"),
+    ("Kör fil C:\\Temp\\fil.txt", "Kör fil C Temp fil txt"),
+    ("Visa status!", "Visa status"),
+])
+def test_distinct_punctuation_cannot_contribute_two_matching_votes(first, second):
+    result = check("medium", vote("p", first), vote("c", second))
+    assert result["accepted"] is False
+    assert result["reason"] == "disagreement_or_abstention"
+
+
+def test_critical_third_vote_differing_only_by_filename_dot_denies():
+    result = check(
+        "critical",
+        vote("p", "Radera filen rapport.txt"),
+        vote("c", "Radera filen rapport.txt"),
+        vote("w", "Radera filen rapport txt"),
+    )
+    assert result["accepted"] is False
+    assert result["reason"] == "potentially_material_conflict"
 
 
 def test_invalid_tier_denied():
