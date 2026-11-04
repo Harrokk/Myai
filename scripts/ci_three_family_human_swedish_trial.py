@@ -15,15 +15,16 @@ from core.voice_candidate_hosted_releases import hosted_model_release
 from core.voice_candidate_native import IsolatedPinnedNativeCandidateSTT
 from core.voice_candidate_preflight import verify_independent_candidates
 from core.voice_parakeet_isolated import IsolatedPinnedParakeetSTT
-from core.voice_verification import verify_tiered_transcripts
-from scripts.ci_native_model_swedish_trial import word_error_count
+from core.voice_verification import _canonical, verify_tiered_transcripts
+from scripts.ci_native_model_swedish_trial import word_error_count, words
 from scripts.ci_swedish_fleurs_parakeet_trial import (
-    FLEURS_BYTES, PARAKEET_FILES, SAMPLES, RSSSampler, decode_public_audio,
+    FLEURS_BYTES, PARAKEET_FILES, RSSSampler, decode_public_audio,
     nearest_rank, select_rows,
 )
 
 NATIVE_PROFILES = ("canary-1b-v2-q8", "whisper-small-q5_1")
 EXPECTED_FAMILIES = frozenset({"parakeet", "canary", "whisper"})
+THREE_FAMILY_SAMPLES = 36
 _PROFILE_TO_KEY = {
     "parakeet": "p",
     "canary": "c",
@@ -118,6 +119,100 @@ def _summarize_metrics(family, observations, peak_kib):
     }
 
 
+
+def paired_exact_agreement(by_family, references):
+    """Privacy-safe aggregate exact comparisons; NEVER permission evidence."""
+    families = ("parakeet", "canary", "whisper")
+    if (type(by_family) is not dict or set(by_family) != set(families)
+            or type(references) not in (list, tuple) or not references
+            or any(type(by_family[f]) is not list
+                   or len(by_family[f]) != len(references) for f in families)):
+        raise ValueError("Invalid paired model evidence")
+    keys = (("parakeet", "canary"), ("parakeet", "whisper"),
+            ("canary", "whisper"))
+    pair_stats = {
+        a + "_vs_" + b: {
+            "exact_agreement": 0,
+            "correct_exact_agreement": 0,
+            "same_wrong_agreement": 0,
+            "both_differ_from_reference": 0,
+        } for a, b in keys
+    }
+    reference_matches = {f: 0 for f in families}
+    # WER-style word agreement is DIAGNOSTIC ONLY. Never pass it into
+    # verify_tiered_transcripts, the voice risk policy, or a tool receipt.
+    word_reference_matches = {f: 0 for f in families}
+    word_pair_stats = {
+        a + "_vs_" + b: {
+            "word_agreement": 0,
+            "word_correct_agreement": 0,
+            "word_same_wrong_agreement": 0,
+        } for a, b in keys
+    }
+    three_correct = 0
+    three_wrong = 0
+    word_three_correct = 0
+    word_three_wrong = 0
+    for index, reference in enumerate(references):
+        canonical_reference = _canonical(reference)
+        word_reference = tuple(words(reference))
+        if not canonical_reference or not word_reference:
+            raise ValueError("Invalid paired reference")
+        transcripts = {}
+        word_transcripts = {}
+        for f in families:
+            record = by_family[f][index]
+            if type(record) is not dict or type(record.get("text")) is not str:
+                raise ValueError("Invalid model observation")
+            text = _canonical(record["text"])
+            if text is None:
+                raise ValueError("Unbounded model transcript")
+            transcripts[f] = text
+            word_text = tuple(words(record["text"]))
+            word_transcripts[f] = word_text
+            reference_matches[f] += int(bool(text) and text == canonical_reference)
+            word_reference_matches[f] += int(bool(word_text) and word_text == word_reference)
+        for left, right in keys:
+            a, b = transcripts[left], transcripts[right]
+            stat = pair_stats[left + "_vs_" + right]
+            word_a, word_b = word_transcripts[left], word_transcripts[right]
+            word_stat = word_pair_stats[left + "_vs_" + right]
+            if word_a and word_a == word_b:
+                word_stat["word_agreement"] += 1
+                word_stat["word_correct_agreement"] += int(word_a == word_reference)
+                word_stat["word_same_wrong_agreement"] += int(word_a != word_reference)
+            stat["both_differ_from_reference"] += int(
+                a != canonical_reference and b != canonical_reference
+            )
+            if a and a == b:
+                stat["exact_agreement"] += 1
+                stat["correct_exact_agreement"] += int(a == canonical_reference)
+                stat["same_wrong_agreement"] += int(a != canonical_reference)
+        values = tuple(transcripts[f] for f in families)
+        if values[0] and len(set(values)) == 1:
+            three_correct += int(values[0] == canonical_reference)
+            three_wrong += int(values[0] != canonical_reference)
+        word_values = tuple(word_transcripts[f] for f in families)
+        if word_values[0] and len(set(word_values)) == 1:
+            word_three_correct += int(word_values[0] == word_reference)
+            word_three_wrong += int(word_values[0] != word_reference)
+    return {
+        "samples": len(references),
+        "per_family_exact_reference_matches": reference_matches,
+        "pairwise_counts": pair_stats,
+        "three_same_correct": three_correct,
+        "three_same_wrong": three_wrong,
+        "word_diagnostics_only": {
+            "per_family_exact_word_matches": word_reference_matches,
+            "pairwise_counts": word_pair_stats,
+            "three_same_correct": word_three_correct,
+            "three_same_wrong": word_three_wrong,
+            "not_for_authorization": True,
+        },
+        "wrong_agreement_is_never_authorization": True,
+    }
+
+
 def evaluate_three_models(root):
     dataset = root / "myai-fleurs-sv_se-test.parquet"
     if not dataset.is_file() or dataset.stat().st_size != FLEURS_BYTES:
@@ -125,9 +220,9 @@ def evaluate_three_models(root):
     native = _native_attestations(root)
     samples = [
         (decode_public_audio(encoded), reference)
-        for encoded, reference in select_rows(dataset, limit=SAMPLES)
+        for encoded, reference in select_rows(dataset, limit=THREE_FAMILY_SAMPLES)
     ]
-    if len(samples) != SAMPLES:
+    if len(samples) != THREE_FAMILY_SAMPLES:
         raise ValueError("Models cannot compare unequal sample sets")
     by_family = {}
     trust = {}
@@ -164,7 +259,7 @@ def evaluate_three_models(root):
     accepted = 0
     critical_conflicts = 0
     abstentions = 0
-    for i in range(SAMPLES):
+    for i in range(THREE_FAMILY_SAMPLES):
         votes = [
             {"model_key": _PROFILE_TO_KEY[f], "text": by_family[f][i]["text"]}
             for f in ("parakeet", "canary", "whisper")
@@ -180,11 +275,12 @@ def evaluate_three_models(root):
         "human_recorded_public_swedish": True,
         "dataset": "google/fleurs/sv_se/test",
         "pinned_dataset_and_three_family_model_weights": True,
-        "samples_same_for_all_families": SAMPLES,
+        "samples_same_for_all_families": THREE_FAMILY_SAMPLES,
         "total_audio_seconds": round(sum(len(pcm) / 32000 for pcm, _ in samples), 2),
         "models": summaries,
+        "paired_exact_agreement": paired_exact_agreement(by_family, [reference for _, reference in samples]),
         "critical_text_consensus_accepted_nonexecuting": accepted,
-        "critical_text_consensus_denied_nonexecuting": SAMPLES - accepted,
+        "critical_text_consensus_denied_nonexecuting": THREE_FAMILY_SAMPLES - accepted,
         "explicit_nonempty_conflict_cases": critical_conflicts,
         "any_model_abstained": abstentions,
         "voice_tools_executed": False,

@@ -58,3 +58,91 @@ def test_punctuation_differences_never_become_model_family_agreement(variant):
     ]
     result = verify_tiered_transcripts("critical", votes, models)
     assert result["accepted"] is False
+
+from scripts.ci_three_family_human_swedish_trial import (
+    THREE_FAMILY_SAMPLES, paired_exact_agreement,
+)
+
+
+def test_paired_wrong_agreement_is_counted_not_approved():
+    assert THREE_FAMILY_SAMPLES == 36
+    obs = {
+        "parakeet": [{"text": "rapport 2"}, {"text": "stäng av"}],
+        "canary": [{"text": "Rapport 2"}, {"text": "stäng av"}],
+        "whisper": [{"text": "rapport 2"}, {"text": "stoppa"}],
+    }
+    summary = paired_exact_agreement(obs, ["rapport 2", "stäng inte av"])
+    assert summary["three_same_correct"] == 1
+    assert summary["three_same_wrong"] == 0
+    a = summary["pairwise_counts"]["parakeet_vs_canary"]
+    assert a == {
+        "exact_agreement": 2,
+        "correct_exact_agreement": 1,
+        "same_wrong_agreement": 1,
+        "both_differ_from_reference": 1,
+    }
+    assert summary["wrong_agreement_is_never_authorization"] is True
+    assert "stäng av" not in str(summary)
+
+
+def test_three_identical_wrong_utterances_are_detected_as_wrong():
+    obs = {f: [{"text": "radera fil.txt"}]
+           for f in ("parakeet", "canary", "whisper")}
+    summary = paired_exact_agreement(obs, ["radera inte fil.txt"])
+    assert summary["three_same_wrong"] == 1
+    assert summary["three_same_correct"] == 0
+
+
+@pytest.mark.parametrize("missing", ["parakeet", "canary", "whisper"])
+def test_paired_results_require_exactly_three_families(missing):
+    obs = {f: [{"text": "hej"}] for f in ("parakeet", "canary", "whisper")
+           if f != missing}
+    with pytest.raises(ValueError):
+        paired_exact_agreement(obs, ["hej"])
+
+
+def test_paired_results_reject_different_number_of_samples():
+    obs = {f: [{"text": "hej"}] for f in ("parakeet", "canary", "whisper")}
+    obs["whisper"].append({"text": "hej"})
+    with pytest.raises(ValueError):
+        paired_exact_agreement(obs, ["hej"])
+
+
+def test_word_level_accuracy_diagnostic_separately_accepts_punctuation_variants():
+    observations = {
+        "parakeet": [{"text": "Anslut till enhet AA BB"}],
+        "canary": [{"text": "Anslut till enhet AA:BB"}],
+        "whisper": [{"text": "Anslut till enhet AA BB"}],
+    }
+    result = paired_exact_agreement(observations, ["Anslut till enhet AA:BB"])
+    # Never relax authorization: two different device IDs remain different.
+    assert result["pairwise_counts"]["parakeet_vs_canary"]["exact_agreement"] == 0
+    w = result["word_diagnostics_only"]
+    assert w["pairwise_counts"]["parakeet_vs_canary"]["word_agreement"] == 1
+    assert w["pairwise_counts"]["parakeet_vs_canary"]["word_correct_agreement"] == 1
+    assert w["three_same_correct"] == 1
+    assert w["not_for_authorization"] is True
+
+
+def test_word_level_diagnostic_rejects_missing_negation():
+    observations = {
+        "parakeet": [{"text": "Radera inte filen"}],
+        "canary": [{"text": "Radera filen"}],
+        "whisper": [{"text": "Radera filen"}],
+    }
+    result = paired_exact_agreement(observations, ["Radera inte filen"])
+    w = result["word_diagnostics_only"]
+    assert w["pairwise_counts"]["canary_vs_whisper"]["word_same_wrong_agreement"] == 1
+    assert w["three_same_correct"] == 0
+    assert w["not_for_authorization"] is True
+
+
+def test_three_identically_wrong_word_sequences_are_not_marked_correct():
+    observations = {
+        f: [{"text": "Stäng av relä 4"}]
+        for f in ("parakeet", "canary", "whisper")
+    }
+    summary = paired_exact_agreement(observations, ["Stäng inte av relä 4"])
+    assert summary["word_diagnostics_only"]["three_same_wrong"] == 1
+    assert summary["word_diagnostics_only"]["three_same_correct"] == 0
+    assert summary["wrong_agreement_is_never_authorization"] is True
