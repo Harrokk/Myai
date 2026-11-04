@@ -64,7 +64,7 @@ from scripts.ci_three_family_human_swedish_trial import (
 )
 
 
-def test_paired_wrong_agreement_is_counted_not_approved():
+def test_paired_nonexact_reference_agreement_is_counted_not_approved():
     assert THREE_FAMILY_SAMPLES == 36
     obs = {
         "parakeet": [{"text": "rapport 2"}, {"text": "stäng av"}],
@@ -72,25 +72,25 @@ def test_paired_wrong_agreement_is_counted_not_approved():
         "whisper": [{"text": "rapport 2"}, {"text": "stoppa"}],
     }
     summary = paired_exact_agreement(obs, ["rapport 2", "stäng inte av"])
-    assert summary["three_same_correct"] == 1
-    assert summary["three_same_wrong"] == 0
+    assert summary["three_same_exact_reference_text"] == 1
+    assert summary["three_same_nonexact_reference_text"] == 0
     a = summary["pairwise_counts"]["parakeet_vs_canary"]
     assert a == {
         "exact_agreement": 2,
-        "correct_exact_agreement": 1,
-        "same_wrong_agreement": 1,
-        "both_differ_from_reference": 1,
+        "agreement_exact_reference_text": 1,
+        "agreement_nonexact_reference_text": 1,
+        "both_nonexact_reference_text": 1,
     }
-    assert summary["wrong_agreement_is_never_authorization"] is True
+    assert summary["text_agreement_is_never_authorization"] is True
     assert "stäng av" not in str(summary)
 
 
-def test_three_identical_wrong_utterances_are_detected_as_wrong():
+def test_three_identical_texts_omitting_negation_are_nonexact_reference():
     obs = {f: [{"text": "radera fil.txt"}]
            for f in ("parakeet", "canary", "whisper")}
     summary = paired_exact_agreement(obs, ["radera inte fil.txt"])
-    assert summary["three_same_wrong"] == 1
-    assert summary["three_same_correct"] == 0
+    assert summary["three_same_nonexact_reference_text"] == 1
+    assert summary["three_same_exact_reference_text"] == 0
 
 
 @pytest.mark.parametrize("missing", ["parakeet", "canary", "whisper"])
@@ -106,3 +106,15 @@ def test_paired_results_reject_different_number_of_samples():
     obs["whisper"].append({"text": "hej"})
     with pytest.raises(ValueError):
         paired_exact_agreement(obs, ["hej"])
+
+
+def test_reference_punctuation_difference_is_not_semantic_wrongness():
+    from scripts.ci_native_model_swedish_trial import word_error_count
+    assert word_error_count("rapport.txt", "rapport txt")[0] == 0
+    obs = {family: [{"text": "rapport txt"}]
+           for family in ("parakeet", "canary", "whisper")}
+    summary = paired_exact_agreement(obs, ["rapport.txt"])
+    assert summary["three_same_nonexact_reference_text"] == 1
+    assert summary["three_same_exact_reference_text"] == 0
+    assert summary["text_agreement_is_never_authorization"] is True
+    assert "semantic_wrong" not in str(summary)

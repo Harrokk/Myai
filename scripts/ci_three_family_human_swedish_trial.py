@@ -121,7 +121,12 @@ def _summarize_metrics(family, observations, peak_kib):
 
 
 def paired_exact_agreement(by_family, references):
-    """Privacy-safe aggregate exact comparisons; NEVER permission evidence."""
+    """Punctuation-sensitive exact TEXT comparisons, never semantic correctness.
+
+    Different text from a punctuated reference is NOT proof of a mistaken
+    instruction: speech systems can omit punctuation while words agree.
+    This is privacy-safe aggregate evidence, never permission evidence.
+    """
     families = ("parakeet", "canary", "whisper")
     if (type(by_family) is not dict or set(by_family) != set(families)
             or type(references) not in (list, tuple) or not references
@@ -133,14 +138,14 @@ def paired_exact_agreement(by_family, references):
     pair_stats = {
         a + "_vs_" + b: {
             "exact_agreement": 0,
-            "correct_exact_agreement": 0,
-            "same_wrong_agreement": 0,
-            "both_differ_from_reference": 0,
+            "agreement_exact_reference_text": 0,
+            "agreement_nonexact_reference_text": 0,
+            "both_nonexact_reference_text": 0,
         } for a, b in keys
     }
     reference_matches = {f: 0 for f in families}
-    three_correct = 0
-    three_wrong = 0
+    three_exact_reference_text = 0
+    three_nonexact_reference_text = 0
     for index, reference in enumerate(references):
         canonical_reference = _canonical(reference)
         if not canonical_reference:
@@ -158,24 +163,24 @@ def paired_exact_agreement(by_family, references):
         for left, right in keys:
             a, b = transcripts[left], transcripts[right]
             stat = pair_stats[left + "_vs_" + right]
-            stat["both_differ_from_reference"] += int(
+            stat["both_nonexact_reference_text"] += int(
                 a != canonical_reference and b != canonical_reference
             )
             if a and a == b:
                 stat["exact_agreement"] += 1
-                stat["correct_exact_agreement"] += int(a == canonical_reference)
-                stat["same_wrong_agreement"] += int(a != canonical_reference)
+                stat["agreement_exact_reference_text"] += int(a == canonical_reference)
+                stat["agreement_nonexact_reference_text"] += int(a != canonical_reference)
         values = tuple(transcripts[f] for f in families)
         if values[0] and len(set(values)) == 1:
-            three_correct += int(values[0] == canonical_reference)
-            three_wrong += int(values[0] != canonical_reference)
+            three_exact_reference_text += int(values[0] == canonical_reference)
+            three_nonexact_reference_text += int(values[0] != canonical_reference)
     return {
         "samples": len(references),
         "per_family_exact_reference_matches": reference_matches,
         "pairwise_counts": pair_stats,
-        "three_same_correct": three_correct,
-        "three_same_wrong": three_wrong,
-        "wrong_agreement_is_never_authorization": True,
+        "three_same_exact_reference_text": three_exact_reference_text,
+        "three_same_nonexact_reference_text": three_nonexact_reference_text,
+        "text_agreement_is_never_authorization": True,
     }
 
 
