@@ -1,0 +1,146 @@
+name: ONE VENTUNO physical board metadata check — read-only, no audio
+
+on:
+  push:
+    branches:
+      - "dev/ventuno-physical-readonly-once-20261104"
+    paths:
+      - ".github/workflows/ventuno-one-readonly-metadata-20261104.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-ventuno-one-physical-metadata-only-20261104
+  cancel-in-progress: false
+
+jobs:
+  hosted-source-guard:
+    name: Pin source and prove synthetic denial off-board
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Restrict exact branch and disposable hosted CPU runner
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-physical-readonly-once-20261104"
+
+      - name: Fetch exact Git SHA outside any physical machine
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/myai-offhost-readonly-source"
+          cd "$RUNNER_TEMP/myai-offhost-readonly-source"
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Source/privacy two-pass and inert historical workflow checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-offhost-readonly-source"
+          python3 -B -m scripts.ventuno_deep_source_audit
+          python3 -B -m scripts.ventuno_eight_sensitive_calls_review
+          python3 -B scripts/static_repository_audit.py
+          echo "HOSTED EXACT HEAD STRUCTURAL AUDITS: PASS"
+
+      - name: Run isolated synthetic source-eligibility and board bridge tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-offhost-readonly-venv"
+          "$RUNNER_TEMP/myai-offhost-readonly-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "pytest==8.3.5" "cryptography==45.0.7" \
+            -r "$RUNNER_TEMP/myai-offhost-readonly-source/requirements.txt"
+          cd "$RUNNER_TEMP/myai-offhost-readonly-source"
+          "$RUNNER_TEMP/myai-offhost-readonly-venv/bin/python" -B \
+            -m scripts.ci_prephysical_source_gate \
+            --source-root . --expected-sha "$GITHUB_SHA"
+          "$RUNNER_TEMP/myai-offhost-readonly-venv/bin/python" -B -m pytest -q \
+            tests/test_ci_prephysical_source_gate.py \
+            tests/test_ci_ventuno_readonly_metadata_once.py \
+            tests/test_ventuno_physical_pilot_gate.py \
+            tests/test_ventuno_big_test_readiness.py \
+            tests/test_voice_verification.py \
+            tests/test_voice_risk_policy.py
+          echo "HOSTED NEVER-RECORD-OR-DEPLOY SAFETY CONTRACTS: PASS"
+
+      - name: Remove only hosted temporary files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf -- "$RUNNER_TEMP/myai-offhost-readonly-source" \
+                    "$RUNNER_TEMP/myai-offhost-readonly-venv"
+
+  ventuno-board-metadata-once:
+    name: Arduino VENTUNO - local read-only metadata, no microphone
+    needs: hosted-source-guard
+    if: github.repository == 'Harrokk/Myai' && github.ref == 'refs/heads/dev/ventuno-physical-readonly-once-20261104'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: One-shot source-frozen, privacy-redacted physical metadata
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$(id -u)" -ne 0
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-physical-readonly-once-20261104"
+          test -n "${RUNNER_TEMP:-}" && test -d "$RUNNER_TEMP"
+          test ! -L "$RUNNER_TEMP"
+          test -x /home/arduino/MyAI/.venv/bin/python
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-physical-readonly.XXXXXXXX")"
+          test -n "$scratch" && test -d "$scratch" && test ! -L "$scratch"
+          trap 'rm -rf -- "$scratch"' EXIT
+          git -C "$scratch" init -q
+          git -C "$scratch" remote add origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 \
+            origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          unset GH_TOKEN
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C "$scratch" status --porcelain --untracked-files=no)"
+          cd "$scratch"
+          timeout --signal=TERM --kill-after=3s 300s \
+            /home/arduino/MyAI/.venv/bin/python -B \
+            -m scripts.ci_ventuno_readonly_metadata_once \
+            --source-root . --expected-sha "$GITHUB_SHA"
+          echo "One-shot BOARD READ-ONLY METADATA FINISHED. NO audio or deployment consent."
+
+      - name: State why this physical metadata job never enables voice
+        if: always()
+        shell: bash
+        run: |
+          echo "## Physical VENTUNO metadata only" >> "$GITHUB_STEP_SUMMARY"
+          echo "Exact source SHA: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "No microphone, playback, model loading, tool dispatch, NPU execution or service changes." >> "$GITHUB_STEP_SUMMARY"
+          echo "All observations are bounded and sanitized; no raw private paths or audio." >> "$GITHUB_STEP_SUMMARY"
+          echo "Any result still requires separately approved one-shot audio when operator is present." >> "$GITHUB_STEP_SUMMARY"
