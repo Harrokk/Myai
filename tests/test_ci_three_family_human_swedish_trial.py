@@ -58,3 +58,51 @@ def test_punctuation_differences_never_become_model_family_agreement(variant):
     ]
     result = verify_tiered_transcripts("critical", votes, models)
     assert result["accepted"] is False
+
+from scripts.ci_three_family_human_swedish_trial import (
+    THREE_FAMILY_SAMPLES, paired_exact_agreement,
+)
+
+
+def test_paired_wrong_agreement_is_counted_not_approved():
+    assert THREE_FAMILY_SAMPLES == 36
+    obs = {
+        "parakeet": [{"text": "rapport 2"}, {"text": "stäng av"}],
+        "canary": [{"text": "Rapport 2"}, {"text": "stäng av"}],
+        "whisper": [{"text": "rapport 2"}, {"text": "stoppa"}],
+    }
+    summary = paired_exact_agreement(obs, ["rapport 2", "stäng inte av"])
+    assert summary["three_same_correct"] == 1
+    assert summary["three_same_wrong"] == 0
+    a = summary["pairwise_counts"]["parakeet_vs_canary"]
+    assert a == {
+        "exact_agreement": 2,
+        "correct_exact_agreement": 1,
+        "same_wrong_agreement": 1,
+        "both_differ_from_reference": 1,
+    }
+    assert summary["wrong_agreement_is_never_authorization"] is True
+    assert "stäng av" not in str(summary)
+
+
+def test_three_identical_wrong_utterances_are_detected_as_wrong():
+    obs = {f: [{"text": "radera fil.txt"}]
+           for f in ("parakeet", "canary", "whisper")}
+    summary = paired_exact_agreement(obs, ["radera inte fil.txt"])
+    assert summary["three_same_wrong"] == 1
+    assert summary["three_same_correct"] == 0
+
+
+@pytest.mark.parametrize("missing", ["parakeet", "canary", "whisper"])
+def test_paired_results_require_exactly_three_families(missing):
+    obs = {f: [{"text": "hej"}] for f in ("parakeet", "canary", "whisper")
+           if f != missing}
+    with pytest.raises(ValueError):
+        paired_exact_agreement(obs, ["hej"])
+
+
+def test_paired_results_reject_different_number_of_samples():
+    obs = {f: [{"text": "hej"}] for f in ("parakeet", "canary", "whisper")}
+    obs["whisper"].append({"text": "hej"})
+    with pytest.raises(ValueError):
+        paired_exact_agreement(obs, ["hej"])

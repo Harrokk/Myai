@@ -1,9 +1,9 @@
-name: MyAI three pinned families on human Swedish (GitHub-hosted ARM64)
+name: MyAI 36 human Swedish clips and three-family paired evidence
 
 on:
   push:
     branches:
-      - "dev/voice-three-model-human-swedish-hosted-20261104"
+      - "dev/voice-human-swedish-paired-evidence-20261104"
     paths:
       - ".github/workflows/hosted-three-family-human-swedish.yml"
       - "scripts/ci_three_family_human_swedish_trial.py"
@@ -37,7 +37,7 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = "github-hosted"
           test "$(uname -m)" = "aarch64"
           test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
-          test "$GITHUB_REF" = "refs/heads/dev/voice-three-model-human-swedish-hosted-20261104"
+          test "$GITHUB_REF" = "refs/heads/dev/voice-human-swedish-paired-evidence-20261104"
 
       - name: Fetch exact MyAI source in temporary host workspace
         shell: bash
@@ -248,6 +248,6 @@ jobs:
           echo "MyAI exact source SHA: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Public Google FLEURS sv_se test: CC BY 4.0; exact pinned bytes." >> "$GITHUB_STEP_SUMMARY"
           echo "NVIDIA Parakeet, Canary, Whisper Small: three distinct model families." >> "$GITHUB_STEP_SUMMARY"
-          echo "12 identically sampled utterances only: exploratory, NOT representative Swedish WER." >> "$GITHUB_STEP_SUMMARY"
+          echo "36 identically sampled utterances only: exploratory, NOT representative Swedish WER." >> "$GITHUB_STEP_SUMMARY"
           echo "No critical action is approved: consensus was source-only and nonexecuting." >> "$GITHUB_STEP_SUMMARY"
           echo "No concurrency, VENTUNO, GenieX, microphone, service or physical NPU benchmarks." >> "$GITHUB_STEP_SUMMARY"
