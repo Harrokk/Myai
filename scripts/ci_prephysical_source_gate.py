@@ -20,6 +20,13 @@ from scripts.ventuno_physical_pilot_gate import (
 
 
 _SHA40 = re.compile(r"[0-9a-f]{40}\Z")
+# Historical self-hosted audio jobs must remain INERT, irrespective of a push
+# to an old branch. They are not allowed to inherit earlier consent.
+_HISTORICAL_DISABLED_AUDIO_JOBS = (
+    (".github/workflows/ventuno-microphone-consent-once.yml", "microphone"),
+    (".github/workflows/ventuno-microphone-plughw-once.yml", "microphone"),
+    (".github/workflows/ventuno-usb-live-dialog-consent-once.yml", "dialogue"),
+)
 _REQUIRED_REVIEWED_FILES = (
     "core/voice_plan_attestation.py",
     "core/voice_verification.py",
@@ -54,6 +61,40 @@ def _clean_exact_git_head(root):
         return head.stdout.strip()
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return ""
+
+
+
+def _historical_audio_jobs_inert(root):
+    """Guard the three previously flagged push-triggered VENTUNO audio jobs.
+
+    This is an additional fail-closed source invariant, NOT proof that
+    every workflow can never be authorized. No workflow is executed here.
+    """
+    for path_name, job_name in _HISTORICAL_DISABLED_AUDIO_JOBS:
+        path = root / path_name
+        if not path.is_file() or path.is_symlink():
+            return False
+        try:
+            if path.stat().st_size > 32_768:
+                return False
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return False
+        if source.count("jobs:\n") != 1:
+            return False
+        jobs = source.split("jobs:\n", 1)[1]
+        name = "  " + job_name + ":\n"
+        if jobs.count(name) != 1:
+            return False
+        header_and_steps = jobs.split(name, 1)[1]
+        if "    steps:" not in header_and_steps:
+            return False
+        header = header_and_steps.split("    steps:", 1)[0]
+        if re.search(r"(?m)^    if: false[ \t]*$", header) is None:
+            return False
+        if "runs-on: [self-hosted, Linux, ARM64, ventuno-q]" not in header:
+            return False
+    return True
 
 
 def _security_smoke():
@@ -116,12 +157,14 @@ def assess(root, expected_sha, actual_sha, profile):
         is False
     )
     safe_semantics = _security_smoke()
+    historical_audio_inert = _historical_audio_jobs_inert(root)
     eligible = all((
         safe_sha,
         gate.get("status") == "source-only-preflight-passed",
         known_source_files,
         staged_risk_off,
         safe_semantics,
+        historical_audio_inert,
     ))
     return {
         "status": (
@@ -133,6 +176,7 @@ def assess(root, expected_sha, actual_sha, profile):
         "risk_tiered_voice_activation_still_disabled": staged_risk_off,
         "required_audited_gate_files_present": known_source_files,
         "synthetic_security_denial_contracts_pass": safe_semantics,
+        "historical_selfhosted_audio_jobs_inert": historical_audio_inert,
         "eligible_to_request_separate_board_readonly_preflight": eligible,
         # SOURCE-ONLY; these must remain false regardless of result.
         "board_physically_inspected_by_this_gate": False,

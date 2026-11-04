@@ -44,3 +44,9 @@ G. If A–F are all accepted and the operator separately authorizes an individua
 **Physical voice GO:** NOT YET. A–F plus new explicit one-shot operator consent are prerequisites.
 
 **Critical/risk-tiered production voice GO:** NO-GO until independent provenance, critical external identity/approval, authentic Swedish challenge, concurrency memory and on-device runtime evidence are separately passed.
+
+## Additional source invariant added after the first hosted signoff
+
+The three previously flagged old self-hosted audio workflows are push-triggered but currently inert because their sole device jobs are explicitly `if: false`. The hosted prephysical source gate now **fails closed if any of those guards is missing or changed**. Negative tests cover all three reactivation attempts. These jobs do not authorize audio; an operator cannot reuse any old one-shot consent.
+
+The eight legacy sensitive AST call sites have a separate static review contract. The two mocked child-process calls in `tests/test_voice_candidate_native.py` are restricted to synthetic subprocess fixtures. `core/selfdev_bounded_runner.py` and `core/voice_candidate_native.py` use bounded process groups, output caps and cleanup; they are not blanket authorization to execute arbitrary shell, microphone or NPU code. Treat the 15 static flags as triaged source sites, not a claim of an exhaustive independent human manual code audit.

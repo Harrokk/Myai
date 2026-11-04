@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 
 from scripts.ci_prephysical_source_gate import (
-    _REQUIRED_REVIEWED_FILES, _security_smoke, assess,
+    _REQUIRED_REVIEWED_FILES, _HISTORICAL_DISABLED_AUDIO_JOBS,
+    _security_smoke, _historical_audio_jobs_inert, assess,
 )
 from scripts.ventuno_physical_pilot_gate import SAFE_FLAGS
 
@@ -24,6 +25,19 @@ def safe_fixture(tmp_path):
         item = root / file
         item.parent.mkdir(parents=True, exist_ok=True)
         item.write_text("# reviewed test-only placeholder\n")
+    # Recreate only the source-header and job identity. No device is present.
+    for name, job in _HISTORICAL_DISABLED_AUDIO_JOBS:
+        file = root / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(
+            "name: Synthetic inert job\\n"
+            "on:\\n  push:\\n    branches: [dev/synthetic]\\n"
+            "jobs:\\n"
+            f"  {job}:\\n"
+            "    if: false\\n"
+            "    runs-on: [self-hosted, Linux, ARM64, ventuno-q]\\n"
+            "    steps:\\n      - run: echo inert\\n"
+        )
     return root, profile
 
 
@@ -107,3 +121,24 @@ def test_symlinked_gate_file_is_not_accepted(tmp_path):
     report = assess(root, COMMIT, COMMIT, profile)
     assert report["required_audited_gate_files_present"] is False
     assert report["eligible_to_request_separate_board_readonly_preflight"] is False
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_old_selfhosted_audio_job_must_not_be_reactivated(tmp_path, index):
+    root, profile = safe_fixture(tmp_path)
+    assert _historical_audio_jobs_inert(root) is True
+    path, _ = _HISTORICAL_DISABLED_AUDIO_JOBS[index]
+    target = root / path
+    target.write_text(target.read_text().replace("if: false", "if: true"))
+    assert _historical_audio_jobs_inert(root) is False
+    report = assess(root, COMMIT, COMMIT, profile)
+    assert report["status"] == "blocked-offhost-prephysical-gates"
+    assert report["physical_voice_test_authorized"] is False
+
+
+def test_missing_or_symlinked_inert_audio_job_blocks(tmp_path):
+    root, profile = safe_fixture(tmp_path)
+    path, _ = _HISTORICAL_DISABLED_AUDIO_JOBS[0]
+    file = root / path
+    file.unlink()
+    assert _historical_audio_jobs_inert(root) is False
+    assert assess(root, COMMIT, COMMIT, profile)["status"].startswith("blocked")
