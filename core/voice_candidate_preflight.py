@@ -24,6 +24,9 @@ _PROFILES = {
     "whisper-large-v3-turbo": (
         "whisper", "whisper_cpp", "ggml-large-v3-turbo.bin", "whisper-cli",
     ),
+    "whisper-small-q5_1": (
+        "whisper", "whisper_cpp", "ggml-small-q5_1.bin", "whisper-cli",
+    ),
 }
 _ARM64_MACHINE = 183
 _MAX_RUNTIME_BYTES = 256 * 1024 * 1024
@@ -132,11 +135,11 @@ def verify_candidate_profile(profile, *, model_root, model_sha256,
 
 def verify_independent_candidates(manifests):
     """All-or-nothing readiness: one Canary and one Whisper; no partial set."""
-    if (type(manifests) is not dict
-            or set(manifests) != set(_PROFILES)):
+    if (type(manifests) is not dict or len(manifests) != 2
+            or any(type(p) is not str or p not in _PROFILES for p in manifests)):
         raise ValueError("Two distinct reviewed model families are required")
     verified = []
-    for profile in _PROFILES:
+    for profile in sorted(manifests):
         args = manifests[profile]
         if (type(args) is not dict
                 or set(args) != {
@@ -147,6 +150,6 @@ def verify_independent_candidates(manifests):
         verified.append(verify_candidate_profile(profile, **args))
     if not all(item.is_current() for item in verified):
         raise ValueError("Candidate files changed during verification")
-    if verified[0].family == verified[1].family:
+    if {item.family for item in verified} != {"canary", "whisper"}:
         raise ValueError("Independent STT families required")
     return tuple(verified)

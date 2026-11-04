@@ -54,6 +54,16 @@ _RELEASES = {
         license="cc-by-4.0",
         native_source_revision="5700f127e38dd53c4735ea23ef743b4b538eacd4",
     ),
+    "whisper-small-q5_1": HostedModelRelease(
+        profile="whisper-small-q5_1", family="whisper",
+        repository="ggerganov/whisper.cpp",
+        revision="5359861c739e955e79d9a303bcbc70fb988958b1",
+        filename="ggml-small-q5_1.bin",
+        bytes=190085487,
+        sha256="ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+        license="mit",
+        native_source_revision="4da27c41cebadb3cbbcd2563e9c7cbc8d84bdcad",
+    ),
     "whisper-large-v3-turbo": HostedModelRelease(
         profile="whisper-large-v3-turbo", family="whisper",
         repository="ggerganov/whisper.cpp",

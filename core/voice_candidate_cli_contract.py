@@ -38,7 +38,7 @@ def candidate_cli_argv(profile, wav_path, threads=2):
             "--threads", str(threads), "--task", "transcribe",
             "-m", model, "-l", "sv", wav_path,
         ]
-    if profile.profile == "whisper-large-v3-turbo":
+    if profile.profile in ("whisper-large-v3-turbo", "whisper-small-q5_1"):
         return [
             binary, "-np", "-nt", "-ng", "-t", str(threads),
             "-l", "sv", "-m", model, "-f", wav_path,
@@ -63,7 +63,8 @@ def parse_candidate_stdout(profile_name, stdout):
     """
     if (type(profile_name) is not str
             or profile_name not in ("canary-1b-v2-q8",
-                                    "whisper-large-v3-turbo")
+                                    "whisper-large-v3-turbo",
+                                    "whisper-small-q5_1")
             or type(stdout) is not bytes
             or not 0 < len(stdout) <= _MAX_STDOUT):
         raise ValueError("Invalid native STT result")
