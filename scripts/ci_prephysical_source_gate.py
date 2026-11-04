@@ -26,6 +26,9 @@ _HISTORICAL_DISABLED_AUDIO_JOBS = (
     (".github/workflows/ventuno-microphone-consent-once.yml", "microphone"),
     (".github/workflows/ventuno-microphone-plughw-once.yml", "microphone"),
     (".github/workflows/ventuno-usb-live-dialog-consent-once.yml", "dialogue"),
+    (".github/workflows/ventuno-one-consented-voice-smoke-20261022.yml", "dialogue"),
+    (".github/workflows/ventuno-consented-acoustic-metadata-smoke-20261023.yml", "dialogue"),
+    (".github/workflows/ventuno-consented-cue-smoke-20261023.yml", "dialogue"),
 )
 _REQUIRED_REVIEWED_FILES = (
     "core/voice_plan_attestation.py",
