@@ -1,0 +1,145 @@
+name: MyAI real human Swedish Parakeet (hosted ARM64 only)
+
+on:
+  push:
+    branches:
+      - "dev/voice-human-swedish-parakeet-arm64-20261104"
+    paths:
+      - ".github/workflows/hosted-human-swedish-parakeet.yml"
+      - "scripts/ci_swedish_fleurs_parakeet_trial.py"
+      - "tests/test_ci_swedish_fleurs_parakeet_trial.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-hosted-human-parakeet
+  cancel-in-progress: true
+
+jobs:
+  real-parakeet:
+    name: Pinned Parakeet on public human Swedish, GitHub-hosted ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 65
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    steps:
+      - name: Enforce disposable GitHub-hosted ARM64 and exact branch
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/voice-human-swedish-parakeet-arm64-20261104"
+
+      - name: Checkout exact commit in disposable workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/myai-human-source"
+          cd "$RUNNER_TEMP/myai-human-source"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout --quiet --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install pinned CPU ARM64 wheel dependencies and ffmpeg on host only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-human-venv"
+          "$RUNNER_TEMP/myai-human-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "numpy==2.1.3" "pyarrow==20.0.0" \
+            "sherpa-onnx==1.13.8" "sherpa-onnx-bin==1.13.8"
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            --no-install-recommends ffmpeg
+          test -x /usr/bin/ffmpeg
+          "$RUNNER_TEMP/myai-human-venv/bin/python" -c \
+            'import numpy, pyarrow, sherpa_onnx; print("HOSTED CPU STT: PASS")'
+
+      - name: Download exactly SHA256-pinned Swedish FLEURS HUMAN test split
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://huggingface.co/datasets/google/fleurs/resolve/14b46a200cec86ab4cf963c5c0b4661ef343f34a/sv_se/test-00000-of-00001.parquet"
+          file="$RUNNER_TEMP/myai-fleurs-sv_se-test.parquet"
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 30 --max-time 1200 --max-filesize 650000000 \
+            --output "$file" "$url"
+          test "$(stat -c %s "$file")" = "537731833"
+          printf '%s  %s\n' \
+            "efaddda3e8460662b26d07c9fa1e52cbf57fb18365acf5bc232ea1bcf43ed935" "$file" \
+            | sha256sum --check --status
+          chmod 444 "$file"
+          echo "PINNED HUMAN SWEDISH FLEURS TEST: PASS"
+
+      - name: Download and verify all four exact public Parakeet model files
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/myai-parakeet-v3-int8"
+          mkdir -m 700 "$dest"
+          root="https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78"
+          while read -r name size digest; do
+            curl --fail --location --silent --show-error --retry 3 \
+              --connect-timeout 30 --max-time 1200 --max-filesize 700000000 \
+              --output "$dest/$name" "$root/$name"
+            test "$(stat -c %s "$dest/$name")" = "$size"
+            printf '%s  %s\n' "$digest" "$dest/$name" | sha256sum --check --status
+            chmod 444 "$dest/$name"
+          done <<'MODELFILES'
+          encoder.int8.onnx 652184281 acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247
+          decoder.int8.onnx 11845275 179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e
+          joiner.int8.onnx 6355277 3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3
+          tokens.txt 93939 d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d
+          MODELFILES
+          chmod 555 "$dest"
+          echo "PINNED FOUR-FILE PARAKEET: PASS"
+
+      - name: Run real Parakeet inference on 12 human Swedish utterances
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-human-source"
+          "$RUNNER_TEMP/myai-human-venv/bin/python" -B \
+            -m scripts.ci_swedish_fleurs_parakeet_trial
+          echo "REAL PUBLIC HUMAN SWEDISH PARAKEET INFERENCE: PASS"
+
+      - name: Scrub public audio/model files without uploading artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in "$RUNNER_TEMP/myai-parakeet-v3-int8" \
+                      "$RUNNER_TEMP/myai-fleurs-sv_se-test.parquet"; do
+            if [ -e "$path" ]; then
+              chmod -R u+w "$path" || true
+              rm -rf -- "$path"
+            fi
+          done
+          echo "No audio, model weights, private transcript or raw results exported."
+
+      - name: Explain what real human speech measurements do not prove
+        if: always()
+        shell: bash
+        run: |
+          echo "## Hosted pinned public human Swedish Parakeet trial" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Google FLEURS sv_se test, CC BY 4.0, pinned git and SHA256." >> "$GITHUB_STEP_SUMMARY"
+          echo "Public Parakeet v3, four pinned SHA256 weights, CPU only." >> "$GITHUB_STEP_SUMMARY"
+          echo "Exploratory 12 clips only; not representative WER or a quality pass." >> "$GITHUB_STEP_SUMMARY"
+          echo "Python-plus-workers sampled RSS is not cgroup peak or VENTUNO/GenieX concurrent RAM." >> "$GITHUB_STEP_SUMMARY"
+          echo "No device, services, NPU, microphone, model activation or tool calls." >> "$GITHUB_STEP_SUMMARY"
