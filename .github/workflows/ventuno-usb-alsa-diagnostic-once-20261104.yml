@@ -1,0 +1,194 @@
+name: ONE VENTUNO USB ALSA numeric inventory — read-only, NO RECORDING
+
+on:
+  push:
+    branches:
+      - "dev/ventuno-usb-alsa-metadata-20261104"
+    paths:
+      - ".github/workflows/ventuno-usb-alsa-diagnostic-once-20261104.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-ventuno-usb-alsa-one-metadata-20261104
+  cancel-in-progress: false
+
+jobs:
+  hosted-safety-guard:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Enforce disposable hosted ARM64 and one exact audit branch
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-usb-alsa-metadata-20261104"
+
+      - name: Checkout exact source and audit for production-off
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-usb-hosted.XXXXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+          git -C "$scratch" init -q
+          git -C "$scratch" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          cd "$scratch"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          python3 -B scripts/static_repository_audit.py
+          python3 -B -m scripts.ventuno_deep_source_audit
+          python3 -B -m scripts.ventuno_eight_sensitive_calls_review
+          echo "HOSTED USB/ALSA READ-ONLY SOURCE GUARD: PASS"
+
+  board-usb-alsa-metadata:
+    needs: hosted-safety-guard
+    if: github.repository == 'Harrokk/Myai' && github.ref == 'refs/heads/dev/ventuno-usb-alsa-metadata-20261104'
+    runs-on: [self-hosted, Linux, ARM64, ventuno-q]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect ALSA numeric cards and permissions without opening streams
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "self-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$(id -un)" = "arduino"
+          test "$(id -u)" -ne 0
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/ventuno-usb-alsa-metadata-20261104"
+          test -n "${RUNNER_TEMP:-}" && test -d "$RUNNER_TEMP"
+          test ! -L "$RUNNER_TEMP"
+          test -x /home/arduino/MyAI/.venv/bin/python
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-usb-alsa-only.XXXXXXXX")"
+          test -n "$scratch" && test -d "$scratch" && test ! -L "$scratch"
+          trap 'rm -rf -- "$scratch"' EXIT
+          git -C "$scratch" init -q
+          git -C "$scratch" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$scratch" -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" -c credential.helper= checkout -q --detach FETCH_HEAD
+          git -C "$scratch" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          unset GH_TOKEN
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C "$scratch" status --porcelain --untracked-files=no)"
+          cd "$scratch"
+          timeout --signal=TERM --kill-after=3s 90s \
+            /home/arduino/MyAI/.venv/bin/python -B - <<'PY'
+          import json
+          from scripts.ventuno_usb_audio_inventory import inventory_usb_audio
+          from scripts.ventuno_alsa_capture_inventory import list_alsa_capture
+          from scripts.ventuno_usb_voice_dialog_readiness import inspect
+
+          def validated_pairs(value):
+              if not isinstance(value, list):
+                  return []
+              return [
+                  p for p in value[:48]
+                  if isinstance(p, list) and len(p) == 2
+                  and all(type(x) is int and 0 <= x <= 32 for x in p)
+              ]
+
+          try:
+              usb = inventory_usb_audio()
+              alsa = list_alsa_capture()
+              board = inspect()
+              capture = validated_pairs(usb.get("usb_capture_pairs"))
+              playback = validated_pairs(usb.get("usb_playback_pairs"))
+              cap_access = validated_pairs([
+                  x["pair"] for x in usb.get("capture_device_nodes", [])
+                  if type(x) is dict and x.get("character_device") is True
+                  and x.get("accessible") is True and "pair" in x
+              ])
+              play_access = validated_pairs([
+                  x["pair"] for x in usb.get("playback_device_nodes", [])
+                  if type(x) is dict and x.get("character_device") is True
+                  and x.get("accessible") is True and "pair" in x
+              ])
+              usb_cards = [
+                  x for x in usb.get("usb_audio_cards", [])
+                  if type(x) is int and 0 <= x < 32
+              ][:32]
+              status = usb.get("status")
+              if status not in {
+                  "inconclusive-alsa-metadata",
+                  "no-usb-audio-card-detected",
+                  "usb-capture-and-playback-pcm-detected",
+                  "usb-capture-only-pcm-detected",
+                  "usb-playback-only-pcm-detected",
+                  "usb-card-without-pcm-routes",
+              }:
+                  raise ValueError("Unknown USB metadata status")
+              report = {
+                  "status": "diagnostic-completed-audio-not-authorized",
+                  "usb_metadata_status": status,
+                  "usb_audio_card_indexes": usb_cards,
+                  "usb_capture_pairs": capture,
+                  "usb_playback_pairs": playback,
+                  "read_write_accessible_capture_pairs": cap_access,
+                  "read_write_accessible_playback_pairs": play_access,
+                  "alsa_capture_listing_status": (
+                      alsa.get("status") if type(alsa.get("status")) is str
+                      and len(alsa["status"]) < 70 else "unknown"
+                  ),
+                  "alsa_capture_pairs": validated_pairs(
+                      alsa.get("alsa_capture_hardware_pairs")
+                  ),
+                  "alsa_arecord_present": alsa.get("arecord_present") is True,
+                  "alsa_proc_pcm_readable": alsa.get("proc_pcm_readable") is True,
+                  "expected_alsa_1_0_duplex_available": (
+                      [1, 0] in cap_access and [1, 0] in play_access
+                  ),
+                  "service_readiness_status": (
+                      board.get("status") if type(board.get("status")) is str
+                      and len(board["status"]) < 70 else "unknown"
+                  ),
+                  "production_voice_disabled": (
+                      board.get("production_voice_disabled") is True
+                  ),
+                  "audio_stream_opened": False,
+                  "microphone_recorded": False,
+                  "speaker_playback_started": False,
+                  "services_changed": False,
+                  "production_modified": False,
+                  "physical_audio_authorized": False,
+                  "human_reconnection_may_be_required": (
+                      not usb_cards or not cap_access or not play_access
+                  ),
+              }
+          except Exception:
+              report = {
+                  "status": "diagnostic-failed-no-go",
+                  "audio_stream_opened": False,
+                  "microphone_recorded": False,
+                  "speaker_playback_started": False,
+                  "production_modified": False,
+                  "physical_audio_authorized": False,
+              }
+          print("MYAI_VENTUNO_USB_ALSA_DIAGNOSTIC_JSON=" +
+                json.dumps(report, sort_keys=True, separators=(",", ":")))
+          raise SystemExit(0 if report["status"] ==
+                           "diagnostic-completed-audio-not-authorized" else 2)
+          PY
+
+      - name: Explain that numeric listing alone is not recording consent
+        if: always()
+        shell: bash
+        run: |
+          echo "## VENTUNO USB/ALSA read-only numeric inventory" >> "$GITHUB_STEP_SUMMARY"
+          echo "No arecord capture operation or speaker playback; arecord -l/-L listing only." >> "$GITHUB_STEP_SUMMARY"
+          echo "No audio, model, NPU, service or production changes." >> "$GITHUB_STEP_SUMMARY"
+          echo "If USB needs reconnecting, operator must physically recheck it." >> "$GITHUB_STEP_SUMMARY"
