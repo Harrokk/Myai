@@ -1,0 +1,253 @@
+name: MyAI three pinned families on human Swedish (GitHub-hosted ARM64)
+
+on:
+  push:
+    branches:
+      - "dev/voice-three-model-human-swedish-hosted-20261104"
+    paths:
+      - ".github/workflows/hosted-three-family-human-swedish.yml"
+      - "scripts/ci_three_family_human_swedish_trial.py"
+      - "tests/test_ci_three_family_human_swedish_trial.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myai-three-family-human-swedish-hosted
+  cancel-in-progress: true
+
+jobs:
+  real-three-family:
+    name: Three distinct SHA256-pinned STT families on same HUMAN Swedish audio
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      CANARY_SHA: "5700f127e38dd53c4735ea23ef743b4b538eacd4"
+      WHISPER_SHA: "4da27c41cebadb3cbbcd2563e9c7cbc8d84bdcad"
+    steps:
+      - name: Enforce exact branch, hosted-only ARM64 (NEVER VENTUNO)
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$(uname -m)" = "aarch64"
+          test "$GITHUB_REPOSITORY" = "Harrokk/Myai"
+          test "$GITHUB_REF" = "refs/heads/dev/voice-three-model-human-swedish-hosted-20261104"
+
+      - name: Fetch exact MyAI source in temporary host workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/myai-three-source"
+          cd "$RUNNER_TEMP/myai-three-source"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --quiet --depth=1 origin "$GITHUB_SHA"
+          git -c credential.helper= checkout -q --force --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Fetch two exact reviewed upstream native source commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            "canary https://github.com/handy-computer/transcribe.cpp.git $CANARY_SHA" \
+            "whisper https://github.com/ggml-org/whisper.cpp.git $WHISPER_SHA"; do
+            read -r label url sha <<< "$spec"
+            dir="$RUNNER_TEMP/myai-native-$label"
+            mkdir -p "$dir"
+            git -C "$dir" init -q
+            git -C "$dir" remote add origin "$url"
+            git -C "$dir" -c credential.helper= fetch --quiet --depth=1 origin "$sha"
+            git -C "$dir" -c credential.helper= checkout -q --force --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+          done
+
+      - name: Configure exact CPU-only static Canary and Whisper ARM64 builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "$RUNNER_TEMP/myai-native-canary" \
+            -B "$RUNNER_TEMP/myai-native-canary-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTRANSCRIBE_BUILD_SHARED=OFF \
+            -DTRANSCRIBE_BUILD_EXAMPLES=ON \
+            -DTRANSCRIBE_BUILD_TESTS=OFF \
+            -DTRANSCRIBE_BUILD_TOOLS=OFF \
+            -DTRANSCRIBE_USE_OPENMP=OFF \
+            -DTRANSCRIBE_USE_SYSTEM_BLAS=OFF \
+            -DTRANSCRIBE_VULKAN=OFF \
+            -DTRANSCRIBE_CUDA=OFF \
+            -DTRANSCRIBE_HIP=OFF \
+            -DTRANSCRIBE_GGML_BACKEND_DL=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DGGML_BLAS=OFF \
+            -DGGML_VULKAN=OFF
+          cmake -S "$RUNNER_TEMP/myai-native-whisper" \
+            -B "$RUNNER_TEMP/myai-native-whisper-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DWHISPER_BUILD_EXAMPLES=ON \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_SERVER=OFF \
+            -DWHISPER_USE_SYSTEM_GGML=OFF \
+            -DWHISPER_USE_SYSTEM_LLAMA=OFF \
+            -DWHISPER_CURL=OFF \
+            -DWHISPER_COMMON_FFMPEG=OFF \
+            -DWHISPER_SDL2=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DGGML_BLAS=OFF \
+            -DGGML_VULKAN=OFF \
+            -DGGML_CUDA=OFF \
+            -DGGML_BACKEND_DL=OFF
+
+      - name: Build pinned native CLI executables, no dynamic model plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/myai-native-canary-build" \
+            --target transcribe-cli --parallel 2
+          cmake --build "$RUNNER_TEMP/myai-native-whisper-build" \
+            --target whisper-cli --parallel 2
+          bin="$RUNNER_TEMP/myai-native-fullcli-bin"
+          mkdir -p "$bin"
+          mapfile -t canary < <(find "$RUNNER_TEMP/myai-native-canary-build" \
+            -type f -name transcribe-cli -perm /111)
+          mapfile -t whisper < <(find "$RUNNER_TEMP/myai-native-whisper-build" \
+            -type f -name whisper-cli -perm /111)
+          test "${#canary[@]}" -eq 1
+          test "${#whisper[@]}" -eq 1
+          cp -- "${canary[0]}" "$bin/transcribe-cli"
+          cp -- "${whisper[0]}" "$bin/whisper-cli"
+          test -x "$bin/transcribe-cli"
+          test -x "$bin/whisper-cli"
+
+      - name: Audit native loader, direct dependencies and recursive closure
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-three-source"
+          python3 -B scripts/ci_native_cli_elf_audit.py \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          python3 -B -m scripts.ci_native_cli_library_closure \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          python3 -B -m scripts.ci_native_cli_hosted_probe \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/transcribe-cli" \
+            "$RUNNER_TEMP/myai-native-fullcli-bin/whisper-cli"
+          echo "REVIEWED ARM64 ELF AND WAV DECODER: PASS"
+
+      - name: Install pinned sherpa CPU and human-audio decoder on temporary host
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/myai-three-venv"
+          "$RUNNER_TEMP/myai-three-venv/bin/python" -m pip install \
+            --disable-pip-version-check --only-binary=:all: \
+            "numpy==2.1.3" "pyarrow==20.0.0" \
+            "sherpa-onnx==1.13.8" "sherpa-onnx-bin==1.13.8"
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            --no-install-recommends ffmpeg
+          test -x /usr/bin/ffmpeg
+
+      - name: Download and verify exact public FLEURS human Swedish test corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/myai-fleurs-sv_se-test.parquet"
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 30 --max-time 1200 --max-filesize 650000000 \
+            --output "$file" \
+            "https://huggingface.co/datasets/google/fleurs/resolve/14b46a200cec86ab4cf963c5c0b4661ef343f34a/sv_se/test-00000-of-00001.parquet"
+          test "$(stat -c %s "$file")" = "537731833"
+          printf '%s  %s\n' \
+            "efaddda3e8460662b26d07c9fa1e52cbf57fb18365acf5bc232ea1bcf43ed935" "$file" \
+            | sha256sum --check --status
+          chmod 444 "$file"
+          echo "PUBLIC HUMAN SWEDISH FLEURS SHA256: PASS"
+
+      - name: Download verified pinned public Canary and Whisper Small model weights
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-three-source"
+          python3 -B -m scripts.ci_fetch_pinned_stt_model canary-1b-v2-q8
+          python3 -B -m scripts.ci_fetch_pinned_stt_model whisper-small-q5_1
+          echo "PINNED PUBLIC CANARY+WHISPER MODELS: PASS"
+
+      - name: Download four verified Parakeet v3 INT8 model files
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="$RUNNER_TEMP/myai-parakeet-v3-int8"
+          mkdir -m 700 "$dest"
+          root="https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78"
+          while read -r name size digest; do
+            curl --fail --location --silent --show-error --retry 3 \
+              --connect-timeout 30 --max-time 1200 --max-filesize 700000000 \
+              --output "$dest/$name" "$root/$name"
+            test "$(stat -c %s "$dest/$name")" = "$size"
+            printf '%s  %s\n' "$digest" "$dest/$name" | sha256sum --check --status
+            chmod 444 "$dest/$name"
+          done <<'MODELFILES'
+          encoder.int8.onnx 652184281 acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247
+          decoder.int8.onnx 11845275 179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e
+          joiner.int8.onnx 6355277 3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3
+          tokens.txt 93939 d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d
+          MODELFILES
+          chmod 555 "$dest"
+          echo "PINNED FOUR-FILE PARAKEET: PASS"
+
+      - name: Run all three model families on identical human Swedish clips
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/myai-three-source"
+          "$RUNNER_TEMP/myai-three-venv/bin/python" -B \
+            -m scripts.ci_three_family_human_swedish_trial
+          echo "SAME-HUMAN-AUDIO THREE-FAMILY COMPARISON: PASS"
+
+      - name: Scrub public model files and human audio, no artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in "$RUNNER_TEMP/myai-parakeet-v3-int8" \
+                      "$RUNNER_TEMP/myai-fleurs-sv_se-test.parquet" \
+                      "$RUNNER_TEMP/myai-pinned-model-files"; do
+            if [ -e "$path" ]; then
+              chmod -R u+w "$path" || true
+              rm -rf -- "$path"
+            fi
+          done
+          echo "No public model weights, audio, or individual transcripts exported."
+
+      - name: Declare non-production statistical and hardware limitations
+        if: always()
+        shell: bash
+        run: |
+          echo "## Experimental three-family hosted ARM64 human Swedish trial" >> "$GITHUB_STEP_SUMMARY"
+          echo "MyAI exact source SHA: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Public Google FLEURS sv_se test: CC BY 4.0; exact pinned bytes." >> "$GITHUB_STEP_SUMMARY"
+          echo "NVIDIA Parakeet, Canary, Whisper Small: three distinct model families." >> "$GITHUB_STEP_SUMMARY"
+          echo "12 identically sampled utterances only: exploratory, NOT representative Swedish WER." >> "$GITHUB_STEP_SUMMARY"
+          echo "No critical action is approved: consensus was source-only and nonexecuting." >> "$GITHUB_STEP_SUMMARY"
+          echo "No concurrency, VENTUNO, GenieX, microphone, service or physical NPU benchmarks." >> "$GITHUB_STEP_SUMMARY"
