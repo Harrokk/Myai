@@ -142,3 +142,63 @@ def test_missing_or_symlinked_inert_audio_job_blocks(tmp_path):
     file.unlink()
     assert _historical_audio_jobs_inert(root) is False
     assert assess(root, COMMIT, COMMIT, profile)["status"].startswith("blocked")
+
+
+@pytest.mark.parametrize("index", range(len(_HISTORICAL_DISABLED_AUDIO_JOBS)))
+def test_hidden_second_job_must_not_bypass_inert_audio_guard(tmp_path, index):
+    root, profile = safe_fixture(tmp_path)
+    path, _ = _HISTORICAL_DISABLED_AUDIO_JOBS[index]
+    file = root / path
+    file.write_text(file.read_text() + (
+        "  unexpected-recording-job:\n"
+        "    runs-on: [self-hosted, Linux, ARM64, ventuno-q]\n"
+        "    steps:\n"
+        "      - run: echo would-open-microphone\n"
+    ))
+    assert _historical_audio_jobs_inert(root) is False
+    verdict = assess(root, COMMIT, COMMIT, profile)
+    assert verdict["eligible_to_request_separate_board_readonly_preflight"] is False
+    assert verdict["physical_voice_test_authorized"] is False
+
+
+@pytest.mark.parametrize("unsafe_if", [
+    "    if: true",
+    "    if: 'false'",
+    "    if: false # misleading comment",
+    "    if: always()",
+])
+def test_nonliteral_audio_job_condition_is_rejected(tmp_path, unsafe_if):
+    root, _ = safe_fixture(tmp_path)
+    path, _ = _HISTORICAL_DISABLED_AUDIO_JOBS[0]
+    file = root / path
+    file.write_text(file.read_text().replace("    if: false", unsafe_if))
+    assert _historical_audio_jobs_inert(root) is False
+
+
+@pytest.mark.parametrize("extra", [
+    "    if: true\n",
+    "    if: false\n",
+    "    runs-on: ubuntu-latest\n",
+])
+def test_duplicate_job_guard_or_runner_is_rejected(tmp_path, extra):
+    root, _ = safe_fixture(tmp_path)
+    path, _ = _HISTORICAL_DISABLED_AUDIO_JOBS[1]
+    file = root / path
+    file.write_text(file.read_text().replace(
+        "    steps:\n", extra + "    steps:\n", 1
+    ))
+    assert _historical_audio_jobs_inert(root) is False
+
+
+def test_inert_audio_job_guard_must_be_on_expected_runner(tmp_path):
+    root, profile = safe_fixture(tmp_path)
+    path, _ = _HISTORICAL_DISABLED_AUDIO_JOBS[0]
+    file = root / path
+    file.write_text(file.read_text().replace(
+        "    runs-on: [self-hosted, Linux, ARM64, ventuno-q]",
+        "    runs-on: ubuntu-24.04-arm",
+    ))
+    assert _historical_audio_jobs_inert(root) is False
+    assert assess(root, COMMIT, COMMIT, profile)[
+        "physical_voice_test_authorized"
+    ] is False

@@ -68,10 +68,12 @@ def _clean_exact_git_head(root):
 
 
 def _historical_audio_jobs_inert(root):
-    """Guard the three previously flagged push-triggered VENTUNO audio jobs.
+    """Fail closed unless ALL six old audio workflows have one inert job.
 
-    This is an additional fail-closed source invariant, NOT proof that
-    every workflow can never be authorized. No workflow is executed here.
+    An unexpected second job, duplicate if, or changed runner is unsafe,
+    even if the original microphone/dialogue job retains if: false.
+    This is a narrow structural source check, not a full YAML semantic
+    parser, and cannot inspect other GitHub refs.
     """
     for path_name, job_name in _HISTORICAL_DISABLED_AUDIO_JOBS:
         path = root / path_name
@@ -83,22 +85,32 @@ def _historical_audio_jobs_inert(root):
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             return False
-        if source.count("jobs:\n") != 1:
+        if len(re.findall(r"(?m)^jobs:[ \t]*$", source)) != 1:
             return False
-        jobs = source.split("jobs:\n", 1)[1]
-        name = "  " + job_name + ":\n"
-        if jobs.count(name) != 1:
+        jobs = source.split("jobs:\n", 1)
+        if len(jobs) != 2:
             return False
-        header_and_steps = jobs.split(name, 1)[1]
-        if "    steps:" not in header_and_steps:
+        block = jobs[1]
+        job_names = re.findall(
+            r"(?m)^  ([A-Za-z_][A-Za-z0-9_-]*):[ \t]*$", block
+        )
+        if job_names != [job_name]:
             return False
-        header = header_and_steps.split("    steps:", 1)[0]
-        if re.search(r"(?m)^    if: false[ \t]*$", header) is None:
+        header_and_steps = block.split("  " + job_name + ":\n", 1)
+        if len(header_and_steps) != 2:
             return False
-        if "runs-on: [self-hosted, Linux, ARM64, ventuno-q]" not in header:
+        contents = header_and_steps[1].split("    steps:\n", 1)
+        if len(contents) != 2:
+            return False
+        header = contents[0]
+        # Quoted YAML strings and expressions cannot replace literal false.
+        guards = re.findall(r"(?m)^    if:[^\n]*$", header)
+        if guards != ["    if: false"]:
+            return False
+        runners = re.findall(r"(?m)^    runs-on:[^\n]*$", header)
+        if runners != ["    runs-on: [self-hosted, Linux, ARM64, ventuno-q]"]:
             return False
     return True
-
 
 def _security_smoke():
     """Offline denial witnesses, never callable permission receipts."""
