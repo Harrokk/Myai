@@ -188,3 +188,43 @@ def test_critical_third_vote_differing_only_by_filename_dot_denies():
 
 def test_invalid_tier_denied():
     assert check("blocked", vote("p", "hej"))["reason"] == "invalid_tier"
+
+
+@pytest.mark.parametrize("first,second", [
+    ("Radera filen rapport².txt", "Radera filen rapport2.txt"),
+    ("Anslut till enhet ①", "Anslut till enhet 1"),
+    ("Anslut till enhet ＡＢ:ＣＤ", "Anslut till enhet AB:CD"),
+    ("Öppna filen version₅", "Öppna filen version5"),
+])
+def test_compatibility_unicode_distinctions_never_merge_medium_votes(first, second):
+    # Under NFKC these pairs collapse to the same value. They can name
+    # distinct files, devices or numerical identifiers; reject instead.
+    decision = check("medium", vote("p", first), vote("c", second))
+    assert decision["accepted"] is False
+    assert decision["reason"] == "disagreement_or_abstention"
+
+
+@pytest.mark.parametrize("different", [
+    "Radera filen rapport2.txt",
+    "Radera filen rapport①.txt",
+    "Radera filen rapport₅.txt",
+])
+def test_compatibility_unicode_change_from_third_critical_vote_denies(different):
+    decision = check(
+        "critical",
+        vote("p", "Radera filen rapport².txt"),
+        vote("c", "Radera filen rapport².txt"),
+        vote("w", different),
+    )
+    assert decision["accepted"] is False
+    assert decision["reason"] == "potentially_material_conflict"
+
+
+def test_nfc_allows_only_canonical_accent_composition():
+    decision = check(
+        "medium",
+        vote("p", "Anslut till enhet Blå"),
+        vote("c", "Anslut till enhet Bla\u030a"),
+    )
+    assert decision["accepted"] is True
+    assert decision["text"] == "anslut till enhet blå"

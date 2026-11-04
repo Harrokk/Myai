@@ -20,7 +20,10 @@ def _canonical(text):
     # Punctuation can be part of a filename, decimal, path or device ID.
     # Until a typed target-aware parser exists, only whitespace and casing
     # may be normalized; disagreement must deny authorization.
-    value = unicodedata.normalize("NFKC", text).casefold()
+    # NFC preserves compatibility distinctions (e.g., ² vs 2, ① vs 1,
+    # and full-width ASCII vs ordinary ASCII) in target identifiers.
+    # NFKC would incorrectly collapse them into matching STT votes.
+    value = unicodedata.normalize("NFC", text).casefold()
     return " ".join(value.split())
 
 
