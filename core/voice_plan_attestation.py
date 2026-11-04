@@ -29,8 +29,12 @@ def sign_voice_plan(plan, tools, secret):
         if not isinstance(metadata, dict):
             raise ValueError("missing-tool-metadata")
         callback = metadata.get("function")
+        pass_user_input = metadata.get("pass_user_input", False)
+        if type(pass_user_input) is not bool:
+            raise ValueError("invalid-tool-input-policy")
         safety.append({
             "tool": name,
+            "pass_user_input": pass_user_input,
             "safety": metadata.get("safety", {}),
             # Failure classification is part of the authorization:
             # changing it mid-batch must invalidate the HMAC.
@@ -106,6 +110,8 @@ def allow_voice_dispatch(plan, tools, tool_name, tool, effective_input,
     if len(matching) != 1:
         return False
     expected_input = matching[0].get("input")
+    if type(tool.get("pass_user_input", False)) is not bool:
+        return False
     if tool.get("pass_user_input", False):
         if type(expected_input) is not str or expected_input != effective_input:
             return False

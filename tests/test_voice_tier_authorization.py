@@ -4,7 +4,7 @@ import pytest
 
 from core.voice_model_provenance import verify_stt_model_files
 
-from core.voice_plan_attestation import allow_voice_dispatch, same_voice_plan
+from core.voice_plan_attestation import allow_voice_dispatch, same_voice_plan, sign_voice_plan
 from core.voice_tier_authorization import TieredVoicePermit
 from core.voice_tier_identity import TrustedSTTBindings
 
@@ -262,3 +262,43 @@ def test_model_file_permission_change_after_receipt_blocks(tmp_path):
     _, plan, registry, verifier, _, _ = build(tmp_path)
     (tmp_path / "parakeet" / "weights.bin").chmod(0o644)
     assert invoke(plan, registry, verifier) is False
+
+def test_hmac_binds_tool_argument_delivery_policy():
+    registry = tools("reversible", risk_tier="medium", names=("set_volume",))
+    plan = {"steps": [{"tool": "set_volume", "input": "25"}]}
+    secret = b"h" * 32
+    digest = sign_voice_plan(plan, registry, secret)
+    assert same_voice_plan(plan, registry, secret, digest)
+    registry["set_volume"]["pass_user_input"] = True
+    assert not same_voice_plan(plan, registry, secret, digest)
+
+
+def test_tiered_receipt_rejects_changed_argument_delivery_policy(tmp_path):
+    bindings, providers = evidence(tmp_path)
+    registry = tools("reversible", risk_tier="medium", names=("set_volume",))
+    plan = {"steps": [{"tool": "set_volume", "input": "25"}]}
+    secret = b"u" * 32
+    permit = TieredVoicePermit(
+        transcript="Ändra ljudvolym",
+        plan=plan,
+        tools=registry,
+        model_bindings=bindings,
+        observations=[
+            (providers[0], "Ändra ljudvolym"),
+            (providers[1], "Ändra ljudvolym"),
+        ],
+        secret=secret,
+        stop_requested=lambda: False,
+    )
+    registry["set_volume"]["pass_user_input"] = True
+    assert not same_voice_plan(plan, registry, secret, permit.plan_digest)
+    assert permit.authorize(plan, registry, "set_volume", "25") is False
+
+
+@pytest.mark.parametrize("invalid_policy", [None, 1, "false", (), []])
+def test_hmac_refuses_non_boolean_argument_delivery_policy(invalid_policy):
+    registry = tools("reversible", risk_tier="medium", names=("set_volume",))
+    registry["set_volume"]["pass_user_input"] = invalid_policy
+    plan = {"steps": [{"tool": "set_volume", "input": "25"}]}
+    with pytest.raises(ValueError, match="invalid-tool-input-policy"):
+        sign_voice_plan(plan, registry, b"z" * 32)

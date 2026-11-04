@@ -159,3 +159,15 @@ def test_numbered_gpio_and_relay_identifiers_are_critical():
     assert decision("Aktivera GPIO17")["tier"] == "critical"
     assert decision("Slå på relä2")["tier"] == "critical"
     assert decision("Motor 5 start")["tier"] == "critical"
+
+@pytest.mark.parametrize("spoken", [
+    "Stäng av Bluetooth",
+    "Starta om Bluetooth",
+])
+def test_bluetooth_shutdown_stays_conservatively_critical(spoken):
+    # Do not downgrade generic shutdown/restart phrases by string heuristics.
+    # A future reviewed, typed, reversible Bluetooth operation may have its
+    # own explicit medium-risk policy, but this source-only patch does not.
+    d = decision(spoken)
+    assert d["tier"] == "critical"
+    assert d["required_votes"] == 3
