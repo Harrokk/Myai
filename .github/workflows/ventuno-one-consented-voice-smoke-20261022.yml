@@ -17,7 +17,9 @@ jobs:
   dialogue:
     # One real audio attempt is authorized only by this conversation,
     # on the SINGLE specifically named commit-message push. Never on rerun.
-    if: github.run_attempt == 1 && github.event.head_commit.message == 'Authorize single 3s USB dialogue on VENTUNO Q 2026-10-22'
+    # EXPIRED: a historical commit message can never renew audio consent.
+    # The operator must separately authorize a new, purpose-built one-shot job.
+    if: false
     name: One 3s spoken Swedish question and one capped Swedish response
     runs-on: [self-hosted, Linux, ARM64, ventuno-q]
     timeout-minutes: 20

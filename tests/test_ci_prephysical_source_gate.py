@@ -122,7 +122,7 @@ def test_symlinked_gate_file_is_not_accepted(tmp_path):
     assert report["required_audited_gate_files_present"] is False
     assert report["eligible_to_request_separate_board_readonly_preflight"] is False
 
-@pytest.mark.parametrize("index", [0, 1, 2])
+@pytest.mark.parametrize("index", range(len(_HISTORICAL_DISABLED_AUDIO_JOBS)))
 def test_old_selfhosted_audio_job_must_not_be_reactivated(tmp_path, index):
     root, profile = safe_fixture(tmp_path)
     assert _historical_audio_jobs_inert(root) is True
