@@ -16,7 +16,7 @@ from core.voice_candidate_native import IsolatedPinnedNativeCandidateSTT
 from core.voice_candidate_preflight import verify_independent_candidates
 from core.voice_parakeet_isolated import IsolatedPinnedParakeetSTT
 from core.voice_verification import _canonical, verify_tiered_transcripts
-from scripts.ci_native_model_swedish_trial import word_error_count
+from scripts.ci_native_model_swedish_trial import word_error_count, words
 from scripts.ci_swedish_fleurs_parakeet_trial import (
     FLEURS_BYTES, PARAKEET_FILES, RSSSampler, decode_public_audio,
     nearest_rank, select_rows,
@@ -139,13 +139,27 @@ def paired_exact_agreement(by_family, references):
         } for a, b in keys
     }
     reference_matches = {f: 0 for f in families}
+    # WER-style word agreement is DIAGNOSTIC ONLY. Never pass it into
+    # verify_tiered_transcripts, the voice risk policy, or a tool receipt.
+    word_reference_matches = {f: 0 for f in families}
+    word_pair_stats = {
+        a + "_vs_" + b: {
+            "word_agreement": 0,
+            "word_correct_agreement": 0,
+            "word_same_wrong_agreement": 0,
+        } for a, b in keys
+    }
     three_correct = 0
     three_wrong = 0
+    word_three_correct = 0
+    word_three_wrong = 0
     for index, reference in enumerate(references):
         canonical_reference = _canonical(reference)
-        if not canonical_reference:
+        word_reference = tuple(words(reference))
+        if not canonical_reference or not word_reference:
             raise ValueError("Invalid paired reference")
         transcripts = {}
+        word_transcripts = {}
         for f in families:
             record = by_family[f][index]
             if type(record) is not dict or type(record.get("text")) is not str:
@@ -154,10 +168,19 @@ def paired_exact_agreement(by_family, references):
             if text is None:
                 raise ValueError("Unbounded model transcript")
             transcripts[f] = text
+            word_text = tuple(words(record["text"]))
+            word_transcripts[f] = word_text
             reference_matches[f] += int(bool(text) and text == canonical_reference)
+            word_reference_matches[f] += int(bool(word_text) and word_text == word_reference)
         for left, right in keys:
             a, b = transcripts[left], transcripts[right]
             stat = pair_stats[left + "_vs_" + right]
+            word_a, word_b = word_transcripts[left], word_transcripts[right]
+            word_stat = word_pair_stats[left + "_vs_" + right]
+            if word_a and word_a == word_b:
+                word_stat["word_agreement"] += 1
+                word_stat["word_correct_agreement"] += int(word_a == word_reference)
+                word_stat["word_same_wrong_agreement"] += int(word_a != word_reference)
             stat["both_differ_from_reference"] += int(
                 a != canonical_reference and b != canonical_reference
             )
@@ -169,12 +192,23 @@ def paired_exact_agreement(by_family, references):
         if values[0] and len(set(values)) == 1:
             three_correct += int(values[0] == canonical_reference)
             three_wrong += int(values[0] != canonical_reference)
+        word_values = tuple(word_transcripts[f] for f in families)
+        if word_values[0] and len(set(word_values)) == 1:
+            word_three_correct += int(word_values[0] == word_reference)
+            word_three_wrong += int(word_values[0] != word_reference)
     return {
         "samples": len(references),
         "per_family_exact_reference_matches": reference_matches,
         "pairwise_counts": pair_stats,
         "three_same_correct": three_correct,
         "three_same_wrong": three_wrong,
+        "word_diagnostics_only": {
+            "per_family_exact_word_matches": word_reference_matches,
+            "pairwise_counts": word_pair_stats,
+            "three_same_correct": word_three_correct,
+            "three_same_wrong": word_three_wrong,
+            "not_for_authorization": True,
+        },
         "wrong_agreement_is_never_authorization": True,
     }
 

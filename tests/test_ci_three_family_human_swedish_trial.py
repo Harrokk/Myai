@@ -106,3 +106,43 @@ def test_paired_results_reject_different_number_of_samples():
     obs["whisper"].append({"text": "hej"})
     with pytest.raises(ValueError):
         paired_exact_agreement(obs, ["hej"])
+
+
+def test_word_level_accuracy_diagnostic_separately_accepts_punctuation_variants():
+    observations = {
+        "parakeet": [{"text": "Anslut till enhet AA BB"}],
+        "canary": [{"text": "Anslut till enhet AA:BB"}],
+        "whisper": [{"text": "Anslut till enhet AA BB"}],
+    }
+    result = paired_exact_agreement(observations, ["Anslut till enhet AA:BB"])
+    # Never relax authorization: two different device IDs remain different.
+    assert result["pairwise_counts"]["parakeet_vs_canary"]["exact_agreement"] == 0
+    w = result["word_diagnostics_only"]
+    assert w["pairwise_counts"]["parakeet_vs_canary"]["word_agreement"] == 1
+    assert w["pairwise_counts"]["parakeet_vs_canary"]["word_correct_agreement"] == 1
+    assert w["three_same_correct"] == 1
+    assert w["not_for_authorization"] is True
+
+
+def test_word_level_diagnostic_rejects_missing_negation():
+    observations = {
+        "parakeet": [{"text": "Radera inte filen"}],
+        "canary": [{"text": "Radera filen"}],
+        "whisper": [{"text": "Radera filen"}],
+    }
+    result = paired_exact_agreement(observations, ["Radera inte filen"])
+    w = result["word_diagnostics_only"]
+    assert w["pairwise_counts"]["canary_vs_whisper"]["word_same_wrong_agreement"] == 1
+    assert w["three_same_correct"] == 0
+    assert w["not_for_authorization"] is True
+
+
+def test_three_identically_wrong_word_sequences_are_not_marked_correct():
+    observations = {
+        f: [{"text": "Stäng av relä 4"}]
+        for f in ("parakeet", "canary", "whisper")
+    }
+    summary = paired_exact_agreement(observations, ["Stäng inte av relä 4"])
+    assert summary["word_diagnostics_only"]["three_same_wrong"] == 1
+    assert summary["word_diagnostics_only"]["three_same_correct"] == 0
+    assert summary["wrong_agreement_is_never_authorization"] is True
