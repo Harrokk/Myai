@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "track": "arduino_app_lab_asr_v2",
+  "enabled": false,
+  "legacy_pcm_whisper_enabled": false,
+  "microphone_capture_enabled": false,
+  "local_model_queries_enabled": false,
+  "tool_dispatch_enabled": false,
+  "service_control_enabled": false,
+  "mode": "source_only"
+}
