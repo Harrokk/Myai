@@ -1,0 +1,7 @@
+# Official Arduino App Lab v2 source-only pilot prepared — 2026-11-05
+
+A separately packaged `integrations/arduino_app_lab/asr_v2_official_pilot` contains a vendor-API-conformant `app.yaml` and `python/main.py`. It uses `AutomaticSpeechRecognition(language="sv", translate=False)` and the vendor's sentence stream API with an 8-second maximum, accepts only first `full_text`, ignores partial data, invokes `asr.cancel()` on exit, and emits only a fixed categorical status. No old bespoke USB/Whisper code, Python audio libraries, GenieX, Ollama, TTS, tool dispatch, user data upload or service management.
+
+The App is a **manual future physical test candidate**; no person has authorized running this App, and no deployment or local recording has occurred. It is distinct from `asr_v2` source-only event boundary; the runtime App has its own self-contained minimal classifier to avoid dependency on an installed MyAI Python package inside the Arduino App Lab container. Source-only fake Arduino SDK tests demonstrate its one-shot behavior, ASR signature, control flow, cleanup and privacy.
+
+No existing production config or old DRAFT branch changes. The new App is not enabled by the declarative `asr_v2/track.json` policy and is not automatically imported/executed by MyAI. Future operator must authorize new recording, verify model/ASR availability, USB selection and active-service conflicts. Run only via Arduino App Lab UI and not via CI.
