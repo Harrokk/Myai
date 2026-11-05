@@ -415,3 +415,46 @@ def test_one_shot_synthetic_voice_report_exposes_only_coarse_level():
     assert outcome["capture_signal_class"] == "bounded-audio-level"
     assert "pcm" not in str(outcome).lower()
     assert outcome["microphone_audio_saved"] is False
+
+def test_saturated_microphone_is_rejected_before_whisper_or_tools():
+    # A loud clipped recording has plenty of RMS. It must still be denied,
+    # not treated as valid speech or passed to STT and GenieX.
+    p, events = ports(audio=pcm(sample=32767))
+    dialog = mod.OneShotUsbDialog(p)
+    result = dialog.run(consent_to_record=True, consent_to_play=True)
+    assert result["capture_signal_class"] == "possible-microphone-clipping"
+    assert result["status"] == "reject-weak-or-invalid-3s-capture"
+    assert result["recording_attempted"] is True
+    for forbidden in ("transcribe", "geniex", "tts", "play"):
+        assert forbidden not in events
+    assert result["microphone_audio_saved"] is False
+    assert result["transcript_logged"] is False
+    assert dialog.run(consent_to_record=True, consent_to_play=True)[
+        "status"
+    ] == "reject-second-attempt"
+
+
+def test_partial_microphone_clipping_is_also_denied_before_stt():
+    from array import array
+    # More than 2% of samples saturated; previously passed RMS-only gate.
+    samples = array("h", [1800] * 48000)
+    samples[3000:4500] = array("h", [32767] * 1500)
+    p, events = ports(audio=samples.tobytes())
+    outcome = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True
+    )
+    assert outcome["capture_signal_class"] == "possible-microphone-clipping"
+    assert outcome["status"] == "reject-weak-or-invalid-3s-capture"
+    assert "transcribe" not in events
+    assert "play" not in events
+
+
+def test_valid_nonclipped_synthetic_pcm_still_decodes_normally():
+    p, events = ports(audio=pcm(sample=2000))
+    outcome = mod.OneShotUsbDialog(p).run(
+        consent_to_record=True, consent_to_play=True
+    )
+    assert outcome["status"] == "one-shot-usb-dialogue-alsa-playback-completed"
+    assert outcome["capture_signal_class"] == "bounded-audio-level"
+    assert events.count("transcribe") == 1
+    assert events.count("play") == 1

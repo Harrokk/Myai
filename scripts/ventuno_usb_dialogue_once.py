@@ -242,9 +242,16 @@ class OneShotUsbDialog:
                     return result
             result["recording_attempted"] = True
             pcm = self._ports.capture()
-            result["capture_signal_class"] = classify_pcm_quality(pcm)
+            capture_class = classify_pcm_quality(pcm)
+            result["capture_signal_class"] = capture_class
             result["capture_activity_layout"] = classify_pcm_activity_layout(pcm)
-            if not pcm_signal_ok(pcm):
+            # Source-level fixture probes already reject microphone clipping.
+            # The physical controller must apply the same fail-closed gate
+            # before decoding, even when a clipped PCM buffer has high RMS.
+            if (capture_class in (
+                "invalid-pcm", "silence-or-too-quiet",
+                "possible-microphone-clipping",
+            ) or not pcm_signal_ok(pcm)):
                 result["status"] = "reject-weak-or-invalid-3s-capture"
                 return result
             words = self._ports.transcribe_local(pcm)
