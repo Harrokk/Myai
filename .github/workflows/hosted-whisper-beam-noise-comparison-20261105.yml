@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   hosted-synthetic-window:
-    if: github.run_attempt == 1 && github.event.head_commit.message == 'Compare pinned Whisper beam widths 1 and 5 on synthetic Swedish 2026-11-05'
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'Repair pinned Piper reuse and compare beam 1 vs 5 synthetic Swedish 2026-11-05'
     name: Pinned Piper Swedish synthetic speech into pinned Tiny (never physical audio)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
@@ -118,44 +118,76 @@ jobs:
           from pathlib import Path
           from scripts import ventuno_usb_dialogue_hardware as hardware
           from scripts.ventuno_exact_physical_stt_decoder_synthetic import (
-              inspect_exact_live_decoder,
+              inspect_exact_live_decoder, private_exact_decoder_trial,
+              shift_piper_to_middle,
+          )
+          from scripts.ventuno_piper_alma_swedish_stt import (
+              _render_once, VOICE_MODEL,
+          )
+          from scripts.ventuno_synthetic_swedish_question_stt import (
+              wav_to_three_second_capture,
+          )
+          from scripts.ventuno_stt_synthetic_window_robustness import (
+              apply_fixed_acoustic_fault,
+          )
+          from scripts.ventuno_whisper_base_swedish_comparison import (
+              STT_PYTHON, SMALL_FOLDER,
           )
           root = Path(os.environ["MYAI_STT_WINDOW_WORK"])
           raw_source = hardware._PRIVATE_WHISPER
           needle = "beam_size=1, best_of=1"
           assert raw_source.count(needle) == 1
-          # Baseline executes unchanged production decoder. Experimental
-          # beam=5 changes ONLY this disposable worker in this CI process.
+          # Baseline stages and verifies the pinned synthetic Piper voice
+          # EXACTLY ONCE. The secure downloader rejects reuse of its own
+          # existing destination, so the A/B worker must reuse the verified
+          # voice and regenerate the same private PCM in memory.
           baseline = inspect_exact_live_decoder(
               root, synthetic_authorized=True,
           )
+          assert baseline["status"] == (
+              "synthetic-exact-production-decoder-completed"
+          )
+          assert baseline["model_sha256_verified"] is True
+          assert baseline["synthetic_voice_sha256_verified"] is True
+          voice = _render_once(
+              root, root / "pinned-piper-alma" / VOICE_MODEL, 1.0,
+          )
+          assert isinstance(voice, bytes)
+          raw = wav_to_three_second_capture(voice)
+          del voice
+          assert isinstance(raw, bytes) and len(raw) == 96000
+          cases = (
+              ("clean_piper", raw),
+              ("middle_window_800ms", shift_piper_to_middle(raw)),
+              ("noise_12db", apply_fixed_acoustic_fault(
+                  raw, fault="noise_snr_12db")),
+              ("noise_0db", apply_fixed_acoustic_fault(
+                  raw, fault="noise_snr_0db")),
+              ("first_700ms_muted", apply_fixed_acoustic_fault(
+                  raw, fault="onset_muted_700ms")),
+          )
+          del raw
+          labels = tuple(variant for variant, _pcm in cases)
+          # Experimental beam=5 changes ONLY this disposable worker.
           try:
               hardware._PRIVATE_WHISPER = raw_source.replace(
                   needle, "beam_size=5, best_of=1",
               )
-              alternative = inspect_exact_live_decoder(
-                  root, synthetic_authorized=True,
-              )
+              alternate_rows = [
+                  private_exact_decoder_trial(
+                      pcm,
+                      variant=variant,
+                      decode=lambda v: hardware._limited_whisper_child(
+                          root, root / STT_PYTHON, root / SMALL_FOLDER, v,
+                      ),
+                  ) for variant, pcm in cases
+              ]
           finally:
               hardware._PRIVATE_WHISPER = raw_source
-          assert baseline["status"] == (
-              "synthetic-exact-production-decoder-completed"
-          )
-          assert alternative["status"] == (
-              "synthetic-exact-production-decoder-completed"
-          )
-          labels = (
-              "clean_piper", "middle_window_800ms", "noise_12db",
-              "noise_0db", "first_700ms_muted",
-          )
-          def summary(report):
-              rows = report["results"]
-              assert [x["variant"] for x in rows] == list(labels)
+              del cases
+          def summary(rows):
+              assert tuple(x["variant"] for x in rows) == labels
               return {
-                  "status": report["status"],
-                  "model_sha256_verified": report["model_sha256_verified"],
-                  "synthetic_voice_sha256_verified":
-                      report["synthetic_voice_sha256_verified"],
                   "accepted_count": sum(
                       x["accepted_exact_harmless_question"] for x in rows
                   ),
@@ -170,8 +202,8 @@ jobs:
                   ],
               }
           output = {
-              "baseline_beam_1": summary(baseline),
-              "experimental_beam_5": summary(alternative),
+              "baseline_beam_1": summary(baseline["results"]),
+              "experimental_beam_5": summary(alternate_rows),
               "microphone_opened": False,
               "headphones_opened": False,
               "user_audio_used": False,

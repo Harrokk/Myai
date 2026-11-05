@@ -7,3 +7,8 @@ To study whether decoding beam width matters, this single-use **GitHub-hosted AR
 The source was pinned at `492952660eb8573166b157ff024c4c7d2c7ce392`; this new DRAFT stacks on #401. No microphone, speaker, user recording, GenieX, NPU, VENTUNO physical job, production service or settings are touched. The workflow is once-only, bound to a unique branch, exact commit message, path, and run_attempt==1; uses SHA256-pinned model and voice as in #401.
 
 A positive synthetic result alone cannot justify changing live beam settings: VENTUNO latency, RAM/CPU budget, actual speech robustness, and hallucination/false-activation behavior still require separate tests and explicit review. Critical tool dispatch and risk-tiered voice activation remain OFF.
+
+## First harness failure and corrected execution
+The first experimental job [#41997787337](https://github.com/Harrokk/Myai/actions/runs/41997787337) did not produce a comparison: the helper intentionally refuses to download pinned Piper files into a directory that already exists. The baseline completed, then the second invocation of the full staging helper hit that one-time staging guard. That was an **experimental harness reuse error**, not an observed failure of beam=5 STT. No user audio or VENTUNO was involved.
+
+The corrected workflow runs one unchanged full baseline setup and recognition pass, then re-renders the **already verified** pinned Piper model in ephemeral RAM and runs only the alternate Whisper child at beam=5 on the same deterministic variants. Source/voice hashes remain verified by the baseline. The comparison remains on GitHub-hosted ARM64 and never changes live settings.
