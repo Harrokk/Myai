@@ -126,6 +126,7 @@ def execute(monkeypatch, capsys, events=(), *, asr_fails=False,
 def test_manifest_official_asr_and_explicit_usb_mic_no_legacy():
     manifest = (APP / "app.yaml").read_text(encoding="utf-8")
     assert "bricks:\n  - arduino:asr" in manifest
+    assert "explicit USB microphone" in manifest
     assert "arduino:llm" not in manifest
     source = SOURCE.read_text(encoding="utf-8")
     for forbidden in (
