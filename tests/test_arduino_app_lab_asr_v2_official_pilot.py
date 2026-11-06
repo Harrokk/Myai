@@ -180,9 +180,10 @@ def test_other_swedish_sentence_not_logged(monkeypatch, capsys):
 @pytest.mark.parametrize("events,expected", [
     ([], "no-final"),
     ([Event("partial_text", "privat")], "no-final"),
-    ([Event("full_text", " ")], "invalid-final"),
-    ([Event("full_text", "SECRET\x00")], "invalid-final"),
-    ([Event("full_text", "x" * 241)], "invalid-final"),
+    ([Event("full_text", " ")], "empty-final-only"),
+    ([Event("full_text", "SECRET\x00")], "invalid-final-control"),
+    ([Event("full_text", "x" * 241)], "invalid-final-too-long"),
+    ([Event("full_text", None)], "invalid-final-type"),
     ([Event("unknown", "SECRET")], "unexpected-event"),
     ([Event("partial_text", "SECRET")] * 65, "event-budget-rejected"),
 ])
@@ -194,6 +195,68 @@ def test_fail_closed_synthetic_events(monkeypatch, capsys, events, expected):
     assert out.strip().splitlines()[-1] == "MYAI_APP_LAB_ASR_V2: " + expected
     assert "SECRET" not in out
     assert streams[0].exited == 1
+
+
+def test_blank_full_text_does_not_terminate_same_session(monkeypatch, capsys):
+    events = [
+        Event("partial_text", "HIDDEN_PARTIAL"),
+        Event("full_text", ""),
+        Event("full_text", "  "),
+        Event("full_text", "Berätta något om Stockholm!"),
+        Event("full_text", "HIDDEN_SECOND_FINAL"),
+    ]
+    c, streams, output = execute(monkeypatch, capsys, events)
+    assert c["sessions"] == [8]
+    assert c["mic_started"] == c["mic_stopped"] == 1
+    assert c["cancelled"] == 1
+    assert streams[0].entered == streams[0].exited == 1
+    assert output.strip().splitlines()[-1] == (
+        "MYAI_APP_LAB_ASR_V2: other-nonempty-final"
+    )
+    assert "Stockholm" not in output
+    assert "HIDDEN" not in output
+
+
+def test_empty_full_then_stream_end_has_specific_private_status(monkeypatch, capsys):
+    c, streams, output = execute(
+        monkeypatch, capsys,
+        [Event("full_text", ""), Event("partial_text", "HIDDEN_WORDS")],
+    )
+    assert c["sessions"] == [8]
+    assert c["mic_stopped"] == 1
+    assert streams[0].exited == 1
+    assert output.strip().splitlines()[-1] == (
+        "MYAI_APP_LAB_ASR_V2: empty-final-only"
+    )
+    assert "HIDDEN" not in output
+
+
+def test_too_many_empty_finals_remains_one_bounded_session(monkeypatch, capsys):
+    events = [Event("full_text", "")] * 65 + [
+        Event("full_text", "Vad heter du?")
+    ]
+    c, streams, output = execute(monkeypatch, capsys, events)
+    assert c["sessions"] == [8]
+    assert c["mic_started"] == c["mic_stopped"] == 1
+    assert streams[0].entered == streams[0].exited == 1
+    assert output.strip().splitlines()[-1] == (
+        "MYAI_APP_LAB_ASR_V2: event-budget-rejected"
+    )
+
+
+def test_first_nonempty_malformed_final_never_tries_second(monkeypatch, capsys):
+    c, _, output = execute(
+        monkeypatch, capsys,
+        [Event("full_text", "SECRET\\x00"),
+         Event("full_text", "Vad heter du?")],
+    )
+    assert c["sessions"] == [8]
+    assert c["mic_stopped"] == 1
+    assert output.strip().splitlines()[-1] == (
+        "MYAI_APP_LAB_ASR_V2: invalid-final-control"
+    )
+    assert "reference-recognized" not in output
+    assert "SECRET" not in output
 
 
 def test_microphone_start_failure_never_calls_asr(monkeypatch, capsys):

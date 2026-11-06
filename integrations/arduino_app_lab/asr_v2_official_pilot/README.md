@@ -31,3 +31,20 @@ Stoppa inte MyAI eller GenieX utan godkännande. Ingen äldre röstkod har ändr
 
 Kända GitHub-spår: `archive/legacy-voice-20261105` (fryst arkiv),
 `dev/app-lab-asr-v2-explicit-alsa-mic-20261106` (detta korrigerade utkast).
+
+## Uppföljning efter första fysiska explicit-mikrofon-testet (6 november)
+
+Användarens verkliga App Lab-logg:
+```
+App: App started
+MYAI_APP_LAB_ASR_V2: microphone-opened
+App: App is shutting down
+MYAI_APP_LAB_ASR_V2: invalid-final
+App shutdown completed
+```
+
+Den automatiska mikrofonuppstartskraschen är alltså undanröjd. USB-kort 1 enhet 0 (`plughw:1,0`, Razer Kraken V3 X) är separat bekräftat på värden. Loggen visar en `full_text`-händelse som v2 kodens första version avvisade, men avslöjar inte **vilken** typ av ogiltighet det var. Framför allt kan `full_text` vara blankt under en pågående meningsström; Arduinos referensimplementation väntar på **icke-tom** text.
+
+Denna version hoppar därför över tomma `full_text` inom **samma begränsade åttasekunderssession** (inga nya inspelningar eller omförsök) och avger endast mer särskiljande fasta kategorier: `empty-final-only`, `invalid-final-type`, `invalid-final-too-long`, `invalid-final-control` och befintliga giltiga resultat.
+
+Inget nytt test på den fysiska mikrofonen har startats av kodändringen. Nästa `Run` kräver separat samtycke, och enbart App Labs `failed`-status avgör inte om ASR verkligen har kraschade; granska alltid `[main]`-loggen. MyAI/GenieX lämnas aktiva.

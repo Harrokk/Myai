@@ -8,6 +8,8 @@ before another operator-approved physical microphone session.
 
 No legacy Whisper workers, external API, tool calls or service controls.
 Only fixed outcome labels are printed, never recorded words or PCM.
+A blank full_text event does not terminate a sentence; wait within the same
+8-second stream for one nonempty final, without making another recording.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from arduino.app_utils import App
 MAX_EVENTS = 64
 MAX_WORD_CHARS = 240
 MAX_SENTENCE_SECONDS = 8
-MIC_DEVICE = "plughw:1,0"  # Historically verified, recheck current ALSA card.
+MIC_DEVICE = "plughw:1,0"  # Host card 1:0 reconfirmed 2026-11-06.
 _PREFIX = "MYAI_APP_LAB_ASR_V2: "
 
 # Passing an explicit ALSA mic bypasses SDK's Microphone(0) auto-selection.
@@ -33,13 +35,16 @@ _used = False
 
 
 def _private_label(raw: object) -> str:
+    """Return only fixed categories; no words, counts or exception messages."""
     if not isinstance(raw, str):
-        return "invalid-final"
+        return "invalid-final-type"
     text = unicodedata.normalize("NFC", raw.strip())
-    if not 1 <= len(text) <= MAX_WORD_CHARS:
-        return "invalid-final"
+    if not text:
+        return "empty-final-only"
+    if len(text) > MAX_WORD_CHARS:
+        return "invalid-final-too-long"
     if any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in text):
-        return "invalid-final"
+        return "invalid-final-control"
     normalized = " ".join(text.casefold().strip(" .,!?;:").split())
     if normalized == "vad heter du":
         return "reference-recognized"
@@ -77,7 +82,14 @@ def run_one():
                         if kind != "full_text":
                             status = "unexpected-event"
                             break
-                        status = _private_label(getattr(event, "data", None))
+                        raw = getattr(event, "data", None)
+                        if isinstance(raw, str) and not raw.strip():
+                            # Arduino's sentence stream normally completes on a
+                            # NONEMPTY full_text. Blank full_text is not a
+                            # transcript; continue SAME bounded ASR session.
+                            status = "empty-final-only"
+                            continue
+                        status = _private_label(raw)
                         break
             except Exception:
                 status = "asr-session-failed"
