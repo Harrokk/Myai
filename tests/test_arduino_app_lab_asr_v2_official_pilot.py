@@ -247,7 +247,7 @@ def test_too_many_empty_finals_remains_one_bounded_session(monkeypatch, capsys):
 def test_first_nonempty_malformed_final_never_tries_second(monkeypatch, capsys):
     c, _, output = execute(
         monkeypatch, capsys,
-        [Event("full_text", "SECRET\\x00"),
+        [Event("full_text", "SECRET\x00"),
          Event("full_text", "Vad heter du?")],
     )
     assert c["sessions"] == [8]
