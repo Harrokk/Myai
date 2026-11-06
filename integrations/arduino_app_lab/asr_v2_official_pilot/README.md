@@ -1,18 +1,33 @@
-# MyAI v2 — Arduino App Lab officiell ASR-pilot
+# MyAI v2 — korrigerad officiell Arduino App Lab-ASR (förberedd, inte körd)
 
-**Endast för ett framtida manuellt test. Importera gärna som källa, men klicka inte på Run förrän vi uttryckligen har verifierat den lokala miljön och godkänt en ny inspelning.**
+App Lab-piloten kraschade 6 november 2026 redan vid konstruktionen av
+`AutomaticSpeechRecognition(language="sv", translate=False)` eftersom Arduinos
+automatiska `Microphone(0)` inte såg någon inkopplad mikrofon *inuti App
+Lab-containern*. Fel: `MicrophoneOpenError: No microphone found at index 0:
+only 0 microphone(s) plugged`.
 
-Det här är en liten fristående App Lab-applikation som använder Arduinos egen `arduino:asr` Brick. Den använder Arduinos standardmikrofon, utan handskrivna ALSA-inställningar eller en extern Python-Whisper-installation. Det är just den förenklingen som skiljer nya vägen från den arkiverade.
+En **äldre**, separat App Lab-app demonstrerade den 3 november att
+`ALSAMicrophone(device="plughw:1,0", shared=False, auto_reconnect=False)`
+kunde öppna och leverera ljud till Arduino-ASR (kategorin `pcm-level-present`).
+Den gav då `no-final-text`, vilket inte bevisar att svensk igenkänning lyckades.
 
-## Körsätt vid framtida särskilt godkänt prov
+Det nya försöket byter *endast* mikrofonval och dess livscykel:
+- Använd officiell `arduino.app_peripherals.microphone.ALSAMicrophone`, med historiskt observerad `plughw:1,0`. Inget eget PCM-/brus-/Whisper-system.
+- Ange `mic=mic` till officiella `AutomaticSpeechRecognition(language="sv", translate=False)`. `App.run` startar ASR; applikationen anropar själv `mic.start()` och `mic.stop()` runt **en** `transcribe_sentence_stream(timeout=8)`.
+- Rapportera enbart `microphone-opened`, `microphone-open-failed`, `microphone-release-failed`, `asr-session-failed`, `no-final`, `reference-recognized` eller andra fasta resultatkoder. Ingen inspelning eller transkription loggas.
+- Stäng mikrofonen även när ASR misslyckas, ingen automatisk återanslutning eller andra försök.
 
-1. Importera mappen som en Arduino App Lab-app. Appens manifest är `app.yaml` och koden `python/main.py`.
-2. Säkerställ lokalt att `whisper-small-quantized` är tillgänglig för den officiella ASR-Bricken. Import i GitHub bevisar inte att modellen är installerad på VENTUNO.
-3. Kontrollera vilken mikrofon Arduino App Lab väljer och eventuell konkurrens från den aktiva MyAI/GenieX-tjänsten. Kör inte mot okända enheter och stoppa inga tjänster utan ett nytt godkännande.
-4. Vid ett särskilt auktoriserat manuellt `Run` anropas `transcribe_sentence_stream(timeout=8)` en gång, med `language="sv"` och `translate=False`. ASR-Bricken sköter sin standardmikrofons livscykel. Appen använder aldrig externa verktyg.
-5. Endast en grov resultatkod visas lokalt: `reference-recognized`, `other-nonempty-final`, `no-final`, `invalid-final`, `unexpected-event`, `event-budget-rejected`, `asr-session-failed` eller `asr-cancel-failed`. Inga transkript eller ljud skickas till GitHub.
-6. Avsluta appen manuellt efter provet. Inga röstkommandon, ingen TTS, ingen kontinuerlig lyssning, ingen LLM, inga tjänsteändringar.
+**Innan ett nytt fysiskt försök:** kontrollera på nytt att USB-kortets nuvarande
+ALSA-adress är **1,0**. Appens `plughw:1,0` är baserat på 3 november, inte
+den senare rapporten med endast antal USB-mikrofoner. Kontrollera att
+App Lab-containern kan se ALSA-enheten. Om kortnumret ändrats: **ändra inte
+till en gissad enhet**; använd en bekräftad stabil ALSA-kortidentifierare.
+Att ASR-modellen enligt användaren finns installerad bevisar inte att den
+fungerar under aktuell servicebelastning.
 
-Ljudresursen är ännu inte fysiskt verifierad för den här App Lab-appens standardmikrofon. Om MyAI eller GenieX måste pausas för ett prov sker det bara separat med återställningsplan och ditt uttryckliga godkännande. Det äldre ljudarbetet finns oförändrat i grenen `archive/legacy-voice-20261105`.
+Ingen ny inspelning godkänns genom att ladda ned eller importera koden.
+En separat, uttrycklig begäran krävs innan man klickar **Run** igen.
+Stoppa inte MyAI eller GenieX utan godkännande. Ingen äldre röstkod har ändrats.
 
-Officiell referens: Arduino `app-bricks-py` commit `94f100ee906770e6f469f9edbc615bad895d695e`, ASR README och `local_asr.py`. Manifest följer Arduino `app-bricks-examples` för `arduino:asr`.
+Kända GitHub-spår: `archive/legacy-voice-20261105` (fryst arkiv),
+`dev/app-lab-asr-v2-explicit-alsa-mic-20261106` (detta korrigerade utkast).
