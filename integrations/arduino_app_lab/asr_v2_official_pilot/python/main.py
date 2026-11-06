@@ -1,26 +1,34 @@
 # SPDX-License-Identifier: MIT
-"""Operator-initiated official Arduino App Lab ASR v2 pilot.
+"""Manual-only Arduino ASR v2 pilot with an explicit ALSA USB microphone.
 
-THIS APP RECORDS only when the operator explicitly clicks Run in App Lab,
-after separate authorization and resource-preflight review. Importing the
-project in GitHub does not start an App Lab job. Never auto-deploy this app.
+The previous default-mic App failed at Microphone(0) enumeration before ASR
+could start. This version uses the known historical USB capture route as an
+explicit device, but STILL requires a fresh read-only card-ID verification
+before another operator-approved physical microphone session.
 
-Uses Arduino's own managed microphone and Whisper Small ASR Brick; no ALSA
-device hardcoding, PCM transforms, Python Whisper workers or MyAI services.
-All recognized words stay private: logs show ONLY one fixed outcome label.
+No legacy Whisper workers, external API, tool calls or service controls.
+Only fixed outcome labels are printed, never recorded words or PCM.
 """
 from __future__ import annotations
 
 import unicodedata
 
 from arduino.app_bricks.asr import AutomaticSpeechRecognition
+from arduino.app_peripherals.microphone import ALSAMicrophone
 from arduino.app_utils import App
 
 MAX_EVENTS = 64
 MAX_WORD_CHARS = 240
 MAX_SENTENCE_SECONDS = 8
+MIC_DEVICE = "plughw:1,0"  # Historically verified, recheck current ALSA card.
 _PREFIX = "MYAI_APP_LAB_ASR_V2: "
-asr = AutomaticSpeechRecognition(language="sv", translate=False)
+
+# Passing an explicit ALSA mic bypasses SDK's Microphone(0) auto-selection.
+# Caller owns mic.start() and mic.stop(); App.run manages the ASR Brick.
+mic = ALSAMicrophone(
+    device=MIC_DEVICE, shared=False, auto_reconnect=False,
+)
+asr = AutomaticSpeechRecognition(mic=mic, language="sv", translate=False)
 _used = False
 
 
@@ -39,38 +47,52 @@ def _private_label(raw: object) -> str:
 
 
 def run_one():
-    """App Lab owns microphone start/stop; the ASR session is one-shot."""
+    """Exactly one bounded ASR session after explicit operator action."""
     global _used
     if _used:
         raise StopIteration
     _used = True
     status = "no-final"
     count = 0
+    mic_attempted = False
     try:
-        with asr.transcribe_sentence_stream(timeout=MAX_SENTENCE_SECONDS) as stream:
-            for event in stream:
-                count += 1
-                if count > MAX_EVENTS:
-                    status = "event-budget-rejected"
-                    break
-                kind = getattr(event, "type", None)
-                if kind == "partial_text":
-                    continue  # Never inspect, log or forward partial words.
-                if kind != "full_text":
-                    status = "unexpected-event"
-                    break
-                status = _private_label(getattr(event, "data", None))
-                break
-    except Exception:
-        # Vendor exceptions may include raw recognized words or file paths.
-        status = "asr-session-failed"
+        mic_attempted = True
+        try:
+            mic.start()
+        except Exception:
+            # Never print vendor exception details or device identifiers.
+            status = "microphone-open-failed"
+        else:
+            print(_PREFIX + "microphone-opened", flush=True)
+            try:
+                with asr.transcribe_sentence_stream(timeout=MAX_SENTENCE_SECONDS) as stream:
+                    for event in stream:
+                        count += 1
+                        if count > MAX_EVENTS:
+                            status = "event-budget-rejected"
+                            break
+                        kind = getattr(event, "type", None)
+                        if kind == "partial_text":
+                            continue
+                        if kind != "full_text":
+                            status = "unexpected-event"
+                            break
+                        status = _private_label(getattr(event, "data", None))
+                        break
+            except Exception:
+                status = "asr-session-failed"
     finally:
         try:
             asr.cancel()
         except Exception:
             status = "asr-cancel-failed"
+        if mic_attempted:
+            try:
+                mic.stop()
+            except Exception:
+                status = "microphone-release-failed"
         print(_PREFIX + status, flush=True)
-        raise StopIteration  # Avoid more App.run turns or repeat recordings.
+        raise StopIteration
 
 
 App.run(user_loop=run_one)

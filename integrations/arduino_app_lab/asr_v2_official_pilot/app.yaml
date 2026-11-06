@@ -1,7 +1,8 @@
-name: MyAI v2 official Swedish ASR pilot - manual only
+name: MyAI v2 ASR explicit USB microphone - manual only
 description: >-
-  Operator-run, one-shot local Swedish ASR using the official Arduino Brick.
-  Separate from legacy MyAI USB and Whisper implementations. No cloud,
-  speech audio export, LLM queries, tools, TTS or service changes.
+  Operator-run, single-use local Swedish ASR using the official Arduino Brick
+  and an explicitly selected USB ALSA microphone. Separate from the old
+  auto-microphone App and the archived MyAI USB/Whisper experiments.
+  No cloud, transcript export, LLM, tools, TTS or service changes.
 bricks:
   - arduino:asr
