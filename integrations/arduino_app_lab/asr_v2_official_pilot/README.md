@@ -48,3 +48,36 @@ Den automatiska mikrofonuppstartskraschen är alltså undanröjd. USB-kort 1 enh
 Denna version hoppar därför över tomma `full_text` inom **samma begränsade åttasekunderssession** (inga nya inspelningar eller omförsök) och avger endast mer särskiljande fasta kategorier: `empty-final-only`, `invalid-final-type`, `invalid-final-too-long`, `invalid-final-control` och befintliga giltiga resultat.
 
 Inget nytt test på den fysiska mikrofonen har startats av kodändringen. Nästa `Run` kräver separat samtycke, och enbart App Labs `failed`-status avgör inte om ASR verkligen har kraschade; granska alltid `[main]`-loggen. MyAI/GenieX lämnas aktiva.
+
+## Uppföljning 11 november – endast tomma ASR-sluthändelser
+
+Användaren har rapporterat `empty-final-only` från nästa fysiska inspelning.
+Det betyder att *en eller flera* `full_text` var tomma, inte att ASR
+producerade en begriplig transkription. Mikrofonen öppnades i föregående
+test och ASR-streamen avvecklades; om ljud faktiskt lästes när användaren
+talade är fortfarande obekräftat.
+
+**Källbaserad ny hypotes:** I Arduinos officiella SDK skapas en ASR-session
+och dess NPU-modell laddas innan lästråden anropar mikrofonens `capture()`.
+Därför kan `microphone-opened` komma långt före faktisk inspelning. Vårt
+tidigare försök instruerade användaren att tala vid just denna för tidiga
+signal.
+
+Ny version använder en **minimal underklass till Arduinos ALSAMicrophone**
+som anropar `super().capture()` och skickar en engångskod
+`capture-started-speak-now` först när Arduinos egen lästråd fått en
+icke-tom PCM-buffer. Inget PCM tolkas, ändras, kopieras eller lagras;
+officiella ASR Brick och originalenheten `plughw:1,0` används som förut.
+`microphone-opened-wait-for-capture` är **inte** en uppmaning att tala.
+Den nya koden ändrar inte gränsen `timeout=8`, skapar ingen extra session
+och gör inga omförsök.
+
+Observera att SDK-lästrådens första PCM-chunk **inte är bevis** att samma
+ljud redan har nått inferensservern via WebSocket eller att modellen har
+identifierat tal. Det är en källmotiverad, bättre startindikator – inte
+en garanti att transkriptionen lyckas.
+
+Ingen ny fysisk inspelning är utförd eller godkänd av denna källkod.
+En ny `Run` kräver nytt uttryckligt godkännande. Låt båda MyAI/GenieX
+fortsätta köra. Kontrollera Arduino App Lab-modell, mikrofon och tjänster
+före en framtida live-körning.

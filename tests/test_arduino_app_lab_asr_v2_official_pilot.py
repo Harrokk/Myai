@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import runpy
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -19,15 +19,23 @@ class Event:
 
 
 class FakeStream:
-    def __init__(self, events, *, exit_fails=False):
+    def __init__(self, events, *, exit_fails=False, on_first_read=None):
         self.events = events
         self.entered = 0
         self.exited = 0
         self.exit_fails = exit_fails
+        self.on_first_read = on_first_read
 
     def __enter__(self):
         self.entered += 1
-        return iter(self.events)
+
+        def after_vendor_session_created():
+            # Synthetic SDK reader begins AFTER the ASR session is made.
+            if self.on_first_read is not None:
+                self.on_first_read()
+            yield from self.events
+
+        return after_vendor_session_created()
 
     def __exit__(self, typ, exc, tb):
         self.exited += 1
@@ -38,10 +46,12 @@ class FakeStream:
 
 def execute(monkeypatch, capsys, events=(), *, asr_fails=False,
             stream_exit_fails=False, cancel_fails=False,
-            mic_start_fails=False, mic_stop_fails=False):
+            mic_start_fails=False, mic_stop_fails=False,
+            mic_capture_none=False, mic_capture_zero=False):
     counts = {
         "created": 0, "sessions": [], "cancelled": 0, "calls": 0,
         "mic_created": 0, "mic_started": 0, "mic_stopped": 0,
+        "mic_captures": 0,
         "order": [],
     }
     top = ModuleType("arduino")
@@ -74,6 +84,14 @@ def execute(monkeypatch, capsys, events=(), *, asr_fails=False,
             if mic_stop_fails:
                 raise RuntimeError("PRIVATE_MIC_RELEASE_ERROR")
 
+        def capture(self):
+            assert self.running, "SDK cannot capture before mic.start"
+            counts["mic_captures"] += 1
+            counts["order"].append("capture")
+            if mic_capture_none:
+                return None
+            return SimpleNamespace(size=0 if mic_capture_zero else 1024)
+
     class AutomaticSpeechRecognition:
         def __init__(self, *, mic, language, translate):
             assert isinstance(mic, ALSAMicrophone)
@@ -88,7 +106,10 @@ def execute(monkeypatch, capsys, events=(), *, asr_fails=False,
             counts["order"].append("asr-session")
             if asr_fails:
                 raise RuntimeError("PRIVATE_RAW_TRANSCRIPT")
-            s = FakeStream(events, exit_fails=stream_exit_fails)
+            s = FakeStream(
+                events, exit_fails=stream_exit_fails,
+                on_first_read=lambda: (self.mic.capture(), self.mic.capture()),
+            )
             streams.append(s)
             return s
 
@@ -136,7 +157,7 @@ def test_manifest_official_asr_and_explicit_usb_mic_no_legacy():
     ):
         assert forbidden not in source
     assert 'MIC_DEVICE = "plughw:1,0"' in source
-    assert "ALSAMicrophone(" in source
+    assert "FirstCaptureCueMicrophone(ALSAMicrophone)" in source
     assert "shared=False, auto_reconnect=False" in source
     assert "AutomaticSpeechRecognition(mic=mic, language=" in source
     assert "transcribe_sentence_stream(timeout=MAX_SENTENCE_SECONDS)" in source
@@ -155,16 +176,45 @@ def test_exact_phrase_uses_one_explicit_device_and_releases(monkeypatch, capsys)
     assert c["mic_started"] == c["mic_stopped"] == 1
     assert c["sessions"] == [8]
     assert c["cancelled"] == 1
+    assert c["mic_captures"] == 2
     assert s[0].entered == s[0].exited == 1
     assert c["order"] == [
         "construct-mic", "construct-asr", "mic-start",
-        "asr-session", "asr-cancel", "mic-stop",
+        "asr-session", "capture", "capture", "asr-cancel", "mic-stop",
     ]
     assert output.strip().splitlines() == [
-        "MYAI_APP_LAB_ASR_V2: microphone-opened",
+        "MYAI_APP_LAB_ASR_V2: microphone-opened-wait-for-capture",
+        "MYAI_APP_LAB_ASR_V2: capture-started-speak-now",
         "MYAI_APP_LAB_ASR_V2: reference-recognized",
     ]
     assert "hemligt" not in output and "andra meningen" not in output
+
+
+def test_no_pcm_chunk_means_no_speech_cue(monkeypatch, capsys):
+    c, stream, out = execute(
+        monkeypatch, capsys, [], mic_capture_none=True,
+    )
+    assert c["sessions"] == [8]
+    assert c["mic_captures"] == 2
+    assert c["mic_started"] == c["mic_stopped"] == 1
+    assert "capture-started-speak-now" not in out
+    assert "microphone-opened-wait-for-capture" in out
+    assert out.strip().splitlines()[-1] == "MYAI_APP_LAB_ASR_V2: no-final"
+    assert stream[0].exited == 1
+
+
+def test_zero_length_pcm_does_not_report_capture_started(monkeypatch, capsys):
+    c, _, out = execute(monkeypatch, capsys, [], mic_capture_zero=True)
+    assert c["mic_captures"] == 2
+    assert "capture-started-speak-now" not in out
+    assert out.strip().splitlines()[-1] == "MYAI_APP_LAB_ASR_V2: no-final"
+
+
+def test_failed_asr_session_never_prints_false_speech_cue(monkeypatch, capsys):
+    c, _, out = execute(monkeypatch, capsys, asr_fails=True)
+    assert c["mic_captures"] == 0
+    assert "capture-started-speak-now" not in out
+    assert out.strip().splitlines()[-1] == "MYAI_APP_LAB_ASR_V2: asr-session-failed"
 
 
 def test_other_swedish_sentence_not_logged(monkeypatch, capsys):
