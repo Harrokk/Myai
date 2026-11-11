@@ -8,6 +8,9 @@ before another operator-approved physical microphone session.
 
 No legacy Whisper workers, external API, tool calls or service controls.
 Only fixed outcome labels are printed, never recorded words or PCM.
+"microphone-opened" is not a speech cue: model/session initialization may
+follow it. A cue appears only on the first PCM chunk read by Arduino's ASR
+reader; this is not proof that the remote ASR server already decoded speech.
 A blank full_text event does not terminate a sentence; wait within the same
 8-second stream for one nonempty final, without making another recording.
 """
@@ -25,9 +28,29 @@ MAX_SENTENCE_SECONDS = 8
 MIC_DEVICE = "plughw:1,0"  # Host card 1:0 reconfirmed 2026-11-06.
 _PREFIX = "MYAI_APP_LAB_ASR_V2: "
 
-# Passing an explicit ALSA mic bypasses SDK's Microphone(0) auto-selection.
-# Caller owns mic.start() and mic.stop(); App.run manages the ASR Brick.
-mic = ALSAMicrophone(
+# Arduino starts the real ASR session *after* the microphone is opened.
+# This subclass never interprets, copies, stores or changes PCM. It only
+# announces when the vendor SDK reader has obtained its FIRST nonempty chunk.
+# That cue is more reliable than "microphone-opened" as a prompt to speak.
+class FirstCaptureCueMicrophone(ALSAMicrophone):
+    def __init__(self, *, device: str, shared: bool, auto_reconnect: bool):
+        super().__init__(
+            device=device, shared=shared, auto_reconnect=auto_reconnect,
+        )
+        self._first_capture_reported = False
+
+    def capture(self):
+        chunk = super().capture()
+        if (not self._first_capture_reported and chunk is not None
+                and getattr(chunk, "size", 0) > 0):
+            self._first_capture_reported = True
+            print(_PREFIX + "capture-started-speak-now", flush=True)
+        return chunk
+
+
+# Explicit ALSA mic bypasses SDK's broken Microphone(0) auto-selection.
+# App.run owns the ASR Brick, this module owns mic.start() and mic.stop().
+mic = FirstCaptureCueMicrophone(
     device=MIC_DEVICE, shared=False, auto_reconnect=False,
 )
 asr = AutomaticSpeechRecognition(mic=mic, language="sv", translate=False)
@@ -68,7 +91,7 @@ def run_one():
             # Never print vendor exception details or device identifiers.
             status = "microphone-open-failed"
         else:
-            print(_PREFIX + "microphone-opened", flush=True)
+            print(_PREFIX + "microphone-opened-wait-for-capture", flush=True)
             try:
                 with asr.transcribe_sentence_stream(timeout=MAX_SENTENCE_SECONDS) as stream:
                     for event in stream:

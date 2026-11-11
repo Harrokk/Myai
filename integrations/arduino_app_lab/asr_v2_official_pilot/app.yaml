@@ -1,4 +1,4 @@
-name: MyAI v2 ASR explicit USB microphone - manual only
+name: MyAI v2 ASR explicit USB microphone capture cue - manual only
 description: >-
   Operator-run, single-use local Swedish ASR using the official Arduino Brick
   and an explicitly selected USB ALSA microphone. Separate from the old
