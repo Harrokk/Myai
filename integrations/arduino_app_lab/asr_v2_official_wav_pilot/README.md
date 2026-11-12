@@ -59,3 +59,25 @@ https://github.com/philippe86220/VENTUNO-Q-Local-Speech-Recognition-with-Arduino
 **No audio is recorded by GitHub CI.** All tests use synthetic fake Arduino
 APIs and PCM. User must explicitly authorize a *new* live recording after
 reviewing this proposal. Do not stop MyAI or GenieX.
+
+## Safe PCM level diagnostics (source-only extension)
+
+The newer pilot additionally prints **one line of aggregate signal metrics**
+from the WAV already held in RAM. This is neither an additional capture nor
+an audio recording saved to disk:
+
+```
+MYAI_APP_LAB_WAV_V2: signal-level peak-pct=... rms-pct=... saturated-samples=...
+```
+
+- Peak and RMS percentages are relative to 16-bit full scale (32768).
+- `saturated-samples` counts samples whose absolute amplitude is at least
+  32760/32768. It is not a diagnosis of clipping by itself.
+- The output contains no PCM bytes, speech content, words, filenames or timestamps.
+- A high peak or RMS may reflect speech, noise or interference. A very low
+  value may reflect mute, wrong routing or weak recording. Levels alone
+  **cannot** identify which cause, or prove quality/language correctness.
+- Checks WAV rate/mono/sample format and sample count before analyzing;
+  failure is `signal-summary-failed`, never an unhandled raw-audio print.
+- The existing one-shot maximum eight seconds and mic shutdown before ASR
+  remain unchanged. No new live test is authorized by this patch.
