@@ -1,0 +1,9 @@
+name: MyAI v2 RAM WAV official ASR comparison - manual only
+description: >-
+  Separate operator-run Arduino ASR experiment. Captures at most eight seconds
+  with the official ALSA microphone, holds WAV bytes only in RAM, closes the
+  microphone, and transcribes once with official Arduino WAV ASR. Source-only
+  until separately authorized. No audio files, transcripts, network export,
+  LLM, TTS, tool execution, service changes or automatic retries.
+bricks:
+  - arduino:asr
