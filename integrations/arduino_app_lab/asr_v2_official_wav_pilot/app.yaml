@@ -1,4 +1,4 @@
-name: MyAI v2 RAM WAV official ASR comparison - manual only
+name: MyAI v2 RAM WAV signal level diagnostic - manual only
 description: >-
   Separate operator-run Arduino ASR experiment. Captures at most eight seconds
   with the official ALSA microphone, holds WAV bytes only in RAM, closes the

@@ -14,23 +14,24 @@ MANIFEST = SOURCE.parents[1] / "app.yaml"
 
 
 class FakeFrame:
-    def __init__(self, samples):
+    def __init__(self, samples, value=0):
         self.size = samples
+        self.value = value
 
     def __getitem__(self, selection):
         assert isinstance(selection, slice)
         assert selection.start is None
         assert selection.step is None
-        return FakeFrame(min(self.size, selection.stop))
+        return FakeFrame(min(self.size, selection.stop), self.value)
 
     def tobytes(self):
-        return b"\x00\x00" * self.size
+        return int(self.value).to_bytes(2, "little", signed=True) * self.size
 
 
 def exercise(monkeypatch, capsys, result="Vad heter du?", *,
              start_fails=False, capture_fails=False,
              asr_fails=False, cancel_fails=False,
-             bad_format=False, release_fails=False):
+             bad_format=False, release_fails=False, sample_value=0):
     counters = {
         "mic_created": 0, "mic_started": 0, "mic_stopped": 0,
         "mic_captures": 0, "asr_created": 0, "asr_started": 0,
@@ -64,7 +65,7 @@ def exercise(monkeypatch, capsys, result="Vad heter du?", *,
                 raise RuntimeError("RAW_PCM_ERROR")
             # Return 8 seconds of synthetic zero-valued PCM in one buffer,
             # so the fake test completes immediately without waiting 8s.
-            return FakeFrame(128001)
+            return FakeFrame(128001, sample_value)
 
         def stop(self):
             counters["mic_stopped"] += 1
@@ -163,6 +164,7 @@ def test_exact_swedish_one_capture_then_offline_asr(monkeypatch, capsys):
     ]
     assert out.strip().splitlines() == [
         "MYAI_APP_LAB_WAV_V2: capture-started",
+        "MYAI_APP_LAB_WAV_V2: signal-level peak-pct=0.0 rms-pct=0.0 saturated-samples=0",
         "MYAI_APP_LAB_WAV_V2: reference-recognized",
     ]
     assert c["wav_bytes"][:4] == b"RIFF"
@@ -213,3 +215,37 @@ def test_cancel_failure_is_not_reported_as_success(monkeypatch, capsys):
     assert c["mic_stopped"] == 1
     assert c["asr_cancelled"] == 1
     assert out.strip().splitlines()[-1] == "MYAI_APP_LAB_WAV_V2: wav-asr-cancel-failed"
+
+
+@pytest.mark.parametrize("value,peak,rms,saturated", [
+    (20000, "61.0", "61.0", 0),
+    (32767, "100.0", "100.0", 128000),
+    (-32768, "100.0", "100.0", 128000),
+])
+def test_signal_summary_uses_aggregate_levels_only(
+    monkeypatch, capsys, value, peak, rms, saturated
+):
+    counters, out = exercise(
+        monkeypatch, capsys, sample_value=value, result="SECRET TEST TEXT"
+    )
+    assert counters["mic_started"] == counters["mic_stopped"] == 1
+    assert counters["asr_transcribed"] == 1
+    assert (
+        f"MYAI_APP_LAB_WAV_V2: signal-level peak-pct={peak}"
+        f" rms-pct={rms} saturated-samples={saturated}"
+    ) in out
+    assert "SECRET TEST TEXT" not in out
+    assert "MYAI_APP_LAB_WAV_V2: other-nonempty-final" in out
+
+
+def test_audio_metrics_are_computed_after_mic_release(monkeypatch, capsys):
+    counters, out = exercise(monkeypatch, capsys, sample_value=123)
+    assert counters["order"][1] == "mic-close"
+    assert "signal-level" in out
+
+
+def test_no_signal_metrics_emitted_on_capture_failure(monkeypatch, capsys):
+    counters, out = exercise(monkeypatch, capsys, capture_fails=True)
+    assert counters["asr_created"] == 0
+    assert "signal-level" not in out
+

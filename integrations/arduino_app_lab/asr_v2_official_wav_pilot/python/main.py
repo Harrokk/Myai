@@ -12,7 +12,10 @@ The application never prints, writes or exports recognized words or PCM.
 
 from __future__ import annotations
 
+import array
 import io
+import math
+import sys
 import time
 import unicodedata
 import wave
@@ -89,6 +92,43 @@ def _collect_ram_wav() -> bytes | None:
     return output.getvalue()
 
 
+def _safe_signal_summary(wav_bytes: bytes) -> str:
+    """Report only aggregate levels; never log or retain PCM beyond this call.
+
+    Read the in-RAM WAV with standard library, enforcing the exact expected
+    format. No thresholds are used to infer that any speech was recognizable.
+    """
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wav:
+        if (wav.getnchannels() != CHANNELS
+                or wav.getsampwidth() != SAMPLE_WIDTH
+                or wav.getframerate() != SAMPLE_RATE
+                or wav.getnframes() > MAX_SAMPLES):
+            raise ValueError("unexpected WAV format")
+        pcm_bytes = wav.readframes(MAX_SAMPLES)
+    pcm = array.array("h")
+    pcm.frombytes(pcm_bytes)
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    if not pcm:
+        raise ValueError("WAV has no PCM samples")
+    peak = 0
+    squared_sum = 0
+    saturated = 0
+    for sample in pcm:
+        absolute = abs(sample)
+        if absolute > peak:
+            peak = absolute
+        squared_sum += sample * sample
+        if absolute >= 32760:
+            saturated += 1
+    rms = math.sqrt(squared_sum / len(pcm))
+    return (
+        f"signal-level peak-pct={peak * 100 / 32768:.1f}"
+        f" rms-pct={rms * 100 / 32768:.1f}"
+        f" saturated-samples={saturated}"
+    )
+
+
 def run_one() -> None:
     """One capture, then one offline WAV-ASR call; no repeated recordings."""
     global _used
@@ -124,6 +164,12 @@ def run_one() -> None:
                     mic_opened = False
                 except Exception:
                     status = "microphone-release-failed"
+
+        if status == "capture-complete" and wav_bytes is not None:
+            try:
+                print(_PREFIX + _safe_signal_summary(wav_bytes), flush=True)
+            except Exception:
+                status = "signal-summary-failed"
 
         if status == "capture-complete" and wav_bytes is not None:
             try:
