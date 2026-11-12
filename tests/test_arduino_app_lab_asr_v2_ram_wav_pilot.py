@@ -24,7 +24,7 @@ class FakeFrame:
         return FakeFrame(min(self.size, selection.stop))
 
     def tobytes(self):
-        return b"\\x00\\x00" * self.size
+        return b"\x00\x00" * self.size
 
 
 def exercise(monkeypatch, capsys, result="Vad heter du?", *,
@@ -173,7 +173,7 @@ def test_exact_swedish_one_capture_then_offline_asr(monkeypatch, capsys):
     ("", "empty-final-only"),
     ("  ", "empty-final-only"),
     ("GODDAG STOCKHOLM", "other-nonempty-final"),
-    ("SECRET\\x00", "invalid-final-control"),
+    ("SECRET\x00", "invalid-final-control"),
     ("x" * 241, "invalid-final-too-long"),
     (None, "invalid-final-type"),
 ])
