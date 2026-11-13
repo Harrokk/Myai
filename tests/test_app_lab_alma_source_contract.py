@@ -92,7 +92,8 @@ def test_signature_changes_if_text_tampered():
 
 
 def make_zip(tmp_path, *, files=None):
-    files = files or {"python/main.py": b"fake text", "app.yaml": b"a: b"}
+    files = files or {"python/main.py": b"fake text",
+                      "bricks/piper_sv_tts/container/models/sv_SE-alma-medium.onnx": b"fake weights"}
     archive_path = tmp_path / "fixture.zip"
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for filename, contents in files.items():
