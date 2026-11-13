@@ -23,6 +23,11 @@ NOW = 1800000000
 
 
 class FakeCore:
+    settings = {"memory": {
+        "auto_assess_enabled": False, "auto_save_enabled": False,
+        "review_queue_enabled": False, "lifecycle_enabled": False,
+    }}
+
     def __init__(self):
         self.calls = []
 
@@ -243,7 +248,7 @@ def test_one_handoff_and_replay_guard_rejects_duplicate_authenticated_message():
 def test_stop_after_model_suppresses_private_answer():
     core = FakeCore()
     stop = [False]
-    class StopCore:
+    class StopCore(FakeCore):
         def respond_voice(self, text, *, plan_verifier):
             stop[0] = True
             return {"answer": "PRIVATE ANSWER"}
@@ -258,3 +263,39 @@ def test_no_socket_listening_audio_or_creds_in_source():
     for forbidden in (".bind(", ".listen(", "socket.socket(", "aplay",
                       "arecord", "Microphone(", "KokoroTTS(", "PiperVoice("):
         assert forbidden not in src
+
+
+@pytest.mark.parametrize("memory", [
+    {},
+    {"auto_assess_enabled": False, "auto_save_enabled": True,
+     "review_queue_enabled": False, "lifecycle_enabled": False},
+    {"auto_assess_enabled": False, "auto_save_enabled": False,
+     "review_queue_enabled": True, "lifecycle_enabled": False},
+    {"auto_assess_enabled": True, "auto_save_enabled": False,
+     "review_queue_enabled": False, "lifecycle_enabled": False},
+    {"auto_assess_enabled": False, "auto_save_enabled": False,
+     "review_queue_enabled": False, "lifecycle_enabled": True},
+])
+def test_mutable_memory_policy_blocks_before_socket_read(memory):
+    core = FakeCore()
+    core.settings = {"memory": memory}
+    peer = FakeUnixPeer(message())
+    assert bridge(core, peer=peer) == {"status": "memory-policy-unsafe"}
+    assert peer.data and core.calls == []
+
+
+def test_missing_policy_fails_closed():
+    core = FakeCore()
+    core.settings = {}
+    assert bridge(core) == {"status": "memory-policy-unsafe"}
+    assert core.calls == []
+
+
+def test_memory_policy_flip_after_authentication_blocks_dispatch():
+    core = FakeCore()
+    core.settings = {"memory": dict(FakeCore.settings["memory"])}
+    def flip():
+        core.settings["memory"]["auto_assess_enabled"] = True
+        return NOW
+    assert bridge(core, clock=flip) == {"status": "memory-policy-unsafe"}
+    assert core.calls == []

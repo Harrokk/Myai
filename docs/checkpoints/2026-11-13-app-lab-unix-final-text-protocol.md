@@ -26,3 +26,17 @@ Date: 2026-11-13. Status: DRAFT. **No running socket server, client, model conne
 tests/test_app_lab_unix_final_text.py verifies valid HMAC, wrong keys/sessions, expiration, strict JSON, tampering, malformed Unicode/control chars, duplicate fields, AF_UNIX/uid/timeout gates, truncation, replay concurrency, disabled default, trusted lifecycle checks, stop suppression and proof that no listening socket is created. Uses fake Unix peers; never opens physical audio.
 
 Run on disposable hosted ARM64 via the existing dev/** workflow. No self-hosted VENTUNO workflow or live service is invoked.
+
+## Additional default safety gate
+
+The initial ingress refuses calls unless the supplied trusted MyAICore
+configuration explicitly sets memory.auto_assess_enabled,
+memory.auto_save_enabled, memory.review_queue_enabled and
+memory.lifecycle_enabled to false. Missing/unknown settings fail closed,
+including a configuration flip during authentication. This prevents the
+source-only prototype from advertising read-only voice tool gating while
+silently allowing MyAICore's automatic SQLite memory persistence.
+Audit/health status writes may still occur inside MyAICore. This does
+not yet provide access to MyAI's long-term memory writes: a separate
+consented write-specific policy is required. The production VENTUNO
+voice profile remains unchanged and disabled.

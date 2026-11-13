@@ -170,6 +170,21 @@ class OneSessionReplayGuard:
             return True
 
 
+
+def _automatic_memory_writes_disabled(handoff):
+    """Reject mutable memory policies until a separate consented write design."""
+    assistant = getattr(handoff, "_assistant", None)
+    settings = getattr(assistant, "settings", None)
+    if type(settings) is not dict:
+        return False
+    memory = settings.get("memory")
+    if type(memory) is not dict:
+        return False
+    return all(memory.get(key) is False for key in (
+        "auto_assess_enabled", "auto_save_enabled",
+        "review_queue_enabled", "lifecycle_enabled",
+    ))
+
 def read_connected_frame(connection, *, expected_uid):
     """Read from an already connected, kernel-authenticated AF_UNIX peer.
 
@@ -226,6 +241,11 @@ def run_authenticated_final_turn(
                        (session_active, asr_released, stop_requested))):
         return {"status": "bridge-not-configured"}
 
+    # Even non-effectful voice tool plans may trigger MyAICore memory writes.
+    # Do not enable this initial transport with automatic persistence active.
+    if not _automatic_memory_writes_disabled(handoff):
+        return {"status": "memory-policy-unsafe"}
+
     try:
         if (session_active() is not True
                 or asr_released() is not True
@@ -253,6 +273,10 @@ def run_authenticated_final_turn(
             return {"status": "session-not-ready"}
     except BaseException:
         return {"status": "session-not-ready"}
+
+    # Refuse settings changed by another component during authentication.
+    if not _automatic_memory_writes_disabled(handoff):
+        return {"status": "memory-policy-unsafe"}
 
     return handoff.dispatch(
         message["text"], session_active=True, asr_released=True,
