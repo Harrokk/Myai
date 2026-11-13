@@ -51,6 +51,8 @@ def test_well_formed_round_trip():
     {'tool_execution_status':'unknown'},
     {'tool_execution_status':'partially_completed'},
     {'tool_execution_status':'failed'},
+    {'tool_execution_status':[]},
+    {'tool_execution_status':{}},
     {'tool_dispatch_blocked':True},
     {'answer':''},
     {'answer':123},
@@ -139,3 +141,9 @@ def test_refused_nonboolean_or_malformed_id():
     with pytest.raises(ValueError):make_signed_reply(result=result(),secret=K,
         session_id=SID,request_id='ZZ',issued_at=NOW)
     with pytest.raises(ValueError):OneSessionReplyGuard(session_id='bad')
+
+
+def test_malformed_surrogate_is_rejected_as_value_error():
+    data=json.loads(packet())
+    data["answer"]="\ud800"
+    with pytest.raises(ValueError):check(json.dumps(data).encode())

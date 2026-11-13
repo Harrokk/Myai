@@ -88,7 +88,7 @@ def make_signed_reply(*, result, secret, session_id, request_id, issued_at):
     safe = (type(result) is dict
             and result.get("status") == "answer-ready"
             and result.get("manual_reconciliation_required") is False
-            and result.get("tool_execution_status") in {"not_applicable", "completed"}
+            and result.get("tool_execution_status") in ("not_applicable", "completed")
             and result.get("tool_dispatch_blocked") is not True
             and _valid_text(result.get("answer")))
     status = "ready" if safe else "withheld"
@@ -160,8 +160,11 @@ def verify_signed_reply(data, *, secret, active_session, expected_request,
         raise ValueError("Malformed private reply") from exc
     if type(record) is not dict or set(record) != _REQUIRED:
         raise ValueError("Unexpected response fields")
-    if data != _canonical(record):
-        raise ValueError("Noncanonical reply encoding")
+    try:
+        if data != _canonical(record):
+            raise ValueError("Noncanonical reply encoding")
+    except (UnicodeError, TypeError) as exc:
+        raise ValueError("Invalid reply encoding") from exc
     mac = record.pop("mac")
     if type(mac) is not str or _MAC.fullmatch(mac) is None:
         raise ValueError("Bad reply authenticator")
