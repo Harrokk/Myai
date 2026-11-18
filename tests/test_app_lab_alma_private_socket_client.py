@@ -219,12 +219,21 @@ def test_timeout_without_reply_is_bounded():
         server.close()
 
 
-@pytest.mark.parametrize("timeout", [0,None,4,True])
+@pytest.mark.parametrize("timeout", [0,None,4])
 def test_invalid_socket_timeout_refused(timeout):
     client,server=_pair()
     try:
         client.settimeout(timeout)
         assert _invoke(client)=={"status":"private-exchange-rejected"}
+    finally:
+        client.close()
+        server.close()
+
+
+def test_boolean_wait_budget_rejected():
+    client,server=_pair()
+    try:
+        assert _invoke(client,max_wait_seconds=True)=={"status":"client-not-configured"}
     finally:
         client.close()
         server.close()
