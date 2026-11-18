@@ -86,7 +86,9 @@ class AppLabFinalTextHandoff:
         review = response.get("manual_reconciliation_required") is True
         blocked = response.get("tool_dispatch_blocked") is True
         state = response.get("tool_execution_status")
-        if state not in {
+        # A malformed backend status (list/dict/etc.) must not crash the
+        # authenticated server after consuming the request ID. Fail closed.
+        if type(state) is not str or state not in {
             "not_applicable", "completed", "failed", "partially_completed",
             "unknown", "blocked", "not_run",
         }:
