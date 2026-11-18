@@ -16,6 +16,12 @@ from pathlib import Path
 
 
 _ALMA_SHA256 = "f75455eb6afeb1db9e2905d5bd7e4115afcd3710e0d399b6a40981766d32fedc"
+# Exact operator-proven App Lab Alma ONNX + sidecar, pinned together.
+# See integrations/arduino_app_lab/alma_reference/source_contract.py.
+_OPERATOR_ALMA_SHA256 = "b4bfecd22e30cf28f514eeea06c0da440be1721435a652d0571ee65963ce8f65"
+_OPERATOR_ALMA_SIDECAR_SHA256 = "f7467e5d2ada0239004fca552f42b25ac90a92b848e5c283aec13a1f26a85f84"
+_OPERATOR_ALMA_SIZE = 63434611
+_OPERATOR_ALMA_SIDECAR_SIZE = 3907
 _ALMA_BASENAME = "sv_SE-alma-medium.onnx"
 
 
@@ -131,15 +137,33 @@ class PiperAlmaTTS:
         try:
             with path.open("rb") as handle:
                 sha = hashlib.file_digest(handle, "sha256").hexdigest()
-            if sha != _ALMA_SHA256:
-                raise ValueError
-            if not 4000 <= sidecar.stat().st_size <= 14000:
-                raise ValueError
-            config = json.loads(sidecar.read_text(encoding="utf-8"))
-            if (config.get("dataset") != "alma"
-                    or config.get("language", {}).get("code") != "sv_SE"
-                    or config.get("audio", {}).get("sample_rate") != 22050
-                    or config.get("espeak", {}).get("voice") != "sv"):
+            if sha == _ALMA_SHA256:
+                # Preserve the existing trusted legacy variant unchanged.
+                if not 4000 <= sidecar.stat().st_size <= 14000:
+                    raise ValueError
+                config = json.loads(sidecar.read_text(encoding="utf-8"))
+                if (config.get("dataset") != "alma"
+                        or config.get("language", {}).get("code") != "sv_SE"
+                        or config.get("audio", {}).get("sample_rate") != 22050
+                        or config.get("espeak", {}).get("voice") != "sv"):
+                    raise ValueError
+            elif sha == _OPERATOR_ALMA_SHA256:
+                # The real, operator-tested ZIP uses a compact sidecar with
+                # no dataset/language fields. Accept ONLY this exact pair.
+                if (path.stat().st_size != _OPERATOR_ALMA_SIZE
+                        or sidecar.stat().st_size != _OPERATOR_ALMA_SIDECAR_SIZE):
+                    raise ValueError
+                with sidecar.open("rb") as handle:
+                    sidecar_sha = hashlib.file_digest(handle, "sha256").hexdigest()
+                if sidecar_sha != _OPERATOR_ALMA_SIDECAR_SHA256:
+                    raise ValueError
+                config = json.loads(sidecar.read_text(encoding="utf-8"))
+                if (not isinstance(config, dict)
+                        or config.get("audio", {}).get("sample_rate") != 22050
+                        or config.get("espeak", {}).get("voice") != "sv"
+                        or config.get("num_speakers") != 1):
+                    raise ValueError
+            else:
                 raise ValueError
         except (OSError, ValueError, TypeError, AttributeError):
             raise RuntimeError("Piper Alma model integrity verification failed") from None
