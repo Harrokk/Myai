@@ -218,9 +218,13 @@ def rehearse_two_private_processes(*, enabled=False, mode="ready"):
                     or info.st_uid != uid):
                 return {"status": "private-socket-rejected"}
             listener.listen(1)
-            server_key_fd = _write_pipe_secret(bootstrap)
-            client_key_fd = _write_pipe_secret(client_bootstrap)
+            # Also clean the first child when the second launch fails.
+            # If either private bootstrap pipe fails, close the other FD.
+            server_key_fd = None
+            client_key_fd = None
             try:
+                server_key_fd = _write_pipe_secret(bootstrap)
+                client_key_fd = _write_pipe_secret(client_bootstrap)
                 repo_root = Path(__file__).resolve().parents[1]
                 server = _run_subprocess(
                     "server", server_key_fd, listener.fileno(), mode,
@@ -230,11 +234,16 @@ def rehearse_two_private_processes(*, enabled=False, mode="ready"):
                     "client", client_key_fd, endpoint, mode,
                     repo_root=repo_root,
                 )
-            except OSError:
+            except (OSError, ValueError):
+                for proc in (client, server):
+                    if proc is not None and proc.poll() is None:
+                        proc.kill()
+                        proc.communicate()
                 return {"status": "process-start-rejected"}
             finally:
-                os.close(server_key_fd)
-                os.close(client_key_fd)
+                for descriptor in (server_key_fd, client_key_fd):
+                    if descriptor is not None:
+                        os.close(descriptor)
 
             try:
                 client_report = _receive_process_report(client)
