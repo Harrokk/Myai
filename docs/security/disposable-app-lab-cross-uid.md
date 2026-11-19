@@ -11,7 +11,8 @@ into disposable private scratch and stages only the relevant public
 source modules. It starts a pinned Python 3.12 Docker container with:
 - networking off, root filesystem read-only, no-new-privileges;
 - all capabilities dropped except narrowly scoped CHOWN, FOWNER,
-  SETUID and SETGID, required for synthetic UID setup;
+  SETUID and SETGID for synthetic UID setup, plus KILL so the disposable
+  parent can terminate a failed child that changed Linux UID;
 - memory/PID/CPU limits and volatile tmpfs; no VENTUNO hardware or
   private credentials mounted.
 
