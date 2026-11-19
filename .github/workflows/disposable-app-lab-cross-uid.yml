@@ -1,0 +1,111 @@
+name: Disposable App Lab Alma cross-UID AF_UNIX isolation
+on:
+  push:
+    branches: [dev/app-lab-real-two-uid-hosted-dac-20261119]
+    paths:
+      - scripts/test_disposable_app_lab_cross_uid.py
+      - tests/test_disposable_app_lab_cross_uid_source.py
+      - .github/workflows/disposable-app-lab-cross-uid.yml
+      - docs/security/disposable-app-lab-cross-uid.md
+
+permissions:
+  contents: read
+
+jobs:
+  app-lab-cross-uid-hosted:
+    name: Test real Linux peer UIDs and POSIX DAC inside networkless Docker ONLY
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Require disposable GitHub-hosted runner
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = x86_64
+          test "$(id -u)" -ne 0
+          command -v docker
+
+      - name: Retrieve exact Git SHA into isolated host scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          scratch="$(mktemp -d "$RUNNER_TEMP/myai-alma-xuid-checkout-XXXXXXXX")"
+          echo "MYAI_XUID_CHECKOUT=$scratch" >> "$GITHUB_ENV"
+          git init -q "$scratch"
+          git -C "$scratch" remote add origin https://github.com/Harrokk/Myai.git
+          git -C "$scratch" fetch -q --depth=1 origin "$GITHUB_SHA"
+          git -C "$scratch" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$scratch" rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Stage minimal reviewed public source modules only
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d "$RUNNER_TEMP/myai-alma-xuid-stage-XXXXXXXX")"
+          echo "MYAI_XUID_STAGE=$stage" >> "$GITHUB_ENV"
+          mkdir -p "$stage/core" "$stage/scripts" \
+              "$stage/integrations/arduino_app_lab/alma_reference"
+          for f in \
+              core/__init__.py \
+              core/selfdev_unix_peercred.py \
+              core/app_lab_unix_final_text.py \
+              core/app_lab_voice_handoff.py \
+              core/app_lab_private_reply_server.py \
+              core/app_lab_private_socket_rehearsal.py \
+              integrations/arduino_app_lab/alma_reference/source_contract.py \
+              integrations/arduino_app_lab/alma_reference/private_reply.py \
+              integrations/arduino_app_lab/alma_reference/private_socket_client.py \
+              scripts/test_disposable_app_lab_cross_uid.py; do
+            install -m 0644 "$MYAI_XUID_CHECKOUT/$f" "$stage/$f"
+          done
+          chmod 0755 "$stage" "$stage/core" "$stage/scripts" \
+              "$stage/integrations" "$stage/integrations/arduino_app_lab" \
+              "$stage/integrations/arduino_app_lab/alma_reference"
+          test ! -e "$stage/.git"
+
+      - name: Run three-UID test with no production devices or network
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
+          docker pull "$image"
+          docker run --rm --network none --read-only \
+            --pids-limit 64 --memory 256m --cpus 1 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            --cap-add SETUID --cap-add SETGID --cap-add KILL \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m,mode=1777 \
+            --mount "type=bind,src=$MYAI_XUID_STAGE,dst=/opt/myai,readonly" \
+            -e MYAI_DISPOSABLE_ALMA_UID_TEST=yes \
+            -e MYAI_RUNNER_ENVIRONMENT=github-hosted \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -e PYTHONPATH=/opt/myai \
+            "$image" python -B /opt/myai/scripts/test_disposable_app_lab_cross_uid.py
+
+      - name: Remove private source checkout and staging
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MYAI_XUID_CHECKOUT:-}" in
+            "$RUNNER_TEMP"/myai-alma-xuid-checkout-*)
+              if [ -d "$MYAI_XUID_CHECKOUT" ] && [ ! -L "$MYAI_XUID_CHECKOUT" ]; then
+                rm -rf -- "$MYAI_XUID_CHECKOUT"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected checkout cleanup path" >&2; exit 2 ;;
+          esac
+          case "${MYAI_XUID_STAGE:-}" in
+            "$RUNNER_TEMP"/myai-alma-xuid-stage-*)
+              if [ -d "$MYAI_XUID_STAGE" ] && [ ! -L "$MYAI_XUID_STAGE" ]; then
+                rm -rf -- "$MYAI_XUID_STAGE"
+              fi
+              ;;
+            "") ;;
+            *) echo "Unexpected staging cleanup path" >&2; exit 2 ;;
+          esac
