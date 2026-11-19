@@ -76,7 +76,7 @@ jobs:
           docker run --rm --network none --read-only \
             --pids-limit 64 --memory 256m --cpus 1 \
             --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
-            --cap-add SETUID --cap-add SETGID \
+            --cap-add SETUID --cap-add SETGID --cap-add KILL \
             --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=32m,mode=1777 \
             --mount "type=bind,src=$MYAI_XUID_STAGE,dst=/opt/myai,readonly" \
